@@ -6,6 +6,8 @@
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
 #include "InputCoreTypes.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 
 ARokStrategyCameraPawn::ARokStrategyCameraPawn()
 {
@@ -28,7 +30,9 @@ void ARokStrategyCameraPawn::BeginPlay()
 	SetActorLocation(DefaultCameraLocation);
 	SetActorRotation(DefaultCameraRotation);
 	CameraComponent->SetProjectionMode(ECameraProjectionMode::Orthographic);
-	CameraComponent->SetOrthoWidth(DefaultOrthoWidth);
+	float RuntimeOrthoWidth = DefaultOrthoWidth;
+	FParse::Value(FCommandLine::Get(), TEXT("RokOrthoWidth="), RuntimeOrthoWidth);
+	CameraComponent->SetOrthoWidth(FMath::Clamp(RuntimeOrthoWidth, MinOrthoWidth, MaxOrthoWidth));
 }
 
 void ARokStrategyCameraPawn::Tick(float DeltaSeconds)
@@ -63,6 +67,11 @@ void ARokStrategyCameraPawn::UpdateKeyboardPan(float DeltaSeconds)
 
 void ARokStrategyCameraPawn::UpdateEdgePan(float DeltaSeconds)
 {
+	if (!bEnableEdgeScroll)
+	{
+		return;
+	}
+
 	const APlayerController* PlayerController = Cast<APlayerController>(GetController());
 	if (!PlayerController)
 	{

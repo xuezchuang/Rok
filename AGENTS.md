@@ -50,3 +50,18 @@ The extracted reference material lives under `ref/`. Treat it as reference input
 - Do not use cone/cylinder placeholder trees in the active terrain/resource tree layers. `WorldTree_*`, `*_Canopy`, and tree-layer `/Engine/BasicShapes/Cone` placeholders are blocked; use `OriginalWorldTreePatch_*` and `OriginalWoodGrove_*` reference mesh patches instead.
 - Import PNG sprite assets with `TextureFactory` in `Scripts/CreateRokPrototypeScene.py`; UE 5.2 Interchange PNG import can assert inside the MCP callback path.
 - Do not place imported Unity FBX assets directly into the active prototype map until their pivots, bounds, materials, and scale are validated. When using large reference meshes, place them through bounds-origin/bottom compensation so their visible geometry lands at the intended world position; unstable FBX placement can create floating fragments and non-RoK scene clutter.
+
+## City Base Visual Restoration Gate
+
+- Current priority for `/Game/Maps/L_RokCityRuntime` and related diagnostic maps is the RoK city-base visual match, not more camera tweaking, UI work, unit movement, or interaction expansion.
+- The 2.5D runtime route is validated enough to continue: orthographic `RokStrategyCameraPawn`, `ARokCitySpriteActor`, and billboard-style city sprites can render in-game without the old tilted-paper failure. Mouse edge scrolling should remain disabled by default while visual validation is in progress.
+- Do not keep trying to solve the remaining city-base mismatch by only changing camera zoom, actor spacing, translucent alpha, or simple green-screen/flood-fill cutouts. Those attempts produced PNG-card / rectangular-tile artifacts and do not reach the target look.
+- Before the next serious visual iteration, inspect the Unity reference rendering path and identify the real material/shader/layer rules for city sprites:
+  - how `ref/resources/Sprite/*_mask.png` channels are used;
+  - whether building sprites are intentionally combined with base tiles, shadows, grass edges, or decals;
+  - whether separate floor, road, ground, shadow, decal, and building-body layers exist under `ref/client-unity` or `ref/resources`;
+  - how Unity blends sprite ground edges into the city terrain.
+- The next implementation target is to reproduce that resource-layer pipeline in UE: ground/floor/road/shadow/building layers must be generated from the correct source assets and shader semantics. A scene should not be considered visually improved just because it has more sprite actors if the result still reads as rectangular PNG cards.
+- Keep the latest useful diagnostic baseline screenshots in mind:
+  - `Saved/RokCityLocalBlockCiv6_RuntimeOrtho2250.png`: closest current UE runtime baseline for composition and camera.
+  - `Saved/RokCityLocalCompositeCiv6.png`: offline composite showing that actor sorting alone is not the only issue; resource layering itself must be solved.

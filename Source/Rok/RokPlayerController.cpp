@@ -4,6 +4,8 @@
 #include "Components/StaticMeshComponent.h"
 #include "Engine/World.h"
 #include "InputCoreTypes.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 #include "RokMainHudWidget.h"
 
 ARokPlayerController::ARokPlayerController()
@@ -18,6 +20,11 @@ void ARokPlayerController::BeginPlay()
 
 	bShowMouseCursor = true;
 	SetInputMode(FInputModeGameAndUI().SetHideCursorDuringCapture(false));
+
+	if (FParse::Param(FCommandLine::Get(), TEXT("RokNoHud")))
+	{
+		return;
+	}
 
 	if (!MainHudWidget)
 	{

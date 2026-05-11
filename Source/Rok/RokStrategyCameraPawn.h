@@ -29,16 +29,16 @@ private:
 	TObjectPtr<UCameraComponent> CameraComponent;
 
 	UPROPERTY(EditDefaultsOnly, Category="Rok Camera")
-	FVector DefaultCameraLocation = FVector(0.0f, 0.0f, 3200.0f);
+	FVector DefaultCameraLocation = FVector(-2200.0f, -2200.0f, 4450.0f);
 
 	UPROPERTY(EditDefaultsOnly, Category="Rok Camera")
-	FRotator DefaultCameraRotation = FRotator(-90.0f, 0.0f, 0.0f);
+	FRotator DefaultCameraRotation = FRotator(-55.0f, 45.0f, 0.0f);
 
 	UPROPERTY(EditDefaultsOnly, Category="Rok Camera")
-	float DefaultOrthoWidth = 2800.0f;
+	float DefaultOrthoWidth = 2950.0f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Rok Camera")
-	float MinOrthoWidth = 1200.0f;
+	float MinOrthoWidth = 1800.0f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Rok Camera")
 	float MaxOrthoWidth = 5200.0f;
@@ -54,6 +54,9 @@ private:
 
 	UPROPERTY(EditDefaultsOnly, Category="Rok Camera")
 	float EdgeScrollMargin = 28.0f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Rok Camera")
+	bool bEnableEdgeScroll = false;
 
 	UPROPERTY(EditDefaultsOnly, Category="Rok Camera")
 	bool bContinueEdgeScrollOutsideViewport = true;
