@@ -3,10 +3,13 @@
 #include "Components/InputComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/World.h"
+#include "HAL/FileManager.h"
 #include "InputCoreTypes.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
+#include "Misc/Paths.h"
 #include "RokMainHudWidget.h"
+#include "TimerManager.h"
 
 ARokPlayerController::ARokPlayerController()
 {
@@ -20,6 +23,7 @@ void ARokPlayerController::BeginPlay()
 
 	bShowMouseCursor = true;
 	SetInputMode(FInputModeGameAndUI().SetHideCursorDuringCapture(false));
+	ScheduleAutoScreenshot();
 
 	if (FParse::Param(FCommandLine::Get(), TEXT("RokNoHud")))
 	{
@@ -39,6 +43,45 @@ void ARokPlayerController::BeginPlay()
 			UE_LOG(LogTemp, Warning, TEXT("Rok UI: Failed to create Main HUD widget."));
 		}
 	}
+}
+
+void ARokPlayerController::ScheduleAutoScreenshot()
+{
+	if (!FParse::Param(FCommandLine::Get(), TEXT("RokAutoScreenshot")))
+	{
+		return;
+	}
+
+	float DelaySeconds = 5.0f;
+	FParse::Value(FCommandLine::Get(), TEXT("RokScreenshotDelay="), DelaySeconds);
+	DelaySeconds = FMath::Clamp(DelaySeconds, 1.0f, 30.0f);
+	GetWorldTimerManager().SetTimer(AutoScreenshotTimerHandle, this, &ARokPlayerController::TakeAutoScreenshot, DelaySeconds, false);
+	UE_LOG(LogTemp, Log, TEXT("Rok screenshot: scheduled auto capture in %.2f seconds."), DelaySeconds);
+}
+
+void ARokPlayerController::TakeAutoScreenshot()
+{
+	FString ScreenshotPath;
+	if (!FParse::Value(FCommandLine::Get(), TEXT("RokScreenshotPath="), ScreenshotPath) || ScreenshotPath.IsEmpty())
+	{
+		ScreenshotPath = FPaths::ProjectSavedDir() / TEXT("RokCityRuntime_AutoScreenshot.png");
+	}
+
+	IFileManager::Get().MakeDirectory(*FPaths::GetPath(ScreenshotPath), true);
+	FString NormalizedScreenshotPath = ScreenshotPath;
+	FPaths::NormalizeFilename(NormalizedScreenshotPath);
+	ConsoleCommand(FString::Printf(TEXT("HighResShot 1600x950 filename=%s"), *NormalizedScreenshotPath));
+	UE_LOG(LogTemp, Log, TEXT("Rok screenshot: requested HighResShot %s"), *NormalizedScreenshotPath);
+
+	if (FParse::Param(FCommandLine::Get(), TEXT("RokScreenshotQuit")))
+	{
+		GetWorldTimerManager().SetTimer(AutoScreenshotQuitTimerHandle, this, &ARokPlayerController::QuitAfterAutoScreenshot, 5.0f, false);
+	}
+}
+
+void ARokPlayerController::QuitAfterAutoScreenshot()
+{
+	ConsoleCommand(TEXT("quit"));
 }
 
 void ARokPlayerController::SetupInputComponent()

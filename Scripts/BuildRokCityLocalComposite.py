@@ -5,6 +5,7 @@ from PIL import Image, ImageDraw, ImageFilter
 
 PROJECT_ROOT = Path(r"D:\ue\Rok")
 SPRITE_ROOT = PROJECT_ROOT / "ref" / "resources" / "Sprite"
+CUTOUT_ROOT = PROJECT_ROOT / "Saved" / "RokDerivedSprites" / "StructureCutouts"
 OUTPUT_PATH = PROJECT_ROOT / "Saved" / "RokCityLocalCompositeCiv6.png"
 
 CANVAS_SIZE = (1600, 950)
@@ -49,7 +50,10 @@ TILES = [
 
 
 def load_scaled(name, scale):
-    image = Image.open(SPRITE_ROOT / f"{name}.png").convert("RGBA")
+    source_path = CUTOUT_ROOT / f"{name}.png"
+    if not source_path.exists():
+        source_path = SPRITE_ROOT / f"{name}.png"
+    image = Image.open(source_path).convert("RGBA")
     width = max(1, int(image.width * VISUAL_SCALE * scale))
     height = max(1, int(image.height * VISUAL_SCALE * scale))
     return image.resize((width, height), Image.Resampling.LANCZOS)

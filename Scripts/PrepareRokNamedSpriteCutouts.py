@@ -12,6 +12,8 @@ if CUTOUT_MODE == "edge":
     DEFAULT_OUTPUT_NAME = "EdgeCutouts"
 elif CUTOUT_MODE == "softkey":
     DEFAULT_OUTPUT_NAME = "SoftKeyCutouts"
+elif CUTOUT_MODE == "structure":
+    DEFAULT_OUTPUT_NAME = "StructureCutouts"
 else:
     DEFAULT_OUTPUT_NAME = "MaskMaxCutouts"
 OUTPUT_ROOT = Path(os.environ.get("ROK_NAMED_CUTOUT_OUTPUT", PROJECT_ROOT / "Saved" / "RokDerivedSprites" / DEFAULT_OUTPUT_NAME))
@@ -134,6 +136,40 @@ def make_soft_key_cutout(source_path, output_path):
     return output_path
 
 
+def is_city_terrain_color(rgb):
+    r, g, b = rgb
+    if g < 44:
+        return False
+    if g > r * 1.08 and g > b * 1.10:
+        return True
+    if g > r + 18 and g > b + 14 and b < 125:
+        return True
+    return False
+
+
+def make_structure_cutout(source_path, mask_path, output_path):
+    image = Image.open(source_path).convert("RGBA")
+    mask = Image.open(mask_path).convert("RGBA").resize(image.size)
+    width, height = image.size
+    pixels = image.load()
+    mask_pixels = mask.load()
+
+    for y in range(height):
+        for x in range(width):
+            r, g, b, a = pixels[x, y]
+            mr, mg, mb, ma = mask_pixels[x, y]
+            mask_coverage = max(mr, mg, mb)
+            keeps_structure_channel = mb > 12 or mg > 24
+            keeps_non_terrain_region = mr > 28 and not is_city_terrain_color((r, g, b))
+            keeps_dark_contact_shadow = mr > 92 and g < 92 and b < 92
+            alpha = 255 if mask_coverage > 18 and (keeps_structure_channel or keeps_non_terrain_region or keeps_dark_contact_shadow) else 0
+            pixels[x, y] = (r, g, b, min(a, alpha))
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    image.save(output_path)
+    return output_path
+
+
 def main():
     for base in SPRITE_BASES:
         name = f"{base}_{NAMED_CIVILIZATION}_5.png"
@@ -147,6 +183,8 @@ def main():
             make_green_edge_cutout(source_path, output_path)
         elif CUTOUT_MODE == "softkey":
             make_soft_key_cutout(source_path, output_path)
+        elif CUTOUT_MODE == "structure" and mask_path.exists():
+            make_structure_cutout(source_path, mask_path, output_path)
         elif mask_path.exists():
             make_mask_max_cutout(source_path, mask_path, output_path)
         else:

@@ -27,7 +27,12 @@ private:
 
 	FVector SelectedBuildingOriginalScale = FVector::OneVector;
 	bool bHasSelectedBuildingOriginalScale = false;
+	FTimerHandle AutoScreenshotTimerHandle;
+	FTimerHandle AutoScreenshotQuitTimerHandle;
 
+	void ScheduleAutoScreenshot();
+	void TakeAutoScreenshot();
+	void QuitAfterAutoScreenshot();
 	void HandlePrimaryClick();
 	void SelectBuilding(AActor* Actor);
 	void ClearSelection();

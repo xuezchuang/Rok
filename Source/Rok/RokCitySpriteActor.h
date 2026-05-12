@@ -6,6 +6,8 @@
 
 class UMaterialInterface;
 class UMaterialBillboardComponent;
+class USceneComponent;
+class UStaticMeshComponent;
 
 UCLASS()
 class ROK_API ARokCitySpriteActor : public AActor
@@ -25,6 +27,12 @@ public:
 	void SetSelectionCollisionEnabled(bool bEnabled);
 
 protected:
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Rok|City")
+	TObjectPtr<USceneComponent> SceneRoot;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Rok|City")
+	TObjectPtr<UStaticMeshComponent> SpriteMeshComponent;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Rok|City")
 	TObjectPtr<UMaterialBillboardComponent> SpriteComponent;
 

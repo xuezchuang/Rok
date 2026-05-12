@@ -35,10 +35,10 @@ private:
 	FRotator DefaultCameraRotation = FRotator(-55.0f, 45.0f, 0.0f);
 
 	UPROPERTY(EditDefaultsOnly, Category="Rok Camera")
-	float DefaultOrthoWidth = 2950.0f;
+	float DefaultOrthoWidth = 1800.0f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Rok Camera")
-	float MinOrthoWidth = 1800.0f;
+	float MinOrthoWidth = 1500.0f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Rok Camera")
 	float MaxOrthoWidth = 5200.0f;
