@@ -8,6 +8,7 @@ public class RokEditorTarget : TargetRules
 		Type = TargetType.Editor;
 		DefaultBuildSettings = BuildSettingsVersion.V2;
 		IncludeOrderVersion = EngineIncludeOrderVersion.Unreal5_2;
+		bOverrideBuildEnvironment = true;
 		ExtraModuleNames.Add("Rok");
 	}
 }

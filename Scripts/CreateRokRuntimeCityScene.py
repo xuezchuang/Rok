@@ -368,6 +368,8 @@ def import_runtime_texture_as(source_path, asset_name, is_mask=False):
                 "compression_settings",
                 unreal.TextureCompressionSettings.TC_MASKS if is_mask else unreal.TextureCompressionSettings.TC_EDITOR_ICON,
             )
+            texture.set_editor_property("address_x", unreal.TextureAddress.TA_CLAMP)
+            texture.set_editor_property("address_y", unreal.TextureAddress.TA_CLAMP)
         except Exception:
             pass
         unreal.EditorAssetLibrary.save_loaded_asset(texture)
@@ -786,7 +788,15 @@ def create_building_material(texture, model_id, mask_path):
     return proto.create_sprite_material(texture)
 
 
-def create_runtime_city_sprite_material(color_texture, model_id, mask_path, disable_depth_test=False, translucent_alpha=False):
+def create_runtime_city_sprite_material(
+    color_texture,
+    model_id,
+    mask_path,
+    disable_depth_test=False,
+    translucent_alpha=False,
+    mask_channel="R",
+    opacity_clip=0.5,
+):
     suffix = "_Billboard" if disable_depth_test else ("_SoftAlpha" if translucent_alpha else "")
     material_name = "M_RuntimeCitySprite_{0}{1}".format(proto.safe_asset_name(model_id), suffix)
     material_path = proto.asset_package_path(RUNTIME_MATERIAL_DESTINATION, material_name)
@@ -814,7 +824,7 @@ def create_runtime_city_sprite_material(color_texture, model_id, mask_path, disa
         except Exception:
             pass
     elif not translucent_alpha:
-        material.set_editor_property("opacity_mask_clip_value", 0.08)
+        material.set_editor_property("opacity_mask_clip_value", opacity_clip)
     try:
         material.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
     except Exception:
@@ -832,13 +842,14 @@ def create_runtime_city_sprite_material(color_texture, model_id, mask_path, disa
     else:
         mask_texture = None
     if mask_texture:
+        channel_name = mask_channel if mask_channel in ("R", "G", "B", "A") else "R"
         mask_node = unreal.MaterialEditingLibrary.create_material_expression(
             material, unreal.MaterialExpressionTextureSample, -560, 180
         )
         mask_node.set_editor_property("texture", mask_texture)
         unreal.MaterialEditingLibrary.connect_material_property(
             mask_node,
-            "R",
+            channel_name,
             unreal.MaterialProperty.MP_OPACITY if (disable_depth_test or translucent_alpha) else unreal.MaterialProperty.MP_OPACITY_MASK,
         )
     else:

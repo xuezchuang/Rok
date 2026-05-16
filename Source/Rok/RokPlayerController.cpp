@@ -8,6 +8,7 @@
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 #include "Misc/Paths.h"
+#include "RokBuildingActor.h"
 #include "RokMainHudWidget.h"
 #include "TimerManager.h"
 
@@ -157,14 +158,29 @@ void ARokPlayerController::ApplySelectionHighlight(AActor* Actor, bool bHighligh
 
 	if (bHighlighted)
 	{
+		if (ARokBuildingActor* RokBuildingActor = Cast<ARokBuildingActor>(Actor))
+		{
+			RokBuildingActor->SetSelected(true);
+			return;
+		}
+
 		SelectedBuildingOriginalScale = Actor->GetActorScale3D();
 		bHasSelectedBuildingOriginalScale = true;
 		Actor->SetActorScale3D(SelectedBuildingOriginalScale * 1.035f);
 	}
-	else if (bHasSelectedBuildingOriginalScale)
+	else
 	{
-		Actor->SetActorScale3D(SelectedBuildingOriginalScale);
-		bHasSelectedBuildingOriginalScale = false;
+		if (ARokBuildingActor* RokBuildingActor = Cast<ARokBuildingActor>(Actor))
+		{
+			RokBuildingActor->SetSelected(false);
+			return;
+		}
+
+		if (bHasSelectedBuildingOriginalScale)
+		{
+			Actor->SetActorScale3D(SelectedBuildingOriginalScale);
+			bHasSelectedBuildingOriginalScale = false;
+		}
 	}
 
 	TInlineComponentArray<UStaticMeshComponent*> MeshComponents;
@@ -186,6 +202,11 @@ bool ARokPlayerController::IsSelectableBuilding(AActor* Actor) const
 	if (!Actor)
 	{
 		return false;
+	}
+
+	if (Actor->IsA<ARokBuildingActor>())
+	{
+		return true;
 	}
 
 	const FString Label = GetActorDisplayString(Actor);
