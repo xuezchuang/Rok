@@ -49,10 +49,11 @@ void ARokCitySpriteActor::ConfigureSprite(UMaterialInterface* Material, float Wi
 		return;
 	}
 
+	ViewSortPriority = SortPriority;
 	if (SpriteMeshComponent)
 	{
 		SpriteMeshComponent->SetMaterial(0, Material);
-		SpriteMeshComponent->SetRelativeScale3D(FVector(Width / 100.0f, Height / 100.0f, 1.0f));
+		SpriteMeshComponent->SetRelativeScale3D(FVector(Width / 100.0f, FMath::Abs(Height / 100.0f), 1.0f));
 		SpriteMeshComponent->TranslucencySortPriority = SortPriority;
 	}
 
@@ -63,6 +64,17 @@ void ARokCitySpriteActor::ConfigureSprite(UMaterialInterface* Material, float Wi
 		SpriteComponent->SetHiddenInGame(true);
 		SpriteComponent->SetVisibility(false);
 		SpriteComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	}
+}
+
+void ARokCitySpriteActor::ConfigureViewLayer(ERokCityViewLayer InViewLayer, int32 InSortPriority)
+{
+	ViewLayer = InViewLayer;
+	ViewSortPriority = InSortPriority;
+
+	if (SpriteMeshComponent)
+	{
+		SpriteMeshComponent->TranslucencySortPriority = InSortPriority;
 	}
 }
 

@@ -5,7 +5,7 @@ from pathlib import Path
 from PIL import Image
 
 
-PROJECT_ROOT = Path(os.environ.get("ROK_PROJECT_ROOT", r"D:\ue\Rok"))
+PROJECT_ROOT = Path(os.environ.get("ROK_PROJECT_ROOT", Path(__file__).resolve().parents[1]))
 SOURCE_ROOT = PROJECT_ROOT / "ref" / "resources" / "Sprite"
 CUTOUT_MODE = os.environ.get("ROK_NAMED_CUTOUT_MODE", "maskmax").lower()
 if CUTOUT_MODE == "edge":

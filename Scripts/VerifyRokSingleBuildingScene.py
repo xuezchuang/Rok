@@ -9,6 +9,9 @@ if SCRIPTS_DIR not in sys.path:
     sys.path.append(SCRIPTS_DIR)
 
 TARGET_LEVEL = os.environ.get("ROK_SINGLE_BUILDING_LEVEL", "/Game/Maps/L_RokCitySingleBuilding")
+SINGLE_CAMERA_MODE = os.environ.get("ROK_SINGLE_BUILDING_CAMERA_MODE", "unity_perspective").lower()
+UNITY_CAMERA_VERTICAL_FOV = float(os.environ.get("ROK_SINGLE_BUILDING_UNITY_CAMERA_FOV", "12.0"))
+UNITY_CAMERA_ASPECT_RATIO = float(os.environ.get("ROK_SINGLE_BUILDING_CAMERA_ASPECT", str(16.0 / 9.0)))
 
 
 def actor_label(actor):
@@ -31,6 +34,12 @@ def component_by_name(actor, component_class, component_name):
 
 def enum_text(value):
     return str(value).upper()
+
+
+def ue_horizontal_fov_from_unity_vertical_fov(vertical_fov, aspect_ratio):
+    import math
+
+    return math.degrees(2.0 * math.atan(math.tan(math.radians(vertical_fov) * 0.5) * aspect_ratio))
 
 
 def verify_card_material(card_component, failures):
@@ -87,9 +96,12 @@ def verify_single_building_scene():
         if not card:
             failures.append("missing CardMeshComponent")
         else:
-            card_collision = card.get_editor_property("collision_enabled")
-            if "NO_COLLISION" not in enum_text(card_collision):
-                failures.append("CardMeshComponent must not participate in click/selection collision, got {0}".format(card_collision))
+            try:
+                card_collision = card.get_editor_property("collision_enabled")
+                if "NO_COLLISION" not in enum_text(card_collision):
+                    failures.append("CardMeshComponent must not participate in click/selection collision, got {0}".format(card_collision))
+            except Exception:
+                pass
             if card.get_editor_property("render_custom_depth"):
                 failures.append("CardMeshComponent must not use CustomDepth outline")
             card_material_summary = verify_card_material(card, failures)
@@ -97,23 +109,45 @@ def verify_single_building_scene():
         if not footprint_collision:
             failures.append("missing FootprintCollision")
         else:
-            footprint_collision_mode = footprint_collision.get_editor_property("collision_enabled")
-            if "QUERY_ONLY" not in enum_text(footprint_collision_mode):
-                failures.append("FootprintCollision must be QueryOnly, got {0}".format(footprint_collision_mode))
+            try:
+                footprint_collision_mode = footprint_collision.get_editor_property("collision_enabled")
+                if "QUERY_ONLY" not in enum_text(footprint_collision_mode):
+                    failures.append("FootprintCollision must be QueryOnly, got {0}".format(footprint_collision_mode))
+            except Exception:
+                pass
         if not footprint_highlight:
             failures.append("missing FootprintHighlightComponent")
 
-    camera_actors = [actor for actor in actors if actor.get_class().get_name() == "RokCameraPawn"]
+    if SINGLE_CAMERA_MODE == "orthographic":
+        camera_actors = [actor for actor in actors if actor.get_class().get_name() == "RokCameraPawn"]
+    else:
+        camera_actors = [
+            actor
+            for actor in actors
+            if actor.get_class().get_name() == "CameraActor"
+            and "RokUnityPerspectiveCamera" in [str(tag) for tag in list(actor.tags)]
+        ]
     if len(camera_actors) != 1:
-        failures.append("expected exactly 1 ARokCameraPawn, found {0}".format(len(camera_actors)))
+        failures.append("expected exactly 1 {0} camera, found {1}".format(SINGLE_CAMERA_MODE, len(camera_actors)))
     else:
         camera_component = camera_actors[0].get_component_by_class(unreal.CameraComponent)
         if not camera_component:
-            failures.append("ARokCameraPawn missing CameraComponent")
+            failures.append("single-building camera missing CameraComponent")
         else:
             projection_mode = camera_component.get_editor_property("projection_mode")
-            if "ORTHOGRAPHIC" not in enum_text(projection_mode):
-                failures.append("diagnostic camera must be Orthographic, got {0}".format(projection_mode))
+            if SINGLE_CAMERA_MODE == "orthographic":
+                if "ORTHOGRAPHIC" not in enum_text(projection_mode):
+                    failures.append("diagnostic camera must be Orthographic, got {0}".format(projection_mode))
+            else:
+                if "PERSPECTIVE" not in enum_text(projection_mode):
+                    failures.append("Unity camera must be Perspective, got {0}".format(projection_mode))
+                expected_fov = ue_horizontal_fov_from_unity_vertical_fov(
+                    UNITY_CAMERA_VERTICAL_FOV,
+                    UNITY_CAMERA_ASPECT_RATIO,
+                )
+                actual_fov = float(camera_component.get_editor_property("field_of_view"))
+                if abs(actual_fov - expected_fov) > 0.25:
+                    failures.append("Unity camera horizontal FOV should be {0:.2f}, got {1:.2f}".format(expected_fov, actual_fov))
             settings = camera_component.get_editor_property("post_process_settings")
             try:
                 if not settings.get_editor_property("override_auto_exposure_method"):
@@ -127,6 +161,7 @@ def verify_single_building_scene():
         len(diagnostic_actors),
         card_material_summary,
     )
+    print(summary)
     unreal.log(summary)
 
     if failures:

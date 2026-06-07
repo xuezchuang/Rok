@@ -1,9 +1,10 @@
+import os
 from pathlib import Path
 
 from PIL import Image
 
 
-PROJECT_ROOT = Path(r"D:\ue\Rok")
+PROJECT_ROOT = Path(os.environ.get("ROK_PROJECT_ROOT", Path(__file__).resolve().parents[1]))
 SOURCE_ROOT = PROJECT_ROOT / "Saved" / "RokDerivedSprites" / "StructureCutouts"
 FALLBACK_ROOT = PROJECT_ROOT / "ref" / "resources" / "Sprite"
 OUTPUT_ROOT = PROJECT_ROOT / "Saved" / "RokDerivedSprites" / "LayeredSceneCutouts"

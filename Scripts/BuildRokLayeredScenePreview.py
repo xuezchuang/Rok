@@ -1,10 +1,11 @@
+import os
 from pathlib import Path
 
 from PIL import Image, ImageFilter, ImageOps
 
 import RokCity2DLayout as city2d
 
-PROJECT_ROOT = Path(r"D:\ue\Rok")
+PROJECT_ROOT = Path(os.environ.get("ROK_PROJECT_ROOT", Path(__file__).resolve().parents[1]))
 SPRITE_ROOT = PROJECT_ROOT / "ref" / "resources" / "Sprite"
 CUTOUT_ROOT = PROJECT_ROOT / "Saved" / "RokDerivedSprites" / "LayeredSceneCutouts"
 FALLBACK_CUTOUT_ROOT = PROJECT_ROOT / "Saved" / "RokDerivedSprites" / "StructureCutouts"

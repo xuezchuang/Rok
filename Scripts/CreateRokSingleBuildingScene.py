@@ -9,6 +9,11 @@ import unreal
 
 
 PROJECT_ROOT = unreal.Paths.project_dir()
+UNITY_REFERENCE_ROOT = os.environ.get("ROK_UNITY_REFERENCE_ROOT", os.path.join(PROJECT_ROOT, "ref"))
+if not os.path.isabs(UNITY_REFERENCE_ROOT):
+    UNITY_REFERENCE_ROOT = os.path.join(PROJECT_ROOT, UNITY_REFERENCE_ROOT)
+UNITY_CLIENT_ROOT = os.path.join(UNITY_REFERENCE_ROOT, "client-unity")
+UNITY_RESOURCE_ROOT = os.path.join(UNITY_REFERENCE_ROOT, "resources")
 SCRIPTS_DIR = os.path.join(PROJECT_ROOT, "Scripts")
 if SCRIPTS_DIR not in sys.path:
     sys.path.append(SCRIPTS_DIR)
@@ -20,15 +25,13 @@ import CreateRokRuntimeCityScene as runtime
 TARGET_LEVEL = os.environ.get("ROK_SINGLE_BUILDING_LEVEL", "/Game/Maps/L_RokCitySingleBuilding")
 DIAGNOSTIC_BUILDING_TYPE = int(os.environ.get("ROK_SINGLE_BUILDING_TYPE", "1"))
 DIAGNOSTIC_VISUAL_SCALE = float(os.environ.get("ROK_SINGLE_BUILDING_VISUAL_SCALE", "0.62"))
-SINGLE_CAMERA_PAWN_BLUEPRINT = runtime.RUNTIME_BLUEPRINT_DESTINATION + "/BP_RokSingleBuildingCameraPawn"
-SINGLE_GAME_MODE_BLUEPRINT = runtime.RUNTIME_BLUEPRINT_DESTINATION + "/BP_RokSingleBuildingGameMode"
 ROK_BUILDING_ACTOR_CLASS = "/Script/Rok.RokBuildingActor"
 ROK_CAMERA_PAWN_CLASS = "/Script/Rok.RokCameraPawn"
 SINGLE_ADD_GROUND = os.environ.get("ROK_SINGLE_BUILDING_ADD_GROUND", "0") == "1"
 SINGLE_ADD_UNITY_CITY_GROUND = os.environ.get("ROK_SINGLE_BUILDING_ADD_UNITY_CITY_GROUND", "1") != "0"
 SINGLE_ADD_UNITY_CITY_SURFACE = os.environ.get("ROK_SINGLE_BUILDING_ADD_UNITY_CITY_SURFACE", "1") != "0"
 SINGLE_ADD_UNITY_CITY_ROAD = os.environ.get("ROK_SINGLE_BUILDING_ADD_UNITY_CITY_ROAD", "1") != "0"
-SINGLE_ADD_UNITY_GROUND_PATCH = os.environ.get("ROK_SINGLE_BUILDING_ADD_UNITY_GROUND_PATCH", "1") != "0"
+SINGLE_ADD_UNITY_GROUND_PATCH = os.environ.get("ROK_SINGLE_BUILDING_ADD_UNITY_GROUND_PATCH", "0") == "1"
 SINGLE_ADD_UNITY_TERRAIN_PLATE = os.environ.get("ROK_SINGLE_BUILDING_ADD_UNITY_TERRAIN_PLATE", "0") == "1"
 SINGLE_ADD_SHADOW = os.environ.get("ROK_SINGLE_BUILDING_ADD_SHADOW", "0") == "1"
 SINGLE_SPLIT_BUILDING_GROUND = os.environ.get("ROK_SINGLE_BUILDING_SPLIT_GROUND", "0") == "1"
@@ -42,6 +45,7 @@ UNITY_SCENE_WORLD_SCALE = float(os.environ.get("ROK_SINGLE_BUILDING_SCENE_WORLD_
 UNITY_SCENE_VISUAL_SCALE = float(os.environ.get("ROK_SINGLE_BUILDING_SCENE_VISUAL_SCALE", "1.0"))
 UNITY_CAMERA_VERTICAL_FOV = float(os.environ.get("ROK_SINGLE_BUILDING_UNITY_CAMERA_FOV", "12.0"))
 UNITY_CAMERA_ASPECT_RATIO = float(os.environ.get("ROK_SINGLE_BUILDING_CAMERA_ASPECT", str(16.0 / 9.0)))
+SINGLE_CAMERA_MODE = os.environ.get("ROK_SINGLE_BUILDING_CAMERA_MODE", "unity_perspective").lower()
 UNITY_CAMERA_POSITION = (
     float(os.environ.get("ROK_SINGLE_BUILDING_UNITY_CAMERA_X", "0.52")),
     float(os.environ.get("ROK_SINGLE_BUILDING_UNITY_CAMERA_Y", "15.82")),
@@ -70,9 +74,7 @@ UNITY_CITY_GROUND_TEXTURE = os.environ.get(
     ),
 )
 UNITY_CITY_GROUND_FALLBACK_TEXTURE = os.path.join(
-    PROJECT_ROOT,
-    "ref",
-    "client-unity",
+    UNITY_CLIENT_ROOT,
     "Assets",
     "BundleAssets",
     "Map",
@@ -97,8 +99,8 @@ UNITY_CITY_ROAD_TEXTURE = os.environ.get(
 UNITY_CITY_SURFACE_SCALE = float(os.environ.get("ROK_SINGLE_BUILDING_CITY_SURFACE_SCALE", "0.95"))
 UNITY_CITY_ROAD_SCALE = float(os.environ.get("ROK_SINGLE_BUILDING_CITY_ROAD_SCALE", "1.15"))
 DEFAULT_SINGLE_SPRITE_BASE = "Castle_6_5"
-DEFAULT_SINGLE_SPRITE_PATH = os.path.join(PROJECT_ROOT, "ref", "resources", "Sprite", "{0}.png".format(DEFAULT_SINGLE_SPRITE_BASE))
-DEFAULT_SINGLE_MASK_PATH = os.path.join(PROJECT_ROOT, "ref", "resources", "Sprite", "{0}_mask.png".format(DEFAULT_SINGLE_SPRITE_BASE))
+DEFAULT_SINGLE_SPRITE_PATH = os.path.join(UNITY_RESOURCE_ROOT, "Sprite", "{0}.png".format(DEFAULT_SINGLE_SPRITE_BASE))
+DEFAULT_SINGLE_MASK_PATH = os.path.join(UNITY_RESOURCE_ROOT, "Sprite", "{0}_mask.png".format(DEFAULT_SINGLE_SPRITE_BASE))
 SINGLE_FOOTPRINT_WIDTH = float(os.environ.get("ROK_SINGLE_BUILDING_FOOTPRINT_WIDTH", "460.0"))
 SINGLE_FOOTPRINT_LENGTH = float(os.environ.get("ROK_SINGLE_BUILDING_FOOTPRINT_LENGTH", "330.0"))
 SINGLE_FOOTPRINT_YAW = float(os.environ.get("ROK_SINGLE_BUILDING_FOOTPRINT_YAW", "45.0"))
@@ -347,7 +349,7 @@ def load_unity_scene_building_row():
             "category": "city_building",
             "active": "True",
             "name": UNITY_BUILDING_NAME,
-            "mapped_sprite_path": os.path.relpath(DEFAULT_SINGLE_SPRITE_PATH, PROJECT_ROOT).replace("\\", "/"),
+            "mapped_sprite_path": DEFAULT_SINGLE_SPRITE_PATH.replace("\\", "/"),
             "world_position": "[-0.104, 0.334, 0.079]",
             "world_scale": "[0.240767, 0.240767, 0.240767]",
             "sprite_size": "[0.0, 0.0]",
@@ -406,6 +408,13 @@ def spawn_rook_building_actor(label, material, root_location, width, height, piv
     actor.configure_card(material, width, height, pivot_offset, make_unity_sprite_rotation())
     actor.configure_footprint(footprint_width, footprint_length, make_footprint_highlight_material(), SINGLE_FOOTPRINT_YAW)
     actor.tags = ["RokBuilding", "CityBuilding", "RokSingleBuildingDiagnostic", "RokUnityPlacementSource"]
+    try:
+        for component in actor.get_components_by_class(unreal.StaticMeshComponent):
+            if component.get_name() == "FootprintHighlightComponent":
+                component.set_visibility(False)
+                component.set_editor_property("hidden_in_game", True)
+    except Exception:
+        pass
 
     card_component = None
     try:
@@ -788,17 +797,94 @@ def spawn_single_camera(target_location=None):
     return camera
 
 
+def spawn_unity_perspective_camera(target_location=None):
+    camera_location = unity_position_to_ue(UNITY_CAMERA_POSITION)
+    camera_rotation = make_unity_camera_rotation()
+    horizontal_fov = ue_horizontal_fov_from_unity_vertical_fov(UNITY_CAMERA_VERTICAL_FOV, UNITY_CAMERA_ASPECT_RATIO)
+
+    camera = unreal.EditorLevelLibrary.spawn_actor_from_class(unreal.CameraActor, camera_location, camera_rotation)
+    camera.set_actor_label("Camera_UnityPerspective_Map_TTS")
+    camera.set_folder_path("RokSingleBuilding/Camera")
+    camera.tags = [
+        "RokSingleBuildingCamera",
+        "RokUnityPerspectiveCamera",
+        "Map_TTS",
+        "VerticalFov{0:g}".format(UNITY_CAMERA_VERTICAL_FOV),
+    ]
+    try:
+        camera.set_editor_property("auto_activate_for_player", unreal.AutoReceiveInput.PLAYER0)
+    except Exception:
+        pass
+
+    component = camera.get_component_by_class(unreal.CameraComponent)
+    if not component:
+        raise RuntimeError("Unity perspective camera is missing CameraComponent")
+    try:
+        component.set_editor_property("projection_mode", unreal.CameraProjectionMode.PERSPECTIVE)
+    except Exception:
+        pass
+    component.set_editor_property("field_of_view", horizontal_fov)
+    component.set_editor_property("aspect_ratio", UNITY_CAMERA_ASPECT_RATIO)
+    component.set_editor_property("constrain_aspect_ratio", True)
+    try:
+        settings = component.get_editor_property("post_process_settings")
+        settings.set_editor_property("override_auto_exposure_method", True)
+        settings.set_editor_property("auto_exposure_method", unreal.AutoExposureMethod.AEM_MANUAL)
+        settings.set_editor_property("override_auto_exposure_min_brightness", True)
+        settings.set_editor_property("auto_exposure_min_brightness", 1.0)
+        settings.set_editor_property("override_auto_exposure_max_brightness", True)
+        settings.set_editor_property("auto_exposure_max_brightness", 1.0)
+        settings.set_editor_property("override_auto_exposure_bias", True)
+        settings.set_editor_property("auto_exposure_bias", 0.0)
+        component.set_editor_property("post_process_settings", settings)
+    except Exception:
+        pass
+
+    try:
+        unreal.EditorLevelLibrary.set_level_viewport_camera_info(camera_location, camera_rotation)
+    except Exception:
+        pass
+    unreal.log(
+        "UnityPerspectiveCamera: unity_pos=({0:.3f},{1:.3f},{2:.3f}), vertical_fov={3:.2f}, ue_horizontal_fov={4:.2f}, ue_loc=({5:.1f},{6:.1f},{7:.1f})".format(
+            UNITY_CAMERA_POSITION[0],
+            UNITY_CAMERA_POSITION[1],
+            UNITY_CAMERA_POSITION[2],
+            UNITY_CAMERA_VERTICAL_FOV,
+            horizontal_fov,
+            float(camera_location.x),
+            float(camera_location.y),
+            float(camera_location.z),
+        )
+    )
+    return camera
+
+
 def configure_single_building_world_settings():
     world = unreal.EditorLevelLibrary.get_editor_world()
     try:
-        world.get_world_settings().set_editor_property("default_game_mode", None)
+        if SINGLE_CAMERA_MODE == "unity_perspective":
+            base_game_mode = unreal.load_class(None, "/Script/Engine.GameModeBase")
+            world.get_world_settings().set_editor_property("default_game_mode", base_game_mode)
+        else:
+            world.get_world_settings().set_editor_property("default_game_mode", None)
     except Exception:
         pass
 
 
+def is_target_level_loaded():
+    world = unreal.EditorLevelLibrary.get_editor_world()
+    if not world:
+        return False
+    try:
+        return str(world.get_outermost().get_name()) == TARGET_LEVEL
+    except Exception:
+        return world.get_name() == TARGET_LEVEL.rsplit("/", 1)[-1]
+
+
 def build_single_building_scene():
     if unreal.EditorAssetLibrary.does_asset_exist(TARGET_LEVEL):
-        unreal.EditorLevelLibrary.load_level(TARGET_LEVEL)
+        if not is_target_level_loaded():
+            unreal.EditorLevelLibrary.load_level(TARGET_LEVEL)
     else:
         if not unreal.EditorLevelLibrary.new_level(TARGET_LEVEL):
             raise RuntimeError("Failed to create empty single building map: {0}".format(TARGET_LEVEL))
@@ -814,7 +900,10 @@ def build_single_building_scene():
     if SINGLE_ADD_GROUND:
         spawn_single_background(primitives, materials)
     building_actor = spawn_single_building(primitives, materials)
-    spawn_single_camera(building_actor.get_actor_location() if building_actor else None)
+    if SINGLE_CAMERA_MODE == "orthographic":
+        spawn_single_camera(building_actor.get_actor_location() if building_actor else None)
+    else:
+        spawn_unity_perspective_camera(building_actor.get_actor_location() if building_actor else None)
     configure_single_building_world_settings()
 
     world = unreal.EditorLevelLibrary.get_editor_world()

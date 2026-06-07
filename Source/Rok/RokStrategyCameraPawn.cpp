@@ -3,6 +3,7 @@
 #include "Camera/CameraComponent.h"
 #include "Components/SceneComponent.h"
 #include "Engine/LocalPlayer.h"
+#include "Engine/Scene.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
 #include "InputCoreTypes.h"
@@ -27,12 +28,7 @@ void ARokStrategyCameraPawn::BeginPlay()
 {
 	Super::BeginPlay();
 
-	SetActorLocation(DefaultCameraLocation);
-	SetActorRotation(DefaultCameraRotation);
-	CameraComponent->SetProjectionMode(ECameraProjectionMode::Orthographic);
-	float RuntimeOrthoWidth = DefaultOrthoWidth;
-	FParse::Value(FCommandLine::Get(), TEXT("RokOrthoWidth="), RuntimeOrthoWidth);
-	CameraComponent->SetOrthoWidth(FMath::Clamp(RuntimeOrthoWidth, MinOrthoWidth, MaxOrthoWidth));
+	ApplyCameraDefaults();
 }
 
 void ARokStrategyCameraPawn::Tick(float DeltaSeconds)
@@ -153,4 +149,41 @@ void ARokStrategyCameraPawn::ApplyPlanarMovement(const FVector2D& Movement, floa
 	Location.X = FMath::Clamp(Location.X, -MapExtent, MapExtent);
 	Location.Y = FMath::Clamp(Location.Y, -MapExtent, MapExtent);
 	SetActorLocation(Location);
+}
+
+void ARokStrategyCameraPawn::ApplyCameraDefaults()
+{
+	if (!CameraComponent)
+	{
+		return;
+	}
+
+	SetActorLocation(DefaultCameraLocation);
+	SetActorRotation(DefaultCameraRotation);
+	CameraComponent->SetProjectionMode(ECameraProjectionMode::Orthographic);
+	float RuntimeOrthoWidth = DefaultOrthoWidth;
+	FParse::Value(FCommandLine::Get(), TEXT("RokOrthoWidth="), RuntimeOrthoWidth);
+	CameraComponent->SetOrthoWidth(FMath::Clamp(RuntimeOrthoWidth, MinOrthoWidth, MaxOrthoWidth));
+	CameraComponent->PostProcessSettings.bOverride_AutoExposureMethod = true;
+	CameraComponent->PostProcessSettings.AutoExposureMethod = AEM_Manual;
+	CameraComponent->PostProcessSettings.bOverride_AutoExposureMinBrightness = true;
+	CameraComponent->PostProcessSettings.AutoExposureMinBrightness = 1.0f;
+	CameraComponent->PostProcessSettings.bOverride_AutoExposureMaxBrightness = true;
+	CameraComponent->PostProcessSettings.AutoExposureMaxBrightness = 1.0f;
+	CameraComponent->PostProcessSettings.bOverride_AutoExposureBias = true;
+	CameraComponent->PostProcessSettings.AutoExposureBias = 0.0f;
+	CameraComponent->PostProcessSettings.bOverride_AutoExposureApplyPhysicalCameraExposure = true;
+	CameraComponent->PostProcessSettings.AutoExposureApplyPhysicalCameraExposure = false;
+	CameraComponent->PostProcessSettings.bOverride_ToneCurveAmount = true;
+	CameraComponent->PostProcessSettings.ToneCurveAmount = 0.0f;
+	CameraComponent->PostProcessSettings.bOverride_BlueCorrection = true;
+	CameraComponent->PostProcessSettings.BlueCorrection = 0.0f;
+	CameraComponent->PostProcessSettings.bOverride_ExpandGamut = true;
+	CameraComponent->PostProcessSettings.ExpandGamut = 0.0f;
+	CameraComponent->PostProcessSettings.bOverride_BloomIntensity = true;
+	CameraComponent->PostProcessSettings.BloomIntensity = 0.0f;
+	CameraComponent->PostProcessSettings.bOverride_VignetteIntensity = true;
+	CameraComponent->PostProcessSettings.VignetteIntensity = 0.0f;
+	CameraComponent->PostProcessSettings.bOverride_MotionBlurAmount = true;
+	CameraComponent->PostProcessSettings.MotionBlurAmount = 0.0f;
 }

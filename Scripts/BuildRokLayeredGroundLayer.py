@@ -1,10 +1,11 @@
+import os
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter, ImageOps
 
 import RokCity2DLayout as city2d
 
-PROJECT_ROOT = Path(r"D:\ue\Rok")
+PROJECT_ROOT = Path(os.environ.get("ROK_PROJECT_ROOT", Path(__file__).resolve().parents[1]))
 SPRITE_ROOT = PROJECT_ROOT / "ref" / "resources" / "Sprite"
 LAND_TEXTURE_ROOT = PROJECT_ROOT / "ref" / "client-unity" / "Assets" / "BundleAssets" / "land" / "Texture"
 GRASS_TEXTURE_PATH = LAND_TEXTURE_ROOT / "ground_mask_green_02.png"

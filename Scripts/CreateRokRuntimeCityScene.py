@@ -72,13 +72,14 @@ UNITY_GRID_SIZE = 0.1
 UNITY_GRID_SIZE_HALF = 0.05
 CITY_CENTER_TILE = 24.0
 
-CAMERA_LOCATION = unreal.Vector(-2200.0, -2200.0, 4450.0)
+CAMERA_LOCATION = unreal.Vector(0.0, 0.0, 4450.0)
 CAMERA_TARGET = unreal.Vector(0.0, 0.0, 0.0)
 CAMERA_ORTHO_WIDTH = 1800.0
 SPRITE_PLANE_PITCH = float(os.environ.get("ROK_CITY_SPRITE_PLANE_PITCH", "35.0"))
 SPRITE_PLANE_YAW = float(os.environ.get("ROK_CITY_SPRITE_PLANE_YAW", "-135.0"))
 SPRITE_PLANE_ROLL = float(os.environ.get("ROK_CITY_SPRITE_PLANE_ROLL", "0.0"))
 SPRITE_PLANE_MODE = os.environ.get("ROK_CITY_SPRITE_PLANE_MODE", "camera")
+ENGINE_PLANE_FLIP_Y = os.environ.get("ROK_CITY_ENGINE_PLANE_FLIP_Y", "0") != "0"
 SPRITE_TRANSLUCENT_ALPHA = os.environ.get("ROK_CITY_SPRITE_TRANSLUCENT_ALPHA", "0") == "1"
 UNITY_PREFAB_SPRITE_SCALE = float(os.environ.get("ROK_CITY_PREFAB_SPRITE_SCALE", "0.5271909"))
 UNITY_PREFAB_SPRITE_PPU = float(os.environ.get("ROK_CITY_PREFAB_SPRITE_PPU", "440.0"))
@@ -623,15 +624,18 @@ def configure_component_for_runtime(actor, sort_priority=0, selectable=False):
 
 
 def spawn_runtime_plane(label, primitives, location, width, height, material, folder, yaw=0.0, sort_priority=0, selectable=False):
-    actor = proto.spawn_mesh(
-        label,
-        primitives["plane"],
-        location,
-        (width / 100.0, height / 100.0, 1.0),
-        material,
-        (0.0, yaw, 0.0),
-        folder,
+    actor = unreal.EditorLevelLibrary.spawn_actor_from_class(
+        unreal.StaticMeshActor,
+        unreal.Vector(location[0], location[1], location[2]),
+        proto.make_rotator(0.0, yaw, 0.0),
     )
+    actor.set_actor_label(label)
+    actor.set_actor_scale3d(unreal.Vector(width / 100.0, height / 100.0, 1.0))
+    actor.set_folder_path(folder)
+    component = actor.get_component_by_class(unreal.StaticMeshComponent)
+    if component:
+        component.set_static_mesh(primitives["plane"])
+        component.set_material(0, material)
     configure_component_for_runtime(actor, sort_priority, selectable)
     return actor
 
@@ -802,9 +806,8 @@ def create_runtime_city_sprite_material(
     material_path = proto.asset_package_path(RUNTIME_MATERIAL_DESTINATION, material_name)
     existing = proto.load_asset_if_exists(material_path)
     if existing:
-        if material_name in REBUILT_RUNTIME_SPRITE_MATERIALS:
-            return existing
-        unreal.EditorAssetLibrary.delete_asset(material_path)
+        REBUILT_RUNTIME_SPRITE_MATERIALS.add(material_name)
+        return existing
 
     unreal.EditorAssetLibrary.make_directory(RUNTIME_MATERIAL_DESTINATION)
     material = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
@@ -889,6 +892,8 @@ def fixed_sprite_plane_rotation(x, y, z):
         return proto.make_rotator(0.0, 0.0, 0.0)
     if SPRITE_PLANE_MODE != "camera":
         return proto.make_rotator(SPRITE_PLANE_PITCH, SPRITE_PLANE_YAW, SPRITE_PLANE_ROLL)
+    if abs(float(CAMERA_LOCATION.x) - float(CAMERA_TARGET.x)) < 0.001 and abs(float(CAMERA_LOCATION.y) - float(CAMERA_TARGET.y)) < 0.001:
+        return proto.make_rotator(0.0, 0.0, 0.0)
 
     target = CAMERA_LOCATION - unreal.Vector(x, y, z)
     try:
@@ -953,6 +958,20 @@ def apply_camera_sprite_anchor(actor, height, anchor_mode):
     component.set_editor_property("relative_location", unreal.Vector(0.0, height * 0.5, 0.0))
 
 
+def apply_engine_plane_uv_flip(actor):
+    if SPRITE_PLANE_MODE not in ("camera", "prefab"):
+        return
+    component = actor.get_component_by_class(unreal.StaticMeshComponent)
+    if not component:
+        return
+    scale = component.get_editor_property("relative_scale3d")
+    scale_y = -abs(float(scale.y)) if ENGINE_PLANE_FLIP_Y else abs(float(scale.y))
+    component.set_editor_property(
+        "relative_scale3d",
+        unreal.Vector(float(scale.x), scale_y, float(scale.z)),
+    )
+
+
 def prefab_visual_size(texture_width, texture_height):
     scale = UE_UNITS_PER_UNITY_UNIT * UNITY_PREFAB_SPRITE_SCALE / max(1.0, UNITY_PREFAB_SPRITE_PPU)
     return texture_width * scale, texture_height * scale
@@ -1015,6 +1034,7 @@ def spawn_sprite_actor(label, material, x, y, width, height, sort_priority, fold
             legacy_billboard.set_visibility(False)
         except Exception:
             pass
+    apply_engine_plane_uv_flip(actor)
     apply_prefab_sprite_transform(actor)
     apply_camera_sprite_anchor(actor, height, anchor_mode)
     try:
@@ -1524,7 +1544,7 @@ def spawn_target_wall_anchors(primitives, materials):
 
 
 def spawn_camera(camera_record):
-    rotation = unreal.MathLibrary.find_look_at_rotation(CAMERA_LOCATION, CAMERA_TARGET)
+    rotation = proto.make_rotator(-90.0, 0.0, -90.0)
     camera = unreal.EditorLevelLibrary.spawn_actor_from_class(unreal.CameraActor, CAMERA_LOCATION, rotation)
     camera.set_actor_label("Camera_RokRuntimeCity")
     camera.set_folder_path("RokRuntimeCity/Camera")
@@ -1552,22 +1572,25 @@ def configure_world_settings():
         world_settings.set_editor_property("default_game_mode", game_mode_class)
 
 
+def is_target_level_loaded():
+    world = unreal.EditorLevelLibrary.get_editor_world()
+    if not world:
+        return False
+    package_name = str(world.get_outermost().get_name())
+    return package_name == TARGET_LEVEL
+
+
 def build_runtime_city():
-    if TARGET_SCENE_PASS:
-        if unreal.EditorAssetLibrary.does_asset_exist(TARGET_LEVEL):
-            if not unreal.EditorAssetLibrary.delete_asset(TARGET_LEVEL):
-                raise RuntimeError("Failed to delete stale runtime city map before rebuild: {0}".format(TARGET_LEVEL))
-        if not unreal.EditorLevelLibrary.new_level(TARGET_LEVEL):
-            raise RuntimeError("Failed to create fresh runtime city map: {0}".format(TARGET_LEVEL))
+    if is_target_level_loaded():
+        unreal.log("Runtime city target map already loaded: {0}".format(TARGET_LEVEL))
     elif unreal.EditorAssetLibrary.does_asset_exist(TARGET_LEVEL):
         unreal.EditorLevelLibrary.load_level(TARGET_LEVEL)
     else:
         if not unreal.EditorLevelLibrary.new_level(TARGET_LEVEL):
             unreal.log("Target map does not exist yet; building from the currently loaded template world.")
 
-    if not TARGET_SCENE_PASS:
-        for actor in unreal.EditorLevelLibrary.get_all_level_actors():
-            unreal.EditorLevelLibrary.destroy_actor(actor)
+    for actor in unreal.EditorLevelLibrary.get_all_level_actors():
+        unreal.EditorLevelLibrary.destroy_actor(actor)
 
     proto.ensure_project_primitive_meshes()
     primitives = {name: proto.load_primitive(name) for name in proto.PRIMITIVE_PATHS}

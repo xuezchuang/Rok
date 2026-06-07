@@ -46,6 +46,18 @@ private:
 	TObjectPtr<UTextBlock> BuilderQueueText;
 
 	UPROPERTY()
+	TObjectPtr<UTextBlock> CatalogStatusText;
+
+	UPROPERTY()
+	TObjectPtr<UTextBlock> TaskTitleText;
+
+	UPROPERTY()
+	TObjectPtr<UTextBlock> TaskProgressText;
+
+	UPROPERTY()
+	TObjectPtr<UTextBlock> ArmySummaryText;
+
+	UPROPERTY()
 	TObjectPtr<UTextBlock> StatusText;
 
 	UPROPERTY()
@@ -61,7 +73,8 @@ private:
 	UTextBlock* MakeHudText(const FName& Name, int32 FontSize, const FLinearColor& Color);
 	UImage* MakeUiImage(const FName& Name, const TCHAR* TexturePath, const FVector2D& DesiredSize);
 	UBorder* MakeResourceChip(const FName& Name, const TCHAR* TexturePath, UTextBlock*& OutTextBlock);
-	UBorder* MakeToolButton(const FName& Name, const FText& Label);
+	UBorder* MakeToolButton(const FName& Name, const FText& Label, const TCHAR* TexturePath);
+	UBorder* MakePanelFrame(const FName& Name, const FLinearColor& Color, const FMargin& InPadding);
 	UTexture2D* LoadUiTexture(const TCHAR* TexturePath) const;
 	FSlateBrush MakeImageBrush(UTexture2D* Texture, const FVector2D& DesiredSize) const;
 	bool ApplyBorderTexture(UBorder* Border, FSlateBrush& BrushStorage, const TCHAR* TexturePath, const FVector2D& DesiredSize, const TCHAR* DebugName);

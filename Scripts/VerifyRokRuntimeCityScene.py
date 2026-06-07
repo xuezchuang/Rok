@@ -60,6 +60,14 @@ def has_sprite_visual_component(actor):
     return False
 
 
+def sprite_mesh_scale_y(actor):
+    component = actor.get_component_by_class(unreal.StaticMeshComponent)
+    if not component:
+        return None
+    scale = component.get_editor_property("relative_scale3d")
+    return float(scale.y)
+
+
 def verify_camera(camera):
     failures = []
     component = camera.get_component_by_class(unreal.CameraComponent)
@@ -75,10 +83,42 @@ def verify_camera(camera):
         failures.append("Camera_RokRuntimeCity ortho width is outside 1750-1900: {0}".format(ortho_width))
 
     rotation = camera.get_actor_rotation()
-    if abs(float(rotation.yaw) - 45.0) > 1.0:
-        failures.append("Camera_RokRuntimeCity yaw is not approximately 45: {0}".format(float(rotation.yaw)))
-    if abs(float(rotation.pitch) + 55.0) > 3.0:
-        failures.append("Camera_RokRuntimeCity pitch is not approximately -55: {0}".format(float(rotation.pitch)))
+    forward = normalize(unreal.MathLibrary.get_forward_vector(rotation))
+    right = normalize(unreal.MathLibrary.get_right_vector(rotation))
+    up = normalize(unreal.MathLibrary.get_up_vector(rotation))
+    if dot(forward, unreal.Vector(0.0, 0.0, -1.0)) < 0.999:
+        failures.append(
+            "Camera_RokRuntimeCity is not looking straight down for Top view parity: rot=({0},{1},{2}), forward=({3},{4},{5})".format(
+                float(rotation.pitch),
+                float(rotation.yaw),
+                float(rotation.roll),
+                float(forward.x),
+                float(forward.y),
+                float(forward.z),
+            )
+        )
+    if dot(right, unreal.Vector(1.0, 0.0, 0.0)) < 0.999:
+        failures.append(
+            "Camera_RokRuntimeCity right axis does not match UE Top view screen-right: rot=({0},{1},{2}), right=({3},{4},{5})".format(
+                float(rotation.pitch),
+                float(rotation.yaw),
+                float(rotation.roll),
+                float(right.x),
+                float(right.y),
+                float(right.z),
+            )
+        )
+    if dot(up, unreal.Vector(0.0, -1.0, 0.0)) < 0.999:
+        failures.append(
+            "Camera_RokRuntimeCity up axis does not match UE Top view screen-up: rot=({0},{1},{2}), up=({3},{4},{5})".format(
+                float(rotation.pitch),
+                float(rotation.yaw),
+                float(rotation.roll),
+                float(up.x),
+                float(up.y),
+                float(up.z),
+            )
+        )
     return failures
 
 
@@ -99,6 +139,7 @@ def verify_runtime_city():
     actors = unreal.EditorLevelLibrary.get_all_level_actors()
 
     sprite_buildings = []
+    runtime_sprite_actors = []
     mesh_building_cards = []
     wall_mesh_anchors = []
     wall_sprite_anchors = []
@@ -110,6 +151,8 @@ def verify_runtime_city():
         actor_class = actor.get_class().get_name()
         if label == "Camera_RokRuntimeCity":
             cameras.append(actor)
+        if actor_class == "RokCitySpriteActor":
+            runtime_sprite_actors.append(actor)
         if actor_class == "RokCitySpriteActor" and actor.tags and "CityBuilding" in [str(tag) for tag in actor.tags]:
             sprite_buildings.append(actor)
         if actor_class != "RokCitySpriteActor" and folder.startswith("RokRuntimeCity/Buildings") and actor.get_component_by_class(unreal.StaticMeshComponent):
@@ -168,6 +211,15 @@ def verify_runtime_city():
         failures.append("expected at least 1 layered ground sprite actor, found {0}".format(terrain_sprite_count))
     if layered_scene and not layered_ground_plate:
         failures.append("layered scene is missing the generated ground/road/base plate")
+    flipped_sprites = [
+        actor_label(actor)
+        for actor in runtime_sprite_actors
+        if sprite_mesh_scale_y(actor) is not None and sprite_mesh_scale_y(actor) < 0.0
+    ]
+    if layered_scene and flipped_sprites:
+        failures.append("layered sprite planes should keep positive Y scale so editor Top view and runtime view match: {0}".format(
+            ", ".join(flipped_sprites[:8])
+        ))
     if terrain_count < 5 and not (target_city_composite or layered_scene):
         failures.append("expected at least 5 terrain actors, found {0}".format(terrain_count))
     if road_count < 12 and not (target_scene and (target_terrain_composite or target_city_composite)) and not layered_scene:

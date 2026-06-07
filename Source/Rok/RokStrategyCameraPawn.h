@@ -79,4 +79,5 @@ private:
 	void UpdateEdgePan(float DeltaSeconds);
 	void UpdateMouseWheelZoom(float DeltaSeconds);
 	void ApplyPlanarMovement(const FVector2D& Movement, float DeltaSeconds);
+	void ApplyCameraDefaults();
 };

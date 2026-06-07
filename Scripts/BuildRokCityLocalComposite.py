@@ -1,9 +1,10 @@
+import os
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter
 
 
-PROJECT_ROOT = Path(r"D:\ue\Rok")
+PROJECT_ROOT = Path(os.environ.get("ROK_PROJECT_ROOT", Path(__file__).resolve().parents[1]))
 SPRITE_ROOT = PROJECT_ROOT / "ref" / "resources" / "Sprite"
 CUTOUT_ROOT = PROJECT_ROOT / "Saved" / "RokDerivedSprites" / "StructureCutouts"
 OUTPUT_PATH = PROJECT_ROOT / "Saved" / "RokCityLocalCompositeCiv6.png"

@@ -172,8 +172,8 @@ def spawn_sprite_proxy_planes(camera):
         width = float(element_property(element, "base_size_x", 100.0) or 100.0)
         height = float(element_property(element, "base_size_y", 100.0) or 100.0)
         location = actor.get_actor_location()
-        proxy = unreal.EditorLevelLibrary.spawn_actor_from_object(
-            plane_mesh,
+        proxy = unreal.EditorLevelLibrary.spawn_actor_from_class(
+            unreal.StaticMeshActor,
             location,
             camera_facing_plane_rotation(camera, location),
         )
@@ -182,6 +182,7 @@ def spawn_sprite_proxy_planes(camera):
         proxy.set_actor_hidden_in_game(False)
         mesh_component = proxy.get_component_by_class(unreal.StaticMeshComponent)
         if mesh_component:
+            mesh_component.set_static_mesh(plane_mesh)
             mesh_component.set_material(0, material)
             mesh_component.set_collision_enabled(unreal.CollisionEnabled.NO_COLLISION)
             try:

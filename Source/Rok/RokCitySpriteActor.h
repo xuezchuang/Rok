@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "RokCityViewTypes.h"
 #include "RokCitySpriteActor.generated.h"
 
 class UMaterialInterface;
@@ -24,6 +25,9 @@ public:
 	void ConfigurePlacement(FIntPoint InFootprintSize, FIntPoint InGameplayTile, FVector InVisualAnchorOffset);
 
 	UFUNCTION(BlueprintCallable, Category = "Rok|City")
+	void ConfigureViewLayer(ERokCityViewLayer InViewLayer, int32 InSortPriority);
+
+	UFUNCTION(BlueprintCallable, Category = "Rok|City")
 	void SetSelectionCollisionEnabled(bool bEnabled);
 
 protected:
@@ -44,4 +48,10 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Rok|City")
 	FVector VisualAnchorOffset = FVector::ZeroVector;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Rok|View")
+	ERokCityViewLayer ViewLayer = ERokCityViewLayer::BuildingBody;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Rok|View")
+	int32 ViewSortPriority = 0;
 };

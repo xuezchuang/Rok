@@ -1,0 +1,149 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+**Rok** is a UE 5.2 C++ project for a strategy/MMO game in the style of "Rise of Kingdoms" (万国觉醒). The project is being rebuilt from a Unity client (`D:\ueDemo\Rok-unity`) using UE-native C++ subsystems, DataAssets/DataTables, UMG widgets, and Blueprint presentation shells. The Unity source is preserved as reference material under `ref/` — never dump it directly into UE.
+
+- **Engine target**: UE 5.2 — install at `D:\ue\UE_5.2`
+- **Project root**: this directory (contains `Rok.uproject`)
+- **Runtime module**: `Rok` (single module)
+- **Default map**: `/Game/Maps/L_RokUnityGameAppCity` (editor + game)
+- **Default GameMode**: `ARokGameModeBase`
+
+The companion live Unity project is at `D:\ueDemo\Rok-unity` (do not commit its `Library/`, `Logs/`, `Temp/` caches). Paired Unity learning notes go in `UnityLearning/`.
+
+## Build & Run Commands
+
+All UE tooling lives under `D:\ue\UE_5.2\Engine\Binaries\Win64\` and `D:\ue\UE_5.2\Engine\Build\BatchFiles\`.
+
+```bat
+:: Launch the editor with the default map
+"D:\ue\UE_5.2\Engine\Binaries\Win64\UnrealEditor.exe" "D:\ueDemo\Rok\Rok.uproject" /Game/Maps/L_RokUnityGameAppCity -log
+
+:: Build the Editor target
+"D:\ue\UE_5.2\Engine\Build\BatchFiles\Build.bat" RokEditor Win64 Development "D:\ueDemo\Rok\Rok.uproject" -waitmutex
+
+:: Build the Game target
+"D:\ue\UE_5.2\Engine\Build\BatchFiles\Build.bat" Rok Win64 Development "D:\ueDemo\Rok\Rok.uproject" -waitmutex
+
+:: Run a map-generation commandlet
+"D:\ue\UE_5.2\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "D:\ueDemo\Rok\Rok.uproject" /Game/Maps/L_RokCityRuntime -ExecutePythonScript="<script>.py"
+```
+
+Convenience launcher: `RunRokInitialScene.bat` (sets the above editor + map).
+
+**Never** use `C:\UnrealEngine` for this project — it is UE 5.7 and will produce incompatible `.umap`/assets.
+
+## MCP Automation Bridge
+
+The project bundles `Plugins/McpAutomationBridge` (WebSocket MCP server inside the editor, 200+ actions). When this workstation has multiple UE editors open, MCP must be targeted explicitly:
+
+| Project | MCP port |
+|---|---|
+| `D:\ueDemo\MMOARPG` | `127.0.0.1:8090` |
+| `D:\ueasset\Rok` (the other Rok) | `127.0.0.1:8094` |
+| **`D:\ueDemo\Rok` (this one)** | **`127.0.0.1:8094`** (verify in `Config/DefaultGame.ini`) |
+| `D:\ueasset\RPG Metanoia Project v12.8` | `127.0.0.1:8092` |
+
+**Before any MCP write**, run a read-only identity check:
+
+```python
+import unreal
+print(unreal.Paths.project_dir())
+print(unreal.EditorLevelLibrary.get_editor_world().get_name())
+```
+
+Proceed only when the returned project path exactly matches this project. If ambiguous, stop and report active UE processes/ports. `DefaultGame.ini` must keep `bMultiListen=False`, one `ListenPorts` value, matching `ClientPort`, and `ListenHost=127.0.0.1`.
+
+For UE 5.7 safety in the plugin: use `McpSafeAssetSave()` (never `UPackage::SavePackage()`), and own component templates in `SCS_Node` (not Blueprint).
+
+## High-Level Architecture
+
+The `Rok` module is organized into three layers, mirroring the AGENTS.md migration plan:
+
+### 1. Camera & Input (Pawn/Controller)
+- `ARokCameraPawn` — top-down orthographic strategy camera (legacy)
+- `ARokStrategyCameraPawn` — **current** 2.5D perspective camera (TestUnity `RokCitySimpleCamera` model: Unity vertical FOV → UE horizontal FOV, `dxf = distance * fov` zoom curve, zoom-to-cursor, drag pan, keyboard pan, reset)
+- `ARokPlayerController` — input routing
+- `FRokCityViewTypes` / `FRokCityViewMath` — view-math helpers, `MakeDefaultCameraKeys()` mirrors Unity `CameraParamLod.csv`
+
+### 2. Gameplay Subsystems (`UGameInstanceSubsystem`)
+All state, validation, timers, and lookup live here. UI calls into these; they do not call back into UI directly.
+
+| Subsystem | Responsibility |
+|---|---|
+| `URokServerSubsystem` | HTTP client to the dedicated backend. `PingHealth`, `ConnectAsGuest`, `FetchWorldState`, `StartTestMarch`. Configured via `URokServerSettings` (UObject, `Config=Game`, `DefaultConfig`). |
+| `URokBuildingUpgradeSubsystem` | Building queue/timer, reads `Saved/RokUnityMigration/unity_initial_city_state.json`, prefers `UnityInitId_*` tags over actor-label inference. |
+| `URokUnityConfigSubsystem` | Unity `InitBuilding` resolution (`unity_gameapp_city_init_building_resolution.json`). |
+| `URokUnityGameplayCatalogSubsystem` | Read-only catalog: `BuildingTypeConfig`, `Arms`, `Hero`, `HeroSkill`, `HeroTalent`, `TaskMain`. Source for game-system lookups. |
+| `URokUnityRuntimeStateSubsystem` | Local-sim bootstrap state: active task chain, starter hero/troop previews. Marked as bootstrap-only until server state is migrated. |
+| `URokUnityUiCatalogSubsystem` | UI slice coverage + MainInterface module tracking. |
+
+### 3. World Presentation (Actors/Components)
+- `ARokCitySpriteActor` — camera-facing sprite card with translucent alpha + mask material (render queue `2995`, `ZWrite Off`); the accepted runtime path for ordinary buildings, **not** imported FBX/static-mesh cards.
+- `ARokBuildingActor` — building gameplay/upgrade actor
+- `ARokMainHudWidget` / `ARokBuildingPanelWidget` — UMG widgets (presentation shells only — business logic stays in subsystems)
+
+### 4. Maps & Content (`Content/`)
+Generated by `Scripts/*.py` commandlets, not hand-authored. Key maps:
+- `/Game/Maps/L_RokUnityGameAppCity` — default playable preview (62 tagged actors: 10 boundary, 2 ground, 24 initial runtime buildings, 24 supplemental interior preview buildings, 1 CameraActor, 1 PlayerStart)
+- `/Game/Maps/L_RokUnityRuntimeCityAllBuildings` — diagnostic all-buildings slice
+- `/Game/Maps/L_RokUnityRuntimeBoundaryOnly` — boundary-only acceptance map (wall/gate/tower only)
+- `/Game/Maps/L_RokCitySingleBuilding` — single-building validation (`Building_Castle_02` from `Map_TTS.unity`)
+
+## Migration Pipeline (Scripts/)
+
+All Unity → UE work flows through Python scripts under `Scripts/`, each producing a `Saved/RokUnityMigration/*_verify.json` report. **Run generation + verify as a pair; never hand-edit the generated JSON.**
+
+| Pattern | Generator | Verifier |
+|---|---|---|
+| Initial city state | `BuildRokUnityInitialCityState.py` | — |
+| Gameplay catalog | `BuildRokUnityGameplayCatalog.py` | `VerifyRokUnityGameplayCatalog.py` |
+| Runtime bootstrap | `BuildRokUnityRuntimeBootstrap.py` | `VerifyRokUnityRuntimeBootstrap.py` |
+| UI catalog | `BuildRokUnityUiCatalog.py` | `VerifyRokUnityUiCatalog.py` |
+| City boundary | `BuildRokUnityCityBoundary.py` | `VerifyRokUnityCityBoundary.py` |
+| City visual foundation | `BuildRokUnityCityVisualFoundation.py` | `VerifyRokUnityCityVisualFoundation.py` |
+| City visual layer stack | `BuildRokUnityCityVisualLayerStack.py` | `VerifyRokUnityCityVisualLayerStack.py` |
+| Building visual layers | `BuildRokUnityBuildingVisualLayers.py` | `VerifyRokUnityBuildingVisualLayers.py` |
+| Building body/ground | `BuildRokUnityBuildingBodyGroundLayers.py` | `VerifyRokUnityBuildingBodyGroundLayers.py` |
+| Building visual integration | — | `VerifyRokUnityBuildingVisualIntegration.py` |
+| Runtime city all buildings | `CreateRokUnityRuntimeCityAllBuildingsScene.py` | `VerifyRokUnityRuntimeCityAllBuildingsScene.py` |
+| Single building cutout | `PrepareRokSingleBuildingCutout.py` | — |
+| TestUnity view architecture | `BuildRokTestUnityViewArchitecture.py` | `VerifyRokTestUnityViewArchitecture.py` |
+| City placement extraction | `ExtractRokUnityCityPlacement.py` | — |
+
+Generated output goes to `Saved/RokUnityMigration/` (cities/UI/catalog) or `Saved/RokUnityPlacement/` (placement extract).
+
+## Key Conventions
+
+- **C++ owns behavior**, Blueprints are presentation shells. If a Blueprint contains business logic that affects save data, timers, combat, economy, or protocol — migrate it to C++.
+- **Preserve Unity IDs**: `UnityInitId_*`, `UnityBuildingType_*`, `UnityGridX/Y_*`, `UnityMesh_*`, `UnityMaterial_*`, `UnitySourcePrefab_*`, `UnityPrefabObject_*` — rename UE classes freely, but keep these tags on actors for runtime trace-back.
+- **Coordinate conversion**: Unity `(x, y, z)` → UE `(-x, z, y)` for camera right alignment. Unity vertical FOV `12` ≈ UE horizontal FOV `21.17` at 16:9. UE plane UV Y-flip is needed (`ROK_SINGLE_BUILDING_ENGINE_PLANE_FLIP_Y=1`); do not fix by rotating the camera.
+- **Render queues**: `CitySurface` `2992`, `CityTranslucent` `2991`, normal building cards `2995`, town center night `2996` — all `ZWrite Off`. Translucent + sort by `material_render_queue`; never opaque ground that writes depth over sprite cards.
+- **Map size tuning for `/Game/Maps/L_RokUnityGameAppCity`** uses `ROK_RUNTIME_CITY_ALL_BUILDINGS_ASSET_SUFFIX=GameAppRuntimeV5Dense`, `ROK_RUNTIME_BUILDING_CARD_MODE=sprite_actor`, `ROK_RUNTIME_EXTRA_INTERIOR_BUILDINGS=24`.
+- **Forbidden patterns** (caught by verification scripts): `BasicShapes` plane cards as building visuals, cone spires on reference buildings, placeholder cone/cylinder trees, coplanar ground/terrain/sprite layers, hand-placed wall ribbons, PNG cards without mask channels, OBB-faithful scale on reference FBX.
+- **Do not commit**: `Binaries/`, `Intermediate/`, `Saved/`, `DerivedDataCache/`, `Library/`, `Logs/`, `Temp/`, `.vs/`.
+- **Decorative fallback rule**: type 52/53 must not fall back to `build_51_101_1_*` sprites; missing decoration rows stay recorded in `unity_gameapp_city_init_building_resolution.json`.
+
+## Reference Material Layout (`ref/`)
+
+- `ref/client-unity` — Unity client source (Hotfix/MVC mediators, prefabs, materials, scenes). **For city selection arrows**: `CityGlobalMediator.cs`, `building_move_arrow.prefab`, `building_move_bottom.prefab`, `customcitybuilding_move_arrow+21.shader`, `ui_hud` atlas (`Arrow_up/right/down/left`).
+- `ref/server` — backend authority boundaries, protocol shape, admin/web.
+- `ref/resources` — sprites, masks, atlases, terrain textures. **Mask semantics first**: `*_mask.png` red channel = cutout; full-alpha PNG ≠ cutout.
+- `ref/config-tables` — buildings, resources, heroes, troops, technologies, buffs, timers, costs.
+
+When changing reference-derived behavior, cite the `ref/` source path that informed the decision.
+
+## Acceptance Gates
+
+A migration batch is **not** accepted just because it compiles. It must:
+
+1. Load in the editor or commandlet path.
+2. Pass its `Verify*.py` script with `failures=[]`.
+3. Produce visual evidence (screenshot) for scene/UI/material/camera changes, side-by-side against the Unity source.
+4. For data slices: pass table import validation + deterministic local-sim checks where practical, and clearly mark values that are still UE bootstrap placeholders.
+5. For UI slices: open through the real runtime path, not just isolated widget construction.
+
+See `AGENTS.md` for the full current state per slice (prototype scene, city base visual restoration, initial city state, gameplay catalog, runtime bootstrap, UI catalog, city wall, visual layer stack, building visual layers, view architecture).

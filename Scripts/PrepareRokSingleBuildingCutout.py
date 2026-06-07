@@ -7,21 +7,26 @@ from PIL import Image, ImageFilter, ImageOps
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-SOURCE_DIR = PROJECT_ROOT / "ref/resources/Sprite"
-UNITY_GRASS_TEXTURE = PROJECT_ROOT / "ref/client-unity/Assets/BundleAssets/land/Texture/ground_mask_green_02.png"
-UNITY_CITY_GROUND_TEXTURE = PROJECT_ROOT / "ref/client-unity/Assets/BundleAssets/Map/Textures/build_ground_6_101_1.psd"
-UNITY_GRASS_SPLAT_TEXTURE = PROJECT_ROOT / "ref/client-unity/Assets/BundleAssets/Map/Textures/Terrian_Maps/mask_map/build_GrassMap_mask_1.png"
-UNITY_GRASS_TEX0 = PROJECT_ROOT / "ref/client-unity/Assets/BundleAssets/Map/Textures/Terrian_Maps/build_SceneMap_2_lv.tif"
-UNITY_GRASS_TEX1 = PROJECT_ROOT / "ref/client-unity/Assets/BundleAssets/Map/Textures/Terrian_Maps/shared_terrianmap/build_SceneMap_4.tga"
-UNITY_GRASS_TEX2 = PROJECT_ROOT / "ref/client-unity/Assets/BundleAssets/Map/Textures/Terrian_Maps/xijiecao.tga"
-UNITY_GRASS_TEX3 = PROJECT_ROOT / "ref/client-unity/Assets/BundleAssets/Map/Textures/Terrian_Maps/nitudi.tga"
-UNITY_CITY_SPLAT_MASK = PROJECT_ROOT / "ref/client-unity/Assets/T4MOBJ/Terrains/Texture/neichengmask.png"
-UNITY_CITY_SPLAT_TEX0 = PROJECT_ROOT / "ref/client-unity/Assets/BundleAssets/Map/Textures/Terrian_Maps/build_SceneMap_1.png"
-UNITY_CITY_SPLAT_TEX1 = PROJECT_ROOT / "ref/client-unity/Assets/BundleAssets/Map/Textures/Terrian_Maps/shared_terrianmap/build_SceneMap_4.tga"
-UNITY_CITY_SPLAT_TEX2 = PROJECT_ROOT / "ref/client-unity/Assets/BundleAssets/Map/Textures/Terrian_Maps/shared_terrianmap/build_SceneMap_3.tga"
-UNITY_CITY_BACKGROUND_TEXTURE = PROJECT_ROOT / "ref/client-unity/Assets/BundleAssets/Map/Env/Ground/Terrain_grass_08_3g2.png"
-UNITY_CITY_SURFACE_TEXTURE = PROJECT_ROOT / "ref/client-unity/Assets/T4MOBJ/Terrains/Texture/map_incity4.png"
-UNITY_CITY_ROAD_TEXTURE = PROJECT_ROOT / "ref/client-unity/Assets/BundleAssets/land/Texture/shared_landtexture/dirtRoad01.png"
+UNITY_REFERENCE_ROOT = Path(os.environ.get("ROK_UNITY_REFERENCE_ROOT", PROJECT_ROOT / "ref"))
+if not UNITY_REFERENCE_ROOT.is_absolute():
+    UNITY_REFERENCE_ROOT = PROJECT_ROOT / UNITY_REFERENCE_ROOT
+UNITY_CLIENT_ROOT = UNITY_REFERENCE_ROOT / "client-unity"
+UNITY_RESOURCE_ROOT = UNITY_REFERENCE_ROOT / "resources"
+SOURCE_DIR = UNITY_RESOURCE_ROOT / "Sprite"
+UNITY_GRASS_TEXTURE = UNITY_CLIENT_ROOT / "Assets/BundleAssets/land/Texture/ground_mask_green_02.png"
+UNITY_CITY_GROUND_TEXTURE = UNITY_CLIENT_ROOT / "Assets/BundleAssets/Map/Textures/build_ground_6_101_1.psd"
+UNITY_GRASS_SPLAT_TEXTURE = UNITY_CLIENT_ROOT / "Assets/BundleAssets/Map/Textures/Terrian_Maps/mask_map/build_GrassMap_mask_1.png"
+UNITY_GRASS_TEX0 = UNITY_CLIENT_ROOT / "Assets/BundleAssets/Map/Textures/Terrian_Maps/build_SceneMap_2_lv.tif"
+UNITY_GRASS_TEX1 = UNITY_CLIENT_ROOT / "Assets/BundleAssets/Map/Textures/Terrian_Maps/shared_terrianmap/build_SceneMap_4.tga"
+UNITY_GRASS_TEX2 = UNITY_CLIENT_ROOT / "Assets/BundleAssets/Map/Textures/Terrian_Maps/xijiecao.tga"
+UNITY_GRASS_TEX3 = UNITY_CLIENT_ROOT / "Assets/BundleAssets/Map/Textures/Terrian_Maps/nitudi.tga"
+UNITY_CITY_SPLAT_MASK = UNITY_CLIENT_ROOT / "Assets/T4MOBJ/Terrains/Texture/neichengmask.png"
+UNITY_CITY_SPLAT_TEX0 = UNITY_CLIENT_ROOT / "Assets/BundleAssets/Map/Textures/Terrian_Maps/build_SceneMap_1.png"
+UNITY_CITY_SPLAT_TEX1 = UNITY_CLIENT_ROOT / "Assets/BundleAssets/Map/Textures/Terrian_Maps/shared_terrianmap/build_SceneMap_4.tga"
+UNITY_CITY_SPLAT_TEX2 = UNITY_CLIENT_ROOT / "Assets/BundleAssets/Map/Textures/Terrian_Maps/shared_terrianmap/build_SceneMap_3.tga"
+UNITY_CITY_BACKGROUND_TEXTURE = UNITY_CLIENT_ROOT / "Assets/BundleAssets/Map/Env/Ground/Terrain_grass_08_3g2.png"
+UNITY_CITY_SURFACE_TEXTURE = UNITY_CLIENT_ROOT / "Assets/T4MOBJ/Terrains/Texture/map_incity4.png"
+UNITY_CITY_ROAD_TEXTURE = UNITY_CLIENT_ROOT / "Assets/BundleAssets/land/Texture/shared_landtexture/dirtRoad01.png"
 OUTPUT_DIR = PROJECT_ROOT / "Saved/RokUnityPlacement/clean"
 UNITY_CITY_GROUND_OUTPUT = OUTPUT_DIR / "UnityCityGround_build_ground_6_101_1.png"
 UNITY_GRASS_GROUND_OUTPUT = OUTPUT_DIR / "UnityGrassGround_I_TYPE_Grass_01.png"
@@ -30,6 +35,13 @@ UNITY_CITY_BACKGROUND_OUTPUT = OUTPUT_DIR / "UnityCityBackground_Terrain_grass_0
 UNITY_CITY_SURFACE_OUTPUT = OUTPUT_DIR / "UnityCitySurface_map_incity4.png"
 UNITY_CITY_ROAD_OUTPUT = OUTPUT_DIR / "UnityCityRoad_dirtRoad01.png"
 DEFAULT_SPRITE_BASE = "Castle_6_5"
+
+
+def display_path(path):
+    try:
+        return str(path.relative_to(PROJECT_ROOT)).replace("\\", "/")
+    except ValueError:
+        return str(path).replace("\\", "/")
 
 
 def connected_components(active, width, height):
@@ -332,14 +344,14 @@ def prepare_sprite(sprite_base):
 
     meta = {
         "sprite_base": sprite_base,
-        "source_color": str(source_color.relative_to(PROJECT_ROOT)).replace("\\", "/"),
-        "source_mask": str(source_mask.relative_to(PROJECT_ROOT)).replace("\\", "/"),
-        "clean_color": str(output_color.relative_to(PROJECT_ROOT)).replace("\\", "/"),
-        "clean_cropped": str(output_cropped.relative_to(PROJECT_ROOT)).replace("\\", "/"),
-        "body_clean": str(output_body.relative_to(PROJECT_ROOT)).replace("\\", "/"),
-        "body_clean_cropped": str(output_body_cropped.relative_to(PROJECT_ROOT)).replace("\\", "/"),
-        "ground_patch": str(output_ground.relative_to(PROJECT_ROOT)).replace("\\", "/"),
-        "terrain_plate": str(output_terrain.relative_to(PROJECT_ROOT)).replace("\\", "/"),
+        "source_color": display_path(source_color),
+        "source_mask": display_path(source_mask),
+        "clean_color": display_path(output_color),
+        "clean_cropped": display_path(output_cropped),
+        "body_clean": display_path(output_body),
+        "body_clean_cropped": display_path(output_body_cropped),
+        "ground_patch": display_path(output_ground),
+        "terrain_plate": display_path(output_terrain),
         "source_size": [width, height],
         "component_count": len(components),
         "component_keep_rule": "keep largest mask component plus components within margin pixels of the largest component bbox",
@@ -374,8 +386,8 @@ def prepare_city_ground_texture():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     Image.open(UNITY_CITY_GROUND_TEXTURE).convert("RGBA").save(UNITY_CITY_GROUND_OUTPUT)
     return {
-        "source": str(UNITY_CITY_GROUND_TEXTURE.relative_to(PROJECT_ROOT)).replace("\\", "/"),
-        "output": str(UNITY_CITY_GROUND_OUTPUT.relative_to(PROJECT_ROOT)).replace("\\", "/"),
+        "source": display_path(UNITY_CITY_GROUND_TEXTURE),
+        "output": display_path(UNITY_CITY_GROUND_OUTPUT),
         "rule": "Unity Map_TTS CityWall_Ground_1_1_0 material texture cache for UE import",
     }
 
@@ -446,9 +458,9 @@ def prepare_grass_ground_texture(size=1024):
     output.save(UNITY_GRASS_GROUND_OUTPUT)
     return {
         "source_material": "ref/client-unity/Assets/BundleAssets/Map/Textures/Materials/mask_map/I_TYPE_Grass_01.mat",
-        "splat": str(UNITY_GRASS_SPLAT_TEXTURE.relative_to(PROJECT_ROOT)).replace("\\", "/"),
-        "textures": [str(path.relative_to(PROJECT_ROOT)).replace("\\", "/") for path in required[1:]],
-        "output": str(UNITY_GRASS_GROUND_OUTPUT.relative_to(PROJECT_ROOT)).replace("\\", "/"),
+        "splat": display_path(UNITY_GRASS_SPLAT_TEXTURE),
+        "textures": [display_path(path) for path in required[1:]],
+        "output": display_path(UNITY_GRASS_GROUND_OUTPUT),
         "rule": "Baked from Unity I_TYPE_Grass_01 using cm_mask_texture_lod splat blend",
     }
 
@@ -491,9 +503,9 @@ def prepare_city_splat_ground_texture(size=1024):
     output.save(UNITY_CITY_SPLAT_GROUND_OUTPUT)
     return {
         "source_material": "ref/client-unity/Assets/BundleAssets/Map/Building/city_splat_ground_alpha.mat",
-        "splat": str(UNITY_CITY_SPLAT_MASK.relative_to(PROJECT_ROOT)).replace("\\", "/"),
-        "textures": [str(path.relative_to(PROJECT_ROOT)).replace("\\", "/") for path in required[1:]],
-        "output": str(UNITY_CITY_SPLAT_GROUND_OUTPUT.relative_to(PROJECT_ROOT)).replace("\\", "/"),
+        "splat": display_path(UNITY_CITY_SPLAT_MASK),
+        "textures": [display_path(path) for path in required[1:]],
+        "output": display_path(UNITY_CITY_SPLAT_GROUND_OUTPUT),
         "rule": "Baked from Unity city_splat_ground_alpha using custom/city/city_splat_ground splat blend without normalizing splat weights",
     }
 
@@ -505,8 +517,8 @@ def prepare_city_background_texture():
     Image.open(UNITY_CITY_BACKGROUND_TEXTURE).convert("RGBA").save(UNITY_CITY_BACKGROUND_OUTPUT)
     return {
         "source_material": "ref/client-unity/Assets/BundleAssets/Map/Building/city_splat_ground_alpha.mat",
-        "source": str(UNITY_CITY_BACKGROUND_TEXTURE.relative_to(PROJECT_ROOT)).replace("\\", "/"),
-        "output": str(UNITY_CITY_BACKGROUND_OUTPUT.relative_to(PROJECT_ROOT)).replace("\\", "/"),
+        "source": display_path(UNITY_CITY_BACKGROUND_TEXTURE),
+        "output": display_path(UNITY_CITY_BACKGROUND_OUTPUT),
         "rule": "Unity city_splat_ground_alpha _MainTex / CitySurface base ground texture for the soft in-city grass background",
     }
 
@@ -518,8 +530,8 @@ def prepare_city_surface_texture():
     with_soft_rect_alpha(Image.open(UNITY_CITY_SURFACE_TEXTURE), 0.18, 172).save(UNITY_CITY_SURFACE_OUTPUT)
     return {
         "source_material": "ref/client-unity/Assets/BundleAssets/Map/Building/shared_mapbuild/CitySurface_101_1_mat.mat",
-        "source": str(UNITY_CITY_SURFACE_TEXTURE.relative_to(PROJECT_ROOT)).replace("\\", "/"),
-        "output": str(UNITY_CITY_SURFACE_OUTPUT.relative_to(PROJECT_ROOT)).replace("\\", "/"),
+        "source": display_path(UNITY_CITY_SURFACE_TEXTURE),
+        "output": display_path(UNITY_CITY_SURFACE_OUTPUT),
         "rule": "Unity CitySurface_101_1 green in-city surface texture for building-yard diagnostics",
     }
 
@@ -531,8 +543,8 @@ def prepare_city_road_texture():
     road_with_white_alpha(Image.open(UNITY_CITY_ROAD_TEXTURE)).save(UNITY_CITY_ROAD_OUTPUT)
     return {
         "source_material": "ref/client-unity/Assets/BundleAssets/land/Material/shared_material/dryDoad01.mat",
-        "source": str(UNITY_CITY_ROAD_TEXTURE.relative_to(PROJECT_ROOT)).replace("\\", "/"),
-        "output": str(UNITY_CITY_ROAD_OUTPUT.relative_to(PROJECT_ROOT)).replace("\\", "/"),
+        "source": display_path(UNITY_CITY_ROAD_TEXTURE),
+        "output": display_path(UNITY_CITY_ROAD_OUTPUT),
         "rule": "Unity dryDoad01 road texture used by city-building prefab road mesh diagnostics",
     }
 

@@ -23,7 +23,10 @@ enum class ERokBuildingType : uint8
 	Tavern,
 	Monument,
 	ScoutCamp,
-	AllianceCenter
+	AllianceCenter,
+	BuilderHut,
+	NoticeBoard,
+	Decoration
 };
 
 USTRUCT(BlueprintType)
@@ -63,6 +66,87 @@ struct FRokResourceStock
 };
 
 USTRUCT(BlueprintType)
+struct FRokResourceRates
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category="Rok Building")
+	int32 FoodPerHour = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category="Rok Building")
+	int32 WoodPerHour = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category="Rok Building")
+	int32 StonePerHour = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category="Rok Building")
+	int32 GoldPerHour = 0;
+};
+
+USTRUCT(BlueprintType)
+struct FRokUnityBuildingLevelConfig
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category="Rok Building")
+	int32 TypeId = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category="Rok Building")
+	int32 Level = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category="Rok Building")
+	FRokResourceCost Cost;
+
+	UPROPERTY(BlueprintReadOnly, Category="Rok Building")
+	int32 BuildSeconds = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category="Rok Building")
+	int32 Power = 0;
+};
+
+USTRUCT(BlueprintType)
+struct FRokUnityInitialBuildingState
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category="Rok Building")
+	int32 InitId = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category="Rok Building")
+	int32 TypeId = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category="Rok Building")
+	FString DisplayName;
+
+	UPROPERTY(BlueprintReadOnly, Category="Rok Building")
+	int32 Level = 1;
+
+	UPROPERTY(BlueprintReadOnly, Category="Rok Building")
+	int32 GridX = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category="Rok Building")
+	int32 GridY = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category="Rok Building")
+	bool bDecoration = false;
+
+	UPROPERTY(BlueprintReadOnly, Category="Rok Building")
+	FString SpriteName;
+
+	UPROPERTY(BlueprintReadOnly, Category="Rok Building")
+	int32 Power = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category="Rok Building")
+	int32 ProducePerHour = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category="Rok Building")
+	int32 GatherMin = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category="Rok Building")
+	int32 GatherMax = 0;
+};
+
+USTRUCT(BlueprintType)
 struct FRokBuildingState
 {
 	GENERATED_BODY()
@@ -77,7 +161,31 @@ struct FRokBuildingState
 	ERokBuildingType Type = ERokBuildingType::Unknown;
 
 	UPROPERTY(BlueprintReadOnly, Category="Rok Building")
+	int32 UnityInitId = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category="Rok Building")
+	int32 UnityBuildingTypeId = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category="Rok Building")
+	int32 UnityGridX = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category="Rok Building")
+	int32 UnityGridY = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category="Rok Building")
 	int32 Level = 1;
+
+	UPROPERTY(BlueprintReadOnly, Category="Rok Building")
+	int32 Power = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category="Rok Building")
+	int32 ProducePerHour = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category="Rok Building")
+	int32 GatherMin = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category="Rok Building")
+	int32 GatherMax = 0;
 
 	UPROPERTY(BlueprintReadOnly, Category="Rok Building")
 	bool bUpgradeInProgress = false;
@@ -98,6 +206,7 @@ class ROK_API URokBuildingUpgradeSubsystem : public UTickableWorldSubsystem
 	GENERATED_BODY()
 
 public:
+	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Tick(float DeltaTime) override;
 	virtual TStatId GetStatId() const override;
 
@@ -132,6 +241,15 @@ public:
 	int32 GetMaxBuildingLevel() const;
 
 	UFUNCTION(BlueprintCallable, Category="Rok Building")
+	int32 GetMaxBuildingLevelForActor(AActor* Actor);
+
+	UFUNCTION(BlueprintCallable, Category="Rok Building")
+	FRokResourceRates GetProductionRates() const;
+
+	UFUNCTION(BlueprintCallable, Category="Rok Building")
+	int32 GetInitialCityBuildingCount() const;
+
+	UFUNCTION(BlueprintCallable, Category="Rok Building")
 	FText GetBuildingTypeText(ERokBuildingType Type) const;
 
 private:
@@ -141,6 +259,14 @@ private:
 	UPROPERTY()
 	FRokResourceStock CurrentResources;
 
+	UPROPERTY()
+	FRokResourceRates ProductionRates;
+
+	TMap<int32, TMap<int32, FRokUnityBuildingLevelConfig>> UnityBuildingLevelConfigs;
+	bool bUnityBuildingConfigLoaded = false;
+	TMap<int32, FRokUnityInitialBuildingState> UnityInitialBuildings;
+	bool bUnityInitialCityStateLoaded = false;
+
 	FRokBuildingState& GetOrCreateBuildingState(AActor* Actor);
 	bool RefreshUpgradeCompletion(FRokBuildingState& State);
 	FName MakeBuildingKey(AActor* Actor) const;
@@ -149,6 +275,14 @@ private:
 	TSoftObjectPtr<UTexture2D> ResolveIcon(ERokBuildingType Type) const;
 	float GetUpgradeDurationSeconds(const FRokBuildingState& State) const;
 	FRokResourceCost GetNextUpgradeCost(const FRokBuildingState& State) const;
+	int32 GetMaxBuildingLevelForState(const FRokBuildingState& State) const;
+	int32 GetUnityBuildingTypeId(ERokBuildingType Type) const;
+	const FRokUnityBuildingLevelConfig* FindUnityBuildingConfig(const FRokBuildingState& State, int32 TargetLevel) const;
+	bool LoadUnityBuildingLevelConfig();
+	bool LoadUnityInitialCityState();
+	const FRokUnityInitialBuildingState* FindUnityInitialBuilding(AActor* Actor) const;
+	ERokBuildingType MapUnityBuildingTypeId(int32 TypeId) const;
+	int32 ExtractTaggedInt(AActor* Actor, const TCHAR* Prefix) const;
 	bool CanAfford(const FRokResourceCost& Cost) const;
 	void SpendResources(const FRokResourceCost& Cost);
 };

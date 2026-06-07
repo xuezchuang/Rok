@@ -1,14 +1,47 @@
+Ôªø# Global Agent Rules
+
+## Unreal MCP Target Safety
+
+This workstation often has multiple Unreal Editor instances open at the same time. Never assume an MCP tool name maps to the intended project.
+
+Known fixed MCP WebSocket listen ports:
+
+- `D:\ueDemo\MMOARPG`: `127.0.0.1:8090`
+- `D:\ueasset\RPG Metanoia Project v12.8`: `127.0.0.1:8092`
+- `D:\ueasset\Rok`: `127.0.0.1:8094`
+- `D:\ueasset\Easy Survival RPG v5\EasySurvivalRPGv5`: `127.0.0.1:8096`
+- `D:\ueasset\Easy Survival RPG v5\EasySurvivalRPGv5Cpp`: `127.0.0.1:8098`
+
+Project `DefaultGame.ini` files should keep `bMultiListen=False`, one `ListenPorts` value, matching `ClientPort`, and loopback-only `ListenHost=127.0.0.1`.
+
+Before any MCP write operation, first run a read-only identity check against the MCP target:
+
+```python
+import unreal
+print(unreal.Paths.project_dir())
+print(unreal.EditorLevelLibrary.get_editor_world().get_name())
+```
+
+Proceed only when the returned project directory exactly matches the user-requested target project. If multiple UE windows are open and the MCP target is ambiguous, stop and report the active UE processes and ports instead of executing a write.
+
+Do not use `mcp__unreal_engine` or `mcp__unreal_engine_metanoia__` for writes just because the tool name looks relevant. The tool must prove its project path first in the current turn.
+
+If the wrong project is detected, do not save, spawn actors, modify assets, run Python scripts, or issue console commands through that MCP connection.
+
+--- project-doc ---
 # Rok UE5.2 Project Instructions
 
 ## Project Purpose
 
-This repository is a UE 5.2 C++ project for building a strategy/MMO game in the style of "Rise of Kingdoms" / "ÕÚπ˙æı–—": city construction, world map marching, heroes, troops, alliances, timed progression, battle resolution, and server-authoritative multiplayer systems.
+This repository is a UE 5.2 C++ project for building a strategy/MMO game in the style of "Rise of Kingdoms" / "‰∏áÂõΩËßâÈÜí": city construction, world map marching, heroes, troops, alliances, timed progression, battle resolution, and server-authoritative multiplayer systems.
 
 The extracted reference material lives under `ref/`. Treat it as reference input for understanding feature shape, protocol boundaries, data tables, UI flows, and server/client responsibilities. Do not turn the project into a direct source dump; rebuild gameplay as UE-native systems with clean C++ foundations and Blueprint assets used mainly for presentation and editor-authored content.
 
 ## Current Initialization
 
 - Engine target: UE 5.2.
+- On this workstation, the UE 5.2 install for this project is `D:\ue\UE_5.2`. Use `D:\ue\UE_5.2\Engine\Binaries\Win64\UnrealEditor.exe`, `UnrealEditor-Cmd.exe`, and `Engine\Build\BatchFiles\Build.bat` for editor launches, commandlets, map saves, and builds.
+- Do not use `C:\UnrealEngine` for this project. That path is currently UE 5.7, and saving `.umap`/assets with it can make content incompatible with the required UE 5.2 project.
 - Project root: this repository root, the directory containing `Rok.uproject`.
 - Main project file: `Rok.uproject`.
 - Runtime module: `Rok`.
@@ -35,6 +68,65 @@ The extracted reference material lives under `ref/`. Treat it as reference input
 - Keep network/server work behind clear interfaces so the project can later connect to a dedicated backend or local simulation without rewriting UI/gameplay.
 - Build editor automation through `McpAutomationBridge` for repeated Blueprint, asset, and level-generation tasks.
 
+## Full Unity-to-UE Migration Plan
+
+- Treat the Unity project as the executable reference, not as code to dump directly into UE. The migration goal is to preserve gameplay behavior, data identity, visual composition, UI flow, and protocol semantics while rebuilding them as UE-native C++ systems, DataAssets/DataTables, UMG widgets, and Blueprint presentation shells.
+- Every migrated feature must keep a traceable source chain: Unity source path, extracted intermediate data, UE target class/asset/map, and the verification command or screenshot used to accept it. Put hand-authored migration notes in repo docs; put generated manifests under `Saved/RokUnityMigration/` or the existing `Saved/RokUnityPlacement/` area and regenerate them instead of editing them by hand.
+- Do not attempt a one-shot whole-project port. Migrate in playable vertical slices that leave the UE project openable and runnable after each batch.
+- Preserve stable Unity IDs and table keys when they represent product data. Rename UE classes and assets only at the UE architecture boundary, not inside imported data rows where server/config compatibility matters.
+### Dual Unity + UE Learning Workflow
+
+- Treat `D:\ueDemo\Rok-unity` as the live Unity learning/source project, and treat this repository's `ref/` folder as the normalized in-repo snapshot refreshed from that Unity project when explicitly requested.
+- When refreshing `ref/` from `D:\ueDemo\Rok-unity`, copy `client-unity`, `server`, `resources`, and `config-tables`, but do not copy Unity-generated local caches such as `Library/`, `Logs/`, `Temp/`, `Obj/`, `.vs/`, or build outputs.
+- Use `UnityLearning/` in this repository for paired Unity-side learning notes, small experiments, and per-slice comparison records. Do not put Unity generated caches or packaged builds in that folder.
+- For every new migration slice, work both sides together: identify or implement the Unity behavior first, then implement the UE counterpart, and record the Unity source path, Unity experiment path, UE target class/asset/map, and the observed Unity-versus-UE difference.
+- Do not migrate by blindly copying Unity runtime code into UE. Keep the Unity side as the executable reference and learning implementation, while rebuilding the UE side with C++, UMG, DataAssets/DataTables, and reproducible editor automation.
+- When a slice changes both sides, keep paired acceptance evidence under `Saved/RokUnityMigration/` or in a slice note under `UnityLearning/`, including the exact Unity scene/prefab/config and UE script/map touched.
+
+### Source Inventory
+
+- `ref/client-unity` is the source for client bootstrap, scene flow, UI layout, prefabs, materials, shaders, animations, address/package references, and client-only interaction behavior.
+- `ref/resources` is the source for extracted sprites, masks, atlases, effects, icons, terrain textures, and other visual resources. Mask and shader channel semantics must be inspected before judging transparency or cutout behavior.
+- `ref/config-tables` is the source for buildings, resources, heroes, troops, technologies, buffs, timers, costs, unlock rules, and localization/config naming. These become UE DataTables/DataAssets through repeatable import scripts.
+- `ref/server` is the source for authority boundaries, protocol names, request/response shape, validation responsibility, admin/web feature expectations, and later dedicated-backend integration.
+
+### Migration Order
+
+- First restore the visual foundation: Unity camera rules, coordinate conversion, sorting/depth rules, terrain/city-ground layers, sprite mask semantics, reference mesh scale/pivots, and scene placement generated from Unity scenes/prefabs/configs.
+- Then build the UE runtime shell: GameInstance/bootstrap, local simulation boundary, map/scene transition service, asset lookup service, strategy camera pawn/controller, UI root, resource HUD, and a minimal city screen.
+- Then migrate core game systems in C++ behind clear interfaces: resources, buildings, construction queues, speedups, heroes, troops, march commands, world-map entities, alliance placeholders, technology, mail/notice stubs, and battle-resolution adapters.
+- Then migrate UI screens feature by feature. UMG should own layout and presentation; C++ should own state, validation, timers, table lookup, and event routing. Do not port Unity MonoBehaviour/UI scripts as large Blueprint graphs.
+- Finally connect server-shaped behavior. Local simulation should share the same command/query interfaces that a dedicated backend integration will use later, so replacing local simulation with network calls does not rewrite UI/gameplay code.
+
+### UE Architecture Targets
+
+- Use C++ subsystems or manager classes for durable behavior: resource state, build queues, city state, world map state, march state, data registry, asset reference mapping, and protocol/local-simulation adapters.
+- Use actors/components for world presentation: strategy camera pawn, city sprite/mesh actors, placement components, march visual actors, selectable world objects, and diagnostic reference layers.
+- Use DataTables/DataAssets for config-shaped content. Generated importers should validate row counts, key stability, enum compatibility, icon/sprite references, and missing localization.
+- Keep Blueprints as shells for layout, tuning, animation hooks, material instances, and editor-authored presentation. If a Blueprint contains business logic that can affect save data, timers, combat, economy, or protocol behavior, migrate that logic to C++.
+
+### Visual Migration Rules
+
+- City and world placement must be derived from Unity scenes, prefabs, transforms, sorting layers, and config tables. Do not hand-place city buildings for visual matching except in explicitly named diagnostic maps.
+- Preserve Unity-to-UE coordinate and camera semantics. Unity vertical FOV, screen handedness, sprite flip state, and render order must be converted intentionally instead of adjusted by viewport guesswork.
+- Rebuild the Unity material/shader pipeline before widening content. For city visuals this means separating terrain, city surface, road, shadow/decal, ground patch, and building body layers when the Unity source does so.
+- Do not use visible PNG rectangles, BasicShapes card fields, cone/cylinder trees, fake spires, or other placeholders as accepted final city visuals. Diagnostic placeholders may exist only in clearly named scratch maps and must be blocked from promoted maps by verification scripts.
+- Current single-building validation remains pinned to `/Game/Maps/L_RokCitySingleBuilding` until `Building_Castle_02` matches the Unity source well enough. Broader GameApp/city scenes can be generated only after their source extraction and visual layer rules are reproducible.
+
+### Required Automation
+
+- Extraction scripts should parse Unity scenes, prefabs, sprite metadata, material/shader references, config CSVs, and server/protocol tables into explicit JSON/CSV manifests.
+- UE creation scripts should import or update assets, create maps, spawn actors, assign materials, set camera/culling/sorting values, and write reproducible acceptance metadata.
+- Verification scripts should reject known bad patterns: wrong map, missing camera, missing tagged source actors, coplanar layer fighting, placeholder meshes in promoted maps, missing source metadata, rectangular card artifacts where a cutout/mask is expected, and unvalidated reference FBX placement.
+- Before any MCP write, prove the MCP target project path and current world exactly match this project and intended map. If identity is ambiguous, report processes/ports instead of modifying the editor.
+
+### Acceptance Gates
+
+- A migration batch is not accepted just because it compiles. It must also load in the editor or commandlet path, pass its verification script, and produce visual evidence when the change affects scenes, UI, materials, or camera.
+- For visual work, keep side-by-side evidence against the Unity Game view or a Unity-source-derived reference image. If the UE result still reads as flat cards, wrong layer order, mirrored scene, wrong scale, or random terrain clutter, the batch is diagnostic only.
+- For gameplay/data work, acceptance requires table import validation, deterministic local-simulation tests where practical, and a clear boundary showing which behavior is still stubbed.
+- For UI migration, acceptance requires the target widget/screen opening through the real UE runtime path, not only being constructible as an isolated widget asset.
+
 ## Prototype Scene
 
 - First scene: `/Game/Maps/L_RokPrototype_Lit` as the current default map. `/Game/Maps/L_RokPrototype` remains a duplicate baseline for comparison.
@@ -54,10 +146,10 @@ The extracted reference material lives under `ref/`. Treat it as reference input
 ## City Base Visual Restoration Gate
 
 - Current priority for `/Game/Maps/L_RokCityRuntime` and related diagnostic maps is the RoK city-base visual match, not more camera tweaking, UI work, unit movement, or interaction expansion.
-- The 2.5D runtime route is validated enough to continue: orthographic `RokStrategyCameraPawn`, `ARokCitySpriteActor`, and billboard-style city sprites can render in-game without the old tilted-paper failure. Mouse edge scrolling should remain disabled by default while visual validation is in progress.
+- The 2.5D runtime route is validated enough to continue: perspective `RokStrategyCameraPawn`, `ARokCitySpriteActor`, and camera-facing city sprites can render in-game without the old tilted-paper failure. Mouse edge scrolling should remain disabled by default while visual validation is in progress.
 - Do not keep trying to solve the remaining city-base mismatch by only changing camera zoom, actor spacing, translucent alpha, or simple green-screen/flood-fill cutouts. Those attempts produced PNG-card / rectangular-tile artifacts and do not reach the target look.
 - Do not hand-place city buildings for visual matching. City placement must be derived from Unity source data first, then applied to UE.
-- The current placement extraction entrypoint is `Scripts/ExtractRokUnityCityPlacement.py`. It reads Unity scenes under `ref/client-unity/Assets/BundleAssets/Map/Scenes/` plus config CSVs under `ref/config-tables/±‡“ÎøÕªß∂À≈‰÷√/CSV/`, and writes transient outputs under `Saved/RokUnityPlacement/`.
+- The current placement extraction entrypoint is `Scripts/ExtractRokUnityCityPlacement.py`. It reads Unity scenes under `ref/client-unity/Assets/BundleAssets/Map/Scenes/` plus config CSVs under `ref/config-tables/ÁºñËØëÂÆ¢Êà∑Á´ØÈÖçÁΩÆ/CSV/`, and writes transient outputs under `Saved/RokUnityPlacement/`.
 - Treat `Saved/RokUnityPlacement/unity_city_placement.json`, `Saved/RokUnityPlacement/unity_city_placement.csv`, and `Saved/RokUnityPlacement/unity_init_building_grid.csv` as generated evidence for the next UE map-generation step. Re-run the extractor instead of editing those files by hand.
 - MCP automation may be used to create or update UE maps from parsed placement data, but MCP/editor viewport positions are not the source of truth.
 - Old screenshots and derived PNGs under `Saved/` are scratch diagnostics only. Do not use them as authoritative placement, layering, or visual-match evidence after the Unity placement extractor exists.
@@ -88,3 +180,181 @@ The extracted reference material lives under `ref/`. Treat it as reference input
 - Full Unity city ground is a horizontal mesh layer, not a camera-facing sprite. Building sprites must be shifted toward the camera along the Unity camera forward axis (`ROK_SINGLE_BUILDING_BUILDING_LAYER_OFFSET`, negative by default) so the horizontal ground depth does not clip the sprite body.
 - UE `/Engine/BasicShapes/Plane` samples the cleaned texture with the vertical UV direction opposite to Unity `SpriteRenderer`. For the single-building diagnostic, keep Unity `m_FlipY: 0` as source truth, but compensate the UE plane by setting the sprite mesh relative Y scale negative through `ROK_SINGLE_BUILDING_ENGINE_PLANE_FLIP_Y=1`. Do not fix this by rotating or flipping the camera.
 - For the single-building template, first make `/Game/Maps/L_RokCitySingleBuilding` visually correct with one Unity-derived `Building_Castle_02` before widening to multiple city buildings.
+
+## Unity Initial City State Runtime Slice
+
+- Current initial city runtime state is generated by `Scripts/BuildRokUnityInitialCityState.py` from `InitBuilding`, `BuildingLevelData`, `BuildingResourcesProduce`, and `Saved/RokUnityMigration/unity_gameapp_city_init_building_resolution.json`.
+- Generated evidence lives at `Saved/RokUnityMigration/unity_initial_city_state.json`, `Saved/RokUnityMigration/unity_initial_city_state.md`, and `Saved/RokUnityMigration/unity_initial_city_state_verify.json`. Regenerate these files instead of hand-editing them.
+- `/Game/Maps/L_RokUnityGameAppCity` actors spawned from `InitBuilding` must keep `RokUnityConfigInitBuilding`, `UnityInitId_*`, `UnityBuildingType_*`, `UnityBuildingLevel_*`, `UnityGridX_*`, and `UnityGridY_*` tags so runtime systems can map actors back to Unity source data.
+- `URokBuildingUpgradeSubsystem` loads the initial city state manifest and uses `UnityInitId_*` as the preferred identity path before falling back to actor-label inference.
+- `bootstrap_resources` in the initial city state manifest are temporary UE local-simulation values only. Do not treat them as accepted Unity economy data until login rewards, item packages, or server start-state data are migrated.
+## Unity Gameplay Catalog Runtime Slice
+
+- Current broad gameplay catalog is generated by `Scripts/BuildRokUnityGameplayCatalog.py` and verified by `Scripts/VerifyRokUnityGameplayCatalog.py`.
+- Generated evidence lives under `Saved/RokUnityMigration/unity_gameplay_catalog.json`, `Saved/RokUnityMigration/unity_gameplay_catalog.md`, and `Saved/RokUnityMigration/unity_gameplay_catalog_verify.json`.
+- The catalog currently aggregates Unity `BuildingTypeConfig`, `BuildingMenuData`, `BuildingCountLimit`, `BuildingLevelData`, `BuildingResourcesProduce`, `Arms`, `Hero`, `HeroSkill`, `HeroTalent`, and `TaskMain` into one source-traceable manifest.
+- `URokUnityGameplayCatalogSubsystem` is the read-only UE runtime catalog for building types, troop rows, heroes, hero skills/talents summary counts, and main tasks. It should remain config-derived; gameplay systems should reference Unity IDs from it instead of copying rows into ad hoc constants.
+- The HUD builder bar is allowed to show a compact catalog acceptance marker such as `Catalog B30 T54 H46 Q205`; this is a runtime verification aid, not final UI design.
+- Acceptance for this slice is: catalog script passes, catalog verification has no failures, `RokEditor` builds under `D:\ue\UE_5.2`, `/Game/Maps/L_RokUnityGameAppCity` verification passes, and runtime logs include `Loaded Rok Unity gameplay catalog`.
+- `URokUnityGameplayCatalogSubsystem` also exposes `HeroSkill` and `HeroTalent` rows by Unity ID; treat those as the runtime source for later hero/skill/battle adapters.
+## Unity Runtime Bootstrap State Slice
+
+- Current local runtime bootstrap is generated by `Scripts/BuildRokUnityRuntimeBootstrap.py` and verified by `Scripts/VerifyRokUnityRuntimeBootstrap.py`.
+- Generated evidence lives under `Saved/RokUnityMigration/unity_runtime_bootstrap_state.json`, `Saved/RokUnityMigration/unity_runtime_bootstrap_state.md`, and `Saved/RokUnityMigration/unity_runtime_bootstrap_state_verify.json`.
+- The runtime bootstrap derives current task progress from `unity_gameplay_catalog.json` plus `unity_initial_city_state.json`; the current active task is Unity `TaskMain` id `200900` with a building-level evaluator against city hall type `1`.
+- `URokUnityRuntimeStateSubsystem` is the UE local-simulation runtime state layer for the active main task chain, starter hero preview state, starter troop stacks, and trainable troop IDs. It should remain a bootstrap/local-sim layer until real login, roster, inventory, and server state are migrated.
+- Starter hero ownership and troop counts in this manifest are explicit UE bootstrap values. Do not treat them as accepted Unity economy/server start-state data.
+- HUD no-selection status may show the runtime acceptance marker `Task 200900 ... 1/2 | Heroes 5 | Troops 200`; this is a migration/debug marker, not final UI design.
+- Acceptance for this slice is: runtime bootstrap generation passes, runtime bootstrap verification has no failures, `RokEditor` builds under `D:\ue\UE_5.2`, `/Game/Maps/L_RokUnityGameAppCity` verification passes, and runtime logs include `Loaded Rok Unity runtime bootstrap`.
+## Unity UI Catalog Runtime Slice
+
+- Current Unity UI catalog evidence is generated by `Scripts/BuildRokUnityUiCatalog.py` and verified by `Scripts/VerifyRokUnityUiCatalog.py`.
+- Generated evidence lives under `Saved/RokUnityMigration/unity_ui_catalog.json`, `Saved/RokUnityMigration/unity_ui_catalog.md`, and `Saved/RokUnityMigration/unity_ui_catalog_verify.json`. Regenerate these files instead of hand-editing them.
+- `URokUnityUiCatalogSubsystem` is the UE runtime catalog for Unity UI slice coverage, MainInterface module names, UI prefab/view/mediator source status, processed texture source/target status, and accepted runtime target names.
+- The HUD catalog status may show a compact UI acceptance marker such as `UI M17 S5 Tex10/7`; this is a migration/debug marker, not final UI design.
+- Acceptance for this slice is: UI catalog verification has no failures, `RokEditor` builds under `D:\ue\UE_5.2`, `/Game/Maps/L_RokUnityGameAppCity` still opens, and runtime logs include `Loaded Rok Unity UI catalog`.
+
+## Unity GameApp City Wall and UI Polish Slice
+
+- `/Game/Maps/L_RokUnityGameAppCity` should not present as an open floating grass card. Its generator `Scripts/CreateRokUnityGameAppCityScene.py` owns a city-boundary layer using the UE city meshes `SM_Rok_CityWall`, `SM_Rok_CityGate`, and `SM_Rok_CityTower` under the `RokUnityGameAppCity/Walls` folder.
+- Do not use unrelated building sprites as accepted wall stand-ins in this map. `WALL_SPRITE_LAYOUT` is kept empty unless explicitly debugging sprite fallback behavior.
+- HUD and building-panel text should avoid English engineering/debug wording in normal preview. Catalog and UI markers may remain visible as migration acceptance aids, but labels such as builders, build, march, alliance, mail, resources, level, power, queue, ready, upgrade, and max level should be localized for the current Chinese preview path.
+
+## Unity City Boundary Source Migration Slice
+
+- Current city-boundary source evidence is generated by `Scripts/BuildRokUnityCityBoundary.py` and verified by `Scripts/VerifyRokUnityCityBoundary.py`.
+- Generated evidence lives under `Saved/RokUnityMigration/unity_city_boundary.json`, `Saved/RokUnityMigration/unity_city_boundary.md`, and `Saved/RokUnityMigration/unity_city_boundary_verify.json`. Regenerate these files instead of hand-editing them.
+- `unity_city_boundary.json` is the source of truth for city-wall and city-gate prefab GUIDs, source prefab paths, active state, transform overrides, material overrides, and Unity material main-texture chains.
+- Hand-authored wall ribbons or simple 2D border planes are diagnostic/demo-only. They must not be treated as accepted migrated city-wall content when `unity_city_boundary.json` is available.
+- The next accepted city-wall implementation must be driven by this manifest: import/use Unity CityWall and CityGate assets, preserve active/inactive state unless a documented runtime slice overrides it, and tag generated UE actors with source scene/name/prefab GUID/material path metadata.
+
+## Unity Runtime Visual Extraction Rule
+
+- For wall, gate, tower, building, ground, and other promoted city visuals, prefer the Unity runtime extraction route when prefab/scene parsing leaves transform, mesh, or material ambiguity: create a minimal Unity check scene, export the active `MeshRenderer` geometry after runtime prefab transforms to an explicit manifest/OBJ set under `Saved/RokUnityMigration/`, then generate UE actors from that manifest.
+- Do not hand-place or viewport-tune accepted city visuals. UE actor placement should come from exported Unity renderer bounds/vertices using the established coordinate conversion, and generated actors should align visible bounds back to Unity `Renderer.bounds.center` when the mesh is imported as a reusable UE static mesh.
+- Material assignment must follow the Unity renderer material chain: renderer material GUID/path, material asset, shader properties, and `_MainTex`/texture references. Do not infer material solely from the mesh prefix. Known example: Unity runtime `CityTower_101_1_4` / `CityTower_1_4*` uses `CityTower_101_2.mat` and `CityTower_101_2.png`, while the other `CityTower_101_1_*` meshes use `CityTower_101_1_mat.png`.
+- Generated actors must keep source/audit tags such as `UnityMesh_*`, `UnityMaterial_*`, `UnitySourcePrefab_*`, `UnityPrefabObject_*`, and a slice tag such as `RokUnityRuntimeBoundarySource`. Verification scripts must assert actor counts, role counts, material-variant counts, no forbidden layer bleed, and zero failures before the result is treated as accepted.
+- Imported runtime OBJ assets should reuse the generated OBJ basename as the UE asset name so later regeneration can load the existing mesh instead of reimporting and fighting open-editor file locks. Use explicit `ROK_FORCE_REIMPORT=1` only when the runtime OBJ geometry has intentionally changed.
+- Keep accepted diagnostic slices isolated. `/Game/Maps/L_RokUnityRuntimeBoundaryOnly` is the boundary-only acceptance map and must remain wall/gate/tower only; add ground, roads, buildings, or camera/player actors in a separate map or a clearly named next slice.
+- Ordinary initial city buildings are runtime sprite cards, not FBX/static-mesh buildings. Unity `CityGlobalMediator.CreateCityBuilding` instantiates the prefab from `GetModelIdByType`, parents it under `CityBuildingContainer`, sets root local position from `ConvertCityObjTileToLocal`, zeroes root local rotation, and lets `GridCollideItem.SetScale` apply the runtime LOD scale. The visible child is normally a `SpriteRenderer` named `sprite`, with local rotation/position/scale from the prefab and `MaskSprite` supplying the cutout mask.
+- For ordinary buildings, use `D:\ueDemo\Rok-unity\client-unity\Assets\Editor\CodexExportRuntimeCityBuildings.cs` to bake runtime `SpriteRenderer` geometry and `MaskSprite` red-channel alpha to `Saved/RokUnityMigration/unity_runtime_city_buildings_obj_manifest.json` plus OBJ/PNG outputs. In UE, the accepted preview path is the baked PNG/alpha material on `ARokCitySpriteActor` camera-facing cards aligned to the exported Unity `Renderer.bounds.center`; the generated OBJ cards are source evidence/fallback only because importing them as runtime `StaticMeshActor` cards can become edge-on or invisible in PIE.
+- `/Game/Maps/L_RokUnityRuntimeCityAllBuildings` is the current all-building diagnostic slice, and `/Game/Maps/L_RokUnityGameAppCity` may be regenerated from the same runtime manifest for the default playable preview: 10 boundary actors, 2 ground actors, and 24 non-boundary initial-city building sprite cards. Type `6` CityWall and type `8` GuardTower stay in the runtime boundary mesh layer; do not duplicate them as ordinary building cards.
+- Preserve Unity render queue and depth state for runtime city visual layers. Current source evidence: `CitySurface_101_1_mat` renderQueue `2992`, shader `cm_mask_texture_lod`, `ZWrite Off`; `CityTranslucent_101_1_mat` renderQueue `2991`, shader `cm_mask_texture_lod_alpha`, `ZWrite Off`; normal building cards use renderQueue `2995`, `ZWrite Off`; town center `city_building_night.mat` uses renderQueue `2996`, `ZWrite Off`. In UE these ground/building layers must be translucent and sorted by the exported Unity `material_render_queue`; do not use opaque ground materials that write depth over building sprite cards.
+- Runtime/PIE camera for `/Game/Maps/L_RokUnityRuntimeCityAllBuildings` and the default `/Game/Maps/L_RokUnityGameAppCity` preview should use Unity main-city `CameraParamLod` key `city_default`, not the old top orthographic preview camera or the raw `GameApp.unity` WorldCamera startup FOV alone: local diagnostic center `(0,0)`, distance `20`, vertical FOV `7.5`, `dxf=150`, forward `(0,-0.7,0.7)`, UE horizontal FOV about `11.98` at aspect `16:10`. `FRokCityViewMath::MakeDefaultCameraKeys()` should mirror Unity `CameraParamLod.csv`, and generated maps should include one tagged CameraActor and one tagged PlayerStart for visibility while `ARokStrategyCameraPawn` uses the same source camera in Play mode.
+- Accepted default-preview regeneration for this slice is currently: run `Scripts/CreateRokUnityRuntimeCityAllBuildingsScene.py` through `D:\ue\UE_5.2\Engine\Binaries\Win64\UnrealEditor-Cmd.exe` with `ROK_UNITY_RUNTIME_CITY_ALL_BUILDINGS_LEVEL=/Game/Maps/L_RokUnityGameAppCity`, `ROK_RUNTIME_CITY_ALL_BUILDINGS_ASSET_SUFFIX=GameAppRuntimeV5Dense`, `ROK_RUNTIME_BUILDING_CARD_MODE=sprite_actor`, and `ROK_RUNTIME_EXTRA_INTERIOR_BUILDINGS=24`, then run `Scripts/VerifyRokUnityRuntimeCityAllBuildingsScene.py` with the matching manifest/verify paths under `Saved/RokUnityMigration/`.
+- Keep the identity split clear when adding density: the first 24 ordinary buildings come from `unity_runtime_city_buildings_obj_manifest.json` and keep `UnityInitId_*` plus `RokUnityConfigInitBuilding`; supplemental visual-density buildings must be tagged `RokUnityRuntimeInteriorPreview` and `UnityInteriorPreviewId_*`, must not get `UnityInitId_*`, and must source real Unity `build_*_101_1.png` plus `_mask.png` sprites from `client-unity/Assets/BundleAssets/Map/Building/Building_use/shared_building/Building_101/city_building_1/`.
+- The current dense default preview acceptance target is `/Game/Maps/L_RokUnityGameAppCity` with 62 tagged actors: 10 boundary, 2 ground, 24 initial runtime buildings, 24 supplemental interior preview buildings, 1 tagged CameraActor, and 1 tagged PlayerStart. Verification should report `failures=[]`, `initial_buildings=24`, `extra_interior_buildings=24`, `buildings=48`, and the supplemental actors under `RokUnityRuntimeCityAllBuildings/InteriorPreviewBuildings`.
+
+## Unity Migration Decomposition Goals
+
+The full Unity-to-UE migration is a large multi-slice goal. Do not treat quick visual patches, demo placeholders, or hand-authored approximations as accepted migration results. Every slice must be source-driven, reproducible, and small enough to verify independently.
+
+### Goal 1: Source Evidence Manifests
+
+- For each feature area, first extract Unity evidence into a generated manifest under `Saved/RokUnityMigration/` or another documented generated folder.
+- Each manifest must record Unity source paths, stable IDs or GUIDs, active/inactive state, transform/layout data, material/texture references, config keys, and UE target intent.
+- Generated manifests must have matching verify scripts. Regenerate them instead of hand-editing them.
+- A UE implementation may use temporary fallback visuals only when the manifest explicitly marks missing or unresolved source data.
+
+### Goal 2: City Visual Foundation
+
+- Migrate city visuals in source-backed layers: ground, city surface, road, shadow/decal, wall/gate, building body, decoration, tree/resource props, and selection/highlight.
+- `L_RokUnityGameAppCity` must be generated from Unity scene/prefab/config manifests, not from manual placement.
+- City-wall work must use `unity_city_boundary.json` or its successor. Demo 2D ribbons and hand-placed border planes are diagnostic-only.
+- Acceptance requires source tags on generated actors, no placeholder wall/card artifacts in promoted maps, and visual comparison against Unity source evidence.
+
+### Goal 3: Runtime Data and Local Simulation
+
+- Continue migrating gameplay catalog data in small groups: buildings, resources, construction queues, heroes, troops, skills, talents, tasks, technologies, buffs, and rewards.
+- C++ subsystems own state, validation, timers, lookup, and command handling. Blueprints and widgets remain presentation shells.
+- Runtime systems must consume generated Unity manifests or config-derived catalogs rather than hardcoded sample values.
+- Acceptance requires deterministic local-simulation behavior and a clear record of which values remain UE bootstrap placeholders.
+
+### Goal 4: UI Flow Migration
+
+- Migrate UI one screen or flow at a time from Unity prefab/view/mediator evidence.
+- Start with real runtime paths: main HUD, building menu, build city window, worker queue, main task panel, wall UI, troop UI, hero UI, mail/notice stubs, and alliance placeholders.
+- UE UMG should reproduce layout and presentation while C++ owns state and event routing.
+- Debug acceptance markers are allowed during migration, but normal preview labels should not look like engineering diagnostics.
+
+### Goal 5: Interaction and Scene Flow
+
+- Migrate the real player flow in stages: bootstrap, main city entry, building selection, build/upgrade, task progress, training, hero/troop preview, march command, and world-map transition.
+- Each interaction must start from Unity source behavior or config evidence and end in a UE runtime path that can be opened and exercised.
+- If Unity disables or hides a source object by default, preserve that state until the corresponding enable/runtime rule is migrated.
+
+### Goal 6: Server and Protocol Boundary
+
+- Keep backend-shaped behavior behind interfaces so local simulation can later be replaced by dedicated-server or protocol calls.
+- Use `ref/server` for authority boundaries, protocol names, validation responsibility, and admin/web feature expectations.
+- Do not rewrite UI/gameplay when replacing local simulation with network-backed behavior; the command/query interface should stay stable.
+
+### Goal 7: Acceptance and Regression Gates
+
+- Each slice must define its source manifest, UE target classes/assets/maps, generation script, verify script, and runtime evidence.
+- Visual slices must load the target map and provide visual evidence or actor/material/source-tag verification.
+- Data/gameplay slices must pass manifest verification and any deterministic local-simulation checks that are practical.
+- UI slices must open through the real UE runtime path, not just isolated widget construction.
+- Keep the project openable and runnable after each batch.
+
+## Unity City Visual Foundation Slice
+
+- Current city visual foundation evidence is generated by `Scripts/BuildRokUnityCityVisualFoundation.py` and verified by `Scripts/VerifyRokUnityCityVisualFoundation.py`.
+- Generated evidence lives under `Saved/RokUnityMigration/unity_city_visual_foundation.json`, `Saved/RokUnityMigration/unity_city_visual_foundation.md`, and `Saved/RokUnityMigration/unity_city_visual_foundation_verify.json`.
+- This slice ties together Unity-derived ground sources, `unity_city_boundary.json`, `unity_gameapp_city_init_building_resolution.json`, and `unity_initial_city_state.json` for `/Game/Maps/L_RokUnityGameAppCity`.
+- Acceptance for Goal 2 first batch is: visual foundation verification passes, generated map has `RokUnityCityBoundarySource` actors, generated map has `RokUnityConfigInitBuilding` actors, and no accepted `UnityCityBoundary2D` demo actors remain.
+
+## Unity City Visual Layer Stack Slice
+
+- Current city visual layer-stack evidence is generated by `Scripts/BuildRokUnityCityVisualLayerStack.py` and verified by `Scripts/VerifyRokUnityCityVisualLayerStack.py`.
+- Generated evidence lives under `Saved/RokUnityMigration/unity_city_visual_layer_stack.json`, `Saved/RokUnityMigration/unity_city_visual_layer_stack.md`, and `Saved/RokUnityMigration/unity_city_visual_layer_stack_verify.json`.
+- `/Game/Maps/L_RokUnityGameAppCity` should generate terrain, terrain blend, city ground, city surface, and road layers from this manifest before building sprites are spawned.
+- Accepted layer actors must carry `RokUnityCityVisualLayer` plus role/source tags. Missing or manually painted layer substitutes are diagnostic-only unless the manifest explicitly records a missing source fallback.
+
+## Unity Building Visual Layers Slice
+
+- Current per-building visual-layer evidence is generated by `Scripts/BuildRokUnityBuildingVisualLayers.py` and verified by `Scripts/VerifyRokUnityBuildingVisualLayers.py`.
+- Generated evidence lives under `Saved/RokUnityMigration/unity_building_visual_layers.json`, `Saved/RokUnityMigration/unity_building_visual_layers.md`, `Saved/RokUnityMigration/unity_building_visual_layers_verify.json`, and generated textures under `Saved/RokUnityMigration/CityBuildingVisualLayers/`.
+- `/Game/Maps/L_RokUnityGameAppCity` should spawn `RokUnityBuildingVisualLayer` actors before building body sprites when this manifest exists. The first accepted layer role is `UnityBuildingVisualLayer_Shadow`, generated from Unity building mask red channel when available.
+- These building shadow layers are source-derived support layers, not final Unity shader reproduction. Future batches should split ground patch, body, mask, shadow, decal, and selection layers more tightly as Unity shader/material rules are extracted.
+
+## Unity Building Body and Ground Patch Layers Slice
+
+- Current building body/ground-patch evidence is generated by `Scripts/BuildRokUnityBuildingBodyGroundLayers.py` and verified by `Scripts/VerifyRokUnityBuildingBodyGroundLayers.py`.
+- Generated evidence lives under `Saved/RokUnityMigration/unity_building_body_ground_layers.json`, `Saved/RokUnityMigration/unity_building_body_ground_layers.md`, `Saved/RokUnityMigration/unity_building_body_ground_layers_verify.json`, and generated textures under `Saved/RokUnityMigration/CityBuildingBodyGroundLayers/`.
+- `/Game/Maps/L_RokUnityGameAppCity` should spawn `UnityBuildingVisualLayer_GroundPatch` actors before building shadow/body sprites when this manifest exists.
+- Ground patches are estimated from Unity sprite pixels inside the Unity mask and remain source-derived diagnostics until exact Unity material/shader ground separation is migrated.
+
+## Unity Building Visual Integration Slice
+
+- Current building visual integration is verified by `Scripts/VerifyRokUnityBuildingVisualIntegration.py`, which checks that each Unity InitBuilding has generated shadow, body-clean, and ground-patch texture evidence.
+- `/Game/Maps/L_RokUnityGameAppCity` should use `UnityBuildingVisualLayer_BodyClean` actors as the visible building body when `unity_building_body_ground_layers.json` exists, falling back to the older raw sprite+mask path only when the body layer is missing.
+- Accepted building actors must keep gameplay/source tags such as `RokBuilding`, `CityBuilding`, `UnityInitId_*`, `UnityBuildingType_*`, and `UnityGridX/Y_*` even when their visible body comes from a generated clean layer.
+
+## TestUnity 2.5D View Architecture Slice
+
+- `D:\ueDemo\TestUnity` is the current compact Unity reference for the first accepted city-view architecture pass.
+- Its generated evidence is produced by `Scripts/BuildRokTestUnityViewArchitecture.py` and verified by `Scripts/VerifyRokTestUnityViewArchitecture.py`.
+- Generated evidence lives under `Saved/RokUnityMigration/testunity_city_view_architecture.json`, `Saved/RokUnityMigration/testunity_city_view_architecture.md`, and `Saved/RokUnityMigration/testunity_city_view_architecture_verify.json`.
+- `RokStrategyCameraPawn` should follow the TestUnity `RokCitySimpleCamera` model: perspective 2.5D camera, Unity vertical FOV converted to UE horizontal FOV, `dxf = distance * fov` zoom curve, zoom-to-cursor, drag pan, keyboard pan, and reset.
+- Treat view architecture as a separate layer from gameplay/data systems. Source-derived view layers are terrain, city ground, road, shadow, wall, building ground, building body, decoration, unit, HUD, and debug.
+- Do not reintroduce the old orthographic top-down camera as the accepted city preview path unless a new Unity source view explicitly requires it.
+
+## Unity Decoration Resolution Rule
+
+- Do not substitute unrelated decoration sprites when Unity `InitBuilding` resolves to a missing decoration model. In particular, type 52/53 must not fall back to `build_51_101_1_*` just to fill space.
+- Missing decoration rows should remain recorded in `unity_gameapp_city_init_building_resolution.json` and summarized as unresolved decorations in `unity_city_visual_foundation.json` until the real Unity source path is extracted.
+- Type 51 variants under `build_51_101_1_*` are allowed because those files exist as Unity sprite variants for the same model prefix.
+
+
+## UnityLearning Reference-Fidelity Rules
+
+When editing anything under `UnityLearning/`, the implementation must be source-faithful to `ref/` before it is considered acceptable.
+
+- First identify the exact owning reference chain in `ref/client-unity`: runtime script, prefab, material, shader, texture or atlas, config table, and scene/prefab transform data.
+- Do not replace a reference asset or behavior with a hand-made approximation when the reference source exists. This specifically forbids temporary Mesh arrows, guessed icon geometry, guessed shader behavior, guessed positions, or visually similar placeholder objects.
+- For Unity learning slices, mimic the reference object structure first. If ref uses `SpriteRenderer`, use `SpriteRenderer`; if ref uses a prefab hierarchy, reproduce that hierarchy; if ref uses atlas sprites, load those atlas sprites or copy the source atlas into the learning project.
+- Keep reference constants traceable in code comments when practical: source prefab path, source material path, source shader path, atlas sprite names, child names, local transforms, scale, and offset formulas.
+- If a required ref asset cannot be loaded or copied into `UnityLearning/`, stop and report the missing source path instead of inventing a fallback visual.
+- For city selection and move feedback, the current source of truth is `ref/client-unity/Assets/Scripts/Hotfix/MVC/GlobalMediator/CityGlobalMediator.cs`, `ref/client-unity/Assets/BundleAssets/Scene/City/city_function/building_move_arrow.prefab`, `building_move_bottom.prefab`, `city_building_move_arrow.mat`, `customcitybuilding_move_arrow+21.shader`, and `ui_hud` atlas sprites `Arrow_up`, `Arrow_right`, `Arrow_down`, and `Arrow_left`.
+- The reference arrow hierarchy is `building_move_arrow/arrow1..arrow4`; child transforms stay source-shaped and use the source arrow sprites. Do not draw replacement triangles or custom arrow meshes.
