@@ -30,6 +30,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Rok|City")
 	void SetSelectionCollisionEnabled(bool bEnabled);
 
+	UFUNCTION(BlueprintPure, Category = "Rok|City")
+	FVector GetVisualAnchorWorldPosition() const;
+
+	UFUNCTION(BlueprintPure, Category = "Rok|City")
+	FVector GetVisualCenterWorldPosition() const;
+
+	UFUNCTION(BlueprintPure, Category = "Rok|City")
+	bool IsDecoration() const;
+
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Rok|City")
 	TObjectPtr<USceneComponent> SceneRoot;

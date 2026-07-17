@@ -127,10 +127,13 @@ void URokMainHudWidget::RefreshFromSubsystem()
 	if (SelectedBuildingActor.IsValid())
 	{
 		const FRokBuildingState State = UpgradeSubsystem->GetBuildingStateForActor(SelectedBuildingActor.Get());
-		StatusText->SetText(FText::Format(
-			NSLOCTEXT("RokHud", "SelectedBuilding", "{0}  Lv.{1}"),
-			State.DisplayName,
-			FText::AsNumber(State.Level)));
+		const bool bIsDecoration = State.UnityBuildingTypeId >= 51 && State.UnityBuildingTypeId <= 54;
+		StatusText->SetText(bIsDecoration
+			? State.DisplayName
+			: FText::Format(
+				NSLOCTEXT("RokHud", "SelectedBuilding", "{0}  Lv.{1}"),
+				State.DisplayName,
+				FText::AsNumber(State.Level)));
 	}
 	else
 	{

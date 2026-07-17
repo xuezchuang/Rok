@@ -20,8 +20,7 @@ ARokStrategyCameraPawn::ARokStrategyCameraPawn()
 
 	CameraComponent = CreateDefaultSubobject<UCameraComponent>(TEXT("CameraComponent"));
 	CameraComponent->SetupAttachment(SceneRoot);
-	CameraComponent->SetProjectionMode(ECameraProjectionMode::Orthographic);
-	CameraComponent->SetOrthoWidth(DefaultOrthoWidth);
+	CameraComponent->SetProjectionMode(ECameraProjectionMode::Perspective);
 }
 
 void ARokStrategyCameraPawn::BeginPlay()
@@ -131,11 +130,11 @@ void ARokStrategyCameraPawn::UpdateMouseWheelZoom(float DeltaSeconds)
 		return;
 	}
 
-	const float NewOrthoWidth = FMath::Clamp(
-		CameraComponent->OrthoWidth + ZoomDirection * ZoomSpeed * DeltaSeconds * 12.0f,
-		MinOrthoWidth,
-		MaxOrthoWidth);
-	CameraComponent->SetOrthoWidth(NewOrthoWidth);
+	DefaultCameraDistance = FMath::Clamp(
+		DefaultCameraDistance + ZoomDirection * ZoomSpeed * DeltaSeconds * 12.0f,
+		MinCameraDistance,
+		MaxCameraDistance);
+	ApplyCameraDefaults();
 }
 
 void ARokStrategyCameraPawn::ApplyPlanarMovement(const FVector2D& Movement, float DeltaSeconds)
@@ -158,9 +157,27 @@ void ARokStrategyCameraPawn::ApplyCameraDefaults()
 		return;
 	}
 
-	SetActorLocation(DefaultCameraLocation);
-	SetActorRotation(DefaultCameraRotation);
-	CameraComponent->SetProjectionMode(ECameraProjectionMode::Orthographic);
+	float RuntimeDistance = DefaultCameraDistance;
+	float RuntimeYaw = DefaultCameraYaw;
+	float RuntimePitch = DefaultCameraPitch;
+	float RuntimeVerticalFov = DefaultVerticalFov;
+	FParse::Value(FCommandLine::Get(), TEXT("RokCameraDistance="), RuntimeDistance);
+	FParse::Value(FCommandLine::Get(), TEXT("RokCameraYaw="), RuntimeYaw);
+	FParse::Value(FCommandLine::Get(), TEXT("RokCameraPitch="), RuntimePitch);
+	FParse::Value(FCommandLine::Get(), TEXT("RokCameraVerticalFov="), RuntimeVerticalFov);
+	RuntimeDistance = FMath::Clamp(RuntimeDistance, MinCameraDistance, MaxCameraDistance);
+
+	const FRotator RuntimeRotation(RuntimePitch, RuntimeYaw, 0.0f);
+	const FVector RuntimeForward = RuntimeRotation.Vector();
+	SetActorLocation(DefaultCameraTarget - RuntimeForward * RuntimeDistance);
+	SetActorRotation(RuntimeRotation);
+
+	CameraComponent->SetProjectionMode(ECameraProjectionMode::Perspective);
+	CameraComponent->AspectRatio = DefaultAspectRatio;
+	CameraComponent->bConstrainAspectRatio = true;
+	const float HorizontalFov = FMath::RadiansToDegrees(2.0f * FMath::Atan(
+		FMath::Tan(FMath::DegreesToRadians(RuntimeVerticalFov) * 0.5f) * DefaultAspectRatio));
+	CameraComponent->SetFieldOfView(HorizontalFov);
 	float RuntimeOrthoWidth = DefaultOrthoWidth;
 	FParse::Value(FCommandLine::Get(), TEXT("RokOrthoWidth="), RuntimeOrthoWidth);
 	CameraComponent->SetOrthoWidth(FMath::Clamp(RuntimeOrthoWidth, MinOrthoWidth, MaxOrthoWidth));

@@ -29,10 +29,28 @@ private:
 	TObjectPtr<UCameraComponent> CameraComponent;
 
 	UPROPERTY(EditDefaultsOnly, Category="Rok Camera")
-	FVector DefaultCameraLocation = FVector(-2200.0f, -2200.0f, 4450.0f);
+	FVector DefaultCameraTarget = FVector::ZeroVector;
 
 	UPROPERTY(EditDefaultsOnly, Category="Rok Camera")
-	FRotator DefaultCameraRotation = FRotator(-55.0f, 45.0f, 0.0f);
+	float DefaultCameraDistance = 17000.0f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Rok Camera")
+	float MinCameraDistance = 3500.0f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Rok Camera")
+	float MaxCameraDistance = 32000.0f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Rok Camera")
+	float DefaultCameraYaw = 112.0f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Rok Camera")
+	float DefaultCameraPitch = -45.0f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Rok Camera")
+	float DefaultVerticalFov = 7.5f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Rok Camera")
+	float DefaultAspectRatio = 16.0f / 10.0f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Rok Camera")
 	float DefaultOrthoWidth = 1800.0f;

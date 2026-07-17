@@ -2,15 +2,95 @@
 
 #include "Components/InputComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
 #include "HAL/FileManager.h"
 #include "InputCoreTypes.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 #include "Misc/Paths.h"
 #include "RokBuildingActor.h"
+#include "RokCitySpriteActor.h"
 #include "RokMainHudWidget.h"
+#include "StaticMeshResources.h"
 #include "TimerManager.h"
+
+namespace
+{
+bool IsPointInsideTriangle2D(const FVector2D& Point, const FVector2D& A, const FVector2D& B, const FVector2D& C)
+{
+	const auto SignedArea = [](const FVector2D& P1, const FVector2D& P2, const FVector2D& P3)
+	{
+		return (P1.X - P3.X) * (P2.Y - P3.Y) - (P2.X - P3.X) * (P1.Y - P3.Y);
+	};
+
+	const double TriangleArea = SignedArea(A, B, C);
+	if (FMath::IsNearlyZero(TriangleArea, 0.01))
+	{
+		return false;
+	}
+
+	const double D1 = SignedArea(Point, A, B);
+	const double D2 = SignedArea(Point, B, C);
+	const double D3 = SignedArea(Point, C, A);
+	const bool bHasNegative = D1 < -0.01 || D2 < -0.01 || D3 < -0.01;
+	const bool bHasPositive = D1 > 0.01 || D2 > 0.01 || D3 > 0.01;
+	return !(bHasNegative && bHasPositive);
+}
+
+bool IsPointInsideProjectedTightMesh(
+	const APlayerController& PlayerController,
+	const UStaticMeshComponent& MeshComponent,
+	const FVector2D& ScreenPoint)
+{
+	const UStaticMesh* StaticMesh = MeshComponent.GetStaticMesh();
+	const FStaticMeshRenderData* RenderData = StaticMesh ? StaticMesh->GetRenderData() : nullptr;
+	if (!RenderData || RenderData->LODResources.IsEmpty())
+	{
+		return false;
+	}
+
+	const FStaticMeshLODResources& Lod = RenderData->LODResources[0];
+	const FPositionVertexBuffer& PositionBuffer = Lod.VertexBuffers.PositionVertexBuffer;
+	const FIndexArrayView Indices = Lod.IndexBuffer.GetArrayView();
+	const FTransform ComponentTransform = MeshComponent.GetComponentTransform();
+	for (int32 Index = 0; Index + 2 < Indices.Num(); Index += 3)
+	{
+		const uint32 VertexIndices[3] = { Indices[Index], Indices[Index + 1], Indices[Index + 2] };
+		if (VertexIndices[0] >= PositionBuffer.GetNumVertices() ||
+			VertexIndices[1] >= PositionBuffer.GetNumVertices() ||
+			VertexIndices[2] >= PositionBuffer.GetNumVertices())
+		{
+			continue;
+		}
+
+		FVector2D ScreenVertices[3];
+		bool bProjectedTriangle = true;
+		for (int32 VertexIndex = 0; VertexIndex < 3; ++VertexIndex)
+		{
+			const FVector WorldPosition = ComponentTransform.TransformPosition(
+				FVector(PositionBuffer.VertexPosition(VertexIndices[VertexIndex])));
+			if (!PlayerController.ProjectWorldLocationToScreen(WorldPosition, ScreenVertices[VertexIndex], true))
+			{
+				bProjectedTriangle = false;
+				break;
+			}
+		}
+
+		if (bProjectedTriangle && IsPointInsideTriangle2D(
+			ScreenPoint,
+			ScreenVertices[0],
+			ScreenVertices[1],
+			ScreenVertices[2]))
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+}
 
 ARokPlayerController::ARokPlayerController()
 {
@@ -44,6 +124,7 @@ void ARokPlayerController::BeginPlay()
 			UE_LOG(LogTemp, Warning, TEXT("Rok UI: Failed to create Main HUD widget."));
 		}
 	}
+
 }
 
 void ARokPlayerController::ScheduleAutoScreenshot()
@@ -96,21 +177,82 @@ void ARokPlayerController::SetupInputComponent()
 
 void ARokPlayerController::HandlePrimaryClick()
 {
-	FHitResult HitResult;
-	if (!GetHitResultUnderCursor(ECC_Visibility, false, HitResult))
+	AActor* HitActor = FindSelectableBuildingUnderCursor();
+	if (!HitActor)
 	{
+		UE_LOG(LogTemp, Verbose, TEXT("Rok selection: no building under cursor."));
 		ClearSelection();
 		return;
 	}
 
-	AActor* HitActor = HitResult.GetActor();
-	if (!IsSelectableBuilding(HitActor))
-	{
-		ClearSelection();
-		return;
-	}
-
+	UE_LOG(LogTemp, Log, TEXT("Rok selection: selected %s."), *HitActor->GetName());
 	SelectBuilding(HitActor);
+}
+
+AActor* ARokPlayerController::FindSelectableBuildingUnderCursor() const
+{
+	float MouseX = 0.0f;
+	float MouseY = 0.0f;
+	if (!GetMousePosition(MouseX, MouseY))
+	{
+		return nullptr;
+	}
+
+	const FVector2D MousePosition(MouseX, MouseY);
+	AActor* BestActor = nullptr;
+	double BestCameraDistanceSquared = TNumericLimits<double>::Max();
+	const FVector CameraLocation = PlayerCameraManager
+		? PlayerCameraManager->GetCameraLocation()
+		: FVector::ZeroVector;
+
+	for (TActorIterator<AActor> ActorIt(GetWorld()); ActorIt; ++ActorIt)
+	{
+		ARokCitySpriteActor* Candidate = Cast<ARokCitySpriteActor>(*ActorIt);
+		if (!Candidate || Candidate->IsHidden() || !IsSelectableBuilding(Candidate))
+		{
+			continue;
+		}
+
+		UStaticMeshComponent* TightSelectionMesh = nullptr;
+		TInlineComponentArray<UStaticMeshComponent*> MeshComponents;
+		Candidate->GetComponents(MeshComponents);
+		for (UStaticMeshComponent* MeshComponent : MeshComponents)
+		{
+			if (MeshComponent && MeshComponent->GetFName() == TEXT("SelectionTightMesh"))
+			{
+				TightSelectionMesh = MeshComponent;
+				break;
+			}
+		}
+		if (!TightSelectionMesh || !IsPointInsideProjectedTightMesh(*this, *TightSelectionMesh, MousePosition))
+		{
+			continue;
+		}
+
+		const double CameraDistanceSquared = FVector::DistSquared(CameraLocation, Candidate->GetActorLocation());
+		if (CameraDistanceSquared < BestCameraDistanceSquared)
+		{
+			BestActor = Candidate;
+			BestCameraDistanceSquared = CameraDistanceSquared;
+		}
+	}
+
+	if (BestActor)
+	{
+		return BestActor;
+	}
+
+	FHitResult HitResult;
+	if (GetHitResultUnderCursor(ECC_Visibility, false, HitResult) &&
+		HitResult.GetActor() &&
+		IsSelectableBuilding(HitResult.GetActor()))
+	{
+		UE_LOG(LogTemp, Log, TEXT("Rok selection: tight mesh missed; using visibility hit %s."),
+			*HitResult.GetActor()->GetName());
+		return HitResult.GetActor();
+	}
+
+	return nullptr;
 }
 
 void ARokPlayerController::SelectBuilding(AActor* Actor)

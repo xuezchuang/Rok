@@ -96,3 +96,37 @@ void ARokCitySpriteActor::SetSelectionCollisionEnabled(bool bEnabled)
 	SpriteMeshComponent->SetCollisionResponseToAllChannels(ECR_Ignore);
 	SpriteMeshComponent->SetCollisionResponseToChannel(ECC_Visibility, bEnabled ? ECR_Block : ECR_Ignore);
 }
+
+FVector ARokCitySpriteActor::GetVisualAnchorWorldPosition() const
+{
+	// Placement scripts store this as a world-space offset from the center of the
+	// camera-facing sprite card to the Unity building/grid anchor on the ground.
+	return GetActorLocation() + VisualAnchorOffset;
+}
+
+FVector ARokCitySpriteActor::GetVisualCenterWorldPosition() const
+{
+	if (!SpriteMeshComponent)
+	{
+		return GetActorLocation();
+	}
+
+	return SpriteMeshComponent->Bounds.Origin;
+}
+
+bool ARokCitySpriteActor::IsDecoration() const
+{
+	for (const FName& Tag : Tags)
+	{
+		FString TagText = Tag.ToString();
+		if (!TagText.RemoveFromStart(TEXT("UnityBuildingType_")))
+		{
+			continue;
+		}
+
+		const int32 UnityBuildingType = FCString::Atoi(*TagText);
+		return UnityBuildingType >= 51 && UnityBuildingType <= 54;
+	}
+
+	return false;
+}

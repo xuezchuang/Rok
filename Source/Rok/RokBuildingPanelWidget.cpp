@@ -1,6 +1,7 @@
 #include "RokBuildingPanelWidget.h"
 
 #include "Blueprint/WidgetTree.h"
+#include "Blueprint/WidgetLayoutLibrary.h"
 #include "Components/Border.h"
 #include "Components/Button.h"
 #include "Components/CanvasPanel.h"
@@ -14,13 +15,27 @@
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
 #include "Engine/Texture2D.h"
+#include "GameFramework/PlayerController.h"
 #include "RokBuildingUpgradeSubsystem.h"
+#include "RokCitySpriteActor.h"
 #include "Styling/CoreStyle.h"
 #include "Widgets/SWidget.h"
 
 namespace
 {
-const TCHAR* UiUpgradePath = TEXT("/Game/RokPrototype/UI/Processed/rok_upgrade_icon.rok_upgrade_icon");
+const TCHAR* UiBuildingMenuTitlePath = TEXT("/Game/RokPrototype/UI/BuildingMenu/rok_building_menu_title.rok_building_menu_title");
+const TCHAR* UiBuildingMenuLevelPath = TEXT("/Game/RokPrototype/UI/BuildingMenu/rok_building_menu_level_bg.rok_building_menu_level_bg");
+const TCHAR* UiBuildingMenuShadowPath = TEXT("/Game/RokPrototype/UI/BuildingMenu/rok_building_menu_button_shadow.rok_building_menu_button_shadow");
+const TCHAR* UiBuildingMenuInfoPath = TEXT("/Game/RokPrototype/UI/BuildingMenu/rok_building_menu_info.rok_building_menu_info");
+const TCHAR* UiBuildingMenuUpgradePath = TEXT("/Game/RokPrototype/UI/BuildingMenu/rok_building_menu_upgrade.rok_building_menu_upgrade");
+const TCHAR* UiBuildingMenuFeaturePath = TEXT("/Game/RokPrototype/UI/BuildingMenu/rok_building_menu_feature.rok_building_menu_feature");
+const TCHAR* UiBuildingMenuRemovePath = TEXT("/Game/RokPrototype/UI/BuildingMenu/rok_building_menu_remove.rok_building_menu_remove");
+const TCHAR* UiBuildingMenuArrowUpPath = TEXT("/Game/RokPrototype/UI/BuildingMenu/rok_building_select_arrow_up.rok_building_select_arrow_up");
+const TCHAR* UiBuildingMenuArrowLeftPath = TEXT("/Game/RokPrototype/UI/BuildingMenu/rok_building_select_arrow_left.rok_building_select_arrow_left");
+const TCHAR* UiBuildingMenuArrowRightPath = TEXT("/Game/RokPrototype/UI/BuildingMenu/rok_building_select_arrow_right.rok_building_select_arrow_right");
+const TCHAR* UiBuildingMenuArrowDownPath = TEXT("/Game/RokPrototype/UI/BuildingMenu/rok_building_select_arrow_down.rok_building_select_arrow_down");
+
+const FVector2D BuildingMenuSize(472.7f, 340.0f);
 }
 
 void URokBuildingPanelWidget::SetSelectedBuilding(AActor* InBuildingActor)
@@ -48,6 +63,7 @@ void URokBuildingPanelWidget::NativeTick(const FGeometry& MyGeometry, float InDe
 	Super::NativeTick(MyGeometry, InDeltaTime);
 	if (SelectedBuildingActor.IsValid())
 	{
+		UpdateMenuPosition();
 		Refresh();
 	}
 }
@@ -74,7 +90,7 @@ void URokBuildingPanelWidget::HandleUpgradeClicked()
 
 void URokBuildingPanelWidget::BuildWidgetTree()
 {
-	if (!WidgetTree || RootBorder)
+	if (!WidgetTree || WidgetTree->RootWidget)
 	{
 		return;
 	}
@@ -83,136 +99,113 @@ void URokBuildingPanelWidget::BuildWidgetTree()
 	RootCanvas->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
 	WidgetTree->RootWidget = RootCanvas;
 
-	RootBorder = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("BuildingPanelRoot"));
-	UCanvasPanelSlot* PanelSlot = RootCanvas->AddChildToCanvas(RootBorder);
-	PanelSlot->SetAnchors(FAnchors(1.0f, 1.0f, 1.0f, 1.0f));
-	PanelSlot->SetAlignment(FVector2D(1.0f, 1.0f));
-	PanelSlot->SetPosition(FVector2D(-24.0f, -104.0f));
-	PanelSlot->SetSize(FVector2D(440.0f, 238.0f));
-	RootBorder->SetPadding(FMargin(14.0f));
-	RootBorder->SetBrushColor(FLinearColor(0.035f, 0.041f, 0.036f, 0.93f));
+	BuildingMenuRoot = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("BuildingMenuRoot"));
+	BuildingMenuSlot = RootCanvas->AddChildToCanvas(BuildingMenuRoot);
+	BuildingMenuSlot->SetAnchors(FAnchors(0.0f));
+	BuildingMenuSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+	BuildingMenuSlot->SetSize(BuildingMenuSize);
 
-	UVerticalBox* Layout = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("BuildingPanelLayout"));
-	RootBorder->SetContent(Layout);
-
-	UHorizontalBox* HeaderLayout = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("BuildingPanelHeader"));
-	Layout->AddChildToVerticalBox(HeaderLayout);
-
-	BuildingIcon = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("BuildingIcon"));
-	USizeBox* IconBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("BuildingIconBox"));
-	IconBox->SetWidthOverride(132.0f);
-	IconBox->SetHeightOverride(88.0f);
-	IconBox->AddChild(BuildingIcon);
-	UHorizontalBoxSlot* IconSlot = HeaderLayout->AddChildToHorizontalBox(IconBox);
-	IconSlot->SetPadding(FMargin(0.0f, 0.0f, 12.0f, 0.0f));
-	IconSlot->SetVerticalAlignment(VAlign_Top);
-
-	UVerticalBox* SummaryLayout = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("BuildingPanelSummary"));
-	UHorizontalBoxSlot* SummarySlot = HeaderLayout->AddChildToHorizontalBox(SummaryLayout);
-	SummarySlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
-
-	TitleText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("TitleText"));
-	TitleText->SetColorAndOpacity(FSlateColor(FLinearColor(0.95f, 0.88f, 0.72f, 1.0f)));
-	TitleText->SetFont(FSlateFontInfo(FCoreStyle::GetDefaultFont(), 19));
-	TitleText->SetAutoWrapText(true);
-	SummaryLayout->AddChildToVerticalBox(TitleText);
-
-	TypeText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("TypeText"));
-	TypeText->SetColorAndOpacity(FSlateColor(FLinearColor(0.72f, 0.8f, 0.72f, 1.0f)));
-	TypeText->SetFont(FSlateFontInfo(FCoreStyle::GetDefaultFont(), 12));
-	TypeText->SetAutoWrapText(true);
-	SummaryLayout->AddChildToVerticalBox(TypeText);
-
-	LevelText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("LevelText"));
-	LevelText->SetColorAndOpacity(FSlateColor(FLinearColor(0.88f, 0.88f, 0.82f, 1.0f)));
-	LevelText->SetFont(FSlateFontInfo(FCoreStyle::GetDefaultFont(), 14));
-	SummaryLayout->AddChildToVerticalBox(LevelText);
-
-	CostText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("CostText"));
-	CostText->SetColorAndOpacity(FSlateColor(FLinearColor(0.9f, 0.78f, 0.52f, 1.0f)));
-	CostText->SetFont(FSlateFontInfo(FCoreStyle::GetDefaultFont(), 13));
-	CostText->SetAutoWrapText(true);
-	Layout->AddChildToVerticalBox(CostText);
-
-	ResourceText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("ResourceText"));
-	ResourceText->SetColorAndOpacity(FSlateColor(FLinearColor(0.78f, 0.88f, 0.72f, 1.0f)));
-	ResourceText->SetFont(FSlateFontInfo(FCoreStyle::GetDefaultFont(), 12));
-	ResourceText->SetAutoWrapText(true);
-	Layout->AddChildToVerticalBox(ResourceText);
-
-	QueueText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("QueueText"));
-	QueueText->SetColorAndOpacity(FSlateColor(FLinearColor(0.75f, 0.78f, 0.84f, 1.0f)));
-	QueueText->SetFont(FSlateFontInfo(FCoreStyle::GetDefaultFont(), 12));
-	Layout->AddChildToVerticalBox(QueueText);
-
-	TimerText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("TimerText"));
-	TimerText->SetColorAndOpacity(FSlateColor(FLinearColor(0.68f, 0.86f, 1.0f, 1.0f)));
-	TimerText->SetFont(FSlateFontInfo(FCoreStyle::GetDefaultFont(), 12));
-	Layout->AddChildToVerticalBox(TimerText);
-
-	StatusText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("StatusText"));
-	StatusText->SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 0.74f, 0.48f, 1.0f)));
-	StatusText->SetFont(FSlateFontInfo(FCoreStyle::GetDefaultFont(), 12));
-	StatusText->SetAutoWrapText(true);
-	Layout->AddChildToVerticalBox(StatusText);
-
-	UpgradeProgress = WidgetTree->ConstructWidget<UProgressBar>(UProgressBar::StaticClass(), TEXT("UpgradeProgress"));
-	UpgradeProgress->SetFillColorAndOpacity(FLinearColor(0.87f, 0.63f, 0.22f, 1.0f));
-	USizeBox* ProgressBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("UpgradeProgressBox"));
-	ProgressBox->SetHeightOverride(8.0f);
-	ProgressBox->AddChild(UpgradeProgress);
-	Layout->AddChildToVerticalBox(ProgressBox);
-
-	UpgradeButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("UpgradeButton"));
-	UHorizontalBox* UpgradeButtonLayout = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("UpgradeButtonLayout"));
-
-	UImage* UpgradeIcon = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("UpgradeIcon"));
-	if (UTexture2D* UpgradeTexture = LoadUiTexture(UiUpgradePath))
+	auto AddImage = [this](const FName Name, const TCHAR* TexturePath, const FVector2D Position, const FVector2D Size, int32 ZOrder = 0)
 	{
-		UpgradeIcon->SetBrush(MakeImageBrush(UpgradeTexture, FVector2D(28.0f, 28.0f)));
-	}
-	else
-	{
-		UpgradeIcon->SetVisibility(ESlateVisibility::Collapsed);
-	}
-	UHorizontalBoxSlot* UpgradeIconSlot = UpgradeButtonLayout->AddChildToHorizontalBox(UpgradeIcon);
-	UpgradeIconSlot->SetPadding(FMargin(0.0f, 0.0f, 8.0f, 0.0f));
-	UpgradeIconSlot->SetVerticalAlignment(VAlign_Center);
+		UImage* Image = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), Name);
+		Image->SetVisibility(ESlateVisibility::HitTestInvisible);
+		if (UTexture2D* Texture = LoadUiTexture(TexturePath))
+		{
+			Image->SetBrush(MakeImageBrush(Texture, Size));
+		}
+		UCanvasPanelSlot* Slot = BuildingMenuRoot->AddChildToCanvas(Image);
+		Slot->SetPosition(Position);
+		Slot->SetSize(Size);
+		Slot->SetZOrder(ZOrder);
+		return Image;
+	};
 
-	UpgradeButtonText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("UpgradeButtonText"));
-	UpgradeButtonText->SetText(NSLOCTEXT("RokBuildings", "UpgradeButton", "升级"));
-	UpgradeButtonText->SetColorAndOpacity(FSlateColor(FLinearColor(0.94f, 0.86f, 0.72f, 1.0f)));
-	UpgradeButtonText->SetFont(FSlateFontInfo(FCoreStyle::GetDefaultFont(), 14));
-	UpgradeButtonText->SetJustification(ETextJustify::Center);
-	UHorizontalBoxSlot* UpgradeTextSlot = UpgradeButtonLayout->AddChildToHorizontalBox(UpgradeButtonText);
-	UpgradeTextSlot->SetVerticalAlignment(VAlign_Center);
-	UpgradeButton->AddChild(UpgradeButtonLayout);
+	AddImage(TEXT("ButtonShadow"), UiBuildingMenuShadowPath, FVector2D(50.85f, 190.0f), FVector2D(371.0f, 148.0f));
+	AddImage(TEXT("TitleFrame"), UiBuildingMenuTitlePath, FVector2D(100.35f, 0.0f), FVector2D(272.0f, 53.0f), 2);
+	LevelFrameImage = AddImage(TEXT("LevelFrame"), UiBuildingMenuLevelPath, FVector2D(169.85f, 48.0f), FVector2D(133.0f, 26.0f), 2);
+	AddImage(TEXT("SelectArrowUp"), UiBuildingMenuArrowUpPath, FVector2D(220.35f, 82.0f), FVector2D(32.0f, 32.0f), 1);
+	AddImage(TEXT("SelectArrowLeft"), UiBuildingMenuArrowLeftPath, FVector2D(152.35f, 132.0f), FVector2D(32.0f, 32.0f), 1);
+	AddImage(TEXT("SelectArrowRight"), UiBuildingMenuArrowRightPath, FVector2D(288.35f, 132.0f), FVector2D(32.0f, 32.0f), 1);
+	AddImage(TEXT("SelectArrowDown"), UiBuildingMenuArrowDownPath, FVector2D(220.35f, 178.0f), FVector2D(32.0f, 32.0f), 1);
+
+	TitleText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("BuildingTitleText"));
+	TitleText->SetVisibility(ESlateVisibility::HitTestInvisible);
+	TitleText->SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 0.96f, 0.88f, 1.0f)));
+	TitleText->SetFont(FSlateFontInfo(FCoreStyle::GetDefaultFont(), 22));
+	TitleText->SetJustification(ETextJustify::Center);
+	TitleText->SetShadowOffset(FVector2D(1.0f));
+	TitleText->SetShadowColorAndOpacity(FLinearColor(0.2f, 0.05f, 0.01f, 0.8f));
+	UCanvasPanelSlot* TitleSlot = BuildingMenuRoot->AddChildToCanvas(TitleText);
+	TitleSlot->SetPosition(FVector2D(100.35f, 7.0f));
+	TitleSlot->SetSize(FVector2D(272.0f, 36.0f));
+	TitleSlot->SetZOrder(3);
+
+	LevelText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("BuildingLevelText"));
+	LevelText->SetVisibility(ESlateVisibility::HitTestInvisible);
+	LevelText->SetColorAndOpacity(FSlateColor(FLinearColor::White));
+	LevelText->SetFont(FSlateFontInfo(FCoreStyle::GetDefaultFont(), 18));
+	LevelText->SetJustification(ETextJustify::Center);
+	LevelText->SetShadowOffset(FVector2D(1.0f));
+	LevelText->SetShadowColorAndOpacity(FLinearColor(0.0f, 0.0f, 0.0f, 0.75f));
+	UCanvasPanelSlot* LevelSlot = BuildingMenuRoot->AddChildToCanvas(LevelText);
+	LevelSlot->SetPosition(FVector2D(169.85f, 48.0f));
+	LevelSlot->SetSize(FVector2D(133.0f, 26.0f));
+	LevelSlot->SetZOrder(3);
+
+	auto AddCommandButton = [this](
+		const FName ButtonName,
+		const FName ImageName,
+		const TCHAR* TexturePath,
+		const FVector2D Position,
+		TObjectPtr<UImage>& OutImage,
+		TObjectPtr<UCanvasPanelSlot>& OutSlot)
+	{
+		UButton* Button = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), ButtonName);
+		FButtonStyle ButtonStyle;
+		ButtonStyle.Normal.DrawAs = ESlateBrushDrawType::NoDrawType;
+		ButtonStyle.Hovered.DrawAs = ESlateBrushDrawType::NoDrawType;
+		ButtonStyle.Pressed.DrawAs = ESlateBrushDrawType::NoDrawType;
+		ButtonStyle.Disabled.DrawAs = ESlateBrushDrawType::NoDrawType;
+		ButtonStyle.NormalPadding = FMargin(0.0f);
+		ButtonStyle.PressedPadding = FMargin(1.0f);
+		Button->SetStyle(ButtonStyle);
+		UImage* Image = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), ImageName);
+		Image->SetVisibility(ESlateVisibility::HitTestInvisible);
+		if (UTexture2D* Texture = LoadUiTexture(TexturePath))
+		{
+			Image->SetBrush(MakeImageBrush(Texture, FVector2D(88.0f)));
+		}
+		Button->AddChild(Image);
+		UCanvasPanelSlot* Slot = BuildingMenuRoot->AddChildToCanvas(Button);
+		Slot->SetPosition(Position);
+		Slot->SetSize(FVector2D(88.0f));
+		Slot->SetZOrder(4);
+		OutImage = Image;
+		OutSlot = Slot;
+		return Button;
+	};
+
+	TObjectPtr<UImage> InfoButtonImage;
+	TObjectPtr<UImage> UpgradeButtonImage;
+	InfoButton = AddCommandButton(TEXT("BuildingInfoButton"), TEXT("BuildingInfoButtonImage"), UiBuildingMenuInfoPath, FVector2D(92.35f, 224.0f), InfoButtonImage, InfoButtonSlot);
+	UpgradeButton = AddCommandButton(TEXT("BuildingUpgradeButton"), TEXT("BuildingUpgradeButtonImage"), UiBuildingMenuUpgradePath, FVector2D(192.35f, 236.0f), UpgradeButtonImage, UpgradeButtonSlot);
+	FeatureButton = AddCommandButton(TEXT("BuildingFeatureButton"), TEXT("BuildingFeatureButtonImage"), UiBuildingMenuFeaturePath, FVector2D(292.35f, 224.0f), FeatureButtonImage, FeatureButtonSlot);
+	FeatureButtonTexture = LoadUiTexture(UiBuildingMenuFeaturePath);
+	RemoveButtonTexture = LoadUiTexture(UiBuildingMenuRemovePath);
 	UpgradeButton->OnClicked.AddDynamic(this, &URokBuildingPanelWidget::HandleUpgradeClicked);
-
-	UHorizontalBox* ActionLayout = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("BuildingActionLayout"));
-	Layout->AddChildToVerticalBox(ActionLayout);
-	USizeBox* UpgradeButtonBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("UpgradeButtonBox"));
-	UpgradeButtonBox->SetWidthOverride(150.0f);
-	UpgradeButtonBox->SetHeightOverride(34.0f);
-	UpgradeButtonBox->AddChild(UpgradeButton);
-	UHorizontalBoxSlot* UpgradeButtonSlot = ActionLayout->AddChildToHorizontalBox(UpgradeButtonBox);
-	UpgradeButtonSlot->SetPadding(FMargin(0.0f, 7.0f, 10.0f, 0.0f));
 }
 
 void URokBuildingPanelWidget::Refresh()
 {
 	URokBuildingUpgradeSubsystem* UpgradeSubsystem = GetUpgradeSubsystem();
-	if (!UpgradeSubsystem || !SelectedBuildingActor.IsValid() || !TitleText)
+	if (!UpgradeSubsystem || !SelectedBuildingActor.IsValid() || !TitleText || !LevelText || !UpgradeButton)
 	{
 		return;
 	}
 
 	const FRokBuildingState State = UpgradeSubsystem->GetBuildingStateForActor(SelectedBuildingActor.Get());
-	const FRokResourceCost Cost = UpgradeSubsystem->GetNextUpgradeCost(SelectedBuildingActor.Get());
-	const FRokResourceStock Resources = UpgradeSubsystem->GetCurrentResources();
-	const float RemainingSeconds = UpgradeSubsystem->GetRemainingUpgradeSeconds(SelectedBuildingActor.Get());
-	const float Progress = UpgradeSubsystem->GetUpgradeProgress(SelectedBuildingActor.Get());
-	const int32 MaxBuildingLevel = UpgradeSubsystem->GetMaxBuildingLevelForActor(SelectedBuildingActor.Get());
+	const bool bIsDecoration = State.UnityBuildingTypeId >= 51 && State.UnityBuildingTypeId <= 54;
+	ApplyMenuLayout(bIsDecoration);
 	FString CannotUpgradeReason;
 	const bool bCanStartUpgrade = UpgradeSubsystem->CanStartUpgrade(SelectedBuildingActor.Get(), CannotUpgradeReason);
 	if (LastActionMessage.Equals(TEXT("开始升级。")) && !State.bUpgradeInProgress)
@@ -221,86 +214,100 @@ void URokBuildingPanelWidget::Refresh()
 	}
 
 	TitleText->SetText(State.DisplayName);
-	if (State.UnityInitId > 0)
+	if (!bIsDecoration)
 	{
-		TypeText->SetText(FText::Format(
-			NSLOCTEXT("RokBuildings", "UnityTypeFormatCompact", "{0} | 城内坐标 {3},{4}"),
-			UpgradeSubsystem->GetBuildingTypeText(State.Type),
-			FText::AsNumber(State.UnityInitId),
-			FText::AsNumber(State.UnityBuildingTypeId),
-			FText::AsNumber(State.UnityGridX),
-			FText::AsNumber(State.UnityGridY)));
+		LevelText->SetText(FText::Format(
+			NSLOCTEXT("RokBuildings", "UnityBuildingMenuLevel", "等级{0}"),
+			FText::AsNumber(State.Level)));
+		UpgradeButton->SetIsEnabled(bCanStartUpgrade && !State.bUpgradeInProgress);
 	}
-	else
-	{
-		TypeText->SetText(UpgradeSubsystem->GetBuildingTypeText(State.Type));
-	}
-	LevelText->SetText(FText::Format(
-		NSLOCTEXT("RokBuildings", "LevelFormatCompact", "等级 {0}/{1} | 战力 {2}"),
-		FText::AsNumber(State.Level),
-		FText::AsNumber(MaxBuildingLevel),
-		FText::AsNumber(State.Power)));
-	if (State.Level >= MaxBuildingLevel)
-	{
-		CostText->SetText(NSLOCTEXT("RokBuildings", "MaxLevelCostCompact", "已达最高等级"));
-	}
-	else
-	{
-		CostText->SetText(FText::Format(
-			NSLOCTEXT("RokBuildings", "CostFormatCompact", "升级消耗 粮{0} 木{1} 石{2} 金{3}"),
-			FText::AsNumber(Cost.Food),
-			FText::AsNumber(Cost.Wood),
-			FText::AsNumber(Cost.Stone),
-			FText::AsNumber(Cost.Gold)));
-	}
-	ResourceText->SetText(FText::Format(
-		NSLOCTEXT("RokBuildings", "ResourceFormatCompact", "库存 粮{0} 木{1} 石{2} 金{3}"),
-		FText::AsNumber(Resources.Food),
-		FText::AsNumber(Resources.Wood),
-		FText::AsNumber(Resources.Stone),
-		FText::AsNumber(Resources.Gold)));
-	QueueText->SetText(FText::Format(
-		NSLOCTEXT("RokBuildings", "QueueFormatCompact", "建造队列 {0}/{1}"),
-		FText::AsNumber(UpgradeSubsystem->GetActiveUpgradeCount()),
-		FText::AsNumber(UpgradeSubsystem->GetMaxConcurrentUpgrades())));
+}
 
-	if (State.bUpgradeInProgress)
+void URokBuildingPanelWidget::ApplyMenuLayout(bool bIsDecoration)
+{
+	if (bMenuLayoutInitialized && bShowingDecorationLayout == bIsDecoration)
 	{
-		TimerText->SetText(FText::Format(NSLOCTEXT("RokBuildings", "TimerFormatCompact", "升级中 {0}秒"), FText::AsNumber(FMath::CeilToInt(RemainingSeconds))));
-		UpgradeButtonText->SetText(NSLOCTEXT("RokBuildings", "UpgradingButton", "升级中"));
-		UpgradeButton->SetIsEnabled(false);
+		return;
 	}
-	else
+
+	bMenuLayoutInitialized = true;
+	bShowingDecorationLayout = bIsDecoration;
+	const ESlateVisibility LevelVisibility = bIsDecoration
+		? ESlateVisibility::Collapsed
+		: ESlateVisibility::HitTestInvisible;
+	if (LevelFrameImage)
 	{
-		TimerText->SetText(NSLOCTEXT("RokBuildings", "ReadyToUpgrade", "可升级"));
-		UpgradeButtonText->SetText(NSLOCTEXT("RokBuildings", "UpgradeButton", "升级"));
-		UpgradeButton->SetIsEnabled(bCanStartUpgrade);
+		LevelFrameImage->SetVisibility(LevelVisibility);
 	}
-	if (!LastActionMessage.IsEmpty())
+	if (LevelText)
 	{
-		StatusText->SetText(FText::FromString(LastActionMessage));
+		LevelText->SetVisibility(LevelVisibility);
 	}
-	else if (!bCanStartUpgrade && !State.bUpgradeInProgress)
+	if (UpgradeButton)
 	{
-		if (State.Level >= MaxBuildingLevel)
+		UpgradeButton->SetVisibility(bIsDecoration ? ESlateVisibility::Collapsed : ESlateVisibility::Visible);
+	}
+	if (InfoButtonSlot)
+	{
+		InfoButtonSlot->SetPosition(bIsDecoration ? FVector2D(142.35f, 224.0f) : FVector2D(92.35f, 224.0f));
+	}
+	if (UpgradeButtonSlot)
+	{
+		UpgradeButtonSlot->SetPosition(FVector2D(192.35f, 236.0f));
+	}
+	if (FeatureButtonSlot)
+	{
+		FeatureButtonSlot->SetPosition(bIsDecoration ? FVector2D(242.35f, 224.0f) : FVector2D(292.35f, 224.0f));
+	}
+	if (FeatureButtonImage)
+	{
+		UTexture2D* Texture = bIsDecoration ? RemoveButtonTexture.Get() : FeatureButtonTexture.Get();
+		if (Texture)
 		{
-			StatusText->SetText(NSLOCTEXT("RokBuildings", "MaxReachedStatusCompact", "已经达到最高等级。"));
-		}
-		else
-		{
-			StatusText->SetText(FText::FromString(CannotUpgradeReason));
+			FeatureButtonImage->SetBrush(MakeImageBrush(Texture, FVector2D(88.0f)));
 		}
 	}
+}
+
+void URokBuildingPanelWidget::UpdateMenuPosition()
+{
+	if (!BuildingMenuSlot || !SelectedBuildingActor.IsValid())
+	{
+		return;
+	}
+
+	APlayerController* PlayerController = GetOwningPlayer();
+	if (!PlayerController)
+	{
+		return;
+	}
+
+	FVector AnchorWorldPosition = SelectedBuildingActor->GetActorLocation();
+	if (const ARokCitySpriteActor* CitySpriteActor = Cast<ARokCitySpriteActor>(SelectedBuildingActor.Get()))
+	{
+		// Unity decorations (Road and later enum values) use the prefab's first
+		// BoxCollider transform for the menu, title, and move-arrow root. The UE
+		// placement anchor is the corresponding ground/grid position. Ordinary
+		// buildings keep following their rendered center until their dedicated
+		// Unity title/button child transforms are migrated.
+		AnchorWorldPosition = CitySpriteActor->IsDecoration()
+			? CitySpriteActor->GetVisualAnchorWorldPosition()
+			: CitySpriteActor->GetVisualCenterWorldPosition();
+	}
 	else
 	{
-		StatusText->SetText(FText::GetEmpty());
+		FVector BoundsExtent = FVector::ZeroVector;
+		SelectedBuildingActor->GetActorBounds(true, AnchorWorldPosition, BoundsExtent);
 	}
-	UpgradeProgress->SetPercent(Progress);
-
-	UTexture2D* IconTexture = State.Icon.LoadSynchronous();
-	if (IconTexture)
+	FVector2D WidgetPosition;
+	if (UWidgetLayoutLibrary::ProjectWorldLocationToWidgetPosition(PlayerController, AnchorWorldPosition, WidgetPosition, true))
 	{
-		BuildingIcon->SetBrush(MakeImageBrush(IconTexture, FVector2D(132.0f, 88.0f)));
+		BuildingMenuSlot->SetPosition(WidgetPosition);
+		BuildingMenuRoot->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+	}
+	else
+	{
+		BuildingMenuRoot->SetVisibility(ESlateVisibility::Collapsed);
 	}
 }
 

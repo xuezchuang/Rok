@@ -34,6 +34,7 @@ private:
 	void TakeAutoScreenshot();
 	void QuitAfterAutoScreenshot();
 	void HandlePrimaryClick();
+	AActor* FindSelectableBuildingUnderCursor() const;
 	void SelectBuilding(AActor* Actor);
 	void ClearSelection();
 	void ApplySelectionHighlight(AActor* Actor, bool bHighlighted);
