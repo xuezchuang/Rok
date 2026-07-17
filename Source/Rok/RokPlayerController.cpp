@@ -69,8 +69,13 @@ bool IsPointInsideProjectedTightMesh(
 		bool bProjectedTriangle = true;
 		for (int32 VertexIndex = 0; VertexIndex < 3; ++VertexIndex)
 		{
-			const FVector WorldPosition = ComponentTransform.TransformPosition(
-				FVector(PositionBuffer.VertexPosition(VertexIndices[VertexIndex])));
+			FVector ProxyPosition(PositionBuffer.VertexPosition(VertexIndices[VertexIndex]));
+			// The runtime OBJ selection proxies retain Unity's opposite horizontal
+			// handedness: their X/Z coordinates match the visible sprite actors, but
+			// Y is mirrored around the world origin. Apply the same conversion used
+			// by the city placement path before projecting triangles to the screen.
+			ProxyPosition.Y *= -1.0f;
+			const FVector WorldPosition = ComponentTransform.TransformPosition(ProxyPosition);
 			if (!PlayerController.ProjectWorldLocationToScreen(WorldPosition, ScreenVertices[VertexIndex], true))
 			{
 				bProjectedTriangle = false;
@@ -96,6 +101,8 @@ ARokPlayerController::ARokPlayerController()
 {
 	bShowMouseCursor = true;
 	DefaultMouseCursor = EMouseCursor::Default;
+	bEnableClickEvents = true;
+	bEnableMouseOverEvents = true;
 }
 
 void ARokPlayerController::BeginPlay()
@@ -172,15 +179,26 @@ void ARokPlayerController::SetupInputComponent()
 	if (InputComponent)
 	{
 		InputComponent->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &ARokPlayerController::HandlePrimaryClick);
+		UE_LOG(LogTemp, Log, TEXT("Rok selection: primary click binding installed on %s."), *GetName());
+	}
+	else
+	{
+		UE_LOG(LogTemp, Error, TEXT("Rok selection: no InputComponent; primary click cannot be bound."));
 	}
 }
 
 void ARokPlayerController::HandlePrimaryClick()
 {
+	float MouseX = 0.0f;
+	float MouseY = 0.0f;
+	const bool bHasMousePosition = GetMousePosition(MouseX, MouseY);
+	UE_LOG(LogTemp, Log, TEXT("Rok selection: primary click received (mouse=%s %.1f,%.1f)."),
+		bHasMousePosition ? TEXT("valid") : TEXT("invalid"), MouseX, MouseY);
+
 	AActor* HitActor = FindSelectableBuildingUnderCursor();
 	if (!HitActor)
 	{
-		UE_LOG(LogTemp, Verbose, TEXT("Rok selection: no building under cursor."));
+		UE_LOG(LogTemp, Log, TEXT("Rok selection: no selectable building under cursor."));
 		ClearSelection();
 		return;
 	}
@@ -243,13 +261,18 @@ AActor* ARokPlayerController::FindSelectableBuildingUnderCursor() const
 	}
 
 	FHitResult HitResult;
-	if (GetHitResultUnderCursor(ECC_Visibility, false, HitResult) &&
-		HitResult.GetActor() &&
-		IsSelectableBuilding(HitResult.GetActor()))
+	if (GetHitResultUnderCursor(ECC_Visibility, false, HitResult) && HitResult.GetActor())
 	{
-		UE_LOG(LogTemp, Log, TEXT("Rok selection: tight mesh missed; using visibility hit %s."),
-			*HitResult.GetActor()->GetName());
-		return HitResult.GetActor();
+		if (IsSelectableBuilding(HitResult.GetActor()))
+		{
+			UE_LOG(LogTemp, Log, TEXT("Rok selection: tight mesh missed; using visibility hit %s."),
+				*HitResult.GetActor()->GetName());
+			return HitResult.GetActor();
+		}
+
+		UE_LOG(LogTemp, Log, TEXT("Rok selection: visibility fallback blocked by %s.%s."),
+			*HitResult.GetActor()->GetName(),
+			HitResult.GetComponent() ? *HitResult.GetComponent()->GetName() : TEXT("<none>"));
 	}
 
 	return nullptr;

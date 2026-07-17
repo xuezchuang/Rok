@@ -42,7 +42,9 @@ void URokBuildingPanelWidget::SetSelectedBuilding(AActor* InBuildingActor)
 {
 	SelectedBuildingActor = InBuildingActor;
 	LastActionMessage.Reset();
-	SetVisibility(InBuildingActor ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+	// This user widget also spans the full viewport. Only its child UButtons
+	// should consume pointer input; the transparent area must pass world clicks.
+	SetVisibility(InBuildingActor ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
 	Refresh();
 }
 

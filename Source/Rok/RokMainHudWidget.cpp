@@ -151,7 +151,9 @@ TSharedRef<SWidget> URokMainHudWidget::RebuildWidget()
 void URokMainHudWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
-	SetVisibility(ESlateVisibility::Visible);
+	// The HUD fills the viewport. Keep the outer user widget out of the hit-test
+	// path so world clicks pass through, while real child buttons remain usable.
+	SetVisibility(ESlateVisibility::SelfHitTestInvisible);
 	if (BuildingPanelWidget)
 	{
 		BuildingPanelWidget->SetSelectedBuilding(nullptr);
