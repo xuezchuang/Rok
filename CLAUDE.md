@@ -36,16 +36,9 @@ Convenience launcher: `RunRokInitialScene.bat` (sets the above editor + map).
 
 **Never** use older UE installs such as `D:\ue\UE_5.2` or `C:\UnrealEngine` for this project; saving `.umap`/assets with the wrong engine can produce incompatible content.
 
-## MCP Automation Bridge
+## Official Unreal MCP
 
-The project bundles `Plugins/McpAutomationBridge` (WebSocket MCP server inside the editor, 200+ actions). When this workstation has multiple UE editors open, MCP must be targeted explicitly:
-
-| Project | MCP port |
-|---|---|
-| `D:\ueDemo\MMOARPG` | `127.0.0.1:8090` |
-| `D:\ueasset\Rok` (the other Rok) | `127.0.0.1:8094` |
-| **`D:\ueDemo\Rok` (this one)** | **`127.0.0.1:8094`** (verify in `Config/DefaultGame.ini`) |
-| `D:\ueasset\RPG Metanoia Project v12.8` | `127.0.0.1:8092` |
+The project uses UE 5.8's built-in experimental `ModelContextProtocol` plugin. Its HTTP endpoint is `http://127.0.0.1:8010/mcp`, configured in `Config/DefaultEditorPerProjectUserSettings.ini`. No project-relative MCP plugin or legacy WebSocket transport is used.
 
 **Before any MCP write**, run a read-only identity check:
 
@@ -55,9 +48,7 @@ print(unreal.Paths.project_dir())
 print(unreal.EditorLevelLibrary.get_editor_world().get_name())
 ```
 
-Proceed only when the returned project path exactly matches this project. If ambiguous, stop and report active UE processes/ports. `DefaultGame.ini` must keep `bMultiListen=False`, one `ListenPorts` value, matching `ClientPort`, and `ListenHost=127.0.0.1`.
-
-For UE 5.7 safety in the plugin: use `McpSafeAssetSave()` (never `UPackage::SavePackage()`), and own component templates in `SCS_Node` (not Blueprint).
+Proceed only when the returned project path exactly matches this project. If ambiguous, stop and report active UE processes/ports. Confirm the official MCP listener is bound to loopback port `8010` before writes.
 
 ## High-Level Architecture
 

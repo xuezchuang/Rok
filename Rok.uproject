@@ -16,10 +16,6 @@
 			"Enabled": true
 		},
 		{
-			"Name": "McpAutomationBridge",
-			"Enabled": true
-		},
-		{
 			"Name": "EditorScriptingUtilities",
 			"Enabled": true
 		},

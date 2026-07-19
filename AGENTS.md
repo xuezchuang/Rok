@@ -45,7 +45,7 @@ The extracted reference material lives under `ref/`. Treat it as reference input
 - Project root: this repository root, the directory containing `Rok.uproject`.
 - Main project file: `Rok.uproject`.
 - Runtime module: `Rok`.
-- Automation plugin: `Plugins/McpAutomationBridge`, kept as a project-relative plugin directory.
+- Editor automation uses UE 5.8's built-in experimental `ModelContextProtocol` plugin. Its project defaults live in `Config/DefaultEditorPerProjectUserSettings.ini` and use loopback port `8010`.
 - Reference sources: `ref/`, normalized after extraction:
   - `ref/client-unity`: Unity client source and assets for UI, gameplay flow, hotfix/package layout, and client-side system reference.
   - `ref/server`: server source and web/admin material for backend responsibility and protocol/system boundaries.
@@ -66,7 +66,7 @@ The extracted reference material lives under `ref/`. Treat it as reference input
 - Start with a playable prototype loop before heavy content migration: camera, world map pawn/controller, city screen shell, resource counters, timed build queue, troop march command, and one server-shaped simulation boundary.
 - Model data with UE-friendly assets first: DataAssets/DataTables for buildings, troops, heroes, skills, resources, technologies, and buffs.
 - Keep network/server work behind clear interfaces so the project can later connect to a dedicated backend or local simulation without rewriting UI/gameplay.
-- Build editor automation through `McpAutomationBridge` for repeated Blueprint, asset, and level-generation tasks.
+- Build repeated Blueprint, asset, and level-generation workflows through the UE 5.8 built-in `ModelContextProtocol` toolsets.
 
 ## Full Unity-to-UE Migration Plan
 
