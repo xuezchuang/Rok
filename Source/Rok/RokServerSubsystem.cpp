@@ -38,7 +38,7 @@ void URokServerSubsystem::ConnectAsGuest(const FString& InPlayerId)
 
 	TSharedRef<FJsonObject> JsonObject = MakeShared<FJsonObject>();
 	JsonObject->SetStringField(TEXT("player_id"), PlayerId);
-	JsonObject->SetStringField(TEXT("client_version"), TEXT("ue5.2-prototype"));
+	JsonObject->SetStringField(TEXT("client_version"), TEXT("ue5.8-prototype"));
 
 	FString Body;
 	const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Body);

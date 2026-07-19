@@ -142,6 +142,74 @@ def set_tags(actor, tags):
     actor.tags = list(set([str(tag) for tag in list(actor.tags)] + list(tags)))
 
 
+def spawn_actor_from_class_direct(actor_class, location, rotation, scale=None):
+    """Spawn directly through UWorld so UE commandlets do not require PlacementSubsystem."""
+    world = unreal.EditorLevelLibrary.get_editor_world()
+    if not world:
+        raise RuntimeError("Cannot spawn actor without an editor world")
+    scale = scale or unreal.Vector(1.0, 1.0, 1.0)
+    transform = unreal.Transform(location, rotation, scale)
+    gameplay_statics = unreal.GameplayStatics.get_default_object()
+    actor = gameplay_statics.call_method(
+        "BeginDeferredActorSpawnFromClass",
+        (
+            world,
+            actor_class,
+            transform,
+            unreal.SpawnActorCollisionHandlingMethod.ALWAYS_SPAWN,
+            None,
+            unreal.SpawnActorScaleMethod.MULTIPLY_WITH_ROOT,
+        ),
+    )
+    if not actor:
+        raise RuntimeError("BeginDeferredActorSpawnFromClass returned no actor")
+    actor = gameplay_statics.call_method(
+        "FinishSpawningActor",
+        (actor, transform, unreal.SpawnActorScaleMethod.MULTIPLY_WITH_ROOT),
+    )
+    if not actor:
+        raise RuntimeError("FinishSpawningActor returned no actor")
+    return actor
+
+
+def spawn_static_mesh_actor(
+    label,
+    mesh,
+    location,
+    scale,
+    material,
+    rotation=(0.0, 0.0, 0.0),
+    folder="RokUnityFreshCity",
+):
+    """Spawn a StaticMeshActor without the editor-only asset placement subsystem."""
+    actor = spawn_actor_from_class_direct(
+        unreal.StaticMeshActor,
+        unreal.Vector(location[0], location[1], location[2]),
+        proto.make_rotator(rotation[0], rotation[1], rotation[2]),
+    )
+    if not actor:
+        raise RuntimeError("Failed to spawn StaticMeshActor: {0}".format(label))
+    component = actor.get_component_by_class(unreal.StaticMeshComponent)
+    if not component:
+        raise RuntimeError("Spawned StaticMeshActor has no StaticMeshComponent: {0}".format(label))
+    component.set_static_mesh(mesh)
+    actor.set_actor_label(label)
+    actor.set_actor_scale3d(unreal.Vector(scale[0], scale[1], scale[2]))
+    actor.set_folder_path(folder)
+    proto.assign_material(actor, material)
+    for prop, value in [
+        ("cast_shadow", False),
+        ("receive_decals", False),
+        ("use_as_occluder", False),
+        ("collision_enabled", unreal.CollisionEnabled.NO_COLLISION),
+    ]:
+        try:
+            component.set_editor_property(prop, value)
+        except Exception:
+            pass
+    return actor
+
+
 def load_initial_city_manifest():
     path = os.path.join(MIGRATION_ROOT, "unity_initial_city_state.json")
     if not os.path.exists(path):
@@ -844,7 +912,7 @@ def spawn_initial_city_buildings(manifest):
 
 
 def spawn_runtime_chain_markers():
-    root = unreal.EditorLevelLibrary.spawn_actor_from_class(
+    root = spawn_actor_from_class_direct(
         unreal.StaticMeshActor,
         unreal.Vector(0.0, 0.0, 0.0),
         proto.make_rotator(0.0, 0.0, 0.0),
@@ -885,7 +953,7 @@ def spawn_camera_and_player_start():
     center = unity_planar_to_ue(CAMERA_VIEW_CENTER[0], CAMERA_VIEW_CENTER[1], 0.0)
     forward = camera_forward_ue()
     location = center - forward * (CAMERA_VIEW_DISTANCE * UE_UNITS_PER_UNITY_UNIT)
-    camera = unreal.EditorLevelLibrary.spawn_actor_from_class(unreal.CameraActor, location, look_rotation_from_forward(forward))
+    camera = spawn_actor_from_class_direct(unreal.CameraActor, location, look_rotation_from_forward(forward))
     camera.set_actor_label("Camera_RokUnityFreshCity")
     camera.set_folder_path("RokUnityFreshCity/Camera")
     set_tags(camera, [CITY_TAG, "RokUnityFreshCamera"])
@@ -909,7 +977,7 @@ def spawn_camera_and_player_start():
         except Exception as error:
             unreal.log_warning("Skipping fresh city camera post-process setup: {0}".format(error))
 
-    player_start = unreal.EditorLevelLibrary.spawn_actor_from_class(
+    player_start = spawn_actor_from_class_direct(
         unreal.PlayerStart,
         center,
         proto.make_rotator(0.0, 0.0, 0.0),

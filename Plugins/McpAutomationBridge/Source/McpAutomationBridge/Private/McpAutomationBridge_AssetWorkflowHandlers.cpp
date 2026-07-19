@@ -1500,7 +1500,7 @@ bool UMcpAutomationBridgeSubsystem::HandleSetMetadata(
   int32 UpdatedCount = 0;
 
   for (const auto &Kvp : MetadataObj->Values) {
-    const FString &Key = Kvp.Key;
+    const FString Key = FString(*Kvp.Key);
     const TSharedPtr<FJsonValue> &Val = Kvp.Value;
 
     FString ValueString;

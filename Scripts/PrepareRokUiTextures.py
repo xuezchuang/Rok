@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 from pathlib import Path
 
@@ -8,6 +9,64 @@ from PIL import Image
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOT = PROJECT_ROOT / "ref" / "client-unity" / "Assets" / "BundleAssets" / "UI"
 OUTPUT_ROOT = PROJECT_ROOT / "Saved" / "RokUiProcessed"
+
+BUILDING_MENU_ATLAS_SPRITES = (
+    (
+        Path("UITextureStatic") / "ui_res_common" / "ui_mainmenu.png",
+        "pl_mmu_1020",
+        "rok_building_menu_title.png",
+    ),
+    (
+        Path("UITextureStatic") / "ui_res_common" / "ui_mainmenu.png",
+        "pl_mmu_1021",
+        "rok_building_menu_level_bg.png",
+    ),
+    (
+        Path("UITextureStatic") / "ui_res_map" / "ui_hud.png",
+        "btn_hud_1038",
+        "rok_building_menu_info.png",
+    ),
+    (
+        Path("UITextureStatic") / "ui_res_map" / "ui_hud.png",
+        "btn_hud_1011",
+        "rok_building_menu_upgrade.png",
+    ),
+    (
+        Path("UITextureStatic") / "ui_res_map" / "ui_hud.png",
+        "btn_hud_1036",
+        "rok_building_menu_feature.png",
+    ),
+    (
+        Path("UITextureStatic") / "ui_res_map" / "ui_hud.png",
+        "btn_hud_1005",
+        "rok_building_menu_remove.png",
+    ),
+    (
+        Path("UITextureStatic") / "ui_res_map" / "ui_hud.png",
+        "pl_hud_1000",
+        "rok_building_menu_button_shadow.png",
+    ),
+    (
+        Path("UITextureStatic") / "ui_res_map" / "ui_hud.png",
+        "Arrow_down",
+        "rok_building_select_arrow_down.png",
+    ),
+    (
+        Path("UITextureStatic") / "ui_res_map" / "ui_hud.png",
+        "Arrow_left",
+        "rok_building_select_arrow_left.png",
+    ),
+    (
+        Path("UITextureStatic") / "ui_res_map" / "ui_hud.png",
+        "Arrow_right",
+        "rok_building_select_arrow_right.png",
+    ),
+    (
+        Path("UITextureStatic") / "ui_res_map" / "ui_hud.png",
+        "Arrow_up",
+        "rok_building_select_arrow_up.png",
+    ),
+)
 
 
 def alpha_fit_to_canvas(image, canvas_size, max_fraction=0.92):
@@ -60,6 +119,41 @@ def save_upgrade_icon():
         alpha_fit_to_canvas(image, (100, 100), max_fraction=1.0).save(target)
 
 
+def unity_sprite_rect(meta_text, sprite_name):
+    pattern = re.compile(
+        r"(?ms)^    - serializedVersion: 2\s+"
+        r"name: " + re.escape(sprite_name) + r"\s+"
+        r"rect:\s+serializedVersion: 2\s+"
+        r"x: ([-+0-9.eE]+)\s+"
+        r"y: ([-+0-9.eE]+)\s+"
+        r"width: ([-+0-9.eE]+)\s+"
+        r"height: ([-+0-9.eE]+)"
+    )
+    match = pattern.search(meta_text)
+    if not match:
+        raise RuntimeError("Missing Unity atlas sprite metadata: {0}".format(sprite_name))
+    return tuple(int(round(float(value))) for value in match.groups())
+
+
+def save_atlas_sprite(relative_atlas_path, sprite_name, output_name):
+    atlas_path = SOURCE_ROOT / relative_atlas_path
+    meta_path = Path(str(atlas_path) + ".meta")
+    if not atlas_path.exists() or not meta_path.exists():
+        raise FileNotFoundError("Missing Unity UI atlas source: {0}".format(atlas_path))
+    atlas = Image.open(atlas_path).convert("RGBA")
+    x, unity_y, width, height = unity_sprite_rect(
+        meta_path.read_text(encoding="utf-8-sig"),
+        sprite_name,
+    )
+    # Unity sprite metadata uses a bottom-left texture origin; Pillow crops
+    # from the top-left.
+    top = atlas.height - unity_y - height
+    crop = atlas.crop((x, top, x + width, top + height))
+    if crop.size != (width, height):
+        raise RuntimeError("Unexpected crop size for Unity UI sprite {0}".format(sprite_name))
+    crop.save(OUTPUT_ROOT / output_name)
+
+
 def main():
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
 
@@ -70,6 +164,8 @@ def main():
     save_resource_icon(Path("UIEffect") / "UE_ResFly_stone" / "UE_ResFly_stone.png", "rok_stone_icon.png", True)
     save_resource_icon(Path("UIEffect") / "UE_ResFly_gold" / "UE_ResFly_gold.png", "rok_gold_icon.png", False)
     save_upgrade_icon()
+    for atlas_path, sprite_name, output_name in BUILDING_MENU_ATLAS_SPRITES:
+        save_atlas_sprite(atlas_path, sprite_name, output_name)
 
     outputs = sorted(path.name for path in OUTPUT_ROOT.glob("rok_*.png"))
     print("Rok UI processed textures:", ", ".join(outputs))

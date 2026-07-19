@@ -16,11 +16,25 @@ TEXTURES = [
     ("rok_upgrade_icon.png", "rok_upgrade_icon"),
 ]
 
+BUILDING_MENU_TEXTURES = [
+    ("rok_building_menu_title.png", "rok_building_menu_title"),
+    ("rok_building_menu_level_bg.png", "rok_building_menu_level_bg"),
+    ("rok_building_menu_info.png", "rok_building_menu_info"),
+    ("rok_building_menu_upgrade.png", "rok_building_menu_upgrade"),
+    ("rok_building_menu_feature.png", "rok_building_menu_feature"),
+    ("rok_building_menu_remove.png", "rok_building_menu_remove"),
+    ("rok_building_menu_button_shadow.png", "rok_building_menu_button_shadow"),
+    ("rok_building_select_arrow_down.png", "rok_building_select_arrow_down"),
+    ("rok_building_select_arrow_left.png", "rok_building_select_arrow_left"),
+    ("rok_building_select_arrow_right.png", "rok_building_select_arrow_right"),
+    ("rok_building_select_arrow_up.png", "rok_building_select_arrow_up"),
+]
 
-def build_import_task(source_file, destination_name):
+
+def build_import_task(source_file, destination_name, destination_path=DESTINATION_PATH):
     task = unreal.AssetImportTask()
     task.filename = source_file
-    task.destination_path = DESTINATION_PATH
+    task.destination_path = destination_path
     task.destination_name = destination_name
     task.automated = True
     task.replace_existing = True
@@ -45,15 +59,22 @@ def configure_texture(asset_path):
 
 def main():
     unreal.EditorAssetLibrary.make_directory(DESTINATION_PATH)
+    building_menu_destination = "/Game/RokPrototype/UI/BuildingMenu"
+    unreal.EditorAssetLibrary.make_directory(building_menu_destination)
 
     tasks = []
     missing = []
-    for relative_path, destination_name in TEXTURES:
+    imports = [(relative_path, destination_name, DESTINATION_PATH) for relative_path, destination_name in TEXTURES]
+    imports.extend(
+        (relative_path, destination_name, building_menu_destination)
+        for relative_path, destination_name in BUILDING_MENU_TEXTURES
+    )
+    for relative_path, destination_name, destination_path in imports:
         source_file = os.path.join(SOURCE_ROOT, *relative_path.split("/"))
         if not os.path.exists(source_file):
             missing.append(source_file)
             continue
-        tasks.append(build_import_task(source_file, destination_name))
+        tasks.append(build_import_task(source_file, destination_name, destination_path))
 
     if missing:
         raise RuntimeError("Missing Rok UI source textures: {0}".format(", ".join(missing)))
@@ -63,8 +84,8 @@ def main():
     unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks(tasks)
 
     imported_assets = []
-    for _, destination_name in TEXTURES:
-        asset_path = "{0}/{1}".format(DESTINATION_PATH, destination_name)
+    for _, destination_name, destination_path in imports:
+        asset_path = "{0}/{1}".format(destination_path, destination_name)
         if not unreal.EditorAssetLibrary.does_asset_exist(asset_path):
             raise RuntimeError("Rok UI import failed for {0}".format(asset_path))
         configure_texture(asset_path)

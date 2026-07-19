@@ -195,7 +195,7 @@ TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
     if (Payload->TryGetObjectField(TEXT("properties"), PropertiesObj) && PropertiesObj && (*PropertiesObj).IsValid()) {
       // Iterate through all properties in the JSON and apply them via reflection
       for (const auto& Pair : (*PropertiesObj)->Values) {
-        const FString& PropertyName = Pair.Key;
+        const FString PropertyName = FString(*Pair.Key);
         const TSharedPtr<FJsonValue>& PropertyValue = Pair.Value;
 
         // Find the property on the item asset class

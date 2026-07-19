@@ -18,6 +18,7 @@ WIDTH = int(os.environ.get("ROK_CAPTURE_WIDTH", "1600"))
 HEIGHT = int(os.environ.get("ROK_CAPTURE_HEIGHT", "950"))
 CAMERA_LABEL = os.environ.get("ROK_CAPTURE_CAMERA_LABEL", "Camera_RokRuntimeCity")
 SKIP_FINISH_LOADING = os.environ.get("ROK_CAPTURE_SKIP_FINISH_LOADING", "1") == "1"
+SKIP_LEVEL_LOAD = os.environ.get("ROK_CAPTURE_SKIP_LEVEL_LOAD", "0") == "1"
 CAPTURE_METHOD = os.environ.get("ROK_CAPTURE_METHOD", "scene_capture")
 QUIT_EDITOR_ON_DONE = os.environ.get("ROK_CAPTURE_QUIT_EDITOR", "0") == "1"
 USE_SPRITE_PROXY_PLANES = os.environ.get("ROK_CAPTURE_USE_PROXY_PLANES", "1") == "1"
@@ -34,7 +35,17 @@ def find_camera_actor():
     if not unreal.EditorAssetLibrary.does_asset_exist(TARGET_LEVEL):
         raise RuntimeError("Missing capture map: {0}".format(TARGET_LEVEL))
 
-    unreal.EditorLevelLibrary.load_level(TARGET_LEVEL)
+    if SKIP_LEVEL_LOAD:
+        world = unreal.EditorLevelLibrary.get_editor_world()
+        world_path = world.get_path_name().split(".", 1)[0] if world else ""
+        if world_path != TARGET_LEVEL:
+            raise RuntimeError(
+                "Current editor world does not match capture target: expected {0}, got {1}".format(
+                    TARGET_LEVEL, world_path or "<none>"
+                )
+            )
+    else:
+        unreal.EditorLevelLibrary.load_level(TARGET_LEVEL)
     if not SKIP_FINISH_LOADING:
         unreal.AutomationLibrary.finish_loading_before_screenshot()
 

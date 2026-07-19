@@ -290,7 +290,7 @@ TSharedPtr<FJsonObject> UMcpAutomationBridgeSubsystem::HandleManageTextureAction
         };
         for (const auto& Field : Params->Values)
         {
-            if (!ValidParams.Contains(Field.Key))
+            if (!ValidParams.Contains(FString(*Field.Key)))
             {
                 TEXTURE_ERROR_RESPONSE(FString::Printf(TEXT("Invalid parameter: %s"), *Field.Key));
             }
@@ -410,7 +410,7 @@ Response->SetBoolField(TEXT("success"), true);
         };
         for (const auto& Field : Params->Values)
         {
-            if (!ValidParams.Contains(Field.Key))
+            if (!ValidParams.Contains(FString(*Field.Key)))
             {
                 TEXTURE_ERROR_RESPONSE(FString::Printf(TEXT("Invalid parameter: %s"), *Field.Key));
             }
@@ -563,7 +563,7 @@ Response->SetBoolField(TEXT("success"), true);
         };
         for (const auto& Field : Params->Values)
         {
-            if (!ValidParams.Contains(Field.Key))
+            if (!ValidParams.Contains(FString(*Field.Key)))
             {
                 TEXTURE_ERROR_RESPONSE(FString::Printf(TEXT("Invalid parameter: %s"), *Field.Key));
             }
@@ -731,7 +731,7 @@ Response->SetBoolField(TEXT("success"), true);
         };
         for (const auto& Field : Params->Values)
         {
-            if (!ValidParams.Contains(Field.Key))
+            if (!ValidParams.Contains(FString(*Field.Key)))
             {
                 TEXTURE_ERROR_RESPONSE(FString::Printf(TEXT("Invalid parameter: %s"), *Field.Key));
             }
@@ -959,7 +959,7 @@ Response->SetBoolField(TEXT("success"), true);
         };
         for (const auto& Field : Params->Values)
         {
-            if (!ValidParams.Contains(Field.Key))
+            if (!ValidParams.Contains(FString(*Field.Key)))
             {
                 TEXTURE_ERROR_RESPONSE(FString::Printf(TEXT("Invalid parameter: %s"), *Field.Key));
             }
@@ -1029,7 +1029,7 @@ Response->SetBoolField(TEXT("success"), true);
         };
         for (const auto& Field : Params->Values)
         {
-            if (!ValidParams.Contains(Field.Key))
+            if (!ValidParams.Contains(FString(*Field.Key)))
             {
                 TEXTURE_ERROR_RESPONSE(FString::Printf(TEXT("Invalid parameter: %s"), *Field.Key));
             }
@@ -1099,7 +1099,7 @@ Response->SetBoolField(TEXT("success"), true);
         };
         for (const auto& Field : Params->Values)
         {
-            if (!ValidParams.Contains(Field.Key))
+            if (!ValidParams.Contains(FString(*Field.Key)))
             {
                 TEXTURE_ERROR_RESPONSE(FString::Printf(TEXT("Invalid parameter: %s"), *Field.Key));
             }
@@ -1155,7 +1155,7 @@ Response->SetBoolField(TEXT("success"), true);
         };
         for (const auto& Field : Params->Values)
         {
-            if (!ValidParams.Contains(Field.Key))
+            if (!ValidParams.Contains(FString(*Field.Key)))
             {
                 TEXTURE_ERROR_RESPONSE(FString::Printf(TEXT("Invalid parameter: %s"), *Field.Key));
             }
@@ -1210,7 +1210,7 @@ Response->SetBoolField(TEXT("success"), true);
         };
         for (const auto& Field : Params->Values)
         {
-            if (!ValidParams.Contains(Field.Key))
+            if (!ValidParams.Contains(FString(*Field.Key)))
             {
                 TEXTURE_ERROR_RESPONSE(FString::Printf(TEXT("Invalid parameter: %s"), *Field.Key));
             }
@@ -1265,7 +1265,7 @@ Response->SetBoolField(TEXT("success"), true);
         };
         for (const auto& Field : Params->Values)
         {
-            if (!ValidParams.Contains(Field.Key))
+            if (!ValidParams.Contains(FString(*Field.Key)))
             {
                 TEXTURE_ERROR_RESPONSE(FString::Printf(TEXT("Invalid parameter: %s"), *Field.Key));
             }
@@ -1340,7 +1340,7 @@ Response->SetBoolField(TEXT("success"), true);
         };
         for (const auto& Field : Params->Values)
         {
-            if (!ValidParams.Contains(Field.Key))
+            if (!ValidParams.Contains(FString(*Field.Key)))
             {
                 TEXTURE_ERROR_RESPONSE(FString::Printf(TEXT("Invalid parameter: %s"), *Field.Key));
             }
@@ -1507,7 +1507,7 @@ Response->SetBoolField(TEXT("success"), true);
         };
         for (const auto& Field : Params->Values)
         {
-            if (!ValidParams.Contains(Field.Key))
+            if (!ValidParams.Contains(FString(*Field.Key)))
             {
                 TEXTURE_ERROR_RESPONSE(FString::Printf(TEXT("Invalid parameter: %s"), *Field.Key));
             }
@@ -1629,7 +1629,7 @@ Response->SetBoolField(TEXT("success"), true);
         };
         for (const auto& Field : Params->Values)
         {
-            if (!ValidParams.Contains(Field.Key))
+            if (!ValidParams.Contains(FString(*Field.Key)))
             {
                 TEXTURE_ERROR_RESPONSE(FString::Printf(TEXT("Invalid parameter: %s"), *Field.Key));
             }
@@ -1749,7 +1749,7 @@ Response->SetBoolField(TEXT("success"), true);
         };
         for (const auto& Field : Params->Values)
         {
-            if (!ValidParams.Contains(Field.Key))
+            if (!ValidParams.Contains(FString(*Field.Key)))
             {
                 TEXTURE_ERROR_RESPONSE(FString::Printf(TEXT("Invalid parameter: %s"), *Field.Key));
             }
@@ -1841,7 +1841,7 @@ Response->SetBoolField(TEXT("success"), true);
         };
         for (const auto& Field : Params->Values)
         {
-            if (!ValidParams.Contains(Field.Key))
+            if (!ValidParams.Contains(FString(*Field.Key)))
             {
                 TEXTURE_ERROR_RESPONSE(FString::Printf(TEXT("Invalid parameter: %s"), *Field.Key));
             }

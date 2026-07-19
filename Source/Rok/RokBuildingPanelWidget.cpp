@@ -2,6 +2,7 @@
 
 #include "Blueprint/WidgetTree.h"
 #include "Blueprint/WidgetLayoutLibrary.h"
+#include "Camera/CameraComponent.h"
 #include "Components/Border.h"
 #include "Components/Button.h"
 #include "Components/CanvasPanel.h"
@@ -30,12 +31,13 @@ const TCHAR* UiBuildingMenuInfoPath = TEXT("/Game/RokPrototype/UI/BuildingMenu/r
 const TCHAR* UiBuildingMenuUpgradePath = TEXT("/Game/RokPrototype/UI/BuildingMenu/rok_building_menu_upgrade.rok_building_menu_upgrade");
 const TCHAR* UiBuildingMenuFeaturePath = TEXT("/Game/RokPrototype/UI/BuildingMenu/rok_building_menu_feature.rok_building_menu_feature");
 const TCHAR* UiBuildingMenuRemovePath = TEXT("/Game/RokPrototype/UI/BuildingMenu/rok_building_menu_remove.rok_building_menu_remove");
-const TCHAR* UiBuildingMenuArrowUpPath = TEXT("/Game/RokPrototype/UI/BuildingMenu/rok_building_select_arrow_up.rok_building_select_arrow_up");
-const TCHAR* UiBuildingMenuArrowLeftPath = TEXT("/Game/RokPrototype/UI/BuildingMenu/rok_building_select_arrow_left.rok_building_select_arrow_left");
-const TCHAR* UiBuildingMenuArrowRightPath = TEXT("/Game/RokPrototype/UI/BuildingMenu/rok_building_select_arrow_right.rok_building_select_arrow_right");
-const TCHAR* UiBuildingMenuArrowDownPath = TEXT("/Game/RokPrototype/UI/BuildingMenu/rok_building_select_arrow_down.rok_building_select_arrow_down");
-
 const FVector2D BuildingMenuSize(472.7f, 340.0f);
+constexpr float BuildingTitleHeight = 53.0f;
+constexpr float BuildingButtonBoundsGap = 6.0f;
+constexpr float BuildingShadowButtonOffset = 34.0f;
+constexpr float BuildingShadowY = 184.0f;
+constexpr float BuildingInfoButtonY = 218.0f;
+constexpr float BuildingUpgradeButtonY = 230.0f;
 }
 
 void URokBuildingPanelWidget::SetSelectedBuilding(AActor* InBuildingActor)
@@ -104,7 +106,7 @@ void URokBuildingPanelWidget::BuildWidgetTree()
 	BuildingMenuRoot = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("BuildingMenuRoot"));
 	BuildingMenuSlot = RootCanvas->AddChildToCanvas(BuildingMenuRoot);
 	BuildingMenuSlot->SetAnchors(FAnchors(0.0f));
-	BuildingMenuSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+	BuildingMenuSlot->SetAlignment(FVector2D(0.5f, 0.0f));
 	BuildingMenuSlot->SetSize(BuildingMenuSize);
 
 	auto AddImage = [this](const FName Name, const TCHAR* TexturePath, const FVector2D Position, const FVector2D Size, int32 ZOrder = 0)
@@ -122,14 +124,9 @@ void URokBuildingPanelWidget::BuildWidgetTree()
 		return Image;
 	};
 
-	AddImage(TEXT("ButtonShadow"), UiBuildingMenuShadowPath, FVector2D(50.85f, 190.0f), FVector2D(371.0f, 148.0f));
+	AddImage(TEXT("ButtonShadow"), UiBuildingMenuShadowPath, FVector2D(50.85f, BuildingShadowY), FVector2D(371.0f, 148.0f));
 	AddImage(TEXT("TitleFrame"), UiBuildingMenuTitlePath, FVector2D(100.35f, 0.0f), FVector2D(272.0f, 53.0f), 2);
 	LevelFrameImage = AddImage(TEXT("LevelFrame"), UiBuildingMenuLevelPath, FVector2D(169.85f, 48.0f), FVector2D(133.0f, 26.0f), 2);
-	AddImage(TEXT("SelectArrowUp"), UiBuildingMenuArrowUpPath, FVector2D(220.35f, 82.0f), FVector2D(32.0f, 32.0f), 1);
-	AddImage(TEXT("SelectArrowLeft"), UiBuildingMenuArrowLeftPath, FVector2D(152.35f, 132.0f), FVector2D(32.0f, 32.0f), 1);
-	AddImage(TEXT("SelectArrowRight"), UiBuildingMenuArrowRightPath, FVector2D(288.35f, 132.0f), FVector2D(32.0f, 32.0f), 1);
-	AddImage(TEXT("SelectArrowDown"), UiBuildingMenuArrowDownPath, FVector2D(220.35f, 178.0f), FVector2D(32.0f, 32.0f), 1);
-
 	TitleText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("BuildingTitleText"));
 	TitleText->SetVisibility(ESlateVisibility::HitTestInvisible);
 	TitleText->SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 0.96f, 0.88f, 1.0f)));
@@ -189,9 +186,9 @@ void URokBuildingPanelWidget::BuildWidgetTree()
 
 	TObjectPtr<UImage> InfoButtonImage;
 	TObjectPtr<UImage> UpgradeButtonImage;
-	InfoButton = AddCommandButton(TEXT("BuildingInfoButton"), TEXT("BuildingInfoButtonImage"), UiBuildingMenuInfoPath, FVector2D(92.35f, 224.0f), InfoButtonImage, InfoButtonSlot);
-	UpgradeButton = AddCommandButton(TEXT("BuildingUpgradeButton"), TEXT("BuildingUpgradeButtonImage"), UiBuildingMenuUpgradePath, FVector2D(192.35f, 236.0f), UpgradeButtonImage, UpgradeButtonSlot);
-	FeatureButton = AddCommandButton(TEXT("BuildingFeatureButton"), TEXT("BuildingFeatureButtonImage"), UiBuildingMenuFeaturePath, FVector2D(292.35f, 224.0f), FeatureButtonImage, FeatureButtonSlot);
+	InfoButton = AddCommandButton(TEXT("BuildingInfoButton"), TEXT("BuildingInfoButtonImage"), UiBuildingMenuInfoPath, FVector2D(92.35f, BuildingInfoButtonY), InfoButtonImage, InfoButtonSlot);
+	UpgradeButton = AddCommandButton(TEXT("BuildingUpgradeButton"), TEXT("BuildingUpgradeButtonImage"), UiBuildingMenuUpgradePath, FVector2D(192.35f, BuildingUpgradeButtonY), UpgradeButtonImage, UpgradeButtonSlot);
+	FeatureButton = AddCommandButton(TEXT("BuildingFeatureButton"), TEXT("BuildingFeatureButtonImage"), UiBuildingMenuFeaturePath, FVector2D(292.35f, BuildingInfoButtonY), FeatureButtonImage, FeatureButtonSlot);
 	FeatureButtonTexture = LoadUiTexture(UiBuildingMenuFeaturePath);
 	RemoveButtonTexture = LoadUiTexture(UiBuildingMenuRemovePath);
 	UpgradeButton->OnClicked.AddDynamic(this, &URokBuildingPanelWidget::HandleUpgradeClicked);
@@ -251,15 +248,26 @@ void URokBuildingPanelWidget::ApplyMenuLayout(bool bIsDecoration)
 	}
 	if (InfoButtonSlot)
 	{
-		InfoButtonSlot->SetPosition(bIsDecoration ? FVector2D(142.35f, 224.0f) : FVector2D(92.35f, 224.0f));
+		InfoButtonSlot->SetPosition(bIsDecoration
+			? FVector2D(142.35f, BuildingInfoButtonY)
+			: FVector2D(92.35f, BuildingInfoButtonY));
 	}
 	if (UpgradeButtonSlot)
 	{
-		UpgradeButtonSlot->SetPosition(FVector2D(192.35f, 236.0f));
+		UpgradeButtonSlot->SetPosition(FVector2D(192.35f, BuildingUpgradeButtonY));
 	}
 	if (FeatureButtonSlot)
 	{
-		FeatureButtonSlot->SetPosition(bIsDecoration ? FVector2D(242.35f, 224.0f) : FVector2D(292.35f, 224.0f));
+		FeatureButtonSlot->SetPosition(bIsDecoration
+			? FVector2D(242.35f, BuildingInfoButtonY)
+			: FVector2D(292.35f, BuildingInfoButtonY));
+	}
+	if (UWidget* ButtonShadow = WidgetTree->FindWidget(TEXT("ButtonShadow")))
+	{
+		if (UCanvasPanelSlot* ButtonShadowSlot = UWidgetLayoutLibrary::SlotAsCanvasSlot(ButtonShadow))
+		{
+			ButtonShadowSlot->SetPosition(FVector2D(50.85f, BuildingShadowY));
+		}
 	}
 	if (FeatureButtonImage)
 	{
@@ -285,26 +293,146 @@ void URokBuildingPanelWidget::UpdateMenuPosition()
 	}
 
 	FVector AnchorWorldPosition = SelectedBuildingActor->GetActorLocation();
+	FVector VisualBoundsOrigin = AnchorWorldPosition;
+	FVector VisualBoundsExtent = FVector::ZeroVector;
+	bool bIsDecoration = false;
 	if (const ARokCitySpriteActor* CitySpriteActor = Cast<ARokCitySpriteActor>(SelectedBuildingActor.Get()))
 	{
-		// Unity decorations (Road and later enum values) use the prefab's first
-		// BoxCollider transform for the menu, title, and move-arrow root. The UE
-		// placement anchor is the corresponding ground/grid position. Ordinary
-		// buildings keep following their rendered center until their dedicated
-		// Unity title/button child transforms are migrated.
-		AnchorWorldPosition = CitySpriteActor->IsDecoration()
-			? CitySpriteActor->GetVisualAnchorWorldPosition()
-			: CitySpriteActor->GetVisualCenterWorldPosition();
+		// Keep the menu horizontally centered on Unity's building/grid anchor,
+		// while deriving the title and command rows from the rendered sprite
+		// bounds. The sprite bounds change with Unity camera LOD, so a fixed
+		// screen-space offset drifts away from small decorations and large
+		// buildings as the camera zoom changes.
+		AnchorWorldPosition = CitySpriteActor->GetVisualAnchorWorldPosition();
+		VisualBoundsOrigin = CitySpriteActor->GetVisualCenterWorldPosition();
+		VisualBoundsExtent = CitySpriteActor->GetVisualBoundsExtent();
+		bIsDecoration = CitySpriteActor->IsDecoration();
 	}
 	else
 	{
-		FVector BoundsExtent = FVector::ZeroVector;
-		SelectedBuildingActor->GetActorBounds(true, AnchorWorldPosition, BoundsExtent);
+		SelectedBuildingActor->GetActorBounds(true, VisualBoundsOrigin, VisualBoundsExtent);
+		AnchorWorldPosition = VisualBoundsOrigin;
 	}
-	FVector2D WidgetPosition;
-	if (UWidgetLayoutLibrary::ProjectWorldLocationToWidgetPosition(PlayerController, AnchorWorldPosition, WidgetPosition, true))
+
+	// With a constrained camera aspect ratio, UE projects world positions inside
+	// the constrained view rectangle, but the UMG canvas still fills the full
+	// viewport (including letterbox/pillarbox bars). Add that view-rectangle
+	// offset before assigning CanvasPanel positions.
+	FVector2D ConstrainedViewOffset = FVector2D::ZeroVector;
+	if (const AActor* ViewTarget = PlayerController->GetViewTarget())
 	{
-		BuildingMenuSlot->SetPosition(WidgetPosition);
+		if (const UCameraComponent* CameraComponent = ViewTarget->FindComponentByClass<UCameraComponent>();
+			CameraComponent && CameraComponent->bConstrainAspectRatio && CameraComponent->AspectRatio > UE_SMALL_NUMBER)
+		{
+			int32 ViewportWidth = 0;
+			int32 ViewportHeight = 0;
+			PlayerController->GetViewportSize(ViewportWidth, ViewportHeight);
+			if (ViewportWidth > 0 && ViewportHeight > 0)
+			{
+				const float ViewportAspectRatio = static_cast<float>(ViewportWidth) / static_cast<float>(ViewportHeight);
+				if (ViewportAspectRatio > CameraComponent->AspectRatio)
+				{
+					const float ConstrainedWidth = ViewportHeight * CameraComponent->AspectRatio;
+					ConstrainedViewOffset.X = (ViewportWidth - ConstrainedWidth) * 0.5f;
+				}
+				else if (ViewportAspectRatio < CameraComponent->AspectRatio)
+				{
+					const float ConstrainedHeight = ViewportWidth / CameraComponent->AspectRatio;
+					ConstrainedViewOffset.Y = (ViewportHeight - ConstrainedHeight) * 0.5f;
+				}
+
+				const float ViewportScale = UWidgetLayoutLibrary::GetViewportScale(this);
+				if (ViewportScale > UE_SMALL_NUMBER)
+				{
+					ConstrainedViewOffset /= ViewportScale;
+				}
+			}
+		}
+	}
+
+	auto ProjectToMenuWidget = [PlayerController, ConstrainedViewOffset](
+		const FVector& WorldPosition,
+		FVector2D& OutWidgetPosition)
+	{
+		if (!UWidgetLayoutLibrary::ProjectWorldLocationToWidgetPosition(
+			PlayerController,
+			WorldPosition,
+			OutWidgetPosition,
+			true))
+		{
+			return false;
+		}
+
+		OutWidgetPosition += ConstrainedViewOffset;
+		return true;
+	};
+
+	FVector2D AnchorWidgetPosition;
+	if (ProjectToMenuWidget(AnchorWorldPosition, AnchorWidgetPosition))
+	{
+		float VisualTopY = AnchorWidgetPosition.Y - BuildingInfoButtonY;
+		float VisualBottomY = AnchorWidgetPosition.Y;
+		bool bProjectedBounds = !VisualBoundsExtent.IsNearlyZero();
+
+		if (bProjectedBounds)
+		{
+			VisualTopY = TNumericLimits<float>::Max();
+			VisualBottomY = TNumericLimits<float>::Lowest();
+			for (int32 XSign = -1; XSign <= 1 && bProjectedBounds; XSign += 2)
+			{
+				for (int32 YSign = -1; YSign <= 1 && bProjectedBounds; YSign += 2)
+				{
+					for (int32 ZSign = -1; ZSign <= 1; ZSign += 2)
+					{
+						const FVector BoundsCorner = VisualBoundsOrigin + FVector(
+							VisualBoundsExtent.X * XSign,
+							VisualBoundsExtent.Y * YSign,
+							VisualBoundsExtent.Z * ZSign);
+						FVector2D CornerWidgetPosition;
+						if (!ProjectToMenuWidget(BoundsCorner, CornerWidgetPosition))
+						{
+							bProjectedBounds = false;
+							break;
+						}
+						VisualTopY = FMath::Min(VisualTopY, CornerWidgetPosition.Y);
+						VisualBottomY = FMath::Max(VisualBottomY, CornerWidgetPosition.Y);
+					}
+				}
+			}
+		}
+
+		const float MenuTopY = bProjectedBounds
+			? VisualTopY - BuildingTitleHeight
+			: AnchorWidgetPosition.Y - BuildingInfoButtonY;
+		const float ButtonY = bProjectedBounds
+			? VisualBottomY + BuildingButtonBoundsGap - MenuTopY
+			: BuildingInfoButtonY;
+
+		BuildingMenuSlot->SetPosition(FVector2D(AnchorWidgetPosition.X, MenuTopY));
+		BuildingMenuSlot->SetSize(FVector2D(
+			BuildingMenuSize.X,
+			FMath::Max(BuildingMenuSize.Y, ButtonY + 148.0f)));
+		if (InfoButtonSlot)
+		{
+			InfoButtonSlot->SetPosition(FVector2D(bIsDecoration ? 142.35f : 92.35f, ButtonY));
+		}
+		if (UpgradeButtonSlot)
+		{
+			UpgradeButtonSlot->SetPosition(FVector2D(192.35f, ButtonY + 12.0f));
+		}
+		if (FeatureButtonSlot)
+		{
+			FeatureButtonSlot->SetPosition(FVector2D(bIsDecoration ? 242.35f : 292.35f, ButtonY));
+		}
+		if (UWidget* ButtonShadow = WidgetTree->FindWidget(TEXT("ButtonShadow")))
+		{
+			if (UCanvasPanelSlot* ButtonShadowSlot = UWidgetLayoutLibrary::SlotAsCanvasSlot(ButtonShadow))
+			{
+				ButtonShadowSlot->SetPosition(FVector2D(
+					50.85f,
+					FMath::Max(0.0f, ButtonY - BuildingShadowButtonOffset)));
+			}
+		}
 		BuildingMenuRoot->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
 	}
 	else

@@ -1,0 +1,15 @@
+﻿# Unity-generated local state
+Library/
+Logs/
+Temp/
+Obj/
+Build/
+Builds/
+UserSettings/
+.vs/
+.gradle/
+
+# Packaged artifacts
+*.apk
+*.aab
+*.ipa

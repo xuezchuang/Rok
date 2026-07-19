@@ -2,103 +2,42 @@
 
 #include "Components/InputComponent.h"
 #include "Components/StaticMeshComponent.h"
-#include "Engine/StaticMesh.h"
+#include "DrawDebugHelpers.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "HAL/FileManager.h"
+#include "HAL/IConsoleManager.h"
 #include "InputCoreTypes.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 #include "Misc/Paths.h"
 #include "RokBuildingActor.h"
+#include "RokBuildingSelectionIndicator.h"
+#include "RokCityGridMath.h"
 #include "RokCitySpriteActor.h"
 #include "RokMainHudWidget.h"
-#include "StaticMeshResources.h"
 #include "TimerManager.h"
 
 namespace
 {
-bool IsPointInsideTriangle2D(const FVector2D& Point, const FVector2D& A, const FVector2D& B, const FVector2D& C)
-{
-	const auto SignedArea = [](const FVector2D& P1, const FVector2D& P2, const FVector2D& P3)
-	{
-		return (P1.X - P3.X) * (P2.Y - P3.Y) - (P2.X - P3.X) * (P1.Y - P3.Y);
-	};
+#if WITH_EDITOR
+constexpr int32 DefaultBuildingGridDebugMode = 2;
+#else
+constexpr int32 DefaultBuildingGridDebugMode = 0;
+#endif
 
-	const double TriangleArea = SignedArea(A, B, C);
-	if (FMath::IsNearlyZero(TriangleArea, 0.01))
-	{
-		return false;
-	}
+TAutoConsoleVariable<int32> CVarRokDebugBuildingGrid(
+	TEXT("rok.DebugBuildingGrid"),
+	DefaultBuildingGridDebugMode,
+	TEXT("Draw Unity-aligned building footprint grids: 0=off, 1=selected, 2=all selectable buildings."),
+	ECVF_Cheat);
 
-	const double D1 = SignedArea(Point, A, B);
-	const double D2 = SignedArea(Point, B, C);
-	const double D3 = SignedArea(Point, C, A);
-	const bool bHasNegative = D1 < -0.01 || D2 < -0.01 || D3 < -0.01;
-	const bool bHasPositive = D1 > 0.01 || D2 > 0.01 || D3 > 0.01;
-	return !(bHasNegative && bHasPositive);
-}
-
-bool IsPointInsideProjectedTightMesh(
-	const APlayerController& PlayerController,
-	const UStaticMeshComponent& MeshComponent,
-	const FVector2D& ScreenPoint)
-{
-	const UStaticMesh* StaticMesh = MeshComponent.GetStaticMesh();
-	const FStaticMeshRenderData* RenderData = StaticMesh ? StaticMesh->GetRenderData() : nullptr;
-	if (!RenderData || RenderData->LODResources.IsEmpty())
-	{
-		return false;
-	}
-
-	const FStaticMeshLODResources& Lod = RenderData->LODResources[0];
-	const FPositionVertexBuffer& PositionBuffer = Lod.VertexBuffers.PositionVertexBuffer;
-	const FIndexArrayView Indices = Lod.IndexBuffer.GetArrayView();
-	const FTransform ComponentTransform = MeshComponent.GetComponentTransform();
-	for (int32 Index = 0; Index + 2 < Indices.Num(); Index += 3)
-	{
-		const uint32 VertexIndices[3] = { Indices[Index], Indices[Index + 1], Indices[Index + 2] };
-		if (VertexIndices[0] >= PositionBuffer.GetNumVertices() ||
-			VertexIndices[1] >= PositionBuffer.GetNumVertices() ||
-			VertexIndices[2] >= PositionBuffer.GetNumVertices())
-		{
-			continue;
-		}
-
-		FVector2D ScreenVertices[3];
-		bool bProjectedTriangle = true;
-		for (int32 VertexIndex = 0; VertexIndex < 3; ++VertexIndex)
-		{
-			FVector ProxyPosition(PositionBuffer.VertexPosition(VertexIndices[VertexIndex]));
-			// The runtime OBJ selection proxies retain Unity's opposite horizontal
-			// handedness: their X/Z coordinates match the visible sprite actors, but
-			// Y is mirrored around the world origin. Apply the same conversion used
-			// by the city placement path before projecting triangles to the screen.
-			ProxyPosition.Y *= -1.0f;
-			const FVector WorldPosition = ComponentTransform.TransformPosition(ProxyPosition);
-			if (!PlayerController.ProjectWorldLocationToScreen(WorldPosition, ScreenVertices[VertexIndex], true))
-			{
-				bProjectedTriangle = false;
-				break;
-			}
-		}
-
-		if (bProjectedTriangle && IsPointInsideTriangle2D(
-			ScreenPoint,
-			ScreenVertices[0],
-			ScreenVertices[1],
-			ScreenVertices[2]))
-		{
-			return true;
-		}
-	}
-
-	return false;
-}
+constexpr float BuildingGridDebugZOffset = 2.0f;
 }
 
 ARokPlayerController::ARokPlayerController()
 {
+	PrimaryActorTick.bCanEverTick = true;
 	bShowMouseCursor = true;
 	DefaultMouseCursor = EMouseCursor::Default;
 	bEnableClickEvents = true;
@@ -112,13 +51,12 @@ void ARokPlayerController::BeginPlay()
 	bShowMouseCursor = true;
 	SetInputMode(FInputModeGameAndUI().SetHideCursorDuringCapture(false));
 	ScheduleAutoScreenshot();
-
-	if (FParse::Param(FCommandLine::Get(), TEXT("RokNoHud")))
+	if (UWorld* World = GetWorld())
 	{
-		return;
+		BuildingSelectionIndicator = World->SpawnActor<ARokBuildingSelectionIndicator>();
 	}
 
-	if (!MainHudWidget)
+	if (!FParse::Param(FCommandLine::Get(), TEXT("RokNoHud")) && !MainHudWidget)
 	{
 		MainHudWidget = CreateWidget<URokMainHudWidget>(this, URokMainHudWidget::StaticClass());
 		if (MainHudWidget)
@@ -132,6 +70,37 @@ void ARokPlayerController::BeginPlay()
 		}
 	}
 
+	UE_LOG(LogTemp, Log, TEXT("Rok selection: Unity footprint grid debug mode=%d (0=off, 1=selected, 2=all)."),
+		CVarRokDebugBuildingGrid.GetValueOnGameThread());
+	AutoSelectBuildingFromCommandLine();
+}
+
+void ARokPlayerController::AutoSelectBuildingFromCommandLine()
+{
+	FString Selector;
+	if (!FParse::Value(FCommandLine::Get(), TEXT("RokAutoSelectBuilding="), Selector) || Selector.IsEmpty())
+	{
+		return;
+	}
+
+	for (TActorIterator<ARokCitySpriteActor> ActorIt(GetWorld()); ActorIt; ++ActorIt)
+	{
+		ARokCitySpriteActor* Candidate = *ActorIt;
+		bool bMatches = GetActorDisplayString(Candidate).Contains(Selector, ESearchCase::IgnoreCase);
+		for (const FName& Tag : Candidate->Tags)
+		{
+			bMatches |= Tag.ToString().Equals(Selector, ESearchCase::IgnoreCase);
+		}
+		if (bMatches && IsSelectableBuilding(Candidate))
+		{
+			UE_LOG(LogTemp, Log, TEXT("Rok selection: command line selected %s using '%s'."),
+				*Candidate->GetName(), *Selector);
+			SelectBuilding(Candidate);
+			return;
+		}
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("Rok selection: no building matched command line selector '%s'."), *Selector);
 }
 
 void ARokPlayerController::ScheduleAutoScreenshot()
@@ -187,6 +156,12 @@ void ARokPlayerController::SetupInputComponent()
 	}
 }
 
+void ARokPlayerController::PlayerTick(float DeltaTime)
+{
+	Super::PlayerTick(DeltaTime);
+	DrawBuildingGridDebug();
+}
+
 void ARokPlayerController::HandlePrimaryClick()
 {
 	float MouseX = 0.0f;
@@ -216,48 +191,12 @@ AActor* ARokPlayerController::FindSelectableBuildingUnderCursor() const
 		return nullptr;
 	}
 
-	const FVector2D MousePosition(MouseX, MouseY);
-	AActor* BestActor = nullptr;
-	double BestCameraDistanceSquared = TNumericLimits<double>::Max();
-	const FVector CameraLocation = PlayerCameraManager
-		? PlayerCameraManager->GetCameraLocation()
-		: FVector::ZeroVector;
-
-	for (TActorIterator<AActor> ActorIt(GetWorld()); ActorIt; ++ActorIt)
+	if (ARokCitySpriteActor* GridBuilding = FindCityBuildingByUnityFootprint(FVector2D(MouseX, MouseY)))
 	{
-		ARokCitySpriteActor* Candidate = Cast<ARokCitySpriteActor>(*ActorIt);
-		if (!Candidate || Candidate->IsHidden() || !IsSelectableBuilding(Candidate))
-		{
-			continue;
-		}
-
-		UStaticMeshComponent* TightSelectionMesh = nullptr;
-		TInlineComponentArray<UStaticMeshComponent*> MeshComponents;
-		Candidate->GetComponents(MeshComponents);
-		for (UStaticMeshComponent* MeshComponent : MeshComponents)
-		{
-			if (MeshComponent && MeshComponent->GetFName() == TEXT("SelectionTightMesh"))
-			{
-				TightSelectionMesh = MeshComponent;
-				break;
-			}
-		}
-		if (!TightSelectionMesh || !IsPointInsideProjectedTightMesh(*this, *TightSelectionMesh, MousePosition))
-		{
-			continue;
-		}
-
-		const double CameraDistanceSquared = FVector::DistSquared(CameraLocation, Candidate->GetActorLocation());
-		if (CameraDistanceSquared < BestCameraDistanceSquared)
-		{
-			BestActor = Candidate;
-			BestCameraDistanceSquared = CameraDistanceSquared;
-		}
-	}
-
-	if (BestActor)
-	{
-		return BestActor;
+		const FIntPoint FootprintSize = GridBuilding->GetFootprintSize();
+		UE_LOG(LogTemp, Log, TEXT("Rok selection: Unity footprint hit %s (%dx%d cells)."),
+			*GridBuilding->GetName(), FootprintSize.X, FootprintSize.Y);
+		return GridBuilding;
 	}
 
 	FHitResult HitResult;
@@ -265,7 +204,7 @@ AActor* ARokPlayerController::FindSelectableBuildingUnderCursor() const
 	{
 		if (IsSelectableBuilding(HitResult.GetActor()))
 		{
-			UE_LOG(LogTemp, Log, TEXT("Rok selection: tight mesh missed; using visibility hit %s."),
+			UE_LOG(LogTemp, Log, TEXT("Rok selection: Unity footprint missed; using visibility hit %s."),
 				*HitResult.GetActor()->GetName());
 			return HitResult.GetActor();
 		}
@@ -278,6 +217,138 @@ AActor* ARokPlayerController::FindSelectableBuildingUnderCursor() const
 	return nullptr;
 }
 
+ARokCitySpriteActor* ARokPlayerController::FindCityBuildingByUnityFootprint(
+	const FVector2D& ScreenPosition) const
+{
+	FVector RayOrigin = FVector::ZeroVector;
+	FVector RayDirection = FVector::ZeroVector;
+	if (!DeprojectScreenPositionToWorld(ScreenPosition.X, ScreenPosition.Y, RayOrigin, RayDirection)
+		|| FMath::IsNearlyZero(RayDirection.Z))
+	{
+		return nullptr;
+	}
+
+	ARokCitySpriteActor* BestActor = nullptr;
+	float BestRayDistance = TNumericLimits<float>::Max();
+	for (TActorIterator<ARokCitySpriteActor> ActorIt(GetWorld()); ActorIt; ++ActorIt)
+	{
+		ARokCitySpriteActor* Candidate = *ActorIt;
+		if (!Candidate || Candidate->IsHidden() || !IsSelectableBuilding(Candidate))
+		{
+			continue;
+		}
+
+		const FVector Anchor = Candidate->GetVisualAnchorWorldPosition();
+		const float RayDistance = (Anchor.Z - RayOrigin.Z) / RayDirection.Z;
+		if (RayDistance < 0.0f || RayDistance >= BestRayDistance)
+		{
+			continue;
+		}
+
+		const FVector PlaneHit = RayOrigin + RayDirection * RayDistance;
+		if (FRokCityGridMath::IsPointInsideFootprint(
+			PlaneHit,
+			Anchor,
+			Candidate->GetFootprintSize()))
+		{
+			BestActor = Candidate;
+			BestRayDistance = RayDistance;
+		}
+	}
+
+	return BestActor;
+}
+
+void ARokPlayerController::DrawBuildingGridDebug() const
+{
+	const int32 DebugMode = FMath::Clamp(CVarRokDebugBuildingGrid.GetValueOnGameThread(), 0, 2);
+	if (DebugMode == 0 || !GetWorld())
+	{
+		return;
+	}
+
+	const ARokCitySpriteActor* SelectedCityBuilding = Cast<ARokCitySpriteActor>(SelectedBuildingActor.Get());
+	if (DebugMode == 1)
+	{
+		if (SelectedCityBuilding)
+		{
+			DrawBuildingGridDebugForActor(*SelectedCityBuilding, FColor::Yellow, 3.0f);
+		}
+		return;
+	}
+
+	ARokCitySpriteActor* HoveredCityBuilding = nullptr;
+	float MouseX = 0.0f;
+	float MouseY = 0.0f;
+	if (GetMousePosition(MouseX, MouseY))
+	{
+		HoveredCityBuilding = FindCityBuildingByUnityFootprint(FVector2D(MouseX, MouseY));
+	}
+
+	for (TActorIterator<ARokCitySpriteActor> ActorIt(GetWorld()); ActorIt; ++ActorIt)
+	{
+		ARokCitySpriteActor* Candidate = *ActorIt;
+		if (!Candidate || Candidate->IsHidden() || !IsSelectableBuilding(Candidate))
+		{
+			continue;
+		}
+
+		const bool bSelected = Candidate == SelectedCityBuilding;
+		const bool bHovered = Candidate == HoveredCityBuilding;
+		const FColor Color = bSelected ? FColor::Yellow : (bHovered ? FColor::Magenta : FColor::Cyan);
+		DrawBuildingGridDebugForActor(*Candidate, Color, bSelected || bHovered ? 3.0f : 1.0f);
+	}
+}
+
+void ARokPlayerController::DrawBuildingGridDebugForActor(
+	const ARokCitySpriteActor& BuildingActor,
+	const FColor& Color,
+	float Thickness) const
+{
+	const FIntPoint FootprintSize = BuildingActor.GetFootprintSize();
+	if (FootprintSize.X <= 0 || FootprintSize.Y <= 0)
+	{
+		return;
+	}
+
+	const FVector Center = BuildingActor.GetVisualAnchorWorldPosition()
+		+ FVector(0.0f, 0.0f, BuildingGridDebugZOffset);
+	const FVector WidthAxis = FRokCityGridMath::GetWidthAxis();
+	const FVector LengthAxis = FRokCityGridMath::GetLengthAxis();
+	const float HalfWidth = FootprintSize.X * FRokCityGridMath::HalfCellSize;
+	const float HalfLength = FootprintSize.Y * FRokCityGridMath::HalfCellSize;
+
+	for (int32 WidthLine = 0; WidthLine <= FootprintSize.X; ++WidthLine)
+	{
+		const float WidthOffset = -HalfWidth + WidthLine * FRokCityGridMath::CellSize;
+		const FVector LineCenter = Center + WidthAxis * WidthOffset;
+		DrawDebugLine(
+			GetWorld(),
+			LineCenter - LengthAxis * HalfLength,
+			LineCenter + LengthAxis * HalfLength,
+			Color,
+			false,
+			0.0f,
+			SDPG_Foreground,
+			Thickness);
+	}
+
+	for (int32 LengthLine = 0; LengthLine <= FootprintSize.Y; ++LengthLine)
+	{
+		const float LengthOffset = -HalfLength + LengthLine * FRokCityGridMath::CellSize;
+		const FVector LineCenter = Center + LengthAxis * LengthOffset;
+		DrawDebugLine(
+			GetWorld(),
+			LineCenter - WidthAxis * HalfWidth,
+			LineCenter + WidthAxis * HalfWidth,
+			Color,
+			false,
+			0.0f,
+			SDPG_Foreground,
+			Thickness);
+	}
+}
+
 void ARokPlayerController::SelectBuilding(AActor* Actor)
 {
 	if (!Actor)
@@ -288,6 +359,10 @@ void ARokPlayerController::SelectBuilding(AActor* Actor)
 
 	if (SelectedBuildingActor.Get() == Actor)
 	{
+		if (BuildingSelectionIndicator)
+		{
+			BuildingSelectionIndicator->ShowForBuilding(Cast<ARokCitySpriteActor>(Actor));
+		}
 		if (MainHudWidget)
 		{
 			MainHudWidget->SetSelectedBuilding(Actor);
@@ -298,6 +373,10 @@ void ARokPlayerController::SelectBuilding(AActor* Actor)
 	ApplySelectionHighlight(SelectedBuildingActor.Get(), false);
 	SelectedBuildingActor = Actor;
 	ApplySelectionHighlight(Actor, true);
+	if (BuildingSelectionIndicator)
+	{
+		BuildingSelectionIndicator->ShowForBuilding(Cast<ARokCitySpriteActor>(Actor));
+	}
 	if (MainHudWidget)
 	{
 		MainHudWidget->SetSelectedBuilding(Actor);
@@ -308,6 +387,10 @@ void ARokPlayerController::ClearSelection()
 {
 	ApplySelectionHighlight(SelectedBuildingActor.Get(), false);
 	SelectedBuildingActor.Reset();
+	if (BuildingSelectionIndicator)
+	{
+		BuildingSelectionIndicator->HideIndicator();
+	}
 	if (MainHudWidget)
 	{
 		MainHudWidget->SetSelectedBuilding(nullptr);
@@ -328,6 +411,11 @@ void ARokPlayerController::ApplySelectionHighlight(AActor* Actor, bool bHighligh
 			RokBuildingActor->SetSelected(true);
 			return;
 		}
+		if (ARokCitySpriteActor* CitySpriteActor = Cast<ARokCitySpriteActor>(Actor))
+		{
+			CitySpriteActor->SetSelected(true);
+			return;
+		}
 
 		SelectedBuildingOriginalScale = Actor->GetActorScale3D();
 		bHasSelectedBuildingOriginalScale = true;
@@ -338,6 +426,11 @@ void ARokPlayerController::ApplySelectionHighlight(AActor* Actor, bool bHighligh
 		if (ARokBuildingActor* RokBuildingActor = Cast<ARokBuildingActor>(Actor))
 		{
 			RokBuildingActor->SetSelected(false);
+			return;
+		}
+		if (ARokCitySpriteActor* CitySpriteActor = Cast<ARokCitySpriteActor>(Actor))
+		{
+			CitySpriteActor->SetSelected(false);
 			return;
 		}
 

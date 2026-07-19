@@ -39,6 +39,16 @@ void ARokStrategyCameraPawn::Tick(float DeltaSeconds)
 	UpdateMouseWheelZoom(DeltaSeconds);
 }
 
+float ARokStrategyCameraPawn::GetCurrentCityDxf() const
+{
+	// Unity CameraParamLod and LevelDetailCastle use dxf = distance * vertical FOV.
+	if (!FMath::IsFinite(CurrentCameraDistance) || !FMath::IsFinite(CurrentVerticalFov))
+	{
+		return 150.0f;
+	}
+	return CurrentCameraDistance / FMath::Max(UeUnitsPerUnityUnit, 1.0f) * CurrentVerticalFov;
+}
+
 void ARokStrategyCameraPawn::UpdateKeyboardPan(float DeltaSeconds)
 {
 	const APlayerController* PlayerController = Cast<APlayerController>(GetController());
@@ -166,6 +176,8 @@ void ARokStrategyCameraPawn::ApplyCameraDefaults()
 	FParse::Value(FCommandLine::Get(), TEXT("RokCameraPitch="), RuntimePitch);
 	FParse::Value(FCommandLine::Get(), TEXT("RokCameraVerticalFov="), RuntimeVerticalFov);
 	RuntimeDistance = FMath::Clamp(RuntimeDistance, MinCameraDistance, MaxCameraDistance);
+	CurrentCameraDistance = RuntimeDistance;
+	CurrentVerticalFov = RuntimeVerticalFov;
 
 	const FRotator RuntimeRotation(RuntimePitch, RuntimeYaw, 0.0f);
 	const FVector RuntimeForward = RuntimeRotation.Vector();

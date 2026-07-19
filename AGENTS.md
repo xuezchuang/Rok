@@ -29,19 +29,19 @@ Do not use `mcp__unreal_engine` or `mcp__unreal_engine_metanoia__` for writes ju
 If the wrong project is detected, do not save, spawn actors, modify assets, run Python scripts, or issue console commands through that MCP connection.
 
 --- project-doc ---
-# Rok UE5.2 Project Instructions
+# Rok UE5.8 Project Instructions
 
 ## Project Purpose
 
-This repository is a UE 5.2 C++ project for building a strategy/MMO game in the style of "Rise of Kingdoms" / "万国觉醒": city construction, world map marching, heroes, troops, alliances, timed progression, battle resolution, and server-authoritative multiplayer systems.
+This repository is a UE 5.8 C++ project for building a strategy/MMO game in the style of "Rise of Kingdoms" / "万国觉醒": city construction, world map marching, heroes, troops, alliances, timed progression, battle resolution, and server-authoritative multiplayer systems.
 
 The extracted reference material lives under `ref/`. Treat it as reference input for understanding feature shape, protocol boundaries, data tables, UI flows, and server/client responsibilities. Do not turn the project into a direct source dump; rebuild gameplay as UE-native systems with clean C++ foundations and Blueprint assets used mainly for presentation and editor-authored content.
 
 ## Current Initialization
 
-- Engine target: UE 5.2.
-- On this workstation, the UE 5.2 install for this project is `D:\ue\UE_5.2`. Use `D:\ue\UE_5.2\Engine\Binaries\Win64\UnrealEditor.exe`, `UnrealEditor-Cmd.exe`, and `Engine\Build\BatchFiles\Build.bat` for editor launches, commandlets, map saves, and builds.
-- Do not use `C:\UnrealEngine` for this project. That path is currently UE 5.7, and saving `.umap`/assets with it can make content incompatible with the required UE 5.2 project.
+- Engine target: UE 5.8.
+- On this workstation, the UE 5.8 install for this project is `D:\ue\UE_5.8`. Use `D:\ue\UE_5.8\Engine\Binaries\Win64\UnrealEditor.exe`, `UnrealEditor-Cmd.exe`, and `Engine\Build\BatchFiles\Build.bat` for editor launches, commandlets, map saves, and builds.
+- Do not use older UE installs such as `D:\ue\UE_5.2` or `C:\UnrealEngine` for this project. Saving `.umap`/assets with the wrong engine can make content incompatible with the required UE 5.8 project.
 - Project root: this repository root, the directory containing `Rok.uproject`.
 - Main project file: `Rok.uproject`.
 - Runtime module: `Rok`.
@@ -140,7 +140,7 @@ The extracted reference material lives under `ref/`. Treat it as reference input
 - Sprite PNGs under `/Game/RokPrototype/Textures/ReferenceSprites` and their materials are reference-only for future asset matching or cutout work unless a real masked/volumetric presentation path is added.
 - Do not layer fake cone spires or triangular caps onto real/reference city buildings. `TownCenter_Spire`, `*_Spire`, and city-layer `/Engine/BasicShapes/Cone` placeholders are blocked by `Scripts/VerifyRokPrototypeScene.py`.
 - Do not use cone/cylinder placeholder trees in the active terrain/resource tree layers. `WorldTree_*`, `*_Canopy`, and tree-layer `/Engine/BasicShapes/Cone` placeholders are blocked; use `OriginalWorldTreePatch_*` and `OriginalWoodGrove_*` reference mesh patches instead.
-- Import PNG sprite assets with `TextureFactory` in `Scripts/CreateRokPrototypeScene.py`; UE 5.2 Interchange PNG import can assert inside the MCP callback path.
+- Import PNG sprite assets with `TextureFactory` in `Scripts/CreateRokPrototypeScene.py`; the Interchange PNG import path has asserted in older MCP callback workflows and should be revalidated before replacing this route.
 - Do not place imported Unity FBX assets directly into the active prototype map until their pivots, bounds, materials, and scale are validated. When using large reference meshes, place them through bounds-origin/bottom compensation so their visible geometry lands at the intended world position; unstable FBX placement can create floating fragments and non-RoK scene clutter.
 
 ## City Base Visual Restoration Gate
@@ -195,7 +195,7 @@ The extracted reference material lives under `ref/`. Treat it as reference input
 - The catalog currently aggregates Unity `BuildingTypeConfig`, `BuildingMenuData`, `BuildingCountLimit`, `BuildingLevelData`, `BuildingResourcesProduce`, `Arms`, `Hero`, `HeroSkill`, `HeroTalent`, and `TaskMain` into one source-traceable manifest.
 - `URokUnityGameplayCatalogSubsystem` is the read-only UE runtime catalog for building types, troop rows, heroes, hero skills/talents summary counts, and main tasks. It should remain config-derived; gameplay systems should reference Unity IDs from it instead of copying rows into ad hoc constants.
 - The HUD builder bar is allowed to show a compact catalog acceptance marker such as `Catalog B30 T54 H46 Q205`; this is a runtime verification aid, not final UI design.
-- Acceptance for this slice is: catalog script passes, catalog verification has no failures, `RokEditor` builds under `D:\ue\UE_5.2`, `/Game/Maps/L_RokUnityGameAppCity` verification passes, and runtime logs include `Loaded Rok Unity gameplay catalog`.
+- Acceptance for this slice is: catalog script passes, catalog verification has no failures, `RokEditor` builds under `D:\ue\UE_5.8`, `/Game/Maps/L_RokUnityGameAppCity` verification passes, and runtime logs include `Loaded Rok Unity gameplay catalog`.
 - `URokUnityGameplayCatalogSubsystem` also exposes `HeroSkill` and `HeroTalent` rows by Unity ID; treat those as the runtime source for later hero/skill/battle adapters.
 ## Unity Runtime Bootstrap State Slice
 
@@ -205,14 +205,14 @@ The extracted reference material lives under `ref/`. Treat it as reference input
 - `URokUnityRuntimeStateSubsystem` is the UE local-simulation runtime state layer for the active main task chain, starter hero preview state, starter troop stacks, and trainable troop IDs. It should remain a bootstrap/local-sim layer until real login, roster, inventory, and server state are migrated.
 - Starter hero ownership and troop counts in this manifest are explicit UE bootstrap values. Do not treat them as accepted Unity economy/server start-state data.
 - HUD no-selection status may show the runtime acceptance marker `Task 200900 ... 1/2 | Heroes 5 | Troops 200`; this is a migration/debug marker, not final UI design.
-- Acceptance for this slice is: runtime bootstrap generation passes, runtime bootstrap verification has no failures, `RokEditor` builds under `D:\ue\UE_5.2`, `/Game/Maps/L_RokUnityGameAppCity` verification passes, and runtime logs include `Loaded Rok Unity runtime bootstrap`.
+- Acceptance for this slice is: runtime bootstrap generation passes, runtime bootstrap verification has no failures, `RokEditor` builds under `D:\ue\UE_5.8`, `/Game/Maps/L_RokUnityGameAppCity` verification passes, and runtime logs include `Loaded Rok Unity runtime bootstrap`.
 ## Unity UI Catalog Runtime Slice
 
 - Current Unity UI catalog evidence is generated by `Scripts/BuildRokUnityUiCatalog.py` and verified by `Scripts/VerifyRokUnityUiCatalog.py`.
 - Generated evidence lives under `Saved/RokUnityMigration/unity_ui_catalog.json`, `Saved/RokUnityMigration/unity_ui_catalog.md`, and `Saved/RokUnityMigration/unity_ui_catalog_verify.json`. Regenerate these files instead of hand-editing them.
 - `URokUnityUiCatalogSubsystem` is the UE runtime catalog for Unity UI slice coverage, MainInterface module names, UI prefab/view/mediator source status, processed texture source/target status, and accepted runtime target names.
 - The HUD catalog status may show a compact UI acceptance marker such as `UI M17 S5 Tex10/7`; this is a migration/debug marker, not final UI design.
-- Acceptance for this slice is: UI catalog verification has no failures, `RokEditor` builds under `D:\ue\UE_5.2`, `/Game/Maps/L_RokUnityGameAppCity` still opens, and runtime logs include `Loaded Rok Unity UI catalog`.
+- Acceptance for this slice is: UI catalog verification has no failures, `RokEditor` builds under `D:\ue\UE_5.8`, `/Game/Maps/L_RokUnityGameAppCity` still opens, and runtime logs include `Loaded Rok Unity UI catalog`.
 
 ## Unity GameApp City Wall and UI Polish Slice
 
@@ -241,7 +241,7 @@ The extracted reference material lives under `ref/`. Treat it as reference input
 - `/Game/Maps/L_RokUnityRuntimeCityAllBuildings` is the current all-building diagnostic slice, and `/Game/Maps/L_RokUnityGameAppCity` may be regenerated from the same runtime manifest for the default playable preview: 10 boundary actors, 2 ground actors, and 24 non-boundary initial-city building sprite cards. Type `6` CityWall and type `8` GuardTower stay in the runtime boundary mesh layer; do not duplicate them as ordinary building cards.
 - Preserve Unity render queue and depth state for runtime city visual layers. Current source evidence: `CitySurface_101_1_mat` renderQueue `2992`, shader `cm_mask_texture_lod`, `ZWrite Off`; `CityTranslucent_101_1_mat` renderQueue `2991`, shader `cm_mask_texture_lod_alpha`, `ZWrite Off`; normal building cards use renderQueue `2995`, `ZWrite Off`; town center `city_building_night.mat` uses renderQueue `2996`, `ZWrite Off`. In UE these ground/building layers must be translucent and sorted by the exported Unity `material_render_queue`; do not use opaque ground materials that write depth over building sprite cards.
 - Runtime/PIE camera for `/Game/Maps/L_RokUnityRuntimeCityAllBuildings` and the default `/Game/Maps/L_RokUnityGameAppCity` preview should use Unity main-city `CameraParamLod` key `city_default`, not the old top orthographic preview camera or the raw `GameApp.unity` WorldCamera startup FOV alone: local diagnostic center `(0,0)`, distance `20`, vertical FOV `7.5`, `dxf=150`, forward `(0,-0.7,0.7)`, UE horizontal FOV about `11.98` at aspect `16:10`. `FRokCityViewMath::MakeDefaultCameraKeys()` should mirror Unity `CameraParamLod.csv`, and generated maps should include one tagged CameraActor and one tagged PlayerStart for visibility while `ARokStrategyCameraPawn` uses the same source camera in Play mode.
-- Accepted default-preview regeneration for this slice is currently: run `Scripts/CreateRokUnityRuntimeCityAllBuildingsScene.py` through `D:\ue\UE_5.2\Engine\Binaries\Win64\UnrealEditor-Cmd.exe` with `ROK_UNITY_RUNTIME_CITY_ALL_BUILDINGS_LEVEL=/Game/Maps/L_RokUnityGameAppCity`, `ROK_RUNTIME_CITY_ALL_BUILDINGS_ASSET_SUFFIX=GameAppRuntimeV5Dense`, `ROK_RUNTIME_BUILDING_CARD_MODE=sprite_actor`, and `ROK_RUNTIME_EXTRA_INTERIOR_BUILDINGS=24`, then run `Scripts/VerifyRokUnityRuntimeCityAllBuildingsScene.py` with the matching manifest/verify paths under `Saved/RokUnityMigration/`.
+- Accepted default-preview regeneration for this slice is currently: run `Scripts/CreateRokUnityRuntimeCityAllBuildingsScene.py` through `D:\ue\UE_5.8\Engine\Binaries\Win64\UnrealEditor-Cmd.exe` with `ROK_UNITY_RUNTIME_CITY_ALL_BUILDINGS_LEVEL=/Game/Maps/L_RokUnityGameAppCity`, `ROK_RUNTIME_CITY_ALL_BUILDINGS_ASSET_SUFFIX=GameAppRuntimeV5Dense`, `ROK_RUNTIME_BUILDING_CARD_MODE=sprite_actor`, and `ROK_RUNTIME_EXTRA_INTERIOR_BUILDINGS=24`, then run `Scripts/VerifyRokUnityRuntimeCityAllBuildingsScene.py` with the matching manifest/verify paths under `Saved/RokUnityMigration/`.
 - Keep the identity split clear when adding density: the first 24 ordinary buildings come from `unity_runtime_city_buildings_obj_manifest.json` and keep `UnityInitId_*` plus `RokUnityConfigInitBuilding`; supplemental visual-density buildings must be tagged `RokUnityRuntimeInteriorPreview` and `UnityInteriorPreviewId_*`, must not get `UnityInitId_*`, and must source real Unity `build_*_101_1.png` plus `_mask.png` sprites from `client-unity/Assets/BundleAssets/Map/Building/Building_use/shared_building/Building_101/city_building_1/`.
 - The current dense default preview acceptance target is `/Game/Maps/L_RokUnityGameAppCity` with 62 tagged actors: 10 boundary, 2 ground, 24 initial runtime buildings, 24 supplemental interior preview buildings, 1 tagged CameraActor, and 1 tagged PlayerStart. Verification should report `failures=[]`, `initial_buildings=24`, `extra_interior_buildings=24`, `buildings=48`, and the supplemental actors under `RokUnityRuntimeCityAllBuildings/InteriorPreviewBuildings`.
 

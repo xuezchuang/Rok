@@ -1079,7 +1079,7 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorAddComponent(
       FString ApplyError;
       if (ApplyJsonValueToProperty(NewComponent, Property, Pair.Value,
                                    ApplyError))
-        AppliedProperties.Add(Pair.Key);
+        AppliedProperties.Add(FString(*Pair.Key));
       else
         PropertyWarnings.Add(FString::Printf(TEXT("Failed to set %s: %s"),
                                              *Pair.Key, *ApplyError));
@@ -1176,7 +1176,7 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorSetComponentProperties(
   const TSharedPtr<FJsonValue> *MobilityVal = nullptr;
   FString MobilityKey;
   for (const auto &Pair : (*PropertiesPtr)->Values) {
-    if (Pair.Key.Equals(TEXT("Mobility"), ESearchCase::IgnoreCase)) {
+    if (FString(*Pair.Key).Equals(TEXT("Mobility"), ESearchCase::IgnoreCase)) {
       MobilityVal = &Pair.Value;
       MobilityKey = Pair.Key;
       break;
@@ -1211,18 +1211,18 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorSetComponentProperties(
 
   for (const auto &Pair : (*PropertiesPtr)->Values) {
     // Skip Mobility as we already handled it
-    if (Pair.Key.Equals(TEXT("Mobility"), ESearchCase::IgnoreCase))
+    if (FString(*Pair.Key).Equals(TEXT("Mobility"), ESearchCase::IgnoreCase))
       continue;
 
     // Special handling for SimulatePhysics
-    if (Pair.Key.Equals(TEXT("SimulatePhysics"), ESearchCase::IgnoreCase) ||
-        Pair.Key.Equals(TEXT("bSimulatePhysics"), ESearchCase::IgnoreCase)) {
+    if (FString(*Pair.Key).Equals(TEXT("SimulatePhysics"), ESearchCase::IgnoreCase) ||
+        FString(*Pair.Key).Equals(TEXT("bSimulatePhysics"), ESearchCase::IgnoreCase)) {
       if (UPrimitiveComponent *Prim =
               Cast<UPrimitiveComponent>(TargetComponent)) {
         bool bVal = false;
         if (Pair.Value->TryGetBool(bVal)) {
           Prim->SetSimulatePhysics(bVal);
-          AppliedProperties.Add(Pair.Key);
+          AppliedProperties.Add(FString(*Pair.Key));
           UE_LOG(LogMcpAutomationBridgeSubsystem, Display,
                  TEXT("Explicitly set SimulatePhysics to %s"),
                  bVal ? TEXT("True") : TEXT("False"));
@@ -1240,7 +1240,7 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorSetComponentProperties(
     FString ApplyError;
     if (ApplyJsonValueToProperty(TargetComponent, Property, Pair.Value,
                                  ApplyError))
-      AppliedProperties.Add(Pair.Key);
+      AppliedProperties.Add(FString(*Pair.Key));
     else
       PropertyWarnings.Add(FString::Printf(TEXT("Failed to set %s: %s"),
                                            *Pair.Key, *ApplyError));
@@ -1836,7 +1836,7 @@ bool UMcpAutomationBridgeSubsystem::HandleControlActorSetBlueprintVariables(
 
     FString ApplyError;
     if (ApplyJsonValueToProperty(Found, Property, Pair.Value, ApplyError))
-      Applied.Add(Pair.Key);
+      Applied.Add(FString(*Pair.Key));
     else
       Warnings.Add(FString::Printf(TEXT("Failed to set %s: %s"), *Pair.Key,
                                    *ApplyError));
@@ -3408,24 +3408,24 @@ bool UMcpAutomationBridgeSubsystem::HandleControlEditorSetPreferences(
         FString Value;
         if (Pair.Value->TryGetString(Value)) {
           CVar->Set(*Value);
-          AppliedSettings.Add(Pair.Key);
+          AppliedSettings.Add(FString(*Pair.Key));
         } else {
           double NumVal;
           if (Pair.Value->TryGetNumber(NumVal)) {
             CVar->Set((float)NumVal);
-            AppliedSettings.Add(Pair.Key);
+            AppliedSettings.Add(FString(*Pair.Key));
           } else {
             bool BoolVal;
             if (Pair.Value->TryGetBool(BoolVal)) {
               CVar->Set(BoolVal ? 1 : 0);
-              AppliedSettings.Add(Pair.Key);
+              AppliedSettings.Add(FString(*Pair.Key));
             } else {
-              FailedSettings.Add(Pair.Key);
+              FailedSettings.Add(FString(*Pair.Key));
             }
           }
         }
       } else {
-        FailedSettings.Add(Pair.Key);
+        FailedSettings.Add(FString(*Pair.Key));
       }
     }
   }

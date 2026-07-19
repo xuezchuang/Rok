@@ -1,8 +1,8 @@
 {
 	"FileVersion": 3,
-	"EngineAssociation": "5.2",
+	"EngineAssociation": "5.8",
 	"Category": "Games",
-	"Description": "UE 5.2 strategy/MMO prototype inspired by Rise of Kingdoms, with bundled reference source under ref/ for system analysis.",
+	"Description": "UE 5.8 strategy/MMO prototype inspired by Rise of Kingdoms, with bundled reference source under ref/ for system analysis.",
 	"Modules": [
 		{
 			"Name": "Rok",
@@ -25,6 +25,14 @@
 		},
 		{
 			"Name": "PythonScriptPlugin",
+			"Enabled": true
+		},
+		{
+			"Name": "ModelContextProtocol",
+			"Enabled": true
+		},
+		{
+			"Name": "EditorToolset",
 			"Enabled": true
 		}
 	]

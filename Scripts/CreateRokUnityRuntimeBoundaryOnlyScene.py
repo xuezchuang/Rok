@@ -207,9 +207,11 @@ def actor_record_from_obj(actor, obj_record, source_prefab, material_key):
         "source_mesh_stem": mesh_stem,
         "unity_bounds_center": obj_record.get("unity_bounds_center"),
         "unity_bounds_extents": obj_record.get("unity_bounds_extents"),
-        "ue_expected_bounds_center": obj_record.get("ue_bounds_center"),
-        "ue_expected_bounds_extents": obj_record.get("ue_bounds_extents"),
-        "ue_alignment_mode": "Unity runtime MeshRenderer geometry baked to OBJ in UE centimeters; actor transform remains identity",
+        "ue_unity_renderer_bounds_center_evidence": obj_record.get("ue_bounds_center"),
+        "ue_unity_renderer_bounds_extents_evidence": obj_record.get("ue_bounds_extents"),
+        "ue_expected_bounds_center": [float(bounds_origin.x), float(bounds_origin.y), float(bounds_origin.z)],
+        "ue_expected_bounds_extents": [float(bounds_extent.x), float(bounds_extent.y), float(bounds_extent.z)],
+        "ue_alignment_mode": "Unity runtime MeshRenderer geometry is already world-baked into the OBJ in UE centimeters; actor location, rotation, and scale remain identity; Renderer.bounds is retained as source evidence only",
         "unity_material_key": material_key,
         "unity_material_source_texture": material_source_texture_for_key(material_key),
         "obj_path": obj_record.get("obj_path"),
@@ -249,7 +251,7 @@ def spawn_boundary_from_runtime_obj_manifest(obj_manifest):
                 obj_record.get("object_name", ""),
             ))
             material = fresh.source3d.boundary_material_for_source(source_mesh, materials)
-        actor = fresh.proto.spawn_mesh(
+        actor = fresh.spawn_static_mesh_actor(
             "{0}_{1}_{2}_{3}".format(
                 ACTOR_PREFIX,
                 os.path.splitext(os.path.basename(source_prefab))[0],
@@ -264,18 +266,19 @@ def spawn_boundary_from_runtime_obj_manifest(obj_manifest):
             "{0}/Boundary".format(FOLDER_ROOT),
         )
         actor.tags = []
-        set_tags(actor, [
+        source_tags = [
             CITY_TAG,
             "RokUnityRuntimeBoundarySource",
             "RokUnityRuntimeObjBaked",
-            "UnityRendererBoundsCenterAligned",
+            "UnityBakedOrientationScaleIdentity",
+            "UnityWorldBakedActorIdentity",
             "UnityMesh_{0}".format(mesh_stem),
             "UnityMaterial_{0}".format(material_key),
             "UnitySourcePrefab_{0}".format(os.path.splitext(os.path.basename(source_prefab))[0]),
             "UnityPrefabObject_{0}".format(fresh.safe_tag(obj_record.get("object_name", ""))),
-        ])
+        ]
+        set_tags(actor, source_tags)
         actor.set_folder_path("{0}/Boundary".format(FOLDER_ROOT))
-        align_visible_bounds_center(actor, fresh.unity_to_ue_exact(obj_record.get("unity_bounds_center", [0.0, 0.0, 0.0])))
         records.append(actor_record_from_obj(actor, obj_record, source_prefab, material_key))
     return len(records), records
 

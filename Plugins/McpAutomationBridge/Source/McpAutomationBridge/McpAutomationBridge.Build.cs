@@ -81,13 +81,14 @@ public class McpAutomationBridge : ModuleRules
                         var targetRules = (TargetRules)innerField.GetValue(Target);
                         if (targetRules != null)
                         {
-#pragma warning disable 618  // bUndefinedIdentifierErrors is obsolete in UE5.5+, but we need it for older versions
-                            if (targetRules.bUndefinedIdentifierErrors)
+                            var undefinedIdentifierErrorsProperty = targetRules.GetType().GetProperty("bUndefinedIdentifierErrors");
+                            if (undefinedIdentifierErrorsProperty != null &&
+                                undefinedIdentifierErrorsProperty.PropertyType == typeof(bool) &&
+                                (bool)undefinedIdentifierErrorsProperty.GetValue(targetRules))
                             {
-                                targetRules.bUndefinedIdentifierErrors = false;
+                                undefinedIdentifierErrorsProperty.SetValue(targetRules, false);
                                 Console.WriteLine("McpAutomationBridge: Disabled bUndefinedIdentifierErrors for UE 5.0-5.2 MSVC build");
                             }
-#pragma warning restore 618
 
                             // Add __has_feature macro to global definitions (affects all compilations, including SharedPCH)
                             // Define as non-variadic macro that discards its argument, e.g., __has_feature(address_sanitizer) -> 0
@@ -313,14 +314,14 @@ PublicDependencyModuleNames.AddRange(new string[]
         // COMPILER WARNING SETTINGS (UE 5.6+ Compatibility)
         // ============================================================================
         // UE 5.6+ treats variable shadowing (C4456, C4458, C4459) as errors by default.
-        // Use ShadowVariableWarningLevel directly on ModuleRules - works in all UE versions.
+        // Use the UE 5.6+ CppCompileWarningSettings path to avoid deprecated ModuleRules properties.
         // UE 5.0-5.5: Direct property on ModuleRules
         // UE 5.6-5.7: Forwarding property to CppCompileWarningSettings.ShadowVariableWarningLevel
         // This allows compilation while we systematically fix shadowing issues.
         // TODO: Fix variable shadowing in handler files, then remove this override
         if (Target.Version.MajorVersion == 5 && Target.Version.MinorVersion >= 6)
         {
-            ShadowVariableWarningLevel = WarningLevel.Warning;
+            CppCompileWarningSettings.ShadowVariableWarningLevel = WarningLevel.Warning;
         }
     }
 

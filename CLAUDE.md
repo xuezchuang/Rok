@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Rok** is a UE 5.2 C++ project for a strategy/MMO game in the style of "Rise of Kingdoms" (万国觉醒). The project is being rebuilt from a Unity client (`D:\ueDemo\Rok-unity`) using UE-native C++ subsystems, DataAssets/DataTables, UMG widgets, and Blueprint presentation shells. The Unity source is preserved as reference material under `ref/` — never dump it directly into UE.
+**Rok** is a UE 5.8 C++ project for a strategy/MMO game in the style of "Rise of Kingdoms" (万国觉醒). The project is being rebuilt from a Unity client (`D:\ueDemo\Rok-unity`) using UE-native C++ subsystems, DataAssets/DataTables, UMG widgets, and Blueprint presentation shells. The Unity source is preserved as reference material under `ref/` — never dump it directly into UE.
 
-- **Engine target**: UE 5.2 — install at `D:\ue\UE_5.2`
+- **Engine target**: UE 5.8 — install at `D:\ue\UE_5.8`
 - **Project root**: this directory (contains `Rok.uproject`)
 - **Runtime module**: `Rok` (single module)
 - **Default map**: `/Game/Maps/L_RokUnityGameAppCity` (editor + game)
@@ -16,25 +16,25 @@ The companion live Unity project is at `D:\ueDemo\Rok-unity` (do not commit its 
 
 ## Build & Run Commands
 
-All UE tooling lives under `D:\ue\UE_5.2\Engine\Binaries\Win64\` and `D:\ue\UE_5.2\Engine\Build\BatchFiles\`.
+All UE tooling lives under `D:\ue\UE_5.8\Engine\Binaries\Win64\` and `D:\ue\UE_5.8\Engine\Build\BatchFiles\`.
 
 ```bat
 :: Launch the editor with the default map
-"D:\ue\UE_5.2\Engine\Binaries\Win64\UnrealEditor.exe" "D:\ueDemo\Rok\Rok.uproject" /Game/Maps/L_RokUnityGameAppCity -log
+"D:\ue\UE_5.8\Engine\Binaries\Win64\UnrealEditor.exe" "D:\ueDemo\Rok\Rok.uproject" /Game/Maps/L_RokUnityGameAppCity -log
 
 :: Build the Editor target
-"D:\ue\UE_5.2\Engine\Build\BatchFiles\Build.bat" RokEditor Win64 Development "D:\ueDemo\Rok\Rok.uproject" -waitmutex
+"D:\ue\UE_5.8\Engine\Build\BatchFiles\Build.bat" RokEditor Win64 Development "D:\ueDemo\Rok\Rok.uproject" -waitmutex
 
 :: Build the Game target
-"D:\ue\UE_5.2\Engine\Build\BatchFiles\Build.bat" Rok Win64 Development "D:\ueDemo\Rok\Rok.uproject" -waitmutex
+"D:\ue\UE_5.8\Engine\Build\BatchFiles\Build.bat" Rok Win64 Development "D:\ueDemo\Rok\Rok.uproject" -waitmutex
 
 :: Run a map-generation commandlet
-"D:\ue\UE_5.2\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "D:\ueDemo\Rok\Rok.uproject" /Game/Maps/L_RokCityRuntime -ExecutePythonScript="<script>.py"
+"D:\ue\UE_5.8\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "D:\ueDemo\Rok\Rok.uproject" /Game/Maps/L_RokCityRuntime -ExecutePythonScript="<script>.py"
 ```
 
 Convenience launcher: `RunRokInitialScene.bat` (sets the above editor + map).
 
-**Never** use `C:\UnrealEngine` for this project — it is UE 5.7 and will produce incompatible `.umap`/assets.
+**Never** use older UE installs such as `D:\ue\UE_5.2` or `C:\UnrealEngine` for this project; saving `.umap`/assets with the wrong engine can produce incompatible content.
 
 ## MCP Automation Bridge
 

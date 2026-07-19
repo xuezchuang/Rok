@@ -14,10 +14,13 @@ if SCRIPTS_DIR not in sys.path:
 import CreateRokUnityFreshCityScene as fresh
 import CreateRokUnityRuntimeBoundaryOnlyScene as boundary
 import CreateRokUnityRuntimeGroundScene as ground
+import CreateRokUnityRuntimeCitySupportLayers as support
+import CreateRokUnityRuntimeCityGateFlags as gate_flags
 import CreateRokRuntimeCityScene as runtime
 
 
 TARGET_LEVEL = os.environ.get("ROK_UNITY_RUNTIME_CITY_ALL_BUILDINGS_LEVEL", "/Game/Maps/L_RokUnityRuntimeCityAllBuildings")
+PROMOTED_GAMEAPP_LEVEL = "/Game/Maps/L_RokUnityGameAppCity"
 CITY_TAG = "RokUnityRuntimeCityAllBuildings"
 FOLDER_ROOT = "RokUnityRuntimeCityAllBuildings"
 ACTOR_PREFIX = "UnityRuntimeCityAllBuildings"
@@ -39,14 +42,29 @@ BUILDING_OBJ_MESH_DESTINATION = "/Game/{0}/RuntimeBuildingObjMeshes".format(ASSE
 BUILDING_TEXTURE_DESTINATION = "/Game/{0}/Textures".format(ASSET_FOLDER_ROOT)
 BUILDING_MATERIAL_DESTINATION = "/Game/{0}/Materials".format(ASSET_FOLDER_ROOT)
 UE_UNITS_PER_UNITY_UNIT = 500.0
+CITY_CONTAINER_YAW = -45.0
 CAMERA_VIEW_CENTER = (0.0, 0.0)
 CAMERA_VIEW_DISTANCE = 20.0
 CAMERA_VERTICAL_FOV = 7.5
 CAMERA_DXF = 150.0
 CAMERA_FORWARD_UNITY = (0.0, -0.7, 0.7)
 CAMERA_ASPECT = 16.0 / 10.0
+UNITY_CITY_LOD_SCALE_START_DXF = 250.0
+UNITY_CITY_LOD_SCALE_END_DXF = 1500.0
+UNITY_CITY_LOD_SCALE_SLOPE = 0.0056
+UNITY_CITY_LOD_MAX_SCALE = 7.8
 BUILDING_CARD_MODE = os.environ.get("ROK_RUNTIME_BUILDING_CARD_MODE", "sprite_actor")
 CITY_SPRITE_ACTOR_CLASS = "/Script/Rok.RokCitySpriteActor"
+SOURCE_SPRITE_ORIENTATION_MODE = "fixed_source_sprite_plane"
+SOURCE_SPRITE_ORIENTATION_TAG = "UnitySpritePlaneFixedSourceOrientation"
+SOURCE_SPRITE_NORMAL_TAG = "UnitySpritePlaneNormal_0_0p707_-0p707"
+SOURCE_SPRITE_NORMAL_UE = (0.0, math.sqrt(0.5), -math.sqrt(0.5))
+SELECTION_ARROW_TEXTURE_PATHS = {
+    "Up": "/Game/RokPrototype/UI/BuildingMenu/rok_building_select_arrow_up",
+    "Right": "/Game/RokPrototype/UI/BuildingMenu/rok_building_select_arrow_right",
+    "Down": "/Game/RokPrototype/UI/BuildingMenu/rok_building_select_arrow_down",
+    "Left": "/Game/RokPrototype/UI/BuildingMenu/rok_building_select_arrow_left",
+}
 EXTRA_INTERIOR_BUILDING_COUNT = max(0, int(os.environ.get("ROK_RUNTIME_EXTRA_INTERIOR_BUILDINGS", "0")))
 UNITY_CITY_BUILDING_TEXTURE_ROOT = os.path.join(
     fresh.ROK_UNITY_ASSETS,
@@ -57,6 +75,10 @@ UNITY_CITY_BUILDING_TEXTURE_ROOT = os.path.join(
     "shared_building",
     "Building_101",
     "city_building_1",
+)
+INTERIOR_BAKED_TEXTURE_ROOT = os.path.join(
+    MIGRATION_ROOT,
+    "runtime_interior_baked_alpha",
 )
 EXTRA_INTERIOR_LAYOUT = [
     (17, "build_17_101_1", -10, 8),
@@ -98,6 +120,13 @@ def set_tags(actor, tags):
     actor.tags = existing
 
 
+def actual_sprite_name(record):
+    sprite_path = str(record.get("sprite_path", "")).replace("\\", "/")
+    if sprite_path:
+        return os.path.splitext(os.path.basename(sprite_path))[0]
+    return str(record.get("visual_sprite_name", ""))
+
+
 def load_building_obj_manifest():
     if not os.path.exists(UNITY_RUNTIME_CITY_BUILDINGS_OBJ_MANIFEST):
         raise RuntimeError("Missing Unity runtime city building OBJ manifest: {0}".format(
@@ -117,7 +146,10 @@ def import_runtime_building_obj_mesh(record):
     existing = fresh.proto.load_asset_if_exists(package_path)
     force_reimport = os.environ.get(
         "ROK_FORCE_REIMPORT_BUILDING_MESHES",
-        os.environ.get("ROK_FORCE_REIMPORT", "1"),
+        # Reuse existing meshes in live-editor/MCP runs. Explicit reimport is
+        # reserved for the standalone UE commandlet path because synchronous
+        # Interchange OBJ import can re-enter the live editor task graph.
+        os.environ.get("ROK_FORCE_REIMPORT", "0"),
     ) != "0"
     if isinstance(existing, unreal.StaticMesh) and not force_reimport:
         return existing
@@ -143,7 +175,7 @@ def import_runtime_building_obj_mesh(record):
     raise RuntimeError("Failed to import Unity runtime city building OBJ: {0}".format(obj_path))
 
 
-def import_building_texture(source_path, asset_name):
+def import_building_texture(source_path, asset_name, is_mask=False):
     if not source_path or not os.path.exists(source_path):
         raise RuntimeError("Missing Unity runtime city building baked texture: {0}".format(source_path))
 
@@ -152,7 +184,7 @@ def import_building_texture(source_path, asset_name):
     existing = fresh.proto.load_asset_if_exists(package_path)
     force_reimport = os.environ.get(
         "ROK_FORCE_REIMPORT_BUILDING_TEXTURES",
-        os.environ.get("ROK_FORCE_REIMPORT_TEXTURES", "1"),
+        os.environ.get("ROK_FORCE_REIMPORT_TEXTURES", "0"),
     ) != "0"
     if existing and not force_reimport:
         return existing
@@ -179,16 +211,37 @@ def import_building_texture(source_path, asset_name):
         raise RuntimeError("Failed to import Unity runtime city building texture: {0}".format(source_path))
 
     try:
-        texture.set_editor_property("srgb", True)
+        # Unity uses Gamma color space (ProjectSettings m_ActiveColorSpace: 0), so
+        # mask channel values are consumed as stored bytes. UE must not apply an
+        # sRGB-to-linear conversion before the shader evaluates mask.r * 2.0.
+        texture.set_editor_property("srgb", not is_mask)
         texture.set_editor_property("never_stream", True)
         texture.set_editor_property("mip_gen_settings", unreal.TextureMipGenSettings.TMGS_NO_MIPMAPS)
-        texture.set_editor_property("compression_settings", unreal.TextureCompressionSettings.TC_DEFAULT)
+        texture.set_editor_property(
+            "compression_settings",
+            unreal.TextureCompressionSettings.TC_MASKS if is_mask else unreal.TextureCompressionSettings.TC_DEFAULT,
+        )
         texture.set_editor_property("address_x", unreal.TextureAddress.TA_CLAMP)
         texture.set_editor_property("address_y", unreal.TextureAddress.TA_CLAMP)
     except Exception:
         pass
     unreal.EditorAssetLibrary.save_loaded_asset(texture)
     return texture
+
+
+def clear_material_expressions(material):
+    # UE 5.8 DeleteAllMaterialExpressions removes from the same collection it is
+    # range-iterating, which can skip nodes. Delete a Python snapshot one by one.
+    for expression in list(unreal.MaterialEditingLibrary.get_material_expressions(material)):
+        unreal.MaterialEditingLibrary.delete_material_expression(material, expression)
+    remaining = unreal.MaterialEditingLibrary.get_material_expressions(material)
+    if remaining:
+        raise RuntimeError(
+            "Failed to clear material expressions for {0}: remaining={1}".format(
+                material.get_path_name(),
+                len(remaining),
+            )
+        )
 
 
 def create_building_material(texture, material_name):
@@ -207,10 +260,7 @@ def create_building_material(texture, material_name):
             unreal.Material,
             unreal.MaterialFactoryNew(),
         )
-    try:
-        unreal.MaterialEditingLibrary.delete_all_material_expressions(material)
-    except Exception:
-        pass
+    clear_material_expressions(material)
     material.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT)
     material.set_editor_property("two_sided", True)
     try:
@@ -225,8 +275,14 @@ def create_building_material(texture, material_name):
         0,
     )
     texture_node.set_editor_property("texture", texture)
+    try:
+        texture_node.set_editor_property("sampler_type", unreal.MaterialSamplerType.SAMPLERTYPE_COLOR)
+    except Exception:
+        pass
     unreal.MaterialEditingLibrary.connect_material_property(texture_node, "RGB", unreal.MaterialProperty.MP_BASE_COLOR)
     unreal.MaterialEditingLibrary.connect_material_property(texture_node, "RGB", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    # Runtime exports and supplemental prepared textures already bake Unity shader alpha:
+    # color.a * saturate(mask.r * 2.0) * _CityTransparency.
     unreal.MaterialEditingLibrary.connect_material_property(texture_node, "A", unreal.MaterialProperty.MP_OPACITY)
 
     roughness = unreal.MaterialEditingLibrary.create_material_expression(
@@ -238,9 +294,32 @@ def create_building_material(texture, material_name):
     roughness.set_editor_property("r", 0.92)
     unreal.MaterialEditingLibrary.connect_material_property(roughness, "", unreal.MaterialProperty.MP_ROUGHNESS)
 
-    unreal.MaterialEditingLibrary.recompile_material(material)
-    unreal.EditorAssetLibrary.save_loaded_asset(material)
+    compile_errors = [str(item) for item in unreal.MaterialEditingLibrary.recompile_material(material)]
+    if compile_errors:
+        raise RuntimeError("Material compile failed for {0}: {1}".format(material_path, compile_errors))
+    material.modify(True)
+    if not unreal.EditorAssetLibrary.save_loaded_asset(material, False):
+        raise RuntimeError("Failed to save baked-alpha material {0}".format(material_path))
     return material
+
+
+def create_selection_arrow_materials():
+    materials = {}
+    for direction, texture_path in SELECTION_ARROW_TEXTURE_PATHS.items():
+        texture = fresh.proto.load_asset_if_exists(texture_path)
+        if not isinstance(texture, unreal.Texture2D):
+            raise RuntimeError("Missing processed Unity selection arrow texture: {0}".format(texture_path))
+        material = runtime.create_runtime_city_sprite_material(
+            texture,
+            "RokBuildingSelectionArrow{0}".format(direction),
+            None,
+            disable_depth_test=False,
+            translucent_alpha=True,
+        )
+        if not material:
+            raise RuntimeError("Failed to create selection arrow material for {0}".format(direction))
+        materials[direction] = str(material.get_path_name())
+    return materials
 
 
 def create_preview_building_material(color_texture, mask_texture, material_name):
@@ -259,10 +338,7 @@ def create_preview_building_material(color_texture, mask_texture, material_name)
             unreal.Material,
             unreal.MaterialFactoryNew(),
         )
-    try:
-        unreal.MaterialEditingLibrary.delete_all_material_expressions(material)
-    except Exception:
-        pass
+    clear_material_expressions(material)
     material.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT)
     material.set_editor_property("two_sided", True)
     try:
@@ -277,6 +353,10 @@ def create_preview_building_material(color_texture, mask_texture, material_name)
         -40,
     )
     color_node.set_editor_property("texture", color_texture)
+    try:
+        color_node.set_editor_property("sampler_type", unreal.MaterialSamplerType.SAMPLERTYPE_COLOR)
+    except Exception:
+        pass
     unreal.MaterialEditingLibrary.connect_material_property(color_node, "RGB", unreal.MaterialProperty.MP_BASE_COLOR)
     unreal.MaterialEditingLibrary.connect_material_property(color_node, "RGB", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
 
@@ -288,7 +368,81 @@ def create_preview_building_material(color_texture, mask_texture, material_name)
             180,
         )
         mask_node.set_editor_property("texture", mask_texture)
-        unreal.MaterialEditingLibrary.connect_material_property(mask_node, "R", unreal.MaterialProperty.MP_OPACITY)
+        mask_node.set_editor_property("sampler_type", unreal.MaterialSamplerType.SAMPLERTYPE_MASKS)
+
+        # Source: Assets/BundleAssets/Map/Building/map_building_with_mask-5.shader
+        # Unity opacity is color.a * saturate(mask.r * 2.0) * _CityTransparency.
+        mask_scale = unreal.MaterialEditingLibrary.create_material_expression(
+            material,
+            unreal.MaterialExpressionConstant,
+            -340,
+            240,
+        )
+        mask_scale.set_editor_property("r", 2.0)
+        scaled_mask = unreal.MaterialEditingLibrary.create_material_expression(
+            material,
+            unreal.MaterialExpressionMultiply,
+            -140,
+            180,
+        )
+        saturated_mask = unreal.MaterialEditingLibrary.create_material_expression(
+            material,
+            unreal.MaterialExpressionSaturate,
+            60,
+            180,
+        )
+        color_alpha_mask = unreal.MaterialEditingLibrary.create_material_expression(
+            material,
+            unreal.MaterialExpressionMultiply,
+            260,
+            120,
+        )
+        city_transparency = unreal.MaterialEditingLibrary.create_material_expression(
+            material,
+            unreal.MaterialExpressionConstant,
+            60,
+            320,
+        )
+        city_transparency.set_editor_property("r", 1.0)
+        final_opacity = unreal.MaterialEditingLibrary.create_material_expression(
+            material,
+            unreal.MaterialExpressionMultiply,
+            460,
+            120,
+        )
+
+        expression_connections = [
+            (mask_node, "R", scaled_mask, "A"),
+            (mask_scale, "", scaled_mask, "B"),
+            (scaled_mask, "", saturated_mask, ""),
+            (color_node, "A", color_alpha_mask, "A"),
+            (saturated_mask, "", color_alpha_mask, "B"),
+            (color_alpha_mask, "", final_opacity, "A"),
+            (city_transparency, "", final_opacity, "B"),
+        ]
+        for from_expression, from_output, to_expression, to_input in expression_connections:
+            connected = unreal.MaterialEditingLibrary.connect_material_expressions(
+                from_expression,
+                from_output,
+                to_expression,
+                to_input,
+            )
+            if not connected:
+                raise RuntimeError(
+                    "Failed to connect alpha material expression {0}:{1} -> {2}:{3} for {4}".format(
+                        from_expression.get_class().get_name(),
+                        from_output,
+                        to_expression.get_class().get_name(),
+                        to_input,
+                        material_path,
+                    )
+                )
+        if not unreal.MaterialEditingLibrary.connect_material_property(
+            final_opacity,
+            "",
+            unreal.MaterialProperty.MP_OPACITY,
+        ):
+            raise RuntimeError("Failed to connect alpha material opacity for {0}".format(material_path))
     else:
         unreal.MaterialEditingLibrary.connect_material_property(color_node, "A", unreal.MaterialProperty.MP_OPACITY)
 
@@ -301,8 +455,16 @@ def create_preview_building_material(color_texture, mask_texture, material_name)
     roughness.set_editor_property("r", 0.92)
     unreal.MaterialEditingLibrary.connect_material_property(roughness, "", unreal.MaterialProperty.MP_ROUGHNESS)
 
-    unreal.MaterialEditingLibrary.recompile_material(material)
-    unreal.EditorAssetLibrary.save_loaded_asset(material)
+    compile_errors = [str(item) for item in unreal.MaterialEditingLibrary.recompile_material(material)]
+    if compile_errors:
+        raise RuntimeError("Material compile failed for {0}: {1}".format(material_path, compile_errors))
+
+    # MaterialEditingLibrary connection calls notify an open material editor, but do not
+    # reliably dirty the package in commandlet mode. Force both the dirty state and save
+    # so expression input links survive a fresh editor process.
+    material.modify(True)
+    if not unreal.EditorAssetLibrary.save_loaded_asset(material, False):
+        raise RuntimeError("Failed to save alpha material {0}".format(material_path))
     return material
 
 
@@ -352,17 +514,23 @@ def expected_camera_location():
     return center - camera_forward_ue() * (CAMERA_VIEW_DISTANCE * UE_UNITS_PER_UNITY_UNIT)
 
 
-def camera_facing_rotation(location):
-    target = expected_camera_location() - location
+def source_sprite_plane_rotation():
+    # Every exported Unity InitBuilding SpriteRenderer OBJ uses the same plane
+    # basis after Unity-to-UE conversion: U=(-1,0,0),
+    # V=(0,0.70710678,0.70710678), N=(0,0.70710678,-0.70710678).
+    # Preserve that fixed source orientation. A per-actor look-at rotation moves
+    # tall cards sideways relative to their logical grid anchor near the screen
+    # edges, which is most visible on the tree decorations.
+    source_normal = unreal.Vector(*SOURCE_SPRITE_NORMAL_UE)
     try:
-        return unreal.MathLibrary.make_rot_from_zy(target, unreal.Vector(0.0, 0.0, 1.0))
+        return unreal.MathLibrary.make_rot_from_zy(source_normal, unreal.Vector(0.0, 0.0, 1.0))
     except Exception:
         pass
     try:
-        return unreal.KismetMathLibrary.make_rot_from_zy(target, unreal.Vector(0.0, 0.0, 1.0))
+        return unreal.KismetMathLibrary.make_rot_from_zy(source_normal, unreal.Vector(0.0, 0.0, 1.0))
     except Exception:
         pass
-    return fresh.proto.make_rotator(45.0, 0.0, 0.0)
+    return fresh.proto.make_rotator(0.0, 180.0, -135.0)
 
 
 def configure_camera_component(component):
@@ -412,7 +580,7 @@ def spawn_camera_and_player_start():
     forward = camera_forward_ue()
     rotation = fresh.look_rotation_from_forward(forward)
 
-    camera = unreal.EditorLevelLibrary.spawn_actor_from_class(unreal.CameraActor, location, rotation)
+    camera = fresh.spawn_actor_from_class_direct(unreal.CameraActor, location, rotation)
     camera.set_actor_label("{0}_Camera_WorldCamera_city_default".format(ACTOR_PREFIX))
     camera.set_folder_path("{0}/Camera".format(FOLDER_ROOT))
     set_tags(camera, [
@@ -427,7 +595,7 @@ def spawn_camera_and_player_start():
     ])
     configure_camera_component(camera.get_component_by_class(unreal.CameraComponent))
 
-    player_start = unreal.EditorLevelLibrary.spawn_actor_from_class(
+    player_start = fresh.spawn_actor_from_class_direct(
         unreal.PlayerStart,
         location,
         rotation,
@@ -442,6 +610,19 @@ def spawn_camera_and_player_start():
     return camera, player_start
 
 
+def unity_city_lod_scale(dxf):
+    value = float(dxf)
+    if value <= UNITY_CITY_LOD_SCALE_START_DXF:
+        curve_value = 1.0
+    elif value < UNITY_CITY_LOD_SCALE_END_DXF:
+        curve_value = 1.0 + (value - UNITY_CITY_LOD_SCALE_START_DXF) * UNITY_CITY_LOD_SCALE_SLOPE
+    elif value < 3000.0:
+        curve_value = 8.0
+    else:
+        curve_value = 0.0
+    return max(0.0, min(UNITY_CITY_LOD_MAX_SCALE, curve_value))
+
+
 def sprite_card_visual_size(record):
     extents = record.get("ue_bounds_extents") or [50.0, 50.0, 50.0]
     width = max(1.0, float(extents[0]) * 2.0)
@@ -449,21 +630,131 @@ def sprite_card_visual_size(record):
     return width, height
 
 
-def spawn_building_sprite_actor(label, material, record, folder, sort_priority):
+def sprite_card_base_visual_size(record, source_export_lod_scale):
+    texture_rect = record.get("sprite_texture_rect") or {}
+    pixels_per_unit = float(record.get("pixels_per_unit") or 0.0)
+    renderer_scale = record.get("renderer_local_scale") or []
+    root_scale = record.get("root_local_scale") or []
+    if (
+        pixels_per_unit <= 0.0
+        or float(texture_rect.get("width") or 0.0) <= 0.0
+        or float(texture_rect.get("height") or 0.0) <= 0.0
+        or len(renderer_scale) < 2
+        or len(root_scale) < 2
+        or source_export_lod_scale <= 0.0
+    ):
+        width, height = sprite_card_visual_size(record)
+        return width / max(source_export_lod_scale, 1.0), height / max(source_export_lod_scale, 1.0)
+
+    base_root_scale_x = float(root_scale[0]) / source_export_lod_scale
+    base_root_scale_y = float(root_scale[1]) / source_export_lod_scale
+    width = (
+        float(texture_rect["width"])
+        / pixels_per_unit
+        * abs(float(renderer_scale[0]) * base_root_scale_x)
+        * UE_UNITS_PER_UNITY_UNIT
+    )
+    height = (
+        float(texture_rect["height"])
+        / pixels_per_unit
+        * abs(float(renderer_scale[1]) * base_root_scale_y)
+        * UE_UNITS_PER_UNITY_UNIT
+    )
+    return max(1.0, width), max(1.0, height)
+
+
+def unity_city_local_position_to_ue(position, container_yaw):
+    x = float(position[0])
+    y = float(position[1])
+    z = float(position[2])
+    yaw = math.radians(float(container_yaw))
+    rotated_x = math.cos(yaw) * x + math.sin(yaw) * z
+    rotated_z = -math.sin(yaw) * x + math.cos(yaw) * z
+    return unreal.Vector(
+        -rotated_x * UE_UNITS_PER_UNITY_UNIT,
+        rotated_z * UE_UNITS_PER_UNITY_UNIT,
+        y * UE_UNITS_PER_UNITY_UNIT,
+    )
+
+
+def building_presentation_contract(record, container_yaw, source_export_lod_scale):
+    if source_export_lod_scale <= 0.0:
+        raise RuntimeError("Unity runtime building export has an invalid LOD scale")
+    grid_width = max(1, int(record.get("grid_width", 1)))
+    grid_length = max(1, int(record.get("grid_length", 1)))
+    grid_x = int(record.get("grid_x", 0))
+    grid_y = int(record.get("grid_y", 0))
+    root_local_position = record.get("root_local_position") or [
+        grid_x * 0.1 + grid_width * 0.05 - 0.05,
+        0.01,
+        grid_y * 0.1 + grid_length * 0.05 - 0.05,
+    ]
+    selection_anchor = unity_city_local_position_to_ue(root_local_position, container_yaw)
+    source_center_values = record.get("ue_bounds_center") or [
+        float(selection_anchor.x),
+        float(selection_anchor.y),
+        float(selection_anchor.z),
+    ]
+    source_center = unreal.Vector(
+        float(source_center_values[0]),
+        float(source_center_values[1]),
+        float(source_center_values[2]),
+    )
+    base_visual_center_offset = (source_center - selection_anchor) / source_export_lod_scale
+    base_width, base_height = sprite_card_base_visual_size(record, source_export_lod_scale)
+    initial_lod_scale = unity_city_lod_scale(CAMERA_DXF)
+    expected_center = selection_anchor + base_visual_center_offset * initial_lod_scale
+    expected_extents = (
+        base_width * initial_lod_scale * 0.5,
+        base_height * initial_lod_scale / (2.0 * math.sqrt(2.0)),
+        base_height * initial_lod_scale / (2.0 * math.sqrt(2.0)),
+    )
+    return {
+        "source_export_lod_scale": source_export_lod_scale,
+        "initial_dxf": CAMERA_DXF,
+        "initial_lod_scale": initial_lod_scale,
+        "selection_anchor": selection_anchor,
+        "base_visual_center_offset": base_visual_center_offset,
+        "base_visual_size": (base_width, base_height),
+        "expected_center": expected_center,
+        "expected_extents": expected_extents,
+    }
+
+
+def spawn_building_sprite_actor(label, material, record, folder, sort_priority, container_yaw, presentation=None):
     sprite_actor_class = unreal.load_class(None, CITY_SPRITE_ACTOR_CLASS)
     if not sprite_actor_class:
         raise RuntimeError("Missing runtime sprite actor class: {0}".format(CITY_SPRITE_ACTOR_CLASS))
-    center = record.get("ue_bounds_center") or [0.0, 0.0, 0.0]
-    location = unreal.Vector(float(center[0]), float(center[1]), float(center[2]))
-    width, height = sprite_card_visual_size(record)
-    actor = unreal.EditorLevelLibrary.spawn_actor_from_class(
+    if presentation:
+        location = presentation["selection_anchor"]
+        width, height = presentation["base_visual_size"]
+    else:
+        center = record.get("ue_bounds_center") or [0.0, 0.0, 0.0]
+        location = unreal.Vector(float(center[0]), float(center[1]), float(center[2]))
+        width, height = sprite_card_visual_size(record)
+    actor = fresh.spawn_actor_from_class_direct(
         sprite_actor_class,
         location,
-        camera_facing_rotation(location),
+        source_sprite_plane_rotation(),
     )
     actor.set_actor_label(label)
     actor.set_folder_path(folder)
     actor.configure_sprite(material, width, height, sort_priority)
+    grid_width = max(1, int(record.get("grid_width", 1)))
+    grid_length = max(1, int(record.get("grid_length", 1)))
+    grid_x = int(record.get("grid_x", 0))
+    grid_y = int(record.get("grid_y", 0))
+    root_local_position = record.get("root_local_position") or [
+        grid_x * 0.1 + grid_width * 0.05 - 0.05,
+        0.01,
+        grid_y * 0.1 + grid_length * 0.05 - 0.05,
+    ]
+    selection_anchor = unity_city_local_position_to_ue(root_local_position, container_yaw)
+    actor.configure_placement(
+        unreal.IntPoint(grid_width, grid_length),
+        unreal.IntPoint(grid_x, grid_y),
+        selection_anchor - location,
+    )
     component = actor.get_component_by_class(unreal.StaticMeshComponent)
     if component:
         scale = component.get_editor_property("relative_scale3d")
@@ -471,11 +762,38 @@ def spawn_building_sprite_actor(label, material, record, folder, sort_priority):
             "relative_scale3d",
             unreal.Vector(float(scale.x), -abs(float(scale.y)), float(scale.z)),
         )
+    if presentation:
+        actor.configure_unity_camera_lod(
+            presentation["base_visual_center_offset"],
+            presentation["initial_dxf"],
+        )
     return actor
 
 
-def actor_record_from_building(actor, record):
+def actor_record_from_building(actor, record, presentation=None):
     bounds_origin, bounds_extent = actor.get_actor_bounds(False)
+    component = actor.get_component_by_class(unreal.StaticMeshComponent)
+    actual_sort_priority = None
+    actual_sort_distance_offset = None
+    if component:
+        actual_sort_priority = int(component.get_editor_property("translucency_sort_priority"))
+        try:
+            actual_sort_distance_offset = float(component.get_editor_property("translucency_sort_distance_offset"))
+        except Exception:
+            actual_sort_distance_offset = None
+    sprite_name = actual_sprite_name(record)
+    if hasattr(actor, "get_visual_anchor_world_position") and hasattr(actor, "get_footprint_size"):
+        selection_anchor = actor.get_visual_anchor_world_position()
+        footprint = actor.get_footprint_size()
+        if hasattr(actor, "get_visual_center_world_position") and hasattr(actor, "get_visual_bounds_extent"):
+            bounds_origin = actor.get_visual_center_world_position()
+            bounds_extent = actor.get_visual_bounds_extent()
+    else:
+        selection_anchor = actor.get_actor_location()
+        footprint = unreal.IntPoint(
+            max(1, int(record.get("grid_width", 1))),
+            max(1, int(record.get("grid_length", 1))),
+        )
     return {
         "actor": actor.get_actor_label(),
         "init_id": record.get("init_id"),
@@ -487,17 +805,31 @@ def actor_record_from_building(actor, record):
         "grid_width": record.get("grid_width"),
         "grid_length": record.get("grid_length"),
         "model_id": record.get("model_id"),
-        "visual_sprite_name": record.get("visual_sprite_name"),
+        "visual_sprite_name": sprite_name,
+        "initial_state_visual_sprite_name": record.get("visual_sprite_name"),
+        "source_initial_state_visual_resolution": record.get("visual_resolution"),
+        "visual_resolution": (
+            "unity_prefab_sprite_renderer"
+            if record.get("renderer_path") and record.get("sprite_guid") and record.get("mask_guid")
+            else "diagnostic_manual_layout"
+        ),
         "prefab_path": record.get("prefab_path"),
         "renderer_path": record.get("renderer_path"),
         "sprite_path": record.get("sprite_path"),
+        "sprite_guid": record.get("sprite_guid"),
         "mask_path": record.get("mask_path"),
+        "mask_guid": record.get("mask_guid"),
         "material_path": record.get("material_path"),
+        "material_guid": record.get("material_guid"),
         "shader_name": record.get("shader_name"),
         "shader_asset_path": record.get("shader_asset_path"),
         "shader_queue_tag": record.get("shader_queue_tag"),
         "shader_zwrite": record.get("shader_zwrite"),
         "material_render_queue": record.get("material_render_queue"),
+        "sorting_layer": record.get("sorting_layer"),
+        "sorting_order": record.get("sorting_order"),
+        "ue_translucency_sort_priority": actual_sort_priority,
+        "ue_translucency_sort_distance_offset": actual_sort_distance_offset,
         "representation": record.get("representation"),
         "obj_path": record.get("obj_path"),
         "baked_texture_path": record.get("baked_texture_path"),
@@ -508,9 +840,43 @@ def actor_record_from_building(actor, record):
         "renderer_local_scale": record.get("renderer_local_scale"),
         "unity_bounds_center": record.get("unity_bounds_center"),
         "unity_bounds_extents": record.get("unity_bounds_extents"),
-        "ue_expected_bounds_center": record.get("ue_bounds_center"),
-        "ue_expected_bounds_extents": record.get("ue_bounds_extents"),
-        "ue_alignment_mode": "Unity runtime SpriteRenderer geometry baked to OBJ in UE centimeters; visible bounds center aligned to Unity Renderer.bounds.center",
+        "ue_source_export_bounds_center": record.get("ue_bounds_center"),
+        "ue_source_export_bounds_extents": record.get("ue_bounds_extents"),
+        "ue_expected_bounds_center": (
+            [
+                float(presentation["expected_center"].x),
+                float(presentation["expected_center"].y),
+                float(presentation["expected_center"].z),
+            ]
+            if presentation else record.get("ue_bounds_center")
+        ),
+        "ue_expected_bounds_extents": (
+            [float(value) for value in presentation["expected_extents"]]
+            if presentation else record.get("ue_bounds_extents")
+        ),
+        "ue_alignment_mode": (
+            "Actor root is the Unity logical grid root; the exact Sprite rect/PPU plane center offset scales around that root with LevelDetailCastle.m_scale_curve"
+            if presentation else record.get(
+                "ue_alignment_mode",
+                "Unity SpriteRenderer.bounds.center converted to UE and used as the RokCitySpriteActor bounds origin",
+            )
+        ),
+        "ue_lod_source_export_scale": presentation.get("source_export_lod_scale") if presentation else None,
+        "ue_lod_initial_dxf": presentation.get("initial_dxf") if presentation else None,
+        "ue_lod_initial_scale": presentation.get("initial_lod_scale") if presentation else None,
+        "ue_lod_base_visual_center_offset": (
+            [
+                float(presentation["base_visual_center_offset"].x),
+                float(presentation["base_visual_center_offset"].y),
+                float(presentation["base_visual_center_offset"].z),
+            ]
+            if presentation else None
+        ),
+        "ue_lod_base_sprite_size": (
+            [float(value) for value in presentation["base_visual_size"]]
+            if presentation else None
+        ),
+        "manual_layout": bool(record.get("manual_layout", False)),
         "ue_location": [
             float(actor.get_actor_location().x),
             float(actor.get_actor_location().y),
@@ -528,11 +894,21 @@ def actor_record_from_building(actor, record):
         ],
         "ue_visible_bounds_origin": [float(bounds_origin.x), float(bounds_origin.y), float(bounds_origin.z)],
         "ue_visible_bounds_extent": [float(bounds_extent.x), float(bounds_extent.y), float(bounds_extent.z)],
+        "ue_selection_anchor": [
+            float(selection_anchor.x),
+            float(selection_anchor.y),
+            float(selection_anchor.z),
+        ],
+        "ue_selection_footprint": [int(footprint.x), int(footprint.y)],
     }
 
 
 def spawn_buildings_from_runtime_obj_manifest(building_manifest):
     records = []
+    container_yaw = float(building_manifest.get("container_yaw", CITY_CONTAINER_YAW))
+    source_export_lod_scale = float(building_manifest.get("runtime_lod_scale") or 0.0)
+    if source_export_lod_scale <= 0.0:
+        raise RuntimeError("Unity runtime building manifest is missing runtime_lod_scale")
     sorted_records = sorted(
         building_manifest.get("records", []),
         key=lambda item: (float(item.get("ue_bounds_center", [0.0, 0.0, 0.0])[1]), int(item.get("init_id", 0))),
@@ -557,17 +933,25 @@ def spawn_buildings_from_runtime_obj_manifest(building_manifest):
             index,
         )
         folder = "{0}/Buildings".format(FOLDER_ROOT)
+        presentation = None
         if BUILDING_CARD_MODE == "sprite_actor":
+            presentation = building_presentation_contract(
+                record,
+                container_yaw,
+                source_export_lod_scale,
+            )
             actor = spawn_building_sprite_actor(
                 label,
                 material,
                 record,
                 folder,
                 int(record.get("material_render_queue") or (index + 20)),
+                container_yaw,
+                presentation,
             )
         else:
             mesh = import_runtime_building_obj_mesh(record)
-            actor = fresh.proto.spawn_mesh(
+            actor = fresh.spawn_static_mesh_actor(
                 label,
                 mesh,
                 (0.0, 0.0, 0.0),
@@ -576,8 +960,9 @@ def spawn_buildings_from_runtime_obj_manifest(building_manifest):
                 (0.0, 0.0, 0.0),
                 folder,
             )
+        source_sprite_name = actual_sprite_name(record)
         actor.tags = []
-        set_tags(actor, [
+        building_tags = [
             CITY_TAG,
             "RokBuilding",
             "CityBuilding",
@@ -595,7 +980,9 @@ def spawn_buildings_from_runtime_obj_manifest(building_manifest):
             "UnityGridWidth_{0}".format(record.get("grid_width")),
             "UnityGridLength_{0}".format(record.get("grid_length")),
             "UnityModel_{0}".format(fresh.safe_tag(record.get("model_id", ""))),
-            "UnitySprite_{0}".format(fresh.safe_tag(record.get("visual_sprite_name", ""))),
+            "UnitySprite_{0}".format(fresh.safe_tag(source_sprite_name)),
+            "UnitySpriteGuid_{0}".format(fresh.safe_tag(record.get("sprite_guid", ""))),
+            "UnityMaskGuid_{0}".format(fresh.safe_tag(record.get("mask_guid", ""))),
             "UnitySourcePrefab_{0}".format(fresh.safe_tag(os.path.splitext(os.path.basename(record.get("prefab_path", "")))[0])),
             "UnityTextureSource_BakedMaskSprite",
             "UnityShader_{0}".format(fresh.safe_tag(record.get("shader_name", ""))),
@@ -604,12 +991,27 @@ def spawn_buildings_from_runtime_obj_manifest(building_manifest):
             "UnityRenderQueue_{0}".format(record.get("material_render_queue", "")),
             "UnityRuntimeMaterial_AlphaCardV2",
             "UnityRuntimeBuildingCardMode_{0}".format(fresh.safe_tag(BUILDING_CARD_MODE)),
-        ])
+        ]
+        if BUILDING_CARD_MODE == "sprite_actor":
+            building_tags.extend([
+                SOURCE_SPRITE_ORIENTATION_TAG,
+                SOURCE_SPRITE_NORMAL_TAG,
+                "UnityGridRootActor",
+                "UnityCameraLodDynamic",
+                "UnitySpriteGeometry_TextureRectPpu",
+                "UnitySourceExportLodScale_{0}".format(
+                    fresh.safe_tag("{0:.6f}".format(source_export_lod_scale))
+                ),
+                "UnityInitialLodScale_{0}".format(
+                    fresh.safe_tag("{0:.6f}".format(presentation["initial_lod_scale"]))
+                ),
+            ])
+        set_tags(actor, building_tags)
         actor.set_folder_path(folder)
         configure_static_mesh_component(actor, int(record.get("material_render_queue") or (index + 20)))
         if BUILDING_CARD_MODE != "sprite_actor":
             align_visible_bounds_center(actor, record.get("ue_bounds_center"))
-        records.append(actor_record_from_building(actor, record))
+        records.append(actor_record_from_building(actor, record, presentation))
     return len(records), records
 
 
@@ -665,20 +1067,21 @@ def spawn_extra_interior_buildings():
         if not color_path:
             unreal.log_warning("Skipping missing Unity interior preview building texture: {0}".format(model_id))
             continue
-        color_texture = import_building_texture(
-            color_path,
-            "T_RokUnityInteriorPreview_{0}".format(fresh.safe_tag(model_id)),
+        baked_path = os.path.join(INTERIOR_BAKED_TEXTURE_ROOT, "{0}_unity_alpha.png".format(model_id))
+        if not os.path.exists(baked_path):
+            raise RuntimeError(
+                "Missing baked Unity building alpha texture; run "
+                "Scripts/PrepareRokUnityRuntimeInteriorBuildingTextures.py: {0}".format(baked_path)
+            )
+        baked_texture = import_building_texture(
+            baked_path,
+            "T_RokUnityInteriorPreview_{0}_BakedAlpha".format(fresh.safe_tag(model_id)),
         )
-        mask_texture = import_building_texture(
-            mask_path,
-            "T_RokUnityInteriorPreview_{0}_Mask".format(fresh.safe_tag(model_id)),
-        ) if mask_path else None
-        material = create_preview_building_material(
-            color_texture,
-            mask_texture,
+        material = create_building_material(
+            baked_texture,
             "M_RokUnityInteriorPreview_{0}_{1}_RQ2995".format(fresh.safe_tag(model_id), index + 1),
         )
-        tex_width, tex_height = runtime.texture_dimensions(color_texture)
+        tex_width, tex_height = runtime.texture_dimensions(baked_texture)
         grid_width, grid_length = type_sizes.get(int(building_type), (6, 6))
         visual_width = max(260.0, float(max(grid_width, grid_length)) * 70.0)
         visual_height = visual_width * float(tex_height) / max(1.0, float(tex_width))
@@ -698,12 +1101,16 @@ def spawn_extra_interior_buildings():
             "prefab_path": "Assets/BundleAssets/Scene/City_building/city_building_1/{0}.prefab".format(extra_building_prefab_model_id(model_id)),
             "sprite_path": os.path.relpath(color_path, fresh.ROK_UNITY_CLIENT_ROOT).replace("\\", "/"),
             "mask_path": os.path.relpath(mask_path, fresh.ROK_UNITY_CLIENT_ROOT).replace("\\", "/") if mask_path else "",
+            "baked_texture_path": os.path.relpath(baked_path, PROJECT_ROOT).replace("\\", "/"),
             "material_path": "Assets/BundleAssets/Scene/City/city_function/map_building.mat",
             "shader_name": "custom/map/map_building_with_mask-5",
             "shader_queue_tag": "Transparent-5",
             "shader_zwrite": "Off",
             "material_render_queue": 2995,
             "representation": "supplemental Unity interior preview sprite card",
+            "visual_resolution": "diagnostic_manual_layout",
+            "manual_layout": True,
+            "ue_alignment_mode": "Diagnostic-only hand-authored grid placement and estimated card size; not Unity renderer-bounds evidence",
             "ue_bounds_center": [float(location.x), float(location.y), float(location.z)],
             "ue_bounds_extents": [visual_width * 0.5, visual_height * 0.35, visual_height * 0.35],
         }
@@ -713,7 +1120,8 @@ def spawn_extra_interior_buildings():
             material,
             record,
             "{0}/InteriorPreviewBuildings".format(FOLDER_ROOT),
-            2995 + index,
+            int(record["material_render_queue"]),
+            CITY_CONTAINER_YAW,
         )
         set_tags(actor, [
             CITY_TAG,
@@ -733,15 +1141,16 @@ def spawn_extra_interior_buildings():
             "UnityGridLength_{0}".format(grid_length),
             "UnityModel_{0}".format(fresh.safe_tag(model_id)),
             "UnitySprite_{0}".format(fresh.safe_tag(model_id)),
-            "UnityTextureSource_UnityBuildingSpriteMask",
+            "UnityTextureSource_UnityBuildingSpriteMaskBakedAlpha",
             "UnityShader_custom_map_map_building_with_mask_5",
             "UnityShaderQueue_Transparent_5",
             "UnityShaderZWrite_Off",
             "UnityRenderQueue_2995",
-            "UnityRuntimeMaterial_InteriorPreview",
+            "UnityOpacity_ColorA_SaturateMaskR2_CityTransparency",
+            "UnityRuntimeMaterial_InteriorPreviewBakedAlpha",
             "UnityRuntimeBuildingCardMode_{0}".format(fresh.safe_tag(BUILDING_CARD_MODE)),
         ])
-        configure_static_mesh_component(actor, 2995 + index)
+        configure_static_mesh_component(actor, int(record["material_render_queue"]))
         records.append(actor_record_from_building(actor, record))
     return len(records), records
 
@@ -755,8 +1164,21 @@ def configure_shared_modules_for_all_buildings_map():
     ground.FOLDER_ROOT = FOLDER_ROOT
     ground.ACTOR_PREFIX = ACTOR_PREFIX
 
+    support.CITY_TAG = CITY_TAG
+    support.FOLDER_ROOT = FOLDER_ROOT
+    support.ACTOR_PREFIX = "{0}_Support".format(ACTOR_PREFIX)
+
+    gate_flags.CITY_TAG = CITY_TAG
+    gate_flags.FOLDER_ROOT = FOLDER_ROOT
+    gate_flags.ACTOR_PREFIX = "{0}_GateFlag".format(ACTOR_PREFIX)
+
 
 def build_scene():
+    if TARGET_LEVEL == PROMOTED_GAMEAPP_LEVEL and EXTRA_INTERIOR_BUILDING_COUNT != 0:
+        raise RuntimeError(
+            "Promoted GameApp city must be generated only from Unity InitBuilding/runtime Prefab evidence; "
+            "ROK_RUNTIME_EXTRA_INTERIOR_BUILDINGS must be 0. Use a clearly named diagnostic map for hand-authored preview density."
+        )
     fresh.TARGET_LEVEL = TARGET_LEVEL
     fresh.CITY_TAG = CITY_TAG
     fresh.require_sources()
@@ -765,12 +1187,19 @@ def build_scene():
     fresh.clear_current_level()
 
     configure_shared_modules_for_all_buildings_map()
+    selection_arrow_materials = create_selection_arrow_materials()
 
     boundary_manifest = boundary.load_obj_manifest()
     boundary_spawned, boundary_records = boundary.spawn_boundary_from_runtime_obj_manifest(boundary_manifest)
 
     ground_manifest = ground.load_ground_obj_manifest()
     ground_spawned, ground_records = ground.spawn_ground_from_runtime_obj_manifest(ground_manifest)
+
+    support_manifest = support.load_support_manifest()
+    support_spawned, support_records = support.spawn_support_layers(support_manifest)
+
+    gate_flags_manifest = gate_flags.load_gate_flags_manifest()
+    gate_flags_spawned, gate_flag_records = gate_flags.spawn_gate_flags(gate_flags_manifest)
 
     building_manifest = load_building_obj_manifest()
     buildings_spawned, building_records = spawn_buildings_from_runtime_obj_manifest(building_manifest)
@@ -788,6 +1217,9 @@ def build_scene():
         "asset_suffix": ASSET_SUFFIX,
         "asset_folder_root": ASSET_FOLDER_ROOT,
         "building_card_mode": BUILDING_CARD_MODE,
+        "building_sprite_orientation": (
+            SOURCE_SPRITE_ORIENTATION_MODE if BUILDING_CARD_MODE == "sprite_actor" else "runtime_obj_geometry"
+        ),
         "rok_unity_root": fresh.ROK_UNITY_ROOT,
         "source_files": {
             "GameAppScene": fresh.SOURCE_CHAIN["GameAppScene"],
@@ -797,27 +1229,48 @@ def build_scene():
             "CityWallPrefab": fresh.SOURCE_CHAIN["CityWallPrefab"],
             "GuardTowerPrefab": fresh.SOURCE_CHAIN["GuardTowerPrefab"],
             "UnityBuildingExportScene": building_manifest.get("scene"),
+            "UnityRuntimeCitySupportManifest": support.UNITY_RUNTIME_CITY_SUPPORT_MANIFEST,
+            "UnityRuntimeCityGateFlagsManifest": gate_flags.UNITY_RUNTIME_CITY_GATE_FLAGS_MANIFEST,
         },
         "unity_runtime_rules": {
             "city_container_parent": "SceneObject/land_root",
             "city_container_yaw": building_manifest.get("container_yaw"),
-            "runtime_lod_scale": building_manifest.get("runtime_lod_scale"),
+            "source_export_runtime_lod_scale": building_manifest.get("runtime_lod_scale"),
+            "initial_camera_lod_scale": unity_city_lod_scale(CAMERA_DXF),
+            "runtime_lod_scale": "LevelDetailCastle.m_scale_curve evaluated from ARokStrategyCameraPawn dxf; source export scale is removed before UE presentation",
             "ordinary_building_position": "ConvertCityObjTileToLocal: x*0.1 + width*0.05 - 0.05, y=0.01, yGrid*0.1 + length*0.05 - 0.05",
             "boundary_position": "CityWall and GuardTower return Vector3.zero, exported through Unity runtime MeshRenderer geometry instead of grid cards",
-            "ordinary_building_visual": "Unity prefab root GridCollideItem plus child SpriteRenderer named sprite; MaskSprite red-channel mask baked into PNG alpha for UE translucent sprite-card material. UE runtime preview uses RokCitySpriteActor camera-facing cards by default because importing SpriteRenderer geometry as OBJ can become edge-on in PIE.",
+            "ordinary_building_visual": "Unity prefab root GridCollideItem plus child SpriteRenderer named sprite; MaskSprite red-channel mask baked into PNG alpha for UE translucent sprite-card material. UE runtime preview uses the exact Sprite texture rect/PPU dimensions instead of Renderer.bounds, whose artificial normal thickness must not become visible card height.",
+            "ordinary_building_orientation": "Fixed Unity source plane basis after conversion: U=(-1,0,0), V=(0,0.70710678,0.70710678), N=(0,0.70710678,-0.70710678). Per-actor spherical look-at rotation is forbidden because it displaces tall card visuals from their logical grid anchors.",
+            "ordinary_building_lod": "RokCitySpriteActor root stays at the Unity logical grid root. Sprite size and authored child-center offset are stored at scale=1 and evaluated at runtime from CityBuildingContainer LevelDetailCastle.m_scale_curve using dxf=distance*vertical_fov.",
             "ordinary_building_asset_refresh": "Generated runtime building OBJ meshes, baked PNG textures, and AlphaCardV2 materials are reimported/rebuilt by default so stale UV/material assets cannot hide cards in PIE.",
-            "extra_interior_preview": "Optional ROK_RUNTIME_EXTRA_INTERIOR_BUILDINGS spawns source-derived Unity build_*_101_1 sprite/mask cards as RokUnityRuntimeInteriorPreview actors. These add visual density for default preview maps and are not UnityInitId gameplay-state actors.",
-            "render_queue_and_depth": "Unity ground/building shaders use ZWrite Off. UE ground/building materials are translucent and use Unity material.renderQueue as translucency sort priority so ground layers draw before city building sprite cards.",
+            "extra_interior_preview": "Diagnostic maps may opt into ROK_RUNTIME_EXTRA_INTERIOR_BUILDINGS, but these cards use hand-authored positions and are rejected in /Game/Maps/L_RokUnityGameAppCity.",
+            "extra_interior_alpha": "map_building_with_mask-5.shader opacity is reproducibly baked into PNG alpha as color.a * saturate(mask.r * 2.0) * 1.0 using Unity Gamma-space mask bytes; UE samples the baked RGBA texture directly.",
+            "city_translucent_alpha": "cm_mask_texture_lod_alpha.shader replaces texture alpha with interpolated mesh vertex color alpha; CityTranslucent_101_1 FBX ByPolygonVertex alpha is reproducibly rasterized into the UE ground texture.",
+            "source_support_layers": "The active build_6_101_1 road and authored wall-shadow MeshRenderers are exported as world-baked Unity Plane 10209 OBJ geometry. Their original RGBA textures are preserved; no white-to-alpha conversion or generated Gaussian shadow is allowed.",
+            "city_gate_flags": "The two active build_8_101_1 CityGate SpriteRenderers use Unity's imported 13-vertex tight SpriteMesh, full runtime hierarchy with only the container -45 yaw, and a Gamma-space baked snapshot of MaskSprite _Mask plus own-city RS.buildGreen _Color_1.",
+            "render_queue_and_depth": "Unity ground, road, authored shadow, CityGate flags, and building materials use their source material.renderQueue as UE translucency sort priority: ground 2991/2992, road 2992, authored shadow 2993, flags 2995, buildings 2995/2996.",
+            "building_move_arrow": "Unity building_move_arrow is a world-space ground prefab. UE uses the same four ui_hud sprites at 64 world units, render priority 5000 with depth testing, and offsets (footprint + 1) * 0.05 Unity units around the source building root/grid anchor. Visibility follows IsSelectBuildCanMove: no CityWall/GuardTower and no selected root scale.x above 1.",
             "runtime_camera": "Unity GameApp WorldCamera is perspective, but main-city entry uses CameraParamLod city_default: distance=20, vertical_fov=7.5, dxf=150, forward=(0,-0.7,0.7). This local diagnostic city is centered at Unity planar (0,0).",
         },
         "unity_runtime_boundary_obj_manifest": boundary.UNITY_RUNTIME_OBJ_MANIFEST,
         "unity_runtime_ground_obj_manifest": ground.UNITY_RUNTIME_GROUND_OBJ_MANIFEST,
+        "unity_runtime_ground_vertex_alpha_manifest": ground.UNITY_RUNTIME_GROUND_VERTEX_ALPHA_MANIFEST,
+        "unity_runtime_city_support_manifest": support.UNITY_RUNTIME_CITY_SUPPORT_MANIFEST,
+        "unity_runtime_city_gate_flags_manifest": gate_flags.UNITY_RUNTIME_CITY_GATE_FLAGS_MANIFEST,
         "unity_runtime_city_buildings_obj_manifest": UNITY_RUNTIME_CITY_BUILDINGS_OBJ_MANIFEST,
+        "selection_arrow_materials": selection_arrow_materials,
+        "source_initial_building_count": building_manifest.get("initial_building_count"),
+        "source_skipped_boundary_building_count": building_manifest.get("skipped_boundary_building_count"),
+        "source_runtime_sprite_record_count": len(building_manifest.get("records", [])),
         "boundary_spawned": boundary_spawned,
         "ground_spawned": ground_spawned,
+        "support_layers_spawned": support_spawned,
+        "city_gate_flags_spawned": gate_flags_spawned,
         "buildings_spawned": buildings_spawned,
         "extra_interior_buildings_requested": EXTRA_INTERIOR_BUILDING_COUNT,
         "extra_interior_buildings_spawned": extra_buildings_spawned,
+        "manual_layout_actor_count": sum(1 for record in extra_building_records if record.get("manual_layout")),
         "camera_actor": camera.get_actor_label(),
         "player_start_actor": player_start.get_actor_label(),
         "camera": {
@@ -841,10 +1294,13 @@ def build_scene():
         },
         "boundary_actors": boundary_records,
         "ground_actors": ground_records,
+        "support_layer_actors": support_records,
+        "city_gate_flag_actors": gate_flag_records,
         "building_actors": building_records,
         "extra_interior_building_actors": extra_building_records,
         "exclusions": {
-            "roads": "not spawned",
+            "manual_roads": "not spawned; the one active Unity source road Renderer is represented only through unity_runtime_city_support_layers.json",
+            "generated_building_shadows": "not spawned; only the one authored Unity build_6_101_1_shadow Renderer is represented",
             "cameras": "one Unity city_default reference camera is spawned for runtime/editor visibility",
             "player_starts": "one Unity city_default player start is spawned for PIE/runtime visibility",
         },
@@ -852,10 +1308,12 @@ def build_scene():
     os.makedirs(os.path.dirname(SCENE_MANIFEST), exist_ok=True)
     with open(SCENE_MANIFEST, "w", encoding="utf-8") as handle:
         json.dump(summary, handle, ensure_ascii=False, indent=2)
-    unreal.log("Rok Unity runtime city all-buildings map saved: {0}; boundary={1}, ground={2}, buildings={3}".format(
+    unreal.log("Rok Unity runtime city all-buildings map saved: {0}; boundary={1}, ground={2}, support={3}, gate_flags={4}, buildings={5}".format(
         TARGET_LEVEL,
         boundary_spawned,
         ground_spawned,
+        support_spawned,
+        gate_flags_spawned,
         buildings_spawned + extra_buildings_spawned,
     ))
 

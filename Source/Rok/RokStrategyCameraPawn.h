@@ -18,6 +18,9 @@ public:
 
 	virtual void Tick(float DeltaSeconds) override;
 
+	UFUNCTION(BlueprintPure, Category="Rok Camera")
+	float GetCurrentCityDxf() const;
+
 protected:
 	virtual void BeginPlay() override;
 
@@ -90,6 +93,12 @@ private:
 
 	UPROPERTY(EditDefaultsOnly, Category="Rok Camera")
 	float MapExtent = 3600.0f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Rok Camera")
+	float UeUnitsPerUnityUnit = 500.0f;
+
+	float CurrentCameraDistance = 17000.0f;
+	float CurrentVerticalFov = 7.5f;
 
 	FVector2D LastEdgeScrollDirection = FVector2D::ZeroVector;
 

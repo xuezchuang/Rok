@@ -28,6 +28,7 @@ UNITY_CITY_BACKGROUND_TEXTURE = UNITY_CLIENT_ROOT / "Assets/BundleAssets/Map/Env
 UNITY_CITY_SURFACE_TEXTURE = UNITY_CLIENT_ROOT / "Assets/T4MOBJ/Terrains/Texture/map_incity4.png"
 UNITY_CITY_ROAD_TEXTURE = UNITY_CLIENT_ROOT / "Assets/BundleAssets/land/Texture/shared_landtexture/dirtRoad01.png"
 OUTPUT_DIR = PROJECT_ROOT / "Saved/RokUnityPlacement/clean"
+PLACEMENT_JSON = PROJECT_ROOT / "Saved/RokUnityPlacement/unity_city_placement.json"
 UNITY_CITY_GROUND_OUTPUT = OUTPUT_DIR / "UnityCityGround_build_ground_6_101_1.png"
 UNITY_GRASS_GROUND_OUTPUT = OUTPUT_DIR / "UnityGrassGround_I_TYPE_Grass_01.png"
 UNITY_CITY_SPLAT_GROUND_OUTPUT = OUTPUT_DIR / "UnityCitySplatGround_city_splat_ground_alpha.png"
@@ -42,6 +43,57 @@ def display_path(path):
         return str(path.relative_to(PROJECT_ROOT)).replace("\\", "/")
     except ValueError:
         return str(path).replace("\\", "/")
+
+
+def project_path(path):
+    candidate = Path(path)
+    return candidate if candidate.is_absolute() else PROJECT_ROOT / candidate
+
+
+def load_runtime_atlas_evidence(sprite_base):
+    if sprite_base != DEFAULT_SPRITE_BASE:
+        return None
+    if not PLACEMENT_JSON.exists():
+        raise RuntimeError("Missing Unity placement manifest; extract and verify placement before preparing Castle_6_5")
+    manifest = json.loads(PLACEMENT_JSON.read_text(encoding="utf-8-sig"))
+    if manifest.get("schema") != "rok.unity_city_placement.v3":
+        raise RuntimeError("Castle_6_5 preparation requires placement schema v3 with runtime-atlas evidence")
+    records = [
+        item for item in manifest.get("placements", [])
+        if item.get("scene") == "Map_TTS.unity"
+        and item.get("name") == "Building_Castle_02"
+        and item.get("active")
+    ]
+    if len(records) != 1:
+        raise RuntimeError("Expected one active Map_TTS Building_Castle_02 placement record")
+    evidence = records[0].get("runtime_atlas") or {}
+    if (
+        evidence.get("texture_rect_unity_bottom_left") != [513, 402, 418, 331]
+        or evidence.get("texture_rect_top_left") != [513, 291, 418, 331]
+        or evidence.get("observed_crop_transform") != "identity"
+        or evidence.get("observed_flip_x") is not False
+        or evidence.get("observed_flip_y") is not False
+        or evidence.get("unity_packing_metadata_status") != "unresolved_in_snapshot"
+        or not evidence.get("color_pixel_match")
+        or not evidence.get("mask_pixel_match")
+    ):
+        raise RuntimeError("Castle_6_5 runtime-atlas evidence is incomplete or inconsistent")
+    return evidence
+
+
+def verify_runtime_atlas_crop(evidence, color, mask):
+    if not evidence:
+        return
+    x, y, width, height = [int(value) for value in evidence["texture_rect_top_left"]]
+    for key, source in (("color", color), ("mask", mask)):
+        atlas_path = project_path(evidence["{0}_atlas_path".format(key)])
+        if not atlas_path.exists():
+            raise RuntimeError("Missing Castle_6_5 {0} runtime atlas: {1}".format(key, atlas_path))
+        with Image.open(atlas_path) as atlas_image:
+            atlas_rgba = atlas_image.convert("RGBA")
+            crop = atlas_rgba.crop((x, y, x + width, y + height))
+            if source.convert("RGBA").tobytes() != crop.tobytes():
+                raise RuntimeError("Castle_6_5 {0} source is no longer the exact verified atlas crop".format(key))
 
 
 def connected_components(active, width, height):
@@ -280,6 +332,8 @@ def prepare_sprite(sprite_base):
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     color = Image.open(source_color).convert("RGBA")
     mask = Image.open(source_mask).convert("RGBA")
+    runtime_atlas = load_runtime_atlas_evidence(sprite_base)
+    verify_runtime_atlas_crop(runtime_atlas, color, mask)
     width, height = color.size
     mask_pixels = mask.load()
     active = [[False] * width for _ in range(height)]
@@ -353,6 +407,8 @@ def prepare_sprite(sprite_base):
         "ground_patch": display_path(output_ground),
         "terrain_plate": display_path(output_terrain),
         "source_size": [width, height],
+        "runtime_atlas": runtime_atlas,
+        "source_sprite_meta_status": "unresolved_in_snapshot" if runtime_atlas else "not_recorded",
         "component_count": len(components),
         "component_keep_rule": "keep largest mask component plus components within margin pixels of the largest component bbox",
         "component_margin": margin,

@@ -23,14 +23,16 @@ import CreateRokRuntimeCityScene as runtime
 
 
 TARGET_LEVEL = os.environ.get("ROK_SINGLE_BUILDING_LEVEL", "/Game/Maps/L_RokCitySingleBuilding")
+SOURCE_ACCEPTANCE_LEVEL = "/Game/Maps/L_RokCitySingleBuilding"
+SOURCE_ACCEPTANCE_MODE = TARGET_LEVEL == SOURCE_ACCEPTANCE_LEVEL
 DIAGNOSTIC_BUILDING_TYPE = int(os.environ.get("ROK_SINGLE_BUILDING_TYPE", "1"))
 DIAGNOSTIC_VISUAL_SCALE = float(os.environ.get("ROK_SINGLE_BUILDING_VISUAL_SCALE", "0.62"))
 ROK_BUILDING_ACTOR_CLASS = "/Script/Rok.RokBuildingActor"
 ROK_CAMERA_PAWN_CLASS = "/Script/Rok.RokCameraPawn"
 SINGLE_ADD_GROUND = os.environ.get("ROK_SINGLE_BUILDING_ADD_GROUND", "0") == "1"
 SINGLE_ADD_UNITY_CITY_GROUND = os.environ.get("ROK_SINGLE_BUILDING_ADD_UNITY_CITY_GROUND", "1") != "0"
-SINGLE_ADD_UNITY_CITY_SURFACE = os.environ.get("ROK_SINGLE_BUILDING_ADD_UNITY_CITY_SURFACE", "1") != "0"
-SINGLE_ADD_UNITY_CITY_ROAD = os.environ.get("ROK_SINGLE_BUILDING_ADD_UNITY_CITY_ROAD", "1") != "0"
+SINGLE_ADD_UNITY_CITY_SURFACE = os.environ.get("ROK_SINGLE_BUILDING_ADD_UNITY_CITY_SURFACE", "0") == "1"
+SINGLE_ADD_UNITY_CITY_ROAD = os.environ.get("ROK_SINGLE_BUILDING_ADD_UNITY_CITY_ROAD", "0") == "1"
 SINGLE_ADD_UNITY_GROUND_PATCH = os.environ.get("ROK_SINGLE_BUILDING_ADD_UNITY_GROUND_PATCH", "0") == "1"
 SINGLE_ADD_UNITY_TERRAIN_PLATE = os.environ.get("ROK_SINGLE_BUILDING_ADD_UNITY_TERRAIN_PLATE", "0") == "1"
 SINGLE_ADD_SHADOW = os.environ.get("ROK_SINGLE_BUILDING_ADD_SHADOW", "0") == "1"
@@ -39,6 +41,7 @@ UNITY_SPRITE_TERRAIN_LAYER_OFFSET = float(os.environ.get("ROK_SINGLE_BUILDING_TE
 UNITY_SPRITE_GROUND_LAYER_OFFSET = float(os.environ.get("ROK_SINGLE_BUILDING_GROUND_LAYER_OFFSET", "14.0"))
 UNITY_SPRITE_BUILDING_LAYER_OFFSET = float(os.environ.get("ROK_SINGLE_BUILDING_BUILDING_LAYER_OFFSET", "-38.0"))
 UNITY_PLACEMENT_CSV = os.path.join(PROJECT_ROOT, "Saved", "RokUnityPlacement", "unity_city_placement.csv")
+UNITY_PLACEMENT_JSON = os.path.join(PROJECT_ROOT, "Saved", "RokUnityPlacement", "unity_city_placement.json")
 UNITY_SCENE_NAME = os.environ.get("ROK_SINGLE_BUILDING_UNITY_SCENE", "Map_TTS.unity")
 UNITY_BUILDING_NAME = os.environ.get("ROK_SINGLE_BUILDING_UNITY_NAME", "Building_Castle_02")
 UNITY_SCENE_WORLD_SCALE = float(os.environ.get("ROK_SINGLE_BUILDING_SCENE_WORLD_SCALE", "170.0"))
@@ -60,7 +63,7 @@ UNITY_ENGINE_PLANE_FLIP_Y = os.environ.get("ROK_SINGLE_BUILDING_ENGINE_PLANE_FLI
 UNITY_USE_CLEAN_CUTOUT = os.environ.get("ROK_SINGLE_BUILDING_USE_CLEAN_CUTOUT", "1") != "0"
 UNITY_CENTER_DIAGNOSTIC_CAMERA = os.environ.get("ROK_SINGLE_BUILDING_CENTER_CAMERA", "1") != "0"
 CLEAN_CUTOUT_DIR = os.path.join(PROJECT_ROOT, "Saved", "RokUnityPlacement", "clean")
-UNITY_CITY_GROUND_STYLE = os.environ.get("ROK_SINGLE_BUILDING_CITY_GROUND_STYLE", "city_background").lower()
+UNITY_CITY_GROUND_STYLE = os.environ.get("ROK_SINGLE_BUILDING_CITY_GROUND_STYLE", "sand").lower()
 UNITY_CITY_GROUND_TEXTURE = os.environ.get(
     "ROK_SINGLE_BUILDING_CITY_GROUND_TEXTURE",
     os.path.join(
@@ -83,7 +86,7 @@ UNITY_CITY_GROUND_FALLBACK_TEXTURE = os.path.join(
 )
 UNITY_CITY_GROUND_POSITION = (
     float(os.environ.get("ROK_SINGLE_BUILDING_CITY_GROUND_X", "0.01499939")),
-    float(os.environ.get("ROK_SINGLE_BUILDING_CITY_GROUND_Y", "-0.012")),
+    float(os.environ.get("ROK_SINGLE_BUILDING_CITY_GROUND_Y", "0.0")),
     float(os.environ.get("ROK_SINGLE_BUILDING_CITY_GROUND_Z", "-0.072006226")),
 )
 UNITY_CITY_GROUND_SIZE_UNITS = float(os.environ.get("ROK_SINGLE_BUILDING_CITY_GROUND_SIZE_UNITS", str(41.0 * 1.1)))
@@ -99,6 +102,13 @@ UNITY_CITY_ROAD_TEXTURE = os.environ.get(
 UNITY_CITY_SURFACE_SCALE = float(os.environ.get("ROK_SINGLE_BUILDING_CITY_SURFACE_SCALE", "0.95"))
 UNITY_CITY_ROAD_SCALE = float(os.environ.get("ROK_SINGLE_BUILDING_CITY_ROAD_SCALE", "1.15"))
 DEFAULT_SINGLE_SPRITE_BASE = "Castle_6_5"
+EXPECTED_RUNTIME_ATLAS_RECT_BOTTOM_LEFT = [513, 402, 418, 331]
+EXPECTED_RUNTIME_ATLAS_RECT_TOP_LEFT = [513, 291, 418, 331]
+EXPECTED_RUNTIME_ATLAS_SIZE = [1024, 1024]
+EXPECTED_RUNTIME_COLOR_ATLAS = "ref/resources/Texture2D/city_build_6_5_0.png"
+EXPECTED_RUNTIME_MASK_ATLAS = "ref/resources/Texture2D/city_build_mask_6_5_0.png"
+EXPECTED_RUNTIME_COLOR_PIXEL_SHA256 = "5188d1fef08a0b2b51e7198607e732a601af4a7e3cd1c60be2f4d9174b8e433e"
+EXPECTED_RUNTIME_MASK_PIXEL_SHA256 = "93c07f8a0e2208a0733812fdad14f5675d6d50973bd6a8fca9bee52eb31c32ce"
 DEFAULT_SINGLE_SPRITE_PATH = os.path.join(UNITY_RESOURCE_ROOT, "Sprite", "{0}.png".format(DEFAULT_SINGLE_SPRITE_BASE))
 DEFAULT_SINGLE_MASK_PATH = os.path.join(UNITY_RESOURCE_ROOT, "Sprite", "{0}_mask.png".format(DEFAULT_SINGLE_SPRITE_BASE))
 SINGLE_FOOTPRINT_WIDTH = float(os.environ.get("ROK_SINGLE_BUILDING_FOOTPRINT_WIDTH", "460.0"))
@@ -132,13 +142,43 @@ def load_clean_cutout_meta(sprite_base):
         return None
     meta_path = os.path.join(CLEAN_CUTOUT_DIR, "{0}_main_clean_meta.json".format(sprite_base))
     if not os.path.exists(meta_path):
+        if SOURCE_ACCEPTANCE_MODE:
+            raise RuntimeError("Map_TTS source acceptance requires clean cutout metadata: {0}".format(meta_path))
         return None
     with open(meta_path, "r", encoding="utf-8") as meta_file:
         meta = json.load(meta_file)
-    clean_path = resolve_project_path(meta.get("clean_cropped"))
+    clean_path = resolve_project_path(meta.get("clean_color"))
     if not clean_path:
+        if SOURCE_ACCEPTANCE_MODE:
+            raise RuntimeError("Map_TTS source acceptance requires the full-canvas clean_color output")
         return None
+    if SOURCE_ACCEPTANCE_MODE and list(meta.get("source_size") or []) != [418, 331]:
+        raise RuntimeError("Unexpected Castle_6_5 clean source size: {0}".format(meta.get("source_size")))
+    if SOURCE_ACCEPTANCE_MODE:
+        validate_map_tts_atlas_evidence(meta.get("runtime_atlas") or {}, "clean cutout metadata")
     return meta
+
+
+def validate_map_tts_atlas_evidence(evidence, source_label):
+    if (
+        evidence.get("atlas_size") != EXPECTED_RUNTIME_ATLAS_SIZE
+        or evidence.get("color_atlas_path") != EXPECTED_RUNTIME_COLOR_ATLAS
+        or evidence.get("mask_atlas_path") != EXPECTED_RUNTIME_MASK_ATLAS
+        or evidence.get("texture_rect_unity_bottom_left") != EXPECTED_RUNTIME_ATLAS_RECT_BOTTOM_LEFT
+        or evidence.get("texture_rect_top_left") != EXPECTED_RUNTIME_ATLAS_RECT_TOP_LEFT
+        or evidence.get("observed_crop_transform") != "identity"
+        or evidence.get("observed_rotation_degrees") != 0
+        or evidence.get("observed_flip_x") is not False
+        or evidence.get("observed_flip_y") is not False
+        or evidence.get("unity_packing_metadata_status") != "unresolved_in_snapshot"
+        or not evidence.get("color_pixel_match")
+        or not evidence.get("mask_pixel_match")
+        or evidence.get("color_pixel_sha256") != EXPECTED_RUNTIME_COLOR_PIXEL_SHA256
+        or evidence.get("mask_pixel_sha256") != EXPECTED_RUNTIME_MASK_PIXEL_SHA256
+        or evidence.get("source_sprite_meta_status") != "unresolved_in_snapshot"
+    ):
+        raise RuntimeError("Map_TTS runtime-atlas evidence mismatch in {0}: {1}".format(source_label, evidence))
+    return evidence
 
 
 def unity_position_to_ue(position):
@@ -175,9 +215,27 @@ def ue_horizontal_fov_from_unity_vertical_fov(vertical_fov, aspect_ratio):
     return math.degrees(2.0 * math.atan(math.tan(math.radians(vertical_fov) * 0.5) * aspect_ratio))
 
 
-def make_unity_sprite_rotation():
-    normal = unity_direction_to_ue(UNITY_CAMERA_FORWARD)
-    up = unity_direction_to_ue(UNITY_CAMERA_UP)
+def quaternion_multiply(a, b):
+    ax, ay, az, aw = [float(value) for value in a]
+    bx, by, bz, bw = [float(value) for value in b]
+    return [
+        aw * bx + ax * bw + ay * bz - az * by,
+        aw * by - ax * bz + ay * bw + az * bx,
+        aw * bz + ax * by - ay * bx + az * bw,
+        aw * bw - ax * bx - ay * by - az * bz,
+    ]
+
+
+def quaternion_rotate(rotation, vector):
+    value = [float(vector[0]), float(vector[1]), float(vector[2]), 0.0]
+    conjugate = [-float(rotation[0]), -float(rotation[1]), -float(rotation[2]), float(rotation[3])]
+    return quaternion_multiply(quaternion_multiply(rotation, value), conjugate)[:3]
+
+
+def make_unity_sprite_rotation(unity_rotation=None):
+    source_rotation = unity_rotation or [0.38268343, 0.0, 0.0, 0.92387956]
+    normal = unity_direction_to_ue(quaternion_rotate(source_rotation, [0.0, 0.0, 1.0]))
+    up = unity_direction_to_ue(quaternion_rotate(source_rotation, [0.0, 1.0, 0.0]))
     for library in unreal_math_libraries():
         function = getattr(library, "make_rot_from_zy", None)
         if function:
@@ -198,15 +256,18 @@ def unity_sprite_layer_location(location, camera_forward_offset):
 
 
 def spawn_unity_city_ground(primitives):
+    ground_record = load_unity_ground_record()
     ground_texture_path = UNITY_CITY_GROUND_TEXTURE
     if not os.path.exists(ground_texture_path):
         ground_texture_path = UNITY_CITY_GROUND_FALLBACK_TEXTURE
     if not os.path.exists(ground_texture_path):
+        if SOURCE_ACCEPTANCE_MODE:
+            raise RuntimeError("Map_TTS source ground texture is missing: {0}".format(ground_texture_path))
         unreal.log_warning("Unity city ground texture is missing: {0}".format(ground_texture_path))
         return None
 
     if UNITY_CITY_GROUND_STYLE == "sand":
-        ground_asset_name = "UnityCityGround_build_ground_6_101_1"
+        ground_asset_name = "UnityCityGround_build_ground_6_101_1_MapTTS_SourceV2"
     elif UNITY_CITY_GROUND_STYLE == "grass":
         ground_asset_name = "UnityCityGround_I_TYPE_Grass_01"
     elif UNITY_CITY_GROUND_STYLE == "city_splat":
@@ -222,17 +283,12 @@ def spawn_unity_city_ground(primitives):
     if not texture:
         raise RuntimeError("Failed to import Unity city ground texture: {0}".format(ground_texture_path))
 
-    material = runtime.create_runtime_city_sprite_material(
-        texture,
-        ground_asset_name,
-        None,
-        False,
-        False,
-        "A",
-        0.05,
-    )
+    material = create_map_tts_ground_material(texture, "M_RokSingleBuilding_{0}_DefaultLitOpaque".format(ground_asset_name))
     ground_size = UNITY_CITY_GROUND_SIZE_UNITS * UNITY_SCENE_WORLD_SCALE
-    location = unity_position_to_ue(UNITY_CITY_GROUND_POSITION)
+    source_position = list(ground_record.get("local_position") or UNITY_CITY_GROUND_POSITION)
+    location = unity_position_to_ue(source_position)
+    source_rotation = list(ground_record.get("local_rotation") or [0.0, 0.38268343, 0.0, 0.92387956])
+    ground_yaw = math.degrees(2.0 * math.atan2(float(source_rotation[1]), float(source_rotation[3])))
     actor = runtime.spawn_runtime_plane(
         "RokSingleUnityCityGround_{0}".format(UNITY_CITY_GROUND_STYLE),
         primitives,
@@ -241,12 +297,72 @@ def spawn_unity_city_ground(primitives):
         ground_size,
         material,
         "RokSingleBuilding/UnityGround",
-        yaw=UNITY_CITY_GROUND_YAW,
+        yaw=ground_yaw,
         sort_priority=-10000,
     )
     if actor:
-        actor.tags = ["RokTerrainLayer", "RokSingleBuildingUnityCityGround", "RokUnityPlacementSource"]
+        actor.tags = [
+            "RokTerrainLayer",
+            "RokSingleBuildingUnityCityGround",
+            "RokUnityPlacementSource",
+            "UnityScene_{0}".format(proto.safe_asset_name(ground_record.get("scene") or "")),
+            "UnityGround_{0}".format(proto.safe_asset_name(ground_record.get("name") or "")),
+            "UnityPrefabInstanceFileId_{0}".format(ground_record.get("instance_file_id", "")),
+            "UnityPrefabGuid_{0}".format(ground_record.get("source_prefab_guid", "")),
+            "UnityMaterialGuid_{0}".format(ground_record.get("material_guid", "")),
+            "UnityParent_{0}".format(proto.safe_asset_name(ground_record.get("parent_hierarchy_path") or "")),
+            "UnityGroundMaterial_StandardOpaqueZWrite",
+            "UnityGroundGeometry_InferredPlaneProxy41x41",
+            "UnityGroundPrefabGeometry_Unresolved",
+        ]
     return actor
+
+
+def create_map_tts_ground_material(texture, material_name):
+    material_path = proto.asset_package_path(runtime.RUNTIME_MATERIAL_DESTINATION, material_name)
+    existing = proto.load_asset_if_exists(material_path)
+    if existing:
+        blend_mode = existing.get_editor_property("blend_mode")
+        shading_model = existing.get_editor_property("shading_model")
+        if "OPAQUE" not in str(blend_mode).upper() or "DEFAULT_LIT" not in str(shading_model).upper():
+            raise RuntimeError("Existing Map_TTS ground material has incompatible semantics: {0}".format(material_path))
+        return existing
+
+    unreal.EditorAssetLibrary.make_directory(runtime.RUNTIME_MATERIAL_DESTINATION)
+    material = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
+        material_name,
+        runtime.RUNTIME_MATERIAL_DESTINATION,
+        unreal.Material,
+        unreal.MaterialFactoryNew(),
+    )
+    if not material:
+        raise RuntimeError("Failed to create Map_TTS ground material: {0}".format(material_path))
+    material.set_editor_property("blend_mode", unreal.BlendMode.BLEND_OPAQUE)
+    material.set_editor_property("two_sided", False)
+    try:
+        material.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_DEFAULT_LIT)
+    except Exception:
+        pass
+
+    texture_node = unreal.MaterialEditingLibrary.create_material_expression(
+        material, unreal.MaterialExpressionTextureSample, -420, -40
+    )
+    texture_node.set_editor_property("texture", texture)
+    unreal.MaterialEditingLibrary.connect_material_property(
+        texture_node, "RGB", unreal.MaterialProperty.MP_BASE_COLOR
+    )
+    roughness = unreal.MaterialEditingLibrary.create_material_expression(
+        material, unreal.MaterialExpressionConstant, -420, 180
+    )
+    roughness.set_editor_property("r", 0.92)
+    unreal.MaterialEditingLibrary.connect_material_property(
+        roughness, "", unreal.MaterialProperty.MP_ROUGHNESS
+    )
+    compile_errors = unreal.MaterialEditingLibrary.recompile_material(material)
+    if compile_errors:
+        raise RuntimeError("Map_TTS ground material compile failed: {0}".format(compile_errors))
+    unreal.EditorAssetLibrary.save_loaded_asset(material)
+    return material
 
 
 def import_layer_material(texture_path, asset_name, masked=False):
@@ -316,9 +432,10 @@ def spawn_unity_city_road(primitives, center_location, visual_width, visual_heig
     return actor
 
 
-def make_unity_camera_rotation():
-    forward = unity_direction_to_ue(UNITY_CAMERA_FORWARD)
-    up = unity_direction_to_ue(UNITY_CAMERA_UP)
+def make_unity_camera_rotation(camera_record=None):
+    source_rotation = (camera_record or {}).get("world_rotation") or [0.38268343, 0.0, 0.0, 0.92387956]
+    forward = unity_direction_to_ue(quaternion_rotate(source_rotation, [0.0, 0.0, 1.0]))
+    up = unity_direction_to_ue(quaternion_rotate(source_rotation, [0.0, 1.0, 0.0]))
     for library in unreal_math_libraries():
         for function_name in ("make_rot_from_xz", "make_rot_from_zx", "make_rot_from_x"):
             function = getattr(library, function_name, None)
@@ -335,27 +452,54 @@ def make_unity_camera_rotation():
     return unreal.MathLibrary.find_look_at_rotation(camera_location, camera_location + forward)
 
 
-def load_unity_scene_building_row():
-    if not os.path.exists(UNITY_PLACEMENT_CSV):
-        if not os.path.exists(DEFAULT_SINGLE_SPRITE_PATH):
-            raise RuntimeError("Missing default single-building sprite: {0}".format(DEFAULT_SINGLE_SPRITE_PATH))
-        unreal.log_warning(
-            "Unity placement CSV is missing; using fixed single-building diagnostic source {0}.".format(
-                DEFAULT_SINGLE_SPRITE_PATH
+def load_unity_placement_manifest():
+    if not os.path.exists(UNITY_PLACEMENT_JSON):
+        raise RuntimeError(
+            "Unity placement manifest is missing; run Scripts/ExtractRokUnityCityPlacement.py first: {0}".format(
+                UNITY_PLACEMENT_JSON
             )
         )
-        return {
-            "scene": UNITY_SCENE_NAME,
-            "category": "city_building",
-            "active": "True",
-            "name": UNITY_BUILDING_NAME,
-            "mapped_sprite_path": DEFAULT_SINGLE_SPRITE_PATH.replace("\\", "/"),
-            "world_position": "[-0.104, 0.334, 0.079]",
-            "world_scale": "[0.240767, 0.240767, 0.240767]",
-            "sprite_size": "[0.0, 0.0]",
-        }
+    with open(UNITY_PLACEMENT_JSON, "r", encoding="utf-8-sig") as handle:
+        manifest = json.load(handle)
+    if manifest.get("schema") != "rok.unity_city_placement.v3":
+        raise RuntimeError("Unsupported Unity placement manifest schema: {0}".format(manifest.get("schema")))
+    return manifest
 
-    fallback = None
+
+def load_unity_camera_record():
+    records = [
+        record
+        for record in load_unity_placement_manifest().get("cameras", [])
+        if record.get("scene") == UNITY_SCENE_NAME
+        and record.get("name") == "Main Camera"
+        and record.get("active")
+    ]
+    if len(records) != 1:
+        raise RuntimeError("Expected one active Unity Main Camera record for {0}, found {1}".format(UNITY_SCENE_NAME, len(records)))
+    return records[0]
+
+
+def load_unity_ground_record():
+    records = [
+        record
+        for record in load_unity_placement_manifest().get("prefab_instances", [])
+        if record.get("scene") == UNITY_SCENE_NAME
+        and record.get("name", "").startswith("CityWall_Ground_1_1_0")
+        and record.get("active")
+    ]
+    if len(records) != 1:
+        raise RuntimeError("Expected one active Unity CityWall_Ground record for {0}, found {1}".format(UNITY_SCENE_NAME, len(records)))
+    return records[0]
+
+
+def load_unity_scene_building_row():
+    if not os.path.exists(UNITY_PLACEMENT_CSV):
+        raise RuntimeError(
+            "Unity placement CSV is missing; run Scripts/ExtractRokUnityCityPlacement.py first: {0}".format(
+                UNITY_PLACEMENT_CSV
+            )
+        )
+
     with open(UNITY_PLACEMENT_CSV, "r", encoding="utf-8-sig", newline="") as csv_file:
         for row in csv.DictReader(csv_file):
             if row.get("scene") != UNITY_SCENE_NAME:
@@ -367,20 +511,13 @@ def load_unity_scene_building_row():
             if not row.get("mapped_sprite_path"):
                 continue
             if row.get("name") == UNITY_BUILDING_NAME:
+                if row.get("mapping_source") == "unresolved":
+                    raise RuntimeError("Unity building source is unresolved: {0}".format(UNITY_BUILDING_NAME))
                 return row
-            if fallback is None:
-                fallback = row
-
-    if fallback:
-        unreal.log_warning(
-            "Unity building {0} was not found in {1}; using first active city building {2}.".format(
-                UNITY_BUILDING_NAME,
-                UNITY_SCENE_NAME,
-                fallback.get("name"),
-            )
-        )
-        return fallback
-    raise RuntimeError("No active Unity city building rows found in {0}".format(UNITY_PLACEMENT_CSV))
+    raise RuntimeError("Unity building {0} was not found in {1}; source fallback is forbidden".format(
+        UNITY_BUILDING_NAME,
+        UNITY_SCENE_NAME,
+    ))
 
 
 def find_diagnostic_model(building_models):
@@ -391,13 +528,17 @@ def find_diagnostic_model(building_models):
 
 
 def make_footprint_highlight_material():
+    material_path = proto.asset_package_path(runtime.RUNTIME_MATERIAL_DESTINATION, "M_RokSingleBuilding_FootprintHighlight")
+    existing = proto.load_asset_if_exists(material_path)
+    if existing:
+        return existing
     return runtime.create_unlit_constant_material(
         "M_RokSingleBuilding_FootprintHighlight",
         unreal.LinearColor(0.95, 0.72, 0.18, 1.0),
     )
 
 
-def spawn_rook_building_actor(label, material, root_location, width, height, pivot_offset, footprint_width, footprint_length, mask_source, clean_meta):
+def spawn_rook_building_actor(label, material, root_location, width, height, pivot_offset, footprint_width, footprint_length, mask_source, clean_meta, source_tags, unity_rotation):
     building_actor_class = unreal.load_class(None, ROK_BUILDING_ACTOR_CLASS)
     if not building_actor_class:
         raise RuntimeError("Missing building actor class: {0}. Build RokEditor before running this script.".format(ROK_BUILDING_ACTOR_CLASS))
@@ -405,9 +546,14 @@ def spawn_rook_building_actor(label, material, root_location, width, height, piv
     actor = unreal.EditorLevelLibrary.spawn_actor_from_class(building_actor_class, root_location, unreal.Rotator(0.0, 0.0, 0.0))
     actor.set_actor_label(label)
     actor.set_folder_path("RokSingleBuilding/Building")
-    actor.configure_card(material, width, height, pivot_offset, make_unity_sprite_rotation())
+    actor.configure_card(material, width, height, pivot_offset, make_unity_sprite_rotation(unity_rotation))
     actor.configure_footprint(footprint_width, footprint_length, make_footprint_highlight_material(), SINGLE_FOOTPRINT_YAW)
-    actor.tags = ["RokBuilding", "CityBuilding", "RokSingleBuildingDiagnostic", "RokUnityPlacementSource"]
+    actor.tags = [
+        "RokBuilding",
+        "CityBuilding",
+        "RokSingleBuildingSourceAcceptance",
+        "RokUnityPlacementSource",
+    ] + list(source_tags)
     try:
         for component in actor.get_components_by_class(unreal.StaticMeshComponent):
             if component.get_name() == "FootprintHighlightComponent":
@@ -484,17 +630,24 @@ def spawn_single_building(primitives, materials):
         raise RuntimeError("Missing Unity mapped sprite path for {0}: {1}".format(unity_row.get("name"), unity_row.get("mapped_sprite_path")))
 
     sprite_base = os.path.splitext(os.path.basename(source_path))[0]
+    try:
+        runtime_atlas = json.loads(unity_row.get("runtime_atlas") or "null") or {}
+    except (TypeError, ValueError):
+        raise RuntimeError("Map_TTS placement CSV runtime_atlas is not valid JSON")
+    if SOURCE_ACCEPTANCE_MODE:
+        validate_map_tts_atlas_evidence(runtime_atlas, "placement CSV")
+        if unity_row.get("source_sprite_meta_status") != "unresolved_in_snapshot":
+            raise RuntimeError("Map_TTS source Sprite pivot/PPU metadata provenance was lost")
     clean_meta = load_clean_cutout_meta(sprite_base)
+    if SOURCE_ACCEPTANCE_MODE and (clean_meta.get("runtime_atlas") or {}) != runtime_atlas:
+        raise RuntimeError("Clean cutout runtime-atlas evidence does not match the placement manifest")
     source_size_scale = [1.0, 1.0]
     if clean_meta:
-        clean_key = "body_clean_cropped" if SINGLE_SPLIT_BUILDING_GROUND and clean_meta.get("body_clean_cropped") else "clean_cropped"
+        # Keep the cleaned texture at the original sprite canvas size so the
+        # Unity SpriteRenderer pivot remains exact. Cropped outputs are useful
+        # diagnostics but require an additional pivot-center compensation.
+        clean_key = "body_clean" if SINGLE_SPLIT_BUILDING_GROUND and clean_meta.get("body_clean") else "clean_color"
         source_path = resolve_project_path(clean_meta[clean_key])
-        source_size = clean_meta.get("source_size") or [1.0, 1.0]
-        crop_size = clean_meta.get("crop_size") or source_size
-        source_size_scale = [
-            float(crop_size[0]) / float(max(1.0, source_size[0])),
-            float(crop_size[1]) / float(max(1.0, source_size[1])),
-        ]
         mask_path = None
         mask_source = "clean RGBA alpha"
     else:
@@ -503,7 +656,7 @@ def spawn_single_building(primitives, materials):
             mask_path = None
         mask_source = "mask {0}".format(UNITY_SPRITE_MASK_CHANNEL) if mask_path else "source alpha"
 
-    texture_name = "UnitySingle_{0}{1}".format(sprite_base, "_CleanMain" if clean_meta else "")
+    texture_name = "UnitySingle_{0}{1}".format(sprite_base, "_CleanFullCanvas_MapTTS_SourceV2" if clean_meta else "")
     texture = runtime.import_runtime_texture_as(source_path, texture_name)
     if not texture:
         raise RuntimeError("Failed to import Unity scene building texture: {0}".format(source_path))
@@ -520,6 +673,8 @@ def spawn_single_building(primitives, materials):
     sprite_size = parse_vector(unity_row.get("sprite_size"), [0.0, 0.0])
     world_scale = parse_vector(unity_row.get("world_scale"), [1.0, 1.0, 1.0])
     tex_width, tex_height = runtime.texture_dimensions(texture)
+    if SOURCE_ACCEPTANCE_MODE and (int(tex_width), int(tex_height)) != (418, 331):
+        raise RuntimeError("Map_TTS clean building texture must be 418x331, got {0}x{1}".format(tex_width, tex_height))
     visual_width = float(sprite_size[0]) * float(world_scale[0]) * UNITY_SCENE_WORLD_SCALE * UNITY_SCENE_VISUAL_SCALE
     visual_height = float(sprite_size[1]) * float(world_scale[1]) * UNITY_SCENE_WORLD_SCALE * UNITY_SCENE_VISUAL_SCALE
     visual_width *= source_size_scale[0]
@@ -601,12 +756,12 @@ def spawn_single_building(primitives, materials):
                     int((6000.0 - (float(location.x) + float(location.y))) * 10.0) - 250,
                     ["RokTerrainLayer", "RokSingleBuildingGroundPatch", "RokUnityPlacementSource"],
                 )
-    camera_forward = unity_direction_to_ue(UNITY_CAMERA_FORWARD)
-    camera_up = unity_direction_to_ue(UNITY_CAMERA_UP)
+    unity_rotation = parse_vector(unity_row.get("world_rotation"), [0.38268343, 0.0, 0.0, 0.92387956])
+    camera_forward = unity_direction_to_ue(quaternion_rotate(unity_rotation, [0.0, 0.0, 1.0]))
     pivot_offset = unreal.Vector(
-        float(camera_forward.x) * UNITY_SPRITE_BUILDING_LAYER_OFFSET + float(camera_up.x) * visual_height * 0.5,
-        float(camera_forward.y) * UNITY_SPRITE_BUILDING_LAYER_OFFSET + float(camera_up.y) * visual_height * 0.5,
-        float(camera_forward.z) * UNITY_SPRITE_BUILDING_LAYER_OFFSET + float(camera_up.z) * visual_height * 0.5,
+        float(camera_forward.x) * UNITY_SPRITE_BUILDING_LAYER_OFFSET,
+        float(camera_forward.y) * UNITY_SPRITE_BUILDING_LAYER_OFFSET,
+        float(location.z) + float(camera_forward.z) * UNITY_SPRITE_BUILDING_LAYER_OFFSET,
     )
     actor = spawn_rook_building_actor(
         "RokSingleUnity_{0}_{1}".format(proto.safe_asset_name(unity_row.get("name") or "Building"), sprite_base),
@@ -619,6 +774,30 @@ def spawn_single_building(primitives, materials):
         SINGLE_FOOTPRINT_LENGTH,
         mask_source,
         clean_meta or {},
+        [
+            "UnityScene_{0}".format(proto.safe_asset_name(unity_row.get("scene") or "")),
+            "UnityObject_{0}".format(proto.safe_asset_name(unity_row.get("name") or "")),
+            "UnityGameObjectFileId_{0}".format(unity_row.get("game_object_file_id", "")),
+            "UnityTransformFileId_{0}".format(unity_row.get("transform_file_id", "")),
+            "UnityRendererFileId_{0}".format(unity_row.get("renderer_file_id", "")),
+            "UnitySpriteFileId_{0}".format(unity_row.get("sprite_file_id", "")),
+            "UnitySpriteGuid_{0}".format(unity_row.get("sprite_guid", "")),
+            "UnityMapping_{0}".format(proto.safe_asset_name(unity_row.get("mapping_source") or "")),
+            "UnityHierarchy_{0}".format(proto.safe_asset_name(unity_row.get("hierarchy_path") or "")),
+            "UnityFlipX_{0}".format(1 if unity_row.get("flip_x") == "True" else 0),
+            "UnityFlipY_{0}".format(1 if unity_row.get("flip_y") == "True" else 0),
+            "UnityAtlas_city_build_6_5_0",
+            "UnityAtlasMask_city_build_mask_6_5_0",
+            "UnityAtlasRectBL_513_402_418_331",
+            "UnityAtlasRectTL_513_291_418_331",
+            "UnityAtlasObservedCropTransform_Identity",
+            "UnityAtlasPixelMatch_ColorMask",
+            "UELayerOffset_{0:g}".format(UNITY_SPRITE_BUILDING_LAYER_OFFSET),
+            "UnitySpriteMeta_Unresolved",
+            "UnitySpritePackingMeta_Unresolved",
+            "UnitySpritePivotMeta_Unresolved",
+        ],
+        unity_rotation,
     )
     unreal.log(
         "Single Unity building: scene={0}, name={1}, sprite={2}, unity_world=({3:.3f},{4:.3f},{5:.3f}), ue=({6:.1f},{7:.1f}), visual={8:.1f}x{9:.1f}, texture={10}x{11}, mask={12}, clip={13:.2f}, clean={14}".format(
@@ -798,9 +977,11 @@ def spawn_single_camera(target_location=None):
 
 
 def spawn_unity_perspective_camera(target_location=None):
-    camera_location = unity_position_to_ue(UNITY_CAMERA_POSITION)
-    camera_rotation = make_unity_camera_rotation()
-    horizontal_fov = ue_horizontal_fov_from_unity_vertical_fov(UNITY_CAMERA_VERTICAL_FOV, UNITY_CAMERA_ASPECT_RATIO)
+    camera_record = load_unity_camera_record()
+    camera_location = unity_position_to_ue(camera_record.get("world_position") or UNITY_CAMERA_POSITION)
+    camera_rotation = make_unity_camera_rotation(camera_record)
+    vertical_fov = float(camera_record.get("vertical_fov", UNITY_CAMERA_VERTICAL_FOV))
+    horizontal_fov = ue_horizontal_fov_from_unity_vertical_fov(vertical_fov, UNITY_CAMERA_ASPECT_RATIO)
 
     camera = unreal.EditorLevelLibrary.spawn_actor_from_class(unreal.CameraActor, camera_location, camera_rotation)
     camera.set_actor_label("Camera_UnityPerspective_Map_TTS")
@@ -809,7 +990,17 @@ def spawn_unity_perspective_camera(target_location=None):
         "RokSingleBuildingCamera",
         "RokUnityPerspectiveCamera",
         "Map_TTS",
-        "VerticalFov{0:g}".format(UNITY_CAMERA_VERTICAL_FOV),
+        "VerticalFov{0:g}".format(vertical_fov),
+        "UnityCameraFileId_{0}".format(camera_record.get("camera_file_id", "")),
+        "UnityTransformFileId_{0}".format(camera_record.get("transform_file_id", "")),
+        "UnityClearFlags_{0}".format(camera_record.get("clear_flags", "")),
+        "UnityBackground_{0}".format(proto.safe_asset_name("_".join("{0:g}".format(float(value)) for value in camera_record.get("background_color", [])))),
+        "UnityHDR_{0}".format(1 if camera_record.get("hdr") else 0),
+        "UnityMSAA_{0}".format(1 if camera_record.get("msaa") else 0),
+        "UnityOcclusionCulling_{0}".format(1 if camera_record.get("occlusion_culling") else 0),
+        "UnityNearClip_{0:g}".format(float(camera_record.get("near_clip", 0.3))),
+        "UnityFarClip_{0:g}".format(float(camera_record.get("far_clip", 1000.0))),
+        "UnityCameraExposure_Default",
     ]
     try:
         camera.set_editor_property("auto_activate_for_player", unreal.AutoReceiveInput.PLAYER0)
@@ -827,16 +1018,11 @@ def spawn_unity_perspective_camera(target_location=None):
     component.set_editor_property("aspect_ratio", UNITY_CAMERA_ASPECT_RATIO)
     component.set_editor_property("constrain_aspect_ratio", True)
     try:
-        settings = component.get_editor_property("post_process_settings")
-        settings.set_editor_property("override_auto_exposure_method", True)
-        settings.set_editor_property("auto_exposure_method", unreal.AutoExposureMethod.AEM_MANUAL)
-        settings.set_editor_property("override_auto_exposure_min_brightness", True)
-        settings.set_editor_property("auto_exposure_min_brightness", 1.0)
-        settings.set_editor_property("override_auto_exposure_max_brightness", True)
-        settings.set_editor_property("auto_exposure_max_brightness", 1.0)
-        settings.set_editor_property("override_auto_exposure_bias", True)
-        settings.set_editor_property("auto_exposure_bias", 0.0)
-        component.set_editor_property("post_process_settings", settings)
+        component.set_editor_property("perspective_near_clip_plane", float(camera_record.get("near_clip", 0.3)) * UNITY_SCENE_WORLD_SCALE)
+    except Exception:
+        pass
+    try:
+        component.set_editor_property("post_process_blend_weight", 0.0)
     except Exception:
         pass
 
@@ -849,7 +1035,7 @@ def spawn_unity_perspective_camera(target_location=None):
             UNITY_CAMERA_POSITION[0],
             UNITY_CAMERA_POSITION[1],
             UNITY_CAMERA_POSITION[2],
-            UNITY_CAMERA_VERTICAL_FOV,
+            vertical_fov,
             horizontal_fov,
             float(camera_location.x),
             float(camera_location.y),
@@ -871,6 +1057,53 @@ def configure_single_building_world_settings():
         pass
 
 
+def assert_source_acceptance_configuration():
+    if not SOURCE_ACCEPTANCE_MODE:
+        return
+    invalid = []
+    if SINGLE_CAMERA_MODE != "unity_perspective":
+        invalid.append("camera mode must be unity_perspective")
+    if abs(UNITY_CAMERA_ASPECT_RATIO - (16.0 / 9.0)) > 0.000001:
+        invalid.append("camera aspect must be 16:9")
+    if not SINGLE_ADD_UNITY_CITY_GROUND or UNITY_CITY_GROUND_STYLE != "sand":
+        invalid.append("the active LV_02 sand ground is required")
+    if SINGLE_ADD_GROUND or SINGLE_ADD_UNITY_CITY_SURFACE or SINGLE_ADD_UNITY_CITY_ROAD:
+        invalid.append("legacy/background/surface/road diagnostic layers must be disabled")
+    if SINGLE_ADD_UNITY_GROUND_PATCH or SINGLE_ADD_UNITY_TERRAIN_PLATE or SINGLE_ADD_SHADOW:
+        invalid.append("ground-patch/terrain-plate/fake-shadow diagnostic layers must be disabled")
+    if not UNITY_USE_CLEAN_CUTOUT or SINGLE_SPLIT_BUILDING_GROUND:
+        invalid.append("full-canvas clean cutout without color split is required")
+    if abs(UNITY_SCENE_WORLD_SCALE - 170.0) > 0.000001 or abs(UNITY_SCENE_VISUAL_SCALE - 1.0) > 0.000001:
+        invalid.append("source conversion scale must remain 170 with visual scale 1")
+    if invalid:
+        raise RuntimeError("Invalid Map_TTS source acceptance configuration: " + "; ".join(invalid))
+
+
+def setup_map_tts_lighting_proxy():
+    sun = unreal.EditorLevelLibrary.spawn_actor_from_class(
+        unreal.DirectionalLight,
+        unreal.Vector(-1600.0, -1600.0, 2600.0),
+        unreal.Rotator(-48.0, -35.0, 0.0),
+    )
+    sun.set_actor_label("MapTTS_DefaultSkyboxLightProxy")
+    sun.set_folder_path("RokSingleBuilding/LightingProxy")
+    sun.tags = ["RokSingleBuildingLightingProxy", "UnityRenderSettings_NoExplicitSceneLight", "UE_DefaultSkyboxAmbientProxy"]
+    sun_component = sun.get_component_by_class(unreal.DirectionalLightComponent)
+    if sun_component:
+        sun_component.set_editor_property("intensity", 2.2)
+        sun_component.set_editor_property("cast_shadows", False)
+
+    sky = unreal.EditorLevelLibrary.spawn_actor_from_class(unreal.SkyLight, unreal.Vector(0.0, 0.0, 1200.0))
+    sky.set_actor_label("MapTTS_AmbientSkyProxy")
+    sky.set_folder_path("RokSingleBuilding/LightingProxy")
+    sky.tags = ["RokSingleBuildingLightingProxy", "UnityAmbientMode_SkyboxProxy"]
+    sky_component = sky.get_component_by_class(unreal.SkyLightComponent)
+    if sky_component:
+        sky_component.set_editor_property("intensity", 0.55)
+        sky_component.set_editor_property("lower_hemisphere_is_black", False)
+        sky_component.set_editor_property("lower_hemisphere_color", unreal.LinearColor(0.047, 0.043, 0.035, 1.0))
+
+
 def is_target_level_loaded():
     world = unreal.EditorLevelLibrary.get_editor_world()
     if not world:
@@ -882,6 +1115,7 @@ def is_target_level_loaded():
 
 
 def build_single_building_scene():
+    assert_source_acceptance_configuration()
     if unreal.EditorAssetLibrary.does_asset_exist(TARGET_LEVEL):
         if not is_target_level_loaded():
             unreal.EditorLevelLibrary.load_level(TARGET_LEVEL)
@@ -894,9 +1128,12 @@ def build_single_building_scene():
 
     proto.ensure_project_primitive_meshes()
     primitives = {name: proto.load_primitive(name) for name in proto.PRIMITIVE_PATHS}
-    materials = runtime.make_runtime_materials()
+    materials = runtime.make_runtime_materials() if (SINGLE_ADD_GROUND or SINGLE_ADD_SHADOW) else {}
 
-    proto.setup_lighting()
+    if SOURCE_ACCEPTANCE_MODE:
+        setup_map_tts_lighting_proxy()
+    else:
+        proto.setup_lighting()
     if SINGLE_ADD_GROUND:
         spawn_single_background(primitives, materials)
     building_actor = spawn_single_building(primitives, materials)

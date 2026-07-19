@@ -5,9 +5,13 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_ROOT = PROJECT_ROOT / "Saved" / "RokUnityMigration" / "ConfigTables"
 MIGRATION_ROOT = PROJECT_ROOT / "Saved" / "RokUnityMigration"
-RESOLUTION_PATH = MIGRATION_ROOT / "unity_gameapp_city_init_building_resolution.json"
+VISUAL_RESOLUTION_PATH = MIGRATION_ROOT / "unity_initial_building_visual_resolution.json"
+LEGACY_RESOLUTION_PATH = MIGRATION_ROOT / "unity_gameapp_city_init_building_resolution.json"
 OUTPUT_JSON = MIGRATION_ROOT / "unity_initial_city_state.json"
 OUTPUT_MD = MIGRATION_ROOT / "unity_initial_city_state.md"
+
+UNITY_INIT_CITY_CIV_TYPE = 101
+UNITY_INIT_CITY_AGE = 1
 
 DECORATION_TYPES = {50, 51, 52, 53, 54, 55}
 RESOURCE_BY_BUILDING_TYPE = {
@@ -64,6 +68,78 @@ def build_lookup(rows, *fields):
     return lookup
 
 
+def build_model_lookup(rows):
+    exact = {}
+    fallback = {}
+    for row in rows:
+        building_type = int_field(row, "type")
+        model_id = str(row.get("modelId", "")).strip()
+        if building_type <= 0 or not model_id:
+            continue
+        fallback.setdefault(building_type, model_id)
+        if (
+            int_field(row, "civType") == UNITY_INIT_CITY_CIV_TYPE
+            and int_field(row, "age") == UNITY_INIT_CITY_AGE
+        ):
+            exact[building_type] = model_id
+    for building_type, model_id in fallback.items():
+        exact.setdefault(building_type, model_id)
+    return exact
+
+
+def load_visual_resolution():
+    if VISUAL_RESOLUTION_PATH.exists():
+        manifest = json.loads(VISUAL_RESOLUTION_PATH.read_text(encoding="utf-8-sig"))
+        records = manifest.get("records", [])
+        failures = list(manifest.get("failures", []))
+        return records, failures, str(VISUAL_RESOLUTION_PATH.relative_to(PROJECT_ROOT)).replace("\\", "/")
+    if LEGACY_RESOLUTION_PATH.exists():
+        manifest = json.loads(LEGACY_RESOLUTION_PATH.read_text(encoding="utf-8-sig"))
+        records = []
+        for record in manifest.get("records", []):
+            legacy = dict(record)
+            legacy.setdefault("representation", "legacy_filename_resolution")
+            legacy.setdefault("source_manifest", str(LEGACY_RESOLUTION_PATH.relative_to(PROJECT_ROOT)).replace("\\", "/"))
+            records.append(legacy)
+        return records, [], str(LEGACY_RESOLUTION_PATH.relative_to(PROJECT_ROOT)).replace("\\", "/")
+    return [], [], ""
+
+
+def visual_record(resolution, fallback_model_id):
+    fields = (
+        "representation",
+        "resolution",
+        "sprite_name",
+        "source_manifest",
+        "prefab_path",
+        "renderer_name",
+        "renderer_path",
+        "sprite_path",
+        "sprite_guid",
+        "mask_path",
+        "mask_guid",
+        "material_path",
+        "shader_name",
+        "material_render_queue",
+        "sorting_layer",
+        "sorting_order",
+        "obj_path",
+        "baked_texture_path",
+        "boundary_object_count",
+        "container_yaw",
+    )
+    visual = {
+        "model_id": resolution.get("model_id") or fallback_model_id,
+    }
+    for field in fields:
+        if field in resolution:
+            visual[field] = resolution[field]
+    visual.setdefault("representation", "pending_unity_prefab_resolution")
+    visual.setdefault("resolution", "missing")
+    visual.setdefault("sprite_name", "")
+    return visual
+
+
 def make_resource_stock():
     # Temporary local-simulation bootstrap until Unity login rewards/items are migrated.
     # Keep this explicit in the manifest so it is not mistaken for accepted Unity economy data.
@@ -78,15 +154,14 @@ def make_resource_stock():
 
 def main():
     init_table = load_table("InitBuilding")
+    model_table = load_table("BuildingModelData")
     level_table = load_table("BuildingLevelData")
     produce_table = load_table("BuildingResourcesProduce")
 
+    model_by_type = build_model_lookup(model_table["rows"])
     level_by_type_level = build_lookup(level_table["rows"], "type", "level")
     produce_by_type_level = build_lookup(produce_table["rows"], "type", "level")
-    if RESOLUTION_PATH.exists():
-        resolution_records = json.loads(RESOLUTION_PATH.read_text(encoding="utf-8")).get("records", [])
-    else:
-        resolution_records = []
+    resolution_records, visual_resolution_failures, visual_resolution_source = load_visual_resolution()
     resolution_by_init_id = {int_field(row, "init_id"): row for row in resolution_records}
 
     buildings = []
@@ -102,6 +177,7 @@ def main():
         next_level_config = level_by_type_level.get((type_id, level + 1))
         produce_config = produce_by_type_level.get((type_id, level))
         resolution = resolution_by_init_id.get(init_id, {})
+        model_id = model_by_type.get(type_id, "")
         resource_key = RESOURCE_BY_BUILDING_TYPE.get(type_id, "")
 
         if not level_config:
@@ -130,11 +206,7 @@ def main():
                 f"UnityGridX_{int_field(row, 'posX')}",
                 f"UnityGridY_{int_field(row, 'posY')}",
             ],
-            "visual": {
-                "model_id": resolution.get("model_id", ""),
-                "sprite_name": resolution.get("sprite_name", ""),
-                "resolution": resolution.get("resolution", "missing"),
-            },
+            "visual": visual_record(resolution, model_id),
             "level_config": {
                 "width": int_field(level_config or {}, "width"),
                 "length": int_field(level_config or {}, "length"),
@@ -170,9 +242,10 @@ def main():
         "schema_version": 1,
         "source_tables": {
             "init_building": "Saved/RokUnityMigration/ConfigTables/InitBuilding.json",
+            "building_model_data": "Saved/RokUnityMigration/ConfigTables/BuildingModelData.json",
             "building_level_data": "Saved/RokUnityMigration/ConfigTables/BuildingLevelData.json",
             "building_resources_produce": "Saved/RokUnityMigration/ConfigTables/BuildingResourcesProduce.json",
-            "visual_resolution": "Saved/RokUnityMigration/unity_gameapp_city_init_building_resolution.json",
+            "visual_resolution": visual_resolution_source,
         },
         "target_level": "/Game/Maps/L_RokUnityGameAppCity",
         "building_count": len(buildings),
@@ -182,6 +255,7 @@ def main():
         "production_per_hour": production_per_hour,
         "bootstrap_resources": make_resource_stock(),
         "missing_level_config": missing_level_config,
+        "visual_resolution_failures": visual_resolution_failures,
         "buildings": buildings,
     }
 
@@ -207,7 +281,8 @@ def main():
         cost_text = f"F{cost['food']} W{cost['wood']} S{cost['stone']} G{cost['gold']}"
         lines.append(
             f"| {item['init_id']} | {item['type_id']} {item['ue_type']} | {item['display_name']} | "
-            f"{item['level']} | {item['grid']['x']},{item['grid']['y']} | {item['visual']['sprite_name']} | "
+            f"{item['level']} | {item['grid']['x']},{item['grid']['y']} | "
+            f"{item['visual']['sprite_name'] or item['visual']['representation']} | "
             f"{cost_text} | {item['next_level']['build_seconds']} |"
         )
     OUTPUT_MD.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -219,7 +294,12 @@ def main():
         "decoration_count": manifest["decoration_count"],
         "total_power": manifest["total_power"],
         "missing_level_config": len(missing_level_config),
+        "visual_resolution_source": visual_resolution_source,
+        "visual_resolution_failure_count": len(visual_resolution_failures),
     }, ensure_ascii=False, indent=2))
+
+    if visual_resolution_failures:
+        raise RuntimeError("Unity initial city visual resolution contains failures")
 
 
 if __name__ == "__main__":

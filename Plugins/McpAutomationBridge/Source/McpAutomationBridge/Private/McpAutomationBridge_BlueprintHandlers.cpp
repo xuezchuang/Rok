@@ -2511,7 +2511,7 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintAction(
         continue;
       }
 
-      const FString KeyStr = Pair.Key;
+      const FString KeyStr = FString(*Pair.Key);
       const FString ValueStr =
           FMcpAutomationBridge_JsonValueToString(Pair.Value);
       const FName MetaKey = FMcpAutomationBridge_ResolveMetadataKey(KeyStr);

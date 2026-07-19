@@ -2,6 +2,7 @@ import unreal
 
 
 KEEP_ASSETS = {
+    "/Game/Maps/L_RokCitySingleBuilding",
     "/Game/Maps/L_RokCityRuntime",
     "/Game/Maps/L_RokPrototype_Lit",
 }
@@ -20,7 +21,6 @@ DELETE_ASSETS = [
     "/Game/Maps/L_RokCityMainBuilding",
     "/Game/Maps/L_RokCityMilitaryShowcase",
     "/Game/Maps/L_RokCitySiegeSingle",
-    "/Game/Maps/L_RokCitySingleBuilding",
     "/Game/Maps/L_RokCityStableSingle",
 ]
 

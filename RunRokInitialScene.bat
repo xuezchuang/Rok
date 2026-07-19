@@ -1,7 +1,7 @@
 @echo off
 setlocal
 set "PROJECT_DIR=%~dp0"
-set "UE_EDITOR=D:\ue\UE_5.2\Engine\Binaries\Win64\UnrealEditor.exe"
+set "UE_EDITOR=D:\ue\UE_5.8\Engine\Binaries\Win64\UnrealEditor.exe"
 set "UPROJECT=%PROJECT_DIR%Rok.uproject"
 
 if not exist "%UE_EDITOR%" (
