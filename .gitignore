@@ -26,3 +26,13 @@ source.rar
 *.slnx
 Scripts/*/bin/
 Scripts/*/obj/
+# NTFS junctions into ref/ and Saved/ (not real copies; remove with rmdir, never rm -rf)
+UnityLearning/InitialCityLayoutUnity/Assets/BundleAssets
+UnityLearning/InitialCityLayoutUnity/Assets/BundleAssetsTest
+UnityLearning/InitialCityLayoutUnity/Assets/Mesh
+UnityLearning/InitialCityLayoutUnity/Assets/Resources
+UnityLearning/InitialCityLayoutUnity/Assets/RokUnityMigration
+UnityLearning/InitialCityLayoutUnity/Assets/Shader
+UnityLearning/InitialCityLayoutUnity/Assets/T4M
+UnityLearning/InitialCityLayoutUnity/Assets/T4MOBJ
+UnityLearning/InitialCityLayoutUnity_BatchGen/Assets/BundleAssets

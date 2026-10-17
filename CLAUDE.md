@@ -19,26 +19,43 @@ The companion live Unity project is at `D:\ueDemo\Rok-unity` (do not commit its 
 
 Codex ran this migration until 2026-10-16 and stopped at the user's request. Before resuming any slice, read `Saved/RokUnityMigration/ClaudeHandoff_20261016T152648077944Z/HANDOFF.md` (Chinese) and its `EVIDENCE.json` / `MANIFEST.json` SHA-256 pins. The migration is **not** complete.
 
-**Where the newest code lives — shadow project `Saved/UIB1/`.** On 2026-10-10 Codex byte-copied the project to `Saved/UIB1/Rok.uproject`, and every later build (Run1–Run30) ran there. Its `Source/` and `Shaders/` are strictly ahead of the live tree:
-- 31 files exist only in UIB1: Alliance gift/ranking/shop/territory readonly audits and data, `RokAllianceUiWindowAnimationAuditSubsystem`, `RokGrass3SameUvAuditSubsystem`, `RokMailLocalUnreadState.h`, `RokWorkerUnknownAccountRuntimeAuditSubsystem`, 10 `Tests/` files (Mail unread, PowerGain clock/replay, Commander/AllianceTerritory synthetic Slate), and `RokRendering/{Public,Private}/RokGrass3SameUvProbe.*`. Also `Shaders/Private/RokGrass3SameUv.usf` and `RokGrass3SameUvPoints.ush`.
-- 13 shared files are newer in UIB1: `RokMainHudWidget.cpp`, `RokPowerGainWidget.*`, `RokSpeedUpAuditSubsystem.*`, `RokUnityFeatureScreenWidget.*`, `RokUnityGameplayCatalogSubsystem.*`, `RokWorldLod2GeometryProbeLibrary.*`, `RokAllianceFlagLocalPreviewAuditSubsystem.*`.
-- `Saved/` is git-ignored and not in P4, so this code is unprotected. Promote UIB1 → live `Source/`/`Shaders/` only with user approval, then rebuild `RokEditor` and commit. **Never copy UIB1 `Config/` back**: it deliberately sets MCP `bAutoStartServer=False`, trims `DefaultEngine.ini`, and has no `DefaultGame.ini`/`DefaultEditor.ini`.
-- Until promotion, every Codex receipt describes UIB1, not the live tree.
+**Cleanup done on 2026-10-17 (Phases 0, 1 and 3 of the cleanup plan).**
+- **Code promoted.** Codex built Run1–Run30 in a byte-copied shadow project, `Saved/UIB1/`. Its Source/Shaders deltas (31 new + 13 updated files, 2 shaders) are now in `main` (commit `3da3b629`). `RokEditor` builds with 0 errors. Runtime and visual acceptance have **not** been run on the live project.
+- **What's left in `Saved/UIB1/`:** `Content/`, `Source/`, `Shaders/`, `Config/`, `Scripts/`, `ref/`, `Rok.uproject`.
+  - `Content/` matches live `Content/` plus 8 Grass3 diagnostic assets (e.g. `M_WorldSource_Grass3SignedCenterV5`, used by `RokGrass3SameUvAuditSubsystem`).
+  - **Never copy UIB1 `Config/` back**: it disables MCP auto-start and trims ini files.
+- **Evidence archived to `F:\RokArchive\`:**
+  - Tars: `rokunitymigration-evidence`, `pending`, `uib1-records`, `uph-receipts`, `logs-older-than-2026-10-03`.
+  - Each tar has a `*.manifest.csv` (path, bytes, SHA-256) and was verified by re-reading. `INDEX.csv` lists every archived top-level entry with its `READY.json` status.
+  - A copy of the Claude handoff folder is there too.
+  - To restore a dir, extract it from the tar and check its SHA against the manifest.
+- **Kept in `Saved/`:**
+  - `RokUnityMigration` entries referenced by `Source/`, `Scripts/`, UnityLearning or the docs.
+  - The handoff folder.
+  - `Unity*Probe` outputs (Library/Temp caches removed).
+  - Recent logs.
+  - `PendingUnityTileRippleRendererV8` and `PendingUnityTileRippleSimulationV2`: product code (`RokUnityTileRippleRenderer.cpp`) reads them.
+- **Deleted outright:** Unity project clones (UPH2–6, Pending HUD capture), `RefBackups`, loose `.tmp` files, UIB1 build caches.
 
-**Last verified checkpoint.** The Run30 repair build of UIB1 (normal `Build.bat`, exit 0) passed independent physical review. Receipt: `Saved/PendingRootPowerMapRun30RepairBuildV1/RepairRun_20261016T151810559184Z/execution_result.json` (SHA `ac0604ac…`). Independent review: `Saved/PendingRootPowerMapRun30RepairCompileActualIndependentV1/READY.json` (`2c778e92…`). After the repair, **no runtime or visual acceptance has run** (`runtime_accepted=false`, `visual_accepted=false`).
+**Consequences of the archive.**
+- The handoff's frozen runners pin paths and hashes under `Saved/Pending*` and `Saved/UIB1/Run*`, so those preflights now fail by design. The "resume exactly where Codex stopped" route is closed; redo runtime and visual acceptance in the live layout instead.
+- About 29 audit subsystems and tests hard-code archived `Saved/Pending*` / `UIB1/Run*` receipt paths. They fail provenance checks unless those files are restored. Product code is unaffected (checked 2026-10-17).
 
-**Resume order (from the handoff):**
-1. Independently review the frozen UI/Power runtime adapter in `Saved/PendingRootRun30UiPowerRuntimeAdapterV1/`. Do this before switching its runner from `--preflight-only` to execute. Then run its five modes in sequence (`mail/local_fixture`, `mail/ordinary_unbound`, `shop`, `ranking`, `power`) and look at the real PNGs. Power keeps 17 captures and the manual-close boundary.
-2. Grass3 same-UV GPU runner `Saved/PendingRootRokGrass3SameUvActualRunnerV2/` is on HOLD with no READY. Bind the new shared proof/helper, review it independently, and only then run the direct RHI readback (144 source UVs + 8 clamp controls). `material_evaluated` stays false: this is a texture probe, not material or full-map visual acceptance.
-3. Unity offline HUD V3 draft `Saved/PendingRootUnityPowerHudOfflineIsolationV3/` (see `WIP_HANDOFF.md`) is uncompiled, with no READY. Fix V2's `GrayChildrens.LoadGrayMaterial` NRE with a key-scoped local `IAssetService` adapter for `UI_GrayWithMask`. Do not disable `GrayChildrens`, edit the original prefab, or start GameApp/real services.
-4. Daily Activity Reward V4 (`Saved/PendingRootDailyActivityRewardPreviewV4/`) and runtime audit V2 both need independent review before a new Run31 stage/build. A Daily stage changes the closure, so Run30 proof no longer covers it.
+**Last verified checkpoint (historical).** The Run30 repair build of UIB1 passed independent review. Its receipt (SHA `ac0604ac…`) is now in `pending.tar` under `PendingRootPowerMapRun30RepairBuildV1/`. After the repair, no runtime or visual acceptance ran.
+
+**Open work carried over from the handoff** (candidate files are in `pending.tar`):
+1. UI/Power runtime adapter (`PendingRootRun30UiPowerRuntimeAdapterV1`): five modes (`mail/local_fixture`, `mail/ordinary_unbound`, `shop`, `ranking`, `power`). Check real PNGs. Power keeps 17 captures and the manual-close boundary.
+2. Grass3 same-UV GPU runner (`PendingRootRokGrass3SameUvActualRunnerV2`): was on HOLD. It's a direct RHI texture probe, not material or full-map visual acceptance.
+3. Unity offline HUD V3 (`PendingRootUnityPowerHudOfflineIsolationV3`): fix the `GrayChildrens.LoadGrayMaterial` NRE with a key-scoped local `IAssetService` adapter for `UI_GrayWithMask`. Do not disable `GrayChildrens`, edit the prefab, or start GameApp/real services.
+4. Daily Activity Reward V4 and runtime audit V2: unreviewed candidates, not in Source.
 - Blocked: Academy / age 2 (source map context and resource chain gaps). Do not approximate terrain to unblock it.
 
 **Evidence conventions (keep them).**
-- `Saved/Pending*/` (~1.35k dirs) are candidate/evidence staging areas, not the live project.
 - `READY.json` = a frozen candidate passed its own gates. It does **not** mean accepted.
-- Never delete failed receipts, flip HOLD constants, rerun old one-shot requests, or rewrite failed history. Historical Stage `88ebb11b…`, adopted inner `9da47986…` and outer `392d7451…` stay false.
 - Verifier PASS ≠ visual parity: always inspect the PNG.
+- Don't rewrite failed history. Historical Stage `88ebb11b…`, adopted inner `9da47986…` and outer `392d7451…` stay false.
+
+**Junction hazard.** Nine folders under `UnityLearning/*/Assets/` are NTFS junctions: `BundleAssets`, `BundleAssetsTest`, `Mesh`, `Resources`, `Shader`, `T4M`, `T4MOBJ` point into `ref/client-unity/Assets/`, and `RokUnityMigration` points into `Saved/RokUnityMigration`. They're listed in `.gitignore`. Remove a junction only with `cmd /c rmdir <path>` (or PowerShell `(Get-Item <path>).Delete()`). **Never use `rm -rf` or a recursive delete**: it deletes the real `ref/` / `Saved/` data behind the link. The Unity project also writes `.meta` files through the `RokUnityMigration` junction into `Saved/RokUnityMigration`.
 
 **Account / server boundary.** No real accounts, logins, reward claims, inventory actions, or server writes. UI, power and reward data are explicitly local fixtures/previews. Never copy auth payloads into reports.
 
@@ -50,10 +67,11 @@ Codex ran this migration until 2026-10-16 and stopped at the user's request. Bef
 |---|---|---|
 | Server | `origin` `https://github.com/xuezchuang/Rok.git`, branch `main` | `home.snowsome.com:1666`, user `snow`, client `ueDemo`, root `D:\ueDemo`, view `//depot/... //ueDemo/...` |
 | Owns | Text: `Source/`, `Shaders/`, `Scripts/`, `Config/`, `Rok.uproject`, `AGENTS.md`, `CLAUDE.md`, `UnityLearning/` notes | Binary content and reference snapshot: `//depot/Rok/Content/...` (~2.3k files), `//depot/Rok/ref/...` (~74k files) |
-| Latest | HEAD `7b2bfce4` (2026-07-19); ~29 modified + ~1.9k untracked WIP files since | CL 76 (2026-09-12); 142 Content files opened in the default changelist (137 add / 5 edit), not submitted |
+| Latest (2026-10-17) | `main` at `3da3b629`, pushed: the Jul–Oct WIP checkpoint plus the UIB1 promotion. Only real UnityLearning project files remain untracked | Last submit CL 76 (2026-09-12). The 142 opened Content files (137 add / 5 edit) are **shelved in CL 80**, still open locally, not submitted |
 
 - **P4 holds stale text copies.** `//depot/Rok/Source` (6 files), `Scripts` (16), `Config` (2) and `AGENTS.md` are May 2026 snapshots (CL 46–49), and every one differs from the git copy. Never `p4 sync -f`, "Get Revision (force)", or `p4 reconcile` over those paths: git is authoritative for text.
-- The large untracked set is real WIP: new subsystems, ~480 scripts, and the `UnityLearning/InitialCityLayoutUnity*` Unity projects. Never `git reset --hard`, `git clean`, `git checkout --`, or bulk revert/submit in P4. Commit or submit only when the user asks.
+- Never `git reset --hard`, `git clean`, `git checkout --`, or bulk revert/submit in P4. Commit or submit only when the user asks. `git clean` is doubly dangerous here: the UnityLearning junctions (see the junction hazard above) lead into `ref/` and `Saved/`.
+- **P4 non-ASCII names:** this server stores Chinese and other non-ASCII path characters as `?` (e.g. `//depot/Rok/ref/config-tables/???????/…`). Content is intact, but names are lossy and may collide. Don't rely on P4 for restoring non-ASCII-named `ref/` files.
 - `.gitignore` excludes `*.slnx` and the .NET `Scripts/*/bin/`, `Scripts/*/obj/` folders of the Spine exporters (`RokSpineExport`, `RokMailSpineExport`, `RokTrainSpineExport`). Keep `obj/project.assets.json` on disk: the handoff's offline `--no-restore` Spine builds depend on it.
 
 ## Build & Run Commands
