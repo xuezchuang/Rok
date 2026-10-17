@@ -10,6 +10,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from rok_data_paths import resolve
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -92,13 +93,13 @@ def main() -> int:
 
     sources = []
     for source_path, role, lines in SOURCES:
-        path = ROOT / source_path
+        path = resolve(source_path)
         if not path.is_file():
             raise FileNotFoundError(f"Required source missing: {source_path}")
         sources.append({"path": source_path, "sha256": sha256(path), "role": role, "line_refs": lines})
     source_by_path = {row["path"]: row for row in sources}
 
-    csv_path = ROOT / CSV_PATH
+    csv_path = resolve(CSV_PATH)
     header, type_row, raw_rows = read_activity_rows(csv_path)
     ids = [row.get("ID", "") for row in raw_rows]
     if any(not item for item in ids) or len(ids) != len(set(ids)):
@@ -109,8 +110,8 @@ def main() -> int:
     for source_path, _, _ in SOURCES:
         if source_path.endswith(".tpsheet"):
             sheet_key = Path(source_path).stem
-            sheets[sheet_key] = parse_sheet(ROOT / source_path)
-            sheet_sizes[sheet_key] = parse_sheet_size(ROOT / source_path)
+            sheets[sheet_key] = parse_sheet(resolve(source_path))
+            sheet_sizes[sheet_key] = parse_sheet_size(resolve(source_path))
 
     rows = []
     missing_sprite_refs: list[dict[str, object]] = []

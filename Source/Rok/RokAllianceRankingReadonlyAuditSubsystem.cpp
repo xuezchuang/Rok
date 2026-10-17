@@ -1,6 +1,7 @@
 #include "RokAllianceRankingReadonlyAuditSubsystem.h"
 
 #include "RokAllianceRankingReadonlyCatalog.h"
+#include "RokDataPaths.h"
 #include "RokMainHudWidget.h"
 #include "RokPlayerController.h"
 #include "RokServerSubsystem.h"
@@ -410,7 +411,7 @@ bool URokAllianceRankingReadonlyAuditSubsystem::Begin()
             TEXT("Integrated CatalogV2 source differs from reviewed candidate"))) return false;
         Inputs->SetStringField(Live, FileSha(Live));
     }
-    const FString Canonical = FileSha(FPaths::ProjectDir() / CatalogPath);
+    const FString Canonical = FileSha(RokDataPaths::ResolveProjectPath(CatalogPath));
     if (!Expect(Canonical.Equals(TEXT("40f81f693e6b65f05a1c36f77d75b22cdc7e03e89a4e3d33fa6fb402b9daFA9c"), ESearchCase::IgnoreCase),
         TEXT("Canonical ranking catalog missing or differs from reviewed CatalogV2"))) return false;
     Inputs->SetStringField(CatalogPath, Canonical);

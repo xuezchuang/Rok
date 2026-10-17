@@ -1,6 +1,7 @@
 #include "RokArmyStatisticsRuntimeAuditSubsystem.h"
 
 #include "RokBuildingUpgradeSubsystem.h"
+#include "RokDataPaths.h"
 #include "RokMainHudWidget.h"
 #include "RokPlayerController.h"
 #include "RokServerSubsystem.h"
@@ -483,7 +484,7 @@ bool URokArmyStatisticsRuntimeAuditSubsystem::Begin()
 		TEXT("ref/client-unity/Assets/Scripts/Hotfix/MVC/View_Mediator/Troop/UI_Win_ArmyShowMediator.cs")};
 	for (const TCHAR* Path : Required)
 	{
-		const FString Hash = FileSha(FPaths::ProjectDir() / Path);
+		const FString Hash = FileSha(RokDataPaths::ResolveProjectPath(Path));
 		if (!Expect(Hash.Len() == 64, TEXT("Army Statistics source input missing"))) return false;
 		Inputs->SetStringField(Path, Hash);
 	}

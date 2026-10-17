@@ -1,4 +1,5 @@
 #include "RokTaskRewardPreviewData.h"
+#include "RokDataPaths.h"
 #include "RokTrainArmyMeshData.h"
 
 #include "Containers/StringConv.h"
@@ -121,7 +122,7 @@ bool ParsePinnedGroup(int32 GroupId, TConstArrayView<uint8> Bytes,
 bool RokTaskRewardPreviewData::LoadGroup(int32 GroupId, TArray<FRokTaskRewardPreviewRow>& OutRows, FString& Error)
 {
 	TArray<uint8> Bytes;
-	const FString Path = FPaths::ProjectSavedDir() / TEXT("RokUnityMigration/task_reward_preview.json");
+	const FString Path = RokDataPaths::Resolve(TEXT("task_reward_preview.json"));
 	if (!FFileHelper::LoadFileToArray(Bytes, *Path))
 	{
 		OutRows.Reset();

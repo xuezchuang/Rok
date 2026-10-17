@@ -13,6 +13,7 @@ if SCRIPTS_DIR not in sys.path:
 
 import CreateRokPrototypeScene as proto
 import CreateRokRuntimeCityScene as runtime
+from rok_data_paths import DATA_ROOT
 
 
 TARGET_LEVEL = os.environ.get("ROK_UNITY_GAMEAPP_CITY_LEVEL", "/Game/Maps/L_RokUnityGameAppCity")
@@ -35,7 +36,7 @@ UNITY_TERRAIN_ROOT = os.path.join(UNITY_ASSETS_ROOT, "BundleAssets", "Map", "Tex
 UNITY_LAND_TEXTURE_ROOT = os.path.join(UNITY_ASSETS_ROOT, "BundleAssets", "land", "Texture")
 CLEAN_LAYER_ROOT = os.path.join(PROJECT_ROOT, "Saved", "RokUnityPlacement", "clean")
 PALM_CROP_ROOT = os.path.join(PROJECT_ROOT, "Saved", "RokUnityGameAppCity", "Trees")
-CONFIG_TABLE_ROOT = os.path.join(PROJECT_ROOT, "Saved", "RokUnityMigration", "ConfigTables")
+CONFIG_TABLE_ROOT = str(DATA_ROOT / "ConfigTables")
 UNITY_CITY_BOUNDARY_MANIFEST = os.path.join(PROJECT_ROOT, "Saved", "RokUnityMigration", "unity_city_boundary.json")
 UNITY_CITY_VISUAL_LAYER_STACK_MANIFEST = os.path.join(PROJECT_ROOT, "Saved", "RokUnityMigration", "unity_city_visual_layer_stack.json")
 UNITY_BUILDING_VISUAL_LAYERS_MANIFEST = os.path.join(PROJECT_ROOT, "Saved", "RokUnityMigration", "unity_building_visual_layers.json")

@@ -9,7 +9,7 @@ using UnityEngine.SceneManagement;
 
 public static class CreateInitialCityLayoutScene
 {
-    private const string InitialStatePath = @"D:\ueDemo\Rok\Saved\RokUnityMigration\unity_initial_city_state.json";
+    private const string InitialStatePath = @"D:\ueDemo\Rok\Content\RokData\unity_initial_city_state.json";
     private const string ScenePath = "Assets/Scenes/UL_InitialCityLayout.unity";
     private const string CityBuildingPrefabRoot = "Assets/BundleAssets/Scene/City_building/city_building_1";
     private const float RuntimeLodScale = 1.1210888f;

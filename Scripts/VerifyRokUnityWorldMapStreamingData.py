@@ -7,6 +7,7 @@ import subprocess
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
+from rok_data_paths import resolve
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -413,7 +414,7 @@ def main():
     ):
         failures.append("compile evidence canonical hash differs from output")
     for record in evidence.get("Sources", {}).values():
-        path = PROJECT_ROOT / record["Path"]
+        path = resolve(record["Path"])
         if (
             not path.is_file()
             or path.stat().st_size != record["Size"]
@@ -837,7 +838,7 @@ def main():
                     "Unity TextureImporter meta"
                 )
             importer_record = subasset["texture_importer_meta"]
-            importer_path = PROJECT_ROOT / importer_record["path"]
+            importer_path = resolve(importer_record["path"])
             if (
                 not importer_path.is_file()
                 or importer_path.stat().st_size != importer_record["size"]
@@ -847,7 +848,7 @@ def main():
                     f"{source_path} sprite {file_id} importer identity is stale"
                 )
             exported = subasset["exported_quad_obj"]
-            exported_path = PROJECT_ROOT / exported["path"]
+            exported_path = resolve(exported["path"])
             if (
                 not exported_path.is_file()
                 or exported_path.stat().st_size != exported["size"]

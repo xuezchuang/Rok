@@ -1,5 +1,6 @@
 #include "RokMailRewardDetails.h"
 
+#include "RokDataPaths.h"
 #include "RokUnityEconomyCatalogSubsystem.h"
 #include "RokUnityGameplayCatalogSubsystem.h"
 #include "RokTrainArmyDetail.h"
@@ -38,7 +39,7 @@ bool RokMailRewardDetails::LoadFixture(ERokMailRewardFixture Fixture, FRokMailRe
 	default: Error = TEXT("Unsupported mail reward fixture"); return false;
 	}
 	FString Json; TSharedPtr<FJsonObject> Root;
-	const FString Path = FPaths::ProjectSavedDir() / TEXT("RokUnityMigration/mail_reward_presentation.json");
+	const FString Path = RokDataPaths::Resolve(TEXT("mail_reward_presentation.json"));
 	if (!FFileHelper::LoadFileToString(Json, *Path)
 		|| !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json), Root) || !Root.IsValid())
 	{ Error = TEXT("Mail reward presentation missing/invalid: run BuildRokMailRewardPresentation.py"); return false; }
@@ -85,7 +86,7 @@ bool RokMailRewardDetails::LoadTemplate(FRokMailRewardTemplate& Out, FString& Er
 {
 	Out = FRokMailRewardTemplate(); Error.Reset();
 	FString Json; TSharedPtr<FJsonObject> Root;
-	const FString Path = FPaths::ProjectSavedDir() / TEXT("RokUnityMigration/mail_reward_presentation.json");
+	const FString Path = RokDataPaths::Resolve(TEXT("mail_reward_presentation.json"));
 	if (!FFileHelper::LoadFileToString(Json, *Path)
 		|| !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json), Root) || !Root.IsValid())
 	{ Error = TEXT("Mail reward presentation missing/invalid: run BuildRokMailRewardPresentation.py"); return false; }

@@ -19,6 +19,7 @@ ROOT = Path("D:/ueDemo/Rok")
 HERE = ROOT / "Saved/PendingWorldAliasPixelCoverageDiagnosticV3"
 V10 = ROOT / "Saved/PendingWorldInstancedVisibilityDiagnosticV10"
 sys.path.insert(0, str(V10))
+from rok_data_paths import resolve
 import VerifyRokWorldInstancedMaterialDiagnosticV10 as base  # noqa: E402
 
 READY = HERE / "ready_for_root_review.json"
@@ -100,7 +101,7 @@ def verify_stage(*, runtime: bool) -> dict:
             and ready["full_migration_accepted"] is False,
             "frozen V12 stage contract changed")
     for row in ready["stage_files"]:
-        path = ROOT / row["path"]
+        path = resolve(row["path"])
         require(path.is_file() and path.stat().st_size == row["bytes"]
                 and sha(path) == row["sha256"], "staged bytes changed: " + row["path"])
     expected_source_paths = {
@@ -112,7 +113,7 @@ def verify_stage(*, runtime: bool) -> dict:
     require({row["path"] for row in ready["read_only_source_pins"]} == expected_source_paths,
             "four source camera/streaming pins changed")
     for row in ready["read_only_source_pins"]:
-        path = ROOT / row["path"]
+        path = resolve(row["path"])
         require(path.is_file() and path.stat().st_size == row["bytes"]
                 and sha(path) == row["sha256"], "source camera/streaming drift: " + row["path"])
     if not runtime:
@@ -121,7 +122,7 @@ def verify_stage(*, runtime: bool) -> dict:
             "Source/Rok/RokWorldInstancedMaterialDiagnosticGameMode.cpp"},
             "pre-integration V10 GameMode base pin paths changed")
         for row in ready["pre_integration_live_game_mode_pins"]:
-            path = ROOT / row["path"]
+            path = resolve(row["path"])
             require(path.is_file() and path.stat().st_size == row["bytes"]
                     and sha(path) == row["sha256"], "V10 live base drift before root integration")
     if runtime:
@@ -131,7 +132,7 @@ def verify_stage(*, runtime: bool) -> dict:
                                 "Source/Rok/RokWorldInstancedMaterialDiagnosticGameMode.cpp"),
                                ("VerifyRokWorldAliasPixelCoverageDiagnosticV12.py",
                                 "Scripts/VerifyRokWorldAliasPixelCoverageDiagnosticV12.py")):
-            require(sha(HERE / filename) == sha(ROOT / live),
+            require(sha(HERE / filename) == sha(resolve(live)),
                     "live implementation/verifier differs from frozen V12 candidate: " + live)
     return {"stage_sha256": sha(READY), "native_v10_sha256": sha(NATIVE_V10)}
 

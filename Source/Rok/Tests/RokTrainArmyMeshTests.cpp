@@ -2,6 +2,7 @@
 #include "Misc/AutomationTest.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "../RokDataPaths.h"
 #include "../RokTrainArmyMeshData.h"
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonReader.h"
@@ -24,7 +25,7 @@ bool FRokTrainArmyMeshTest::RunTest(const FString&)
     const auto C=PremultipliedTint(FLinearColor(.8f,.6f,.4f,.5f),FLinearColor(1,1,1,.5f));
     TestTrue(TEXT("PMA applies slot alpha and parent opacity to RGB/A once"), C.Equals(FLinearColor(.2f,.15f,.1f,.25f),.00001f));
     FString Json, Error; FClip Clip;
-    if (!TestTrue(TEXT("Read accepted actual Arms10101 source mesh"), FFileHelper::LoadFileToString(Json,*(FPaths::ProjectSavedDir()/TEXT("RokUnityMigration/TrainArmy/arms_10101_idle_mesh.json"))))) return false;
+    if (!TestTrue(TEXT("Read accepted actual Arms10101 source mesh"), FFileHelper::LoadFileToString(Json,*(RokDataPaths::Resolve(TEXT("TrainArmy/arms_10101_idle_mesh.json")))))) return false;
     if (!TestTrue(TEXT("Parse actual source sample"), Parse(Json,10101,TEXT("Arms1_1_SD"),Clip,Error))) {AddError(Error);return false;}
     TestEqual(TEXT("200 sampled source poses"),Clip.Frames.Num(),200);
     bool Deformed=false;

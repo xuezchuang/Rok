@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from ExtractRokUnityConfigTables import parse_table
+from rok_data_paths import DATA_ROOT, label
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -31,7 +32,7 @@ RECHARGE_GEM_MALL_CSV = (
     / "RechargeGemMall.csv"
 )
 LANGUAGE_WORKBOOK = PROJECT_ROOT / "ref" / "config-tables" / "s_Language.xlsm"
-OUTPUT_JSON = MIGRATION_ROOT / "unity_economy_catalog.json"
+OUTPUT_JSON = DATA_ROOT / "unity_economy_catalog.json"
 OUTPUT_MD = MIGRATION_ROOT / "unity_economy_catalog.md"
 
 STORE_PROXY = PROJECT_ROOT / "ref" / "client-unity" / "Assets" / "Scripts" / "Hotfix" / "MVC" / "Proxy" / "StoreProxy.cs"
@@ -161,7 +162,7 @@ ALLIANCE_CONFIG_KEYS = (
 
 
 def project_relative(path: Path) -> str:
-    return path.relative_to(PROJECT_ROOT).as_posix()
+    return label(path)
 
 
 def sha256(path: Path) -> str:

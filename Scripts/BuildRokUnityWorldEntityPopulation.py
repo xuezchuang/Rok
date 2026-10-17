@@ -7,13 +7,14 @@ from pathlib import Path
 from PIL import Image, ImageChops
 from PrepareRokUnityWorldMapAssets import parse_unity_curve
 from BuildRokUnityWorldEntityPresentation import decode_unit_sprite, parse_packed_sprite_geometry
+from rok_data_paths import DATA_ROOT, label, resolve
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 MIGRATION_DIR = PROJECT_ROOT / "Saved" / "RokUnityMigration"
-CONFIG_DIR = MIGRATION_DIR / "ConfigTables"
-OUTPUT_DIR = MIGRATION_DIR / "WorldEntityPopulation"
-MANIFEST_PATH = MIGRATION_DIR / "unity_world_entity_population.json"
+CONFIG_DIR = DATA_ROOT / "ConfigTables"
+OUTPUT_DIR = DATA_ROOT / "WorldEntityPopulation"
+MANIFEST_PATH = DATA_ROOT / "unity_world_entity_population.json"
 REPORT_PATH = MIGRATION_DIR / "unity_world_entity_population.md"
 
 FOCUS_UNITY = (6876, 942)
@@ -130,7 +131,7 @@ VISUAL_SOURCES = {
 
 
 def relative(path):
-    return str(path.relative_to(PROJECT_ROOT)).replace("\\", "/")
+    return label(path)
 
 
 def sha256(path):
@@ -348,7 +349,7 @@ def prepare_visual_library():
         )
         far = tight_alpha_crop(far, 2)
         far_scale_keys = [key for key in parse_unity_curve(
-            PROJECT_ROOT / SOURCE_LOD_PREFABS[key], "m_scale_curve"
+            resolve(SOURCE_LOD_PREFABS[key]), "m_scale_curve"
         ) if key["scale"] > 0 and 3000 <= key["dxf"] <= 5400]
         if len(far_scale_keys) != 2:
             raise RuntimeError(f"Unexpected far-icon scale curve: {key}")
@@ -398,13 +399,13 @@ def prepare_visual_library():
                 "source_scale_keys": far_scale_keys,
             },
             "source_lod_prefab": source_record(
-                PROJECT_ROOT / SOURCE_LOD_PREFABS[key]
+                resolve(SOURCE_LOD_PREFABS[key])
             ),
         }
         if key == "food":
             record["detail"]["runtime_composition"] = {
                 "component": "URokFoodDepositComponent",
-                "source_manifest": source_record(MIGRATION_DIR / "unity_food_deposit.json"),
+                "source_manifest": source_record(DATA_ROOT / "unity_food_deposit.json"),
                 "note": "Nine source prefab children replace the legacy composite at runtime; its dimensions remain selection bounds only.",
             }
         library[key] = record
@@ -495,9 +496,9 @@ def build_entity_record(
     source_table,
 ):
     detail_source = Path(
-        PROJECT_ROOT / visual["detail"]["output"]["path"]
+        resolve(visual["detail"]["output"]["path"])
     )
-    far_source = Path(PROJECT_ROOT / visual["far"]["output"]["path"])
+    far_source = Path(resolve(visual["far"]["output"]["path"]))
     # Level text belongs to the runtime UMG nameplate. Baking it into the
     # sprite duplicates the label and changes the icon's world-size ratio.
     detail_image = Image.open(detail_source).convert("RGBA")

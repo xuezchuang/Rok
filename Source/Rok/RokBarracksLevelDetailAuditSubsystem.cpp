@@ -3,6 +3,7 @@
 #include "RokBarracksSourceTextData.h"
 #include "RokBuildingLevelDetails.h"
 #include "RokBuildingUpgradeSubsystem.h"
+#include "RokDataPaths.h"
 #include "RokMainHudWidget.h"
 #include "RokTrainArmyMeshData.h"
 #include "RokUnityFeatureScreenWidget.h"
@@ -185,14 +186,14 @@ bool URokBarracksLevelDetailAuditSubsystem::Begin()
     for (const TCHAR* Relative : SourceFiles)
     {
         TArray<uint8> Bytes;
-        if (!Expect(FFileHelper::LoadFileToArray(Bytes, *(FPaths::ProjectDir() / Relative)) && !Bytes.IsEmpty(),
+        if (!Expect(FFileHelper::LoadFileToArray(Bytes, *(RokDataPaths::ResolveProjectPath(Relative))) && !Bytes.IsEmpty(),
             TEXT("Required exact source input unavailable"))) return false;
         auto File = MakeShared<FJsonObject>();
         File->SetNumberField(TEXT("bytes"), Bytes.Num());
         File->SetStringField(TEXT("sha256"), RokTrainArmyMesh::Sha256(Bytes));
         Inputs->SetObjectField(Relative, File);
     }
-    const FString GlyphDirectory = FPaths::ProjectSavedDir() / TEXT("RokUnityMigration/BarracksLevelHeaderText");
+    const FString GlyphDirectory = RokDataPaths::Resolve(TEXT("BarracksLevelHeaderText"));
     TArray<FString> GlyphFiles;
     IFileManager::Get().FindFiles(GlyphFiles,*(GlyphDirectory / TEXT("glyph_*.png")),true,false);
     if (!Expect(!GlyphFiles.IsEmpty(),TEXT("Source header glyph atlas PNGs unavailable"))) return false;

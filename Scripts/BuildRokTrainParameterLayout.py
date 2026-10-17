@@ -2,6 +2,7 @@
 import json
 import re
 from pathlib import Path
+from rok_data_paths import resolve as data_resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 UI = 'ref/client-unity/Assets/BundleAssets/UI/UIPrefabs/'
@@ -14,7 +15,7 @@ def vector(text, key):
 
 def main():
     path = UI + 'ui_prefabs_troops/UIArmyTrain/UI_Win_TrainArmy.prefab'
-    docs = documents((ROOT / path).read_text(encoding='utf-8-sig'))
+    docs = documents(data_resolve(path).read_text(encoding='utf-8-sig'))
     objects = {key: value for key, value in docs.items() if value.startswith('GameObject:')}
     rects = {key: value for key, value in docs.items() if value.startswith('RectTransform:') and 'm_GameObject:' in value}
     by_name = {}

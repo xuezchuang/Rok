@@ -9,6 +9,7 @@ import os
 import re
 import subprocess
 from pathlib import Path
+from rok_data_paths import resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 PROBE = ROOT / "Saved/UnityCitySamplerProbeV1"
@@ -30,7 +31,7 @@ def sha(path: Path) -> str:
 
 
 def repo_path(value: str) -> Path:
-    resolved = (ROOT / value).resolve()
+    resolved = (resolve(value)).resolve()
     need(resolved.is_relative_to(ROOT), f"Source path escapes repository: {value}")
     return resolved
 

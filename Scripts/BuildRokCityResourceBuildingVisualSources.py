@@ -9,10 +9,11 @@ from BuildRokAcademyVisualSource import (
     ROOT, ASSETS, image, importer, guid, field, vec, file_id, file_guid,
     yaml_objects, shader_formula,
 )
+from rok_data_paths import DATA_ROOT, label, resolve
 
 
 CSV_ROOT = ROOT / "ref/config-tables/编译客户端配置/CSV"
-MODEL_CATALOG = ROOT / "Saved/RokUnityMigration/CityConstructionSources/catalog.json"
+MODEL_CATALOG = DATA_ROOT / "CityConstructionSources/catalog.json"
 MODEL_CSV = CSV_ROOT / "BuildingModelData.csv"
 TYPE_CSV = CSV_ROOT / "BuildingTypeConfig.csv"
 LEVEL_CSV = CSV_ROOT / "BuildingLevelData.csv"
@@ -26,7 +27,7 @@ KEYS = ((2, 101, 1), (3, 101, 1))
 
 
 def rel(path):
-    return path.relative_to(ROOT).as_posix()
+    return label(path)
 
 
 def sha(path):
@@ -138,7 +139,7 @@ def build(write=True):
                (int(row["type"]), int(row["civType"]), int(row["age"])) == key]
         assert len(raw) == 1 and int(raw[0]["ID"]) == entry["id"] and raw[0]["modelId"] == entry["model_id"]
         model_id = entry["model_id"]
-        prefab = ROOT / entry["scene_prefab"]
+        prefab = resolve(entry["scene_prefab"])
         sprite = ASSETS / f"BundleAssets/Map/Building/Building_use/shared_building/Building_101/city_building_1/{model_id}.png"
         mask = sprite.with_name(f"{model_id}_mask.png")
         expected = (prefab, sprite, mask, Path(str(prefab) + ".meta"),

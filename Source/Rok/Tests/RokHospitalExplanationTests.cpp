@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 #include "Misc/AutomationTest.h"
 #include "Misc/ScopeExit.h"
+#include "../RokDataPaths.h"
 #include "../RokHospitalExplanationWidget.h"
 #include "Components/RichTextBlock.h"
 #include "Components/ScrollBox.h"
@@ -18,7 +19,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRokHospitalExplanationTest,"Rok.Ui.Hospital.Ex
 bool FRokHospitalExplanationTest::RunTest(const FString&)
 {
     FString Json;TSharedPtr<FJsonObject> Source;
-    if(!FFileHelper::LoadFileToString(Json,*(FPaths::ProjectSavedDir()/TEXT("RokUnityMigration/hospital_explanation.json")))||!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json),Source))return false;
+    if(!FFileHelper::LoadFileToString(Json,*(RokDataPaths::Resolve(TEXT("hospital_explanation.json"))))||!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json),Source))return false;
     TArray<FString> Paths;for(const auto& Row:Source->GetArrayField(TEXT("sources")))Paths.Add(Row->AsObject()->GetStringField(TEXT("path")));
     TestTrue(TEXT("Complete exact source set accepted"),URokHospitalExplanationWidget::HasExactSourcePaths(Paths));
     TestFalse(TEXT("Empty source set rejected"),URokHospitalExplanationWidget::HasExactSourcePaths({}));

@@ -8,11 +8,12 @@ import csv
 from pathlib import Path
 
 from PrepareRokBarracksLevelNative import parse_languages
+from rok_data_paths import DATA_ROOT, label, resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 CLIENT = ROOT / 'ref/client-unity'
 TARGET = ROOT / 'Saved/UnityMailRewardNativeProbe'
-PACKAGE = ROOT / 'Saved/RokUnityMigration/mail_reward_presentation.json'
+PACKAGE = DATA_ROOT / 'mail_reward_presentation.json'
 MAIL = 'Assets/BundleAssets/UI/UIPrefabs/ui_prefabs_mail/UIMail/'
 ITEM = 'Assets/BundleAssets/UI/UIPrefabs/ui_prefabs_common/UICommon/UI_Model_Item.prefab'
 BAG = 'Assets/BundleAssets/UI/UIPrefabs/ui_prefabs_item/UIBag/UI_Item_Bag.prefab'
@@ -33,7 +34,7 @@ def main():
         return p
     sources, copies, adapters, missing = [], [], [], []
     def record(path):
-        row = {'path': path.relative_to(ROOT).as_posix(), 'sha256': sha(path)}
+        row = {'path': label(path), 'sha256': sha(path)}
         if row not in sources:
             sources.append(row)
     def copy(path, relative):
@@ -48,12 +49,12 @@ def main():
             shutil.copyfile(path, target)
         assert sha(path) == sha(target)
         record(path)
-        copies.append({'source': path.relative_to(ROOT).as_posix(), 'target': relative, 'sha256': sha(path)})
+        copies.append({'source': label(path), 'target': relative, 'sha256': sha(path)})
     fixture = json.loads(PACKAGE.read_text(encoding='utf-8'))
     assert fixture['schema'] == 'rok.mail_reward_presentation.v1'
     assert list(fixture['fixtures']) == ['reference_single', 'mixed_audit', 'empty_alternate']
     for path, expected in fixture['sources'].items():
-        actual = ROOT / path
+        actual = resolve(path)
         assert sha(actual) == expected, path
         record(actual)
     record(PACKAGE)
@@ -126,7 +127,7 @@ def main():
             target = out(relative)
             target.write_text(common[name] + '\n', encoding='utf-8')
             adapters.append({'class': name, 'target': relative, 'sha256': sha(target),
-                             'source': path.relative_to(ROOT).as_posix(),
+                             'source': label(path),
                              'scope': 'Inert isolated presentation adapter; original serialized GUID preserved.'})
     arabic = CLIENT / 'Assets/Scripts/Client/Compoment/UIExtend/ArabicSupport.cs'
     copy(arabic, 'Assets/ReferenceComponents/ArabicSupport.cs')

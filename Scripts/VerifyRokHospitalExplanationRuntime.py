@@ -5,6 +5,7 @@ import argparse, hashlib, json, re, struct
 from pathlib import Path
 import numpy as np
 from PIL import Image
+from rok_data_paths import DATA_ROOT, resolve
 ROOT = Path(__file__).resolve().parents[1]
 def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 def explanation_pixels(path, source):
@@ -34,13 +35,13 @@ def verify(directory):
     assert 'RequestScreenshot(PendingPath, true, false)' in audit_source, 'Source regressed to scene-only screenshot'
     assert m['complete'] and m['passed'] and not m['failures'], 'Runtime failed/incomplete'
     assert Path(m['project']).resolve() == ROOT.resolve() and m['world'] == '/Game/Maps/L_RokUnityGameAppCity'
-    catalog = ROOT/'Saved/RokUnityMigration/hospital_explanation.json'
+    catalog = DATA_ROOT / 'hospital_explanation.json'
     source = json.loads(catalog.read_text(encoding='utf-8-sig'))
     assert source['schema'] == 'rok.hospital.explanation.v1' and source['language_id'] == 181001
     assert len(re.findall(r'(?m)^[1-7]\.', source['source_text'])) == 7
     assert len(source['yellow_segments']) == m['yellow_spans'] == 13
     for item in source['sources']:
-        path = (ROOT/item['path']).resolve()
+        path = resolve(item['path']).resolve()
         assert path.is_relative_to((ROOT/'ref').resolve()) and sha(path) == item['sha256']
     captures = m['captures']; assert len(captures) == m['expected_capture_count'] == 8
     expected = [('01_hospital_unknown','hospital'),('02_explanation_top','explanation'),('03_explanation_bottom','explanation'),('04_hospital_return_unknown','hospital'),('05_explanation_retained_bottom','explanation'),('06_city_closed','city'),('07_reopened_explanation_top','explanation'),('08_city_final','city')]

@@ -11,11 +11,12 @@ from pathlib import Path
 from BuildRokUnityEconomyCatalog import localized_text, read_language_lookup
 
 import BuildRokTaskChapterRewardPreview as producer
+from rok_data_paths import DATA_ROOT, label, resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 CSV = ROOT / "ref/config-tables/编译客户端配置/CSV"
-CATALOG = ROOT / "Saved/RokUnityMigration/TaskChapterRewardPreview/v1/catalog.json"
-CHAPTER = ROOT / "Saved/RokUnityMigration/TaskChapterConfigPreview/v2/catalog.json"
+CATALOG = DATA_ROOT / "TaskChapterRewardPreview/v1/catalog.json"
+CHAPTER = DATA_ROOT / "TaskChapterConfigPreview/v2/catalog.json"
 INVENTORY = ROOT / "Saved/RokUnityMigration/BatchReview20261009QuestChapterArtAndHallCamera/task_chapter_row_art_inventory_v1.json"
 REPORT = ROOT / "Saved/RokUnityMigration/TaskChapterRewardPreview/v1/verify.json"
 META = {100: ("Currency.csv", "l_desID", "iconID", "currency"),
@@ -44,11 +45,11 @@ def verify_document(doc: dict, chapter: dict, inventory: dict) -> None:
     expected_sources = {entry["path"]: entry["sha256"] for entry in doc["sources"]}
     assert len(expected_sources) == len(doc["sources"])
     for path, hash_value in expected_sources.items():
-        assert sha(ROOT / path) == hash_value, path
+        assert sha(resolve(path)) == hash_value, path
     for required in (CHAPTER, INVENTORY, CSV / "ItemPackageShow.csv", CSV / "Currency.csv",
                      CSV / "Item.csv", CSV / "Arms.csv", ROOT / "ref/config-tables/s_Language.xlsm",
                      ROOT / "Scripts/BuildRokUnityEconomyCatalog.py", Path(producer.__file__)):
-        assert required.relative_to(ROOT).as_posix() in expected_sources
+        assert label(required) in expected_sources
 
     chapter_rows = {row["id"]: row for row in chapter["chapters"]}
     task_rows = {row["id"]: row for row in chapter["tasks"]}
@@ -68,7 +69,7 @@ def verify_document(doc: dict, chapter: dict, inventory: dict) -> None:
     for entry in inventory["static_reward_preview"]["reusable_atlases"]:
         namespace = entry["namespace"]
         size = entry["atlas_size"]
-        sheet = (ROOT / entry["source_tpsheet"]["path"]).read_text(encoding="utf-8-sig").splitlines()
+        sheet = resolve(entry["source_tpsheet"]["path"]).read_text(encoding="utf-8-sig").splitlines()
         sprites = {}
         for line in sheet:
             fields = [v.strip() for v in line.split(";")]
@@ -160,7 +161,7 @@ def main() -> None:
             raise AssertionError("Source/account corruption was accepted")
     assert negative == 5
     result = {"schema": "rok.task_chapter_reward_preview_verify.v1", "status": "passed",
-              "catalog_path": CATALOG.relative_to(ROOT).as_posix(), "catalog_sha256": sha(CATALOG),
+              "catalog_path": label(CATALOG), "catalog_sha256": sha(CATALOG),
               "groups_checked": 45, "rows_checked": 123, "negative_cases_rejected": negative,
               "chapter_7_aggregate_metadata_known": False,
               "account_state": "unknown", "engine_started": False}

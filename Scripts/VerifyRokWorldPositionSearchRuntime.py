@@ -11,6 +11,7 @@ import struct
 import tempfile
 import zlib
 from pathlib import Path
+from rok_data_paths import resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT = "D:/ueDemo/Rok"
@@ -177,11 +178,11 @@ def check_png(capture: dict, run_dir: Path) -> None:
 def check_inputs(inputs: dict) -> None:
     need(set(inputs) == set(REQUIRED), "source input set changed")
     for item in REQUIRED:
-        path = ROOT / item
+        path = resolve(item)
         need(path.is_file() and inputs[item] == sha(path), f"source pin differs: {item}")
         if item in APPROVED:
             need(inputs[item] == APPROVED[item], f"approved UI source changed: {item}")
-    cpp = (ROOT / REQUIRED[1]).read_text(encoding="utf-8")
+    cpp = (resolve(REQUIRED[1])).read_text(encoding="utf-8")
     forbidden = ["->FocusDisplayCoordinate(", "->RequestReturnToWorldMapAtDisplayCoordinate(",
                  "->SetViewCenterUnity(", "->SetText(", "->SetActorLocation(",
                  "->SetActorRotation(", "->HandleAction(", "->FlushTesting("]

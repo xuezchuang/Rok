@@ -1,5 +1,7 @@
 #include "RokCityConstructionSources.h"
 
+#include "RokDataPaths.h"
+
 #include "Dom/JsonObject.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
@@ -56,7 +58,7 @@ bool ParseModel(const TSharedPtr<FJsonObject>& Object, const TSet<int32>& Buildi
 bool FRokCityConstructionSources::Load(FString& Error)
 {
 	Models.Reset(); ByExactKey.Reset(); Error.Reset();
-	const FString Path = FPaths::ProjectSavedDir() / TEXT("RokUnityMigration/CityConstructionSources/catalog.json");
+	const FString Path = RokDataPaths::Resolve(TEXT("CityConstructionSources/catalog.json"));
 	FString Json;
 	TSharedPtr<FJsonObject> Root;
 	if (!FFileHelper::LoadFileToString(Json, *Path)

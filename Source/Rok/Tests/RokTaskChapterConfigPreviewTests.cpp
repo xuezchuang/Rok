@@ -3,6 +3,7 @@
 #include "Misc/AutomationTest.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "../RokDataPaths.h"
 #include "../RokTaskChapterConfigPreviewData.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRokTaskChapterConfigPreviewSourceTest,
@@ -57,8 +58,7 @@ bool FRokTaskChapterConfigPreviewSourceTest::RunTest(const FString&)
 		RokTaskChapterConfigPreviewData::FindTaskById(Tasks, 999999, Task));
 
 	TArray<uint8> Bytes;
-	const FString Path = FPaths::ProjectSavedDir() /
-		TEXT("RokUnityMigration/TaskChapterConfigPreview/v2/catalog.json");
+	const FString Path = RokDataPaths::Resolve(TEXT("TaskChapterConfigPreview/v2/catalog.json"));
 	if (!TestTrue(TEXT("Read immutable source catalog"), FFileHelper::LoadFileToArray(Bytes, *Path))) return false;
 	TestTrue(TEXT("Pinned source bytes accepted"),
 		RokTaskChapterConfigPreviewData::LoadBytesForTesting(Bytes, Chapters, Tasks, Error));

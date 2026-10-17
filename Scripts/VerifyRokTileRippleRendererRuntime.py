@@ -9,15 +9,16 @@ import math
 from pathlib import Path
 
 from PIL import Image
+from rok_data_paths import DATA_ROOT, resolve
 
 
 ROOT = Path("D:/ueDemo/Rok")
 PENDING = ROOT / "Saved/PendingUnityTileRippleRendererV14"
-ASSET_SOURCE = ROOT / "Saved/PendingUnityTileRippleRendererV8"
+ASSET_SOURCE = DATA_ROOT / "TileRippleRendererV8"
 READY = PENDING / "ready_for_root_review.json"
 ASSET_MANIFEST = ASSET_SOURCE / "asset_import_manifest.json"
 GEOMETRY = ASSET_SOURCE / "geometry_contract.json"
-CPU = ROOT / "Saved/PendingUnityTileRippleSimulationV2/tile_ripple_source_config.json"
+CPU = DATA_ROOT / "TileRippleSimulationV2/tile_ripple_source_config.json"
 TIMES = [2.5, 4.9, 5.1, 7.5]
 MAX_LAG = [0.08, 0.08, 0.08, 0.10]
 PRIVATE_NAMES = ["baseline", "bowen_only", "bowen1_only", "combined"]
@@ -59,7 +60,7 @@ def verify_asset_manifest(expected_sha: str) -> dict:
     require(isinstance(packages, list) and len(packages) == 2, "exactly two imported assets")
     for item, relative in zip(packages, expected, strict=True):
         require(item.get("path") == relative, "unexpected imported package")
-        path = ROOT / relative
+        path = resolve(relative)
         require(path.is_file() and path.stat().st_size == item.get("byte_count")
                 and sha(path) == item.get("sha256"), f"imported package changed: {relative}")
     return data
@@ -285,7 +286,7 @@ def verify_manifest(data: dict, run: Path, ready: dict, expected_asset_sha: str,
     for relative in ("Source/Rok/RokUnityTileRippleRenderer.cpp",
                      "Source/Rok/RokUnityTileRippleRendererAuditSubsystem.cpp"):
         name = "renderer_cpp_sha256" if "Audit" not in relative else "audit_cpp_sha256"
-        require(data.get(name) == pins[relative] == sha(ROOT / relative), f"runtime code pin: {relative}")
+        require(data.get(name) == pins[relative] == sha(resolve(relative)), f"runtime code pin: {relative}")
     captures = data.get("captures")
     require(isinstance(captures, list) and len(captures) == 4, "four natural screenshot captures")
     previous_frame, previous_sim = -1, -1.0
@@ -329,7 +330,7 @@ def verify_run(run: Path, expected_asset_sha: str, expected_ready_sha: str) -> d
     ready = json.loads(READY.read_text(encoding="utf-8"))
     require(ready.get("schema") == "rok.tile_ripple.renderer_pending_review.v14", "ready schema")
     for relative, expected in ready["staged_files"].items():
-        require(sha(ROOT / relative) == expected, f"applied code differs: {relative}")
+        require(sha(resolve(relative)) == expected, f"applied code differs: {relative}")
     verify_asset_manifest(expected_asset_sha)
     data = json.loads((run / "manifest.json").read_text(encoding="utf-8"))
     return verify_manifest(data, run, ready, expected_asset_sha, expected_ready_sha)

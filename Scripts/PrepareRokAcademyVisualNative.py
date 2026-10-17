@@ -10,6 +10,7 @@ import json
 import shutil
 import csv
 from pathlib import Path
+from rok_data_paths import resolve
 
 from BuildRokAcademyVisualSource import ROOT, OUT, build
 
@@ -28,12 +29,12 @@ def prepare():
     if catalog != build(write=False):
         raise RuntimeError("Academy source catalog is stale or differs from source")
     for relative, expected in catalog["sources"].items():
-        source = ROOT / relative
+        source = resolve(relative)
         if not source.is_file() or digest(source) != expected:
             raise RuntimeError(f"Academy source hash mismatch: {relative}")
     if catalog["model_id"] != "build_13_101_2":
         raise RuntimeError("Unexpected Academy model")
-    shader_text = (ROOT / catalog["material"]["shader_path"]).read_text(encoding="utf-8-sig")
+    shader_text = (resolve(catalog["material"]["shader_path"])).read_text(encoding="utf-8-sig")
     if "_CityTransparency" in shader_text.split("SubShader", 1)[0] or "float _CityTransparency;" not in shader_text:
         raise RuntimeError("Academy shader global CityTransparency contract changed")
     nodes = catalog["prefab"]["nodes"]
@@ -60,7 +61,7 @@ def prepare():
     selected.append("ref/client-unity/Assets/Scripts/Client/Compoment/MaskSprite.cs")
     copies = {}
     for relative in selected:
-        source = ROOT / relative
+        source = resolve(relative)
         target = source_dir / source.name
         shutil.copy2(source, target)
         meta_target = Path(str(target) + ".meta")

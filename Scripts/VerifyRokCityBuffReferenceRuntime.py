@@ -8,6 +8,7 @@ import io
 import json
 import re
 from pathlib import Path
+from rok_data_paths import resolve
 
 from PIL import Image
 
@@ -50,7 +51,7 @@ def sha(path):
 def checked(relative):
     p = Path(relative)
     need(not p.is_absolute() and ".." not in p.parts, "input path escape")
-    result = (ROOT / p).resolve(strict=True)
+    result = resolve(p).resolve(strict=True)
     need(ROOT.resolve() in result.parents and result.is_file(), "input outside repo")
     return result
 

@@ -1,4 +1,5 @@
 #include "RokUnityModalWidget.h"
+#include "RokDataPaths.h"
 #include "RokModalNineSlice.h"
 #include "RokPlayerHeadLayout.h"
 #include "RokChangeNameLayout.h"
@@ -3245,8 +3246,7 @@ void URokUnityModalWidget::BuildBuffList()
 		PlaceOnCanvas(BuffListAnimationRoot, ReferenceNotice, FVector2D(PopupX + 22.0f, PopupY + 64.0f), FVector2D(456.0f, 28.0f), 4);
 
 		FString DefinitionJson;
-		const FString DefinitionPath = FPaths::Combine(
-			FPaths::ProjectSavedDir(), TEXT("RokUnityMigration"), TEXT("city_buff_reference.json"));
+		const FString DefinitionPath = RokDataPaths::Resolve(TEXT("city_buff_reference.json"));
 		TSharedPtr<FJsonObject> DefinitionRoot;
 		const bool bManifestLoaded = FFileHelper::LoadFileToString(DefinitionJson, *DefinitionPath)
 			&& FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(DefinitionJson), DefinitionRoot)

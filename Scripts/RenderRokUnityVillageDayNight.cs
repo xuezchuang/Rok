@@ -48,8 +48,8 @@ public class RenderRokUnityVillageDayNight : MonoBehaviour {
     }
     IEnumerator Start() {
         Directory.CreateDirectory(Output);
-        var manifest=JsonUtility.FromJson<Manifest>(File.ReadAllText(Root+"/Saved/RokUnityMigration/unity_village_day_night.json"));
-        var library=JsonUtility.FromJson<Library>(File.ReadAllText(Root+"/Saved/RokUnityMigration/unity_village_presentation.json"));
+        var manifest=JsonUtility.FromJson<Manifest>(File.ReadAllText(Root+"/Content/RokData/unity_village_day_night.json"));
+        var library=JsonUtility.FromJson<Library>(File.ReadAllText(Root+"/Content/RokData/unity_village_presentation.json"));
         var prefab=AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Source/build_RssVillage_Big.prefab");
         Common.Distance=480;var obj=Instantiate(prefab);obj.transform.position=Vector3.zero;obj.transform.localScale=Vector3.one;
         yield return null;yield return null;

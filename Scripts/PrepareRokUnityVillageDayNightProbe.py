@@ -1,6 +1,7 @@
 """Prepare isolated village day/night source render. Does not launch Unity."""
 import json,shutil,hashlib
 from pathlib import Path
+from rok_data_paths import resolve
 from BuildRokUnityVillageDayNight import ROOT,OUT
 
 def main():
@@ -14,12 +15,12 @@ def main():
         if src.is_file():copy(src,assets/'Source'/src.name)
     data=json.loads(OUT.read_text(encoding='utf-8'))
     for record in [m['source'] for m in data['materials'].values()]+[r for r in data['sources'] if r['path'].endswith('.shader')]:
-        src=ROOT/record['path'];copy(src,assets/'Source'/src.name);copy(Path(str(src)+'.meta'),assets/'Source'/(src.name+'.meta'))
+        src=resolve(record['path']);copy(src,assets/'Source'/src.name);copy(Path(str(src)+'.meta'),assets/'Source'/(src.name+'.meta'))
     for src in [ROOT/'Scripts/ProbeRokUnityVillagePresentation.cs',ROOT/'Saved/UnityVillagePresentationProbe/Assets/ProbeDependencies.cs',ROOT/'Scripts/RenderRokUnityVillageDayNight.cs']:
         copy(src,assets/src.name)
     for relative in ('Packages/manifest.json','ProjectSettings/ProjectVersion.txt'):
         copy(ROOT/'Saved/UnityVillagePresentationProbe'/relative,target/relative)
     report={'prepared':True,'launched':False,'target':str(target),'source_copies':copied,'scope':'Original source prefab/assets/shaders. Explicit snapshot driver applies documented material state and light parameters; not source async service/coroutine or server clock emulation.'}
-    OUT.with_name('unity_village_day_night_prepare.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
+    (ROOT / 'Saved/RokUnityMigration/unity_village_day_night_prepare.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
     print(target)
 if __name__=='__main__':main()

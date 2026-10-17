@@ -1,10 +1,11 @@
 import json
 from pathlib import Path
+from rok_data_paths import DATA_ROOT, label
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 OUTPUT_DIR = PROJECT_ROOT / "Saved" / "RokUnityMigration"
-CATALOG_PATH = OUTPUT_DIR / "unity_ui_catalog.json"
+CATALOG_PATH = DATA_ROOT / "unity_ui_catalog.json"
 VERIFY_PATH = OUTPUT_DIR / "unity_ui_catalog_verify.json"
 
 CORE_MAIN_MODULES = {
@@ -77,7 +78,7 @@ def main():
         failures.append(f"Missing processed UE UI textures: {missing_ue_textures}")
 
     result = {
-        "catalog": str(CATALOG_PATH.relative_to(PROJECT_ROOT)),
+        "catalog": str(Path(label(CATALOG_PATH))),
         "failure_count": len(failures),
         "failures": failures,
         "main_interface_module_count": len(modules),

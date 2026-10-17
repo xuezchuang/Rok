@@ -1,5 +1,6 @@
 #include "RokUnityTileRippleRendererAuditSubsystem.h"
 
+#include "RokDataPaths.h"
 #include "RokServerSubsystem.h"
 #include "RokTrainArmyMeshData.h"
 #include "RokUnityTileRippleRenderer.h"
@@ -470,17 +471,16 @@ bool URokUnityTileRippleRendererAuditSubsystem::Save(bool bComplete) const
 	J->SetStringField(TEXT("project"), FPaths::ConvertRelativePathToFull(FPaths::ProjectDir()));
 	J->SetNumberField(TEXT("pid"), FPlatformProcess::GetCurrentProcessId());
 	J->SetStringField(TEXT("world_map"), WorldMap);
-	J->SetStringField(TEXT("geometry_fixture_sha256"), FileSha(FPaths::ProjectDir() / ContractRelative));
-	J->SetStringField(TEXT("cpu_fixture_sha256"), FileSha(FPaths::ProjectDir() / CpuRelative));
+	J->SetStringField(TEXT("geometry_fixture_sha256"), FileSha(RokDataPaths::ResolveProjectPath(ContractRelative)));
+	J->SetStringField(TEXT("cpu_fixture_sha256"), FileSha(RokDataPaths::ResolveProjectPath(CpuRelative)));
 	FString ExternalAssetSha;
 	FParse::Value(FCommandLine::Get(), TEXT("RokTileRippleAssetManifestSha="), ExternalAssetSha);
 	J->SetStringField(TEXT("expected_asset_manifest_sha256"), ExternalAssetSha.ToLower());
-	J->SetStringField(TEXT("asset_manifest_sha256"), FileSha(FPaths::ProjectDir() /
-		TEXT("Saved/PendingUnityTileRippleRendererV8/asset_import_manifest.json")));
+	J->SetStringField(TEXT("asset_manifest_sha256"), FileSha(RokDataPaths::Resolve(TEXT("TileRippleRendererV8/asset_import_manifest.json"))));
 	FString ExternalReadySha;
 	FParse::Value(FCommandLine::Get(), TEXT("RokTileRippleReadySha="), ExternalReadySha);
 	J->SetStringField(TEXT("expected_ready_sha256"), ExternalReadySha.ToLower());
-	J->SetStringField(TEXT("ready_sha256"), FileSha(FPaths::ProjectDir() / ReadyRelative));
+	J->SetStringField(TEXT("ready_sha256"), FileSha(RokDataPaths::ResolveProjectPath(ReadyRelative)));
 	J->SetStringField(TEXT("renderer_cpp_sha256"), FileSha(FPaths::ProjectDir() / TEXT("Source/Rok/RokUnityTileRippleRenderer.cpp")));
 	J->SetStringField(TEXT("audit_cpp_sha256"), FileSha(FPaths::ProjectDir() / TEXT("Source/Rok/RokUnityTileRippleRendererAuditSubsystem.cpp")));
 	J->SetStringField(TEXT("texture_asset"), TexturePath);
@@ -519,7 +519,7 @@ void URokUnityTileRippleRendererAuditSubsystem::Tick(float DeltaTime)
 		if (WallSeconds < 2.0) return;
 		FString ExpectedReady;
 		if (!FParse::Value(FCommandLine::Get(), TEXT("RokTileRippleReadySha="), ExpectedReady) ||
-			ExpectedReady.Len() != 64 || FileSha(FPaths::ProjectDir() / ReadyRelative) != ExpectedReady.ToLower())
+			ExpectedReady.Len() != 64 || FileSha(RokDataPaths::ResolveProjectPath(ReadyRelative)) != ExpectedReady.ToLower())
 		{ Finish(TEXT("Tile ripple externally locked V3 ready report SHA missing or changed")); return; }
 		if (Begin()) Stage = 1;
 		else if (DiagnosticActor) Finish(TEXT("Tile ripple diagnostic actor failed source/material/CPU setup"));

@@ -1,5 +1,6 @@
 #include "RokMailRewardDetailAuditSubsystem.h"
 #include "RokBuildingUpgradeSubsystem.h"
+#include "RokDataPaths.h"
 #include "RokMainHudWidget.h"
 #include "RokTrainArmyMeshData.h"
 #include "RokUnityEconomyCatalogSubsystem.h"
@@ -218,7 +219,7 @@ bool URokMailRewardDetailAuditSubsystem::Begin()
     for (const TCHAR* Relative:SourceFiles)
     {
         TArray<uint8> Bytes;
-        if (!Expect(FFileHelper::LoadFileToArray(Bytes,*(FPaths::ProjectDir()/Relative)) && !Bytes.IsEmpty(),
+        if (!Expect(FFileHelper::LoadFileToArray(Bytes,*(RokDataPaths::ResolveProjectPath(Relative))) && !Bytes.IsEmpty(),
             TEXT("Required mail reward source input unavailable"))) return false;
         auto File=MakeShared<FJsonObject>(); File->SetNumberField(TEXT("bytes"),Bytes.Num());
         File->SetStringField(TEXT("sha256"),RokTrainArmyMesh::Sha256(Bytes));
@@ -313,7 +314,7 @@ bool URokMailRewardDetailAuditSubsystem::Unchanged()
         if (!Expect(Current && SamePayload(*Current,Pair.Value),TEXT("Mail fixture payload changed"))) return false;
     }
     TArray<uint8> Bytes;
-    return Expect(FFileHelper::LoadFileToArray(Bytes,*(FPaths::ProjectDir()/TEXT("Saved/RokUnityMigration/mail_reward_presentation.json")))
+    return Expect(FFileHelper::LoadFileToArray(Bytes,*(RokDataPaths::Resolve(TEXT("mail_reward_presentation.json"))))
         && RokTrainArmyMesh::Sha256(Bytes)==FixtureSha256,TEXT("Mail fixture source file changed during audit"));
 }
 

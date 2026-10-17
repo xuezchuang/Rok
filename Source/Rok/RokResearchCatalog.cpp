@@ -1,5 +1,7 @@
 #include "RokResearchCatalog.h"
 
+#include "RokDataPaths.h"
+
 #include "Dom/JsonObject.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
@@ -122,7 +124,7 @@ bool ParseOverride(const TSharedPtr<FJsonObject>& Object, FRokResearchCivilizati
 bool FRokResearchCatalog::Load(FString& Error)
 {
 	Rows.Reset(); Overrides.Reset(); ByRowId.Reset(); ByStudyLevel.Reset(); ByCivilizationAndRow.Reset(); Error.Reset();
-	const FString Path = FPaths::ProjectSavedDir() / TEXT("RokUnityMigration/research_catalog.json");
+	const FString Path = RokDataPaths::Resolve(TEXT("research_catalog.json"));
 	FString Json;
 	TSharedPtr<FJsonObject> Root;
 	if (!FFileHelper::LoadFileToString(Json, *Path)

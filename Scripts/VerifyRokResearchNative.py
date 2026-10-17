@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
+from rok_data_paths import DATA_ROOT, resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT = ROOT / 'Saved/UnityResearchNativeProbe'
@@ -36,7 +37,7 @@ def main():
     args = parser.parse_args()
     inputs = json.loads((PROJECT / 'ReferenceInputs.json').read_text(encoding='utf-8'))
     fixture = json.loads((PACKAGE / 'research_power_fixture.json').read_text(encoding='utf-8'))
-    atlases = json.loads((PACKAGE / 'atlas_manifest.json').read_text(encoding='utf-8'))
+    atlases = json.loads((DATA_ROOT / 'ResearchNative/atlas_manifest.json').read_text(encoding='utf-8'))
     assert inputs['schema'] == 'rok.research.native_inputs.v1'
     assert inputs['probeVersion'] == 2
     assert fixture['schema'] == 'rok.research.native_fixture.v1'
@@ -61,17 +62,17 @@ def main():
         assert node['icon'] in sprite_by_reference, node['icon']
         assert node['currentLevel'] == 0 and node['maxLevel'] >= 1
     for relative, expected in atlases['sources'].items():
-        assert sha(ROOT / relative) == expected, relative
+        assert sha(resolve(relative)) == expected, relative
     for atlas in atlases['atlases']:
-        assert sha(ROOT / atlas['source']) == sha(ROOT / atlas['output']) == atlas['sha256']
+        assert sha(resolve(atlas['source'])) == sha(resolve(atlas['output'])) == atlas['sha256']
     menu = atlases['menuIcon']
     assert menu['sourceReference'] == 'ui_hud[btn_hud_1018]'
     assert menu['ueAssetPath'] == '/Game/RokPrototype/UI/BuildingMenu/rok_building_menu_research'
-    assert sha(ROOT / menu['output']) == menu['sha256']
+    assert sha(resolve(menu['output'])) == menu['sha256']
     for src in inputs['sources']:
-        assert sha(ROOT / src['path']) == src['sha256'], src['path']
+        assert sha(resolve(src['path'])) == src['sha256'], src['path']
     for row in inputs['byteIdenticalCopies']:
-        assert sha(ROOT / row['source']) == sha(PROJECT / row['target']) == row['sha256'], row['target']
+        assert sha(resolve(row['source'])) == sha(PROJECT / row['target']) == row['sha256'], row['target']
     for row in inputs['adapters']:
         assert sha(PROJECT / row['target']) == row['sha256'], row['target']
     assert json.loads((PROJECT / 'Validation/compiler_result.json').read_text(encoding='utf-8'))['exitCode'] == 0
@@ -181,7 +182,7 @@ def main():
                     'scrollX': sample['scrollX'], 'visibleNodes': sample['visibleNodeCount']})
     verified = {'schema': 'rok.research.native_verified.v1', 'artifact': str(artifact),
                 'evidenceSha256': sha(artifact / 'render_evidence.json'),
-                'inputsSha256': sha(artifact / 'ReferenceInputs.json'), 'atlasManifestSha256': sha(PACKAGE / 'atlas_manifest.json'),
+                'inputsSha256': sha(artifact / 'ReferenceInputs.json'), 'atlasManifestSha256': sha(DATA_ROOT / 'ResearchNative/atlas_manifest.json'),
                 'fixtureSha256': sha(PACKAGE / 'research_power_fixture.json'), 'samples': out,
                 'qualification': 'Original prefabs/atlases with source-configured deterministic unresearched state; not account data or full hotfix execution.'}
     target = PACKAGE / 'verified_power_capture.json'

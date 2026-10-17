@@ -18,7 +18,7 @@ public static class BuildInitialCityStartupScene
     private const string RefUnityAssetsRoot = "D:/ueDemo/Rok/ref/client-unity/Assets";
     private const string SceneAssetRoot = "Assets";
     private const string RuntimeManifestPath = "D:/ueDemo/Rok/Saved/RokUnityMigration/unity_runtime_city_all_buildings_scene_manifest_GameAppRuntimeV6Color.json";
-    private const string InitialCityStatePath = "D:/ueDemo/Rok/Saved/RokUnityMigration/unity_initial_city_state.json";
+    private const string InitialCityStatePath = "D:/ueDemo/Rok/Content/RokData/unity_initial_city_state.json";
     private const string GeneratedTextureRoot = "Assets/RokUnityMigration/UnityLearningGenerated";
     private const bool ShowExtraInteriorBuildings = false;
     private const bool ShowDecorationBuildings = false;

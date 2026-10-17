@@ -1,6 +1,7 @@
 """Validate real PlayMode glow alpha/rotation and same-frame additive layer captures."""
 import argparse,hashlib,json,math,sys
 from pathlib import Path
+from rok_data_paths import resolve
 import numpy as np
 from PIL import Image
 ROOT=Path(__file__).resolve().parents[1]
@@ -12,7 +13,7 @@ def verify(path):
         if not ok:fail.append(why)
     check(e.get('nativeRendered') and e.get('playMode') and e.get('visibilityRestored') and not e.get('failure'),'native PlayMode/restore')
     check(e.get('inputSha256')==sha(ip),'input hash')
-    for s in inputs['sources']:check(sha(ROOT/s['path'])==s['sha256'],'source hash '+s['path'])
+    for s in inputs['sources']:check(sha(resolve(s['path']))==s['sha256'],'source hash '+s['path'])
     trace=e.get('trace',[]);check(len(trace)>6,'natural per-frame trace');max_alpha=0;max_rotation=0;screen_directions=[]
     def alpha(t,vals):
         t=(t%1)*2;idx=min(1,int(t));u=t-idx;return vals[idx]+(vals[idx+1]-vals[idx])*(3*u*u-2*u*u*u)

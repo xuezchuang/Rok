@@ -1,4 +1,5 @@
 #include "RokTaskChapterConfigPreviewData.h"
+#include "RokDataPaths.h"
 #include "RokTrainArmyMeshData.h"
 
 #include "Containers/StringConv.h"
@@ -217,7 +218,7 @@ bool RokTaskChapterConfigPreviewData::LoadAll(TArray<FRokTaskChapterPreviewRow>&
 	TArray<FRokTaskChapterTaskPreviewRow>& OutTasks, FString& Error)
 {
 	TArray<uint8> Bytes;
-	const FString Path = FPaths::ProjectSavedDir() / TEXT("RokUnityMigration/TaskChapterConfigPreview/v2/catalog.json");
+	const FString Path = RokDataPaths::Resolve(TEXT("TaskChapterConfigPreview/v2/catalog.json"));
 	if (!FFileHelper::LoadFileToArray(Bytes, *Path))
 	{
 		OutChapters.Reset(); OutTasks.Reset();

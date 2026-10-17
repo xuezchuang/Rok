@@ -3,12 +3,13 @@ import csv
 import hashlib
 import json
 from pathlib import Path
+from rok_data_paths import DATA_ROOT, label
 
 ROOT = Path(__file__).resolve().parents[1]
 CSV_ROOT = ROOT / "ref/config-tables/编译客户端配置/CSV"
 CLIENT = ROOT / "ref/client-unity/Assets"
-OUT = ROOT / "Saved/RokUnityMigration/CityConstructionSources/catalog.json"
-GAMEPLAY = ROOT / "Saved/RokUnityMigration/unity_gameplay_catalog.json"
+OUT = DATA_ROOT / "CityConstructionSources/catalog.json"
+GAMEPLAY = DATA_ROOT / "unity_gameplay_catalog.json"
 PROXY = CLIENT / "Scripts/Hotfix/MVC/Proxy/CityBuildingProxy.cs"
 TABLES = {name: CSV_ROOT / f"{name}.csv" for name in
           ("BuildingModelData", "BuildingTypeConfig", "BuildingLevelData", "BuildingCountLimit")}
@@ -24,7 +25,7 @@ def read_rows(name):
 
 
 def relative(path):
-    return path.relative_to(ROOT).as_posix() if path else None
+    return label(path) if path else None
 
 
 def build(write=True):

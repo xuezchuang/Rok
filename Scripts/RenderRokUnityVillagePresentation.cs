@@ -58,7 +58,7 @@ public class RenderRokUnityVillagePresentation : MonoBehaviour
     {
         Directory.CreateDirectory(Output);
         var prefab=AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Source/build_RssVillage_Big.prefab");
-        var library=JsonUtility.FromJson<Library>(File.ReadAllText(Root+"/Saved/RokUnityMigration/unity_village_presentation.json"));
+        var library=JsonUtility.FromJson<Library>(File.ReadAllText(Root+"/Content/RokData/unity_village_presentation.json"));
         Common.Distance=480;
         var obj=Instantiate(prefab); obj.transform.position=Vector3.zero; obj.transform.localScale=Vector3.one;
         yield return null; yield return null;

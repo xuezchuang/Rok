@@ -1,13 +1,14 @@
 """Source identities/mip decode/native3 evidence; never launches engine."""
 import hashlib,json
 from pathlib import Path
+from rok_data_paths import resolve
 from PIL import Image
 from BuildRokUnityMountainFGamma import ROOT,OUT
 
 def main():
     data=json.loads((OUT/'manifest.json').read_text())
     assert data['schema']=='rok.mountain_f_gamma.v1' and len(data['instances'])==18
-    for row in data['source_inputs']+data['source_files']+[data['diagnostic_mip_shader']]:assert hashlib.sha256((ROOT/row['path']).read_bytes()).hexdigest()==row['sha256']
+    for row in data['source_inputs']+data['source_files']+[data['diagnostic_mip_shader']]:assert hashlib.sha256((resolve(row['path'])).read_bytes()).hexdigest()==row['sha256']
     assert [x['name'] for x in data['samples']]==['stable_day','stable_dusk','stable_night']
     report=dict(prepared=True,native_checked=False,product_modified=False)
     path=OUT/'native_render.json'

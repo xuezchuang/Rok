@@ -1,5 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 #include "Misc/AutomationTest.h"
+
+#include "../RokDataPaths.h"
 #include "../RokMailAttachmentMeshData.h"
 #include "../RokMailAttachmentMeshWidget.h"
 #include "Misc/FileHelper.h"
@@ -9,7 +11,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRokMailAttachmentMeshTest,"Rok.Ui.Mail.Attachm
 bool FRokMailAttachmentMeshTest::RunTest(const FString& Parameters)
 {
     FString Json,Error;RokMailAttachmentMesh::FClip Clip;
-    if(!TestTrue(TEXT("Export exists"),FFileHelper::LoadFileToString(Json,*(FPaths::ProjectSavedDir()/TEXT("RokUnityMigration/MailSpine/gift5_stay_mesh.json")))))return false;
+    if(!TestTrue(TEXT("Export exists"),FFileHelper::LoadFileToString(Json,*(RokDataPaths::Resolve(TEXT("MailSpine/gift5_stay_mesh.json"))))))return false;
     if(!TestTrue(TEXT("Exact source gift5/stay parses"),RokMailAttachmentMesh::Parse(Json,Clip,Error)))return false;
     TestEqual(TEXT("Source frame count"),Clip.Frames.Num(),96);
     TestTrue(TEXT("Independent child duration"),FMath::IsNearlyEqual(Clip.Duration,1.6f));

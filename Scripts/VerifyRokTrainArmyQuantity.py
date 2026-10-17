@@ -1,6 +1,7 @@
 """Read source behavior/layout contracts, without claiming runtime acceptance."""
 import json
 from pathlib import Path
+from rok_data_paths import resolve
 from BuildRokUnityUiAnimationManifest import Builder
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -10,7 +11,7 @@ def main():
     builder = Builder()
     common_path = 'ref/client-unity/Assets/Scripts/Hotfix/Common/Utils/CommonTools.cs'
     # This legacy file has non-UTF8 comments; executable tokens are ASCII.
-    common = (ROOT / common_path).read_bytes().decode('latin1')
+    common = resolve(common_path).read_bytes().decode('latin1')
     logic = common.split('public class InputSliderControl', 1)[1].split('public class ResCostModel', 1)[0]
     for token in ['int.Parse(val)', 'num = MinVal;', 'num = MaxVal;', '(int)(val * MaxVal)',
                   '(float)num / MaxVal', 'm_isChangeInput = false;', 'm_isChangeSilder = false;',

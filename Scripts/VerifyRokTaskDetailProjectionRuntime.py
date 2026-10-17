@@ -7,6 +7,7 @@ import hashlib
 import json
 import pathlib
 import struct
+from rok_data_paths import resolve
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 EXPECTED_PHASES = [
@@ -87,7 +88,7 @@ def main() -> None:
     need(pathlib.Path(manifest["project"]).resolve() == ROOT.resolve(), "Project identity")
     need(manifest["world_time_advanced_by_audit"] is False, "Audit changed world clock")
     for relative, expected in manifest["inputs_sha256"].items():
-        path = ROOT / relative
+        path = resolve(relative)
         need(path.is_file() and sha(path) == expected, f"Input hash: {relative}")
     actions = manifest["actions"]
     need([a["label"] for a in actions] == EXPECTED_ACTIONS, "Ordinary Slate action sequence")

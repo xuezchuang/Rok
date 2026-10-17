@@ -1,6 +1,7 @@
 import hashlib
 import json
 from pathlib import Path
+from rok_data_paths import resolve
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -31,7 +32,7 @@ def main():
         manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
 
     for key in ("source_prefab", "source_head_prefab", "source_mediator", "source_hero_table", "ue_widget", "ue_hud", "ue_import_script"):
-        path = PROJECT_ROOT / manifest.get(key, "")
+        path = resolve(manifest.get(key, ""))
         if not path.exists():
             failures.append("missing {0}: {1}".format(key, path))
 
@@ -43,10 +44,10 @@ def main():
 
     portrait = manifest.get("portrait", {})
     for key in ("source_skeleton", "source_texture", "generated_png"):
-        path = PROJECT_ROOT / portrait.get(key, "")
+        path = resolve(portrait.get(key, ""))
         if not path.exists():
             failures.append("missing portrait {0}: {1}".format(key, path))
-    portrait_png = PROJECT_ROOT / portrait.get("generated_png", "")
+    portrait_png = resolve(portrait.get("generated_png", ""))
     if portrait_png.exists() and sha256_file(portrait_png) != portrait.get("generated_png_sha256"):
         failures.append("commander portrait hash drift")
     portrait_target = content_asset_path(portrait.get("ue_target", ""))
@@ -73,8 +74,8 @@ def main():
     if missing:
         failures.append("missing required commander sprites: {0}".format(", ".join(missing)))
     for row in sprites:
-        source = PROJECT_ROOT / row.get("source_atlas", "")
-        sheet = PROJECT_ROOT / row.get("source_tpsheet", "")
+        source = resolve(row.get("source_atlas", ""))
+        sheet = resolve(row.get("source_tpsheet", ""))
         if not source.exists() or sha256_file(source) != row.get("source_atlas_sha256"):
             failures.append("commander atlas drift: {0}".format(source))
         if not sheet.exists() or sha256_file(sheet) != row.get("source_tpsheet_sha256"):

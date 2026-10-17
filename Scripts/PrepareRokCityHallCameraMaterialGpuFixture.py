@@ -13,6 +13,7 @@ import math
 import re
 import struct
 from pathlib import Path
+from rok_data_paths import resolve
 
 from PIL import Image
 
@@ -72,7 +73,7 @@ def file_from(record: dict) -> Path:
     value = record["path"]
     need(isinstance(value, str) and not value.startswith("/") and "\\" not in value and ":" not in value,
          f"Unsafe path: {value}")
-    path = (ROOT / value).resolve()
+    path = (resolve(value)).resolve()
     need(path.is_relative_to(ROOT.resolve()), f"Path escaped workspace: {value}")
     return path
 
@@ -255,7 +256,7 @@ def prepare(run: Path, expected_native_sha: str, refresh_owned_fixture: bool = F
                        "night_color3": chosen.get("_Color_3", [0, 0, 0, 1]),
                        "native_raw": pin(raw), "native_png": pin(png),
                        "native_changed_rgb_pixels": case["changed_rgb_pixels"]})
-    code_pins = [pin(ROOT / item) for item in PIN_CODE]
+    code_pins = [pin(resolve(item)) for item in PIN_CODE]
     native_pins = [pin(native_path), pin(verified_path), pin(CONTRACT), pin(HALL), pin(CAMERA),
                    pin(TEXTURES), pin(SOURCE_ROOT), pin(world_path), pin(view_path), pin(proj_path)]
     fixture = {"schema": "rok.city_hall_camera_material_gpu_fixture.v1", "width": 1440,

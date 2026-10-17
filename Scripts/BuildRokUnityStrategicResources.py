@@ -7,6 +7,7 @@ import re
 import struct
 import sys
 from PIL import Image
+from rok_data_paths import DATA_ROOT, label
 
 root = Path(__file__).resolve().parents[1]
 base = root / "ref/client-unity/Assets/BundleAssets/Scene/Map_building/map_building_lod"
@@ -29,7 +30,7 @@ for block in atlas_text.split("    - serializedVersion: 2\n")[1:]:
     atlas_sprites[identity[1]] = {"name": re.search(r"      name: (.+)", block)[1], "rect_bottom_left": rect}
 
 def evidence(path):
-    return {"path": path.relative_to(root).as_posix(), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+    return {"path": label(path), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
 
 with table.open(encoding="utf-8-sig", newline="") as stream:
     rows = [{key: int(value) for key, value in row.items()} for row in list(csv.DictReader(stream))[1:]]
@@ -48,7 +49,7 @@ for row in rows:
                    "prefab": names[row["type"]], "cell": cell})
 assert points
 visuals = {}
-crop_dir = root / "Saved/RokUnityMigration/StrategicResourceIcons"
+crop_dir = DATA_ROOT / "StrategicResourceIcons"
 if "--verify" not in sys.argv:
     crop_dir.mkdir(parents=True, exist_ok=True)
 atlas_image = Image.open(atlas).convert("RGBA")
@@ -100,7 +101,7 @@ result = {"schema": "rok.unity.strategic_resources.v1", "table": evidence(table)
         "runtime_center": [3600, 0, 3600], "unity_size": [7200, 7200], "rotation_x": 90,
         "point_sampling": True, "mipmaps": False, "render_queue": 3045, "depth_write": False},
     "ue_target": "ARokStrategicResourceLayer"}
-output = root / "Saved/RokUnityMigration/unity_strategic_resources.json"
+output = DATA_ROOT / "unity_strategic_resources.json"
 if "--verify" in sys.argv:
     assert json.loads(output.read_text(encoding="utf-8")) == result, "Stale source export"
 else:

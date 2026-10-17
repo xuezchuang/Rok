@@ -40,6 +40,7 @@
 #include "Misc/Parse.h"
 #include "Misc/PackageName.h"
 #include "Containers/StringConv.h"
+#include "RokDataPaths.h"
 #include "RokWorldMapCameraPawn.h"
 #include "RokWorldMapPlayerController.h"
 #include "RokWorldMapStreamingActor.h"
@@ -116,7 +117,7 @@ bool FileSha256(const FString& RelativePath, FString& OutSha)
 {
 	TArray<uint8> Bytes;
 	if (!FFileHelper::LoadFileToArray(Bytes,
-		*FPaths::Combine(FPaths::ProjectDir(), RelativePath)) || Bytes.IsEmpty())
+		*RokDataPaths::ResolveProjectPath(RelativePath)) || Bytes.IsEmpty())
 	{
 		return false;
 	}

@@ -12,7 +12,7 @@ from pathlib import Path
 
 import PrepareRokConstructionScaffoldAssets as source
 
-OUT = source.OUT / "animation_data.json"
+OUT = source.DATA / "animation_data.json"
 
 
 def evaluate(keys: list[dict], t: float) -> float:

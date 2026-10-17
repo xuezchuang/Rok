@@ -12,10 +12,11 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
+from rok_data_paths import DATA_ROOT, resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNS = ROOT / 'Saved/RokUnityMigration/MailRewardDetailAudit'
-FIXTURE = ROOT / 'Saved/RokUnityMigration/mail_reward_presentation.json'
+FIXTURE = DATA_ROOT / 'mail_reward_presentation.json'
 NATIVE_DIR = ROOT / 'Saved/UnityMailRewardNativeProbe/Artifacts/native_20261008_114400_572'
 NATIVE = NATIVE_DIR / 'render_evidence.json'
 NATIVE_VERIFY = ROOT / 'Saved/RokUnityMigration/MailRewardNative/verified_capture.json'
@@ -309,7 +310,7 @@ def fixture_source():
     assert 'not a player mailbox' in package['origin']
     assert 'positive food/wood/stone/gold/denar' in package['source_behavior']
     for relative, digest in package['sources'].items():
-        path = (ROOT / relative).resolve()
+        path = resolve(relative).resolve()
         assert path.is_relative_to(ROOT.resolve()) and path.is_file()
         assert sha(path) == digest, relative
     fixtures = package['fixtures']
@@ -550,7 +551,7 @@ def verify(run):
     package, mixed_rows = fixture_source()
     native_evidence, native = native_source(mixed_rows)
     for relative, info in data['input_hashes'].items():
-        file = (ROOT / relative).resolve()
+        file = resolve(relative).resolve()
         assert file.is_relative_to(ROOT.resolve()) and file.is_file(), relative
         assert file.stat().st_size == info['bytes'] and sha(file) == info['sha256'], relative
     assert len(data['input_hashes']) >= 10

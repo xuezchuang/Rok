@@ -4,6 +4,7 @@ import json
 import math
 import sys
 from pathlib import Path
+from rok_data_paths import resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 ARTIFACTS = ROOT / 'Saved/UnityBarracksParentWindowProbe/Artifacts'
@@ -66,7 +67,7 @@ def verify(path, output=None):
         check(row.get('text') == text_by_id.get(row.get('id')) and bool(row.get('path')),
               'bound LanguageText differs from source Language.bin')
     for source in inputs['sources']:
-        check(digest(ROOT / source['path']) == source['sha256'], 'source changed: ' + source['path'])
+        check(digest(resolve(source['path'])) == source['sha256'], 'source changed: ' + source['path'])
     samples = evidence.get('samples') or []
     check(len(samples) == 4, 'four actual Animator samples required')
     check(evidence.get('clearCount', 0) >= len(samples), 'capture target was not cleared before every sample')

@@ -1,6 +1,7 @@
 """Verify Scout browse source/config identity; deliberately not runtime acceptance."""
 import json
 from pathlib import Path
+from rok_data_paths import resolve
 from BuildRokScoutCatalog import build, OUT, ROOT, PREFAB, UI, MEDIATOR, PROXY
 from BuildRokUnityUiAnimationManifest import unity_blocks, field, referenced_id
 
@@ -17,8 +18,8 @@ def verify():
     assert [row['level'] for row in levels] == list(range(1, 26))
     assert [row['scoutNumber'] for row in levels] == [1] * 4 + [2] * 6 + [3] * 15
     assert all(row['ID'] == row['level'] and row['scoutSpeedMulti'] == row['level'] * 50 for row in levels)
-    mediator = (ROOT / MEDIATOR).read_text(encoding='utf-8-sig')
-    proxy = (ROOT / PROXY).read_text(encoding='utf-8-sig')
+    mediator = (resolve(MEDIATOR)).read_text(encoding='utf-8-sig')
+    proxy = (resolve(PROXY)).read_text(encoding='utf-8-sig')
     assert 'int nNum = m_scoutProxy.GetScoutNum();' in mediator
     assert 'return mlistSouts.Count;' in proxy and 'Role_ScoutsInfo.request' in proxy and 'scoutsInfo.scoutsQueue.Values' in proxy
     assert 'Map_Scouts.request req' in proxy
@@ -36,7 +37,7 @@ def verify():
             assert all(key['in_slope'] == key['out_slope'] == key['weighted_mode'] == 0 for key in track['keys'])
         family = 'Level' if index == 0 else 'Content'
         path = UI + 'UIAnimation/shared_uianimation/UA_BuildingDesc_' + family + '.controller'
-        controller = (ROOT / path).read_text(encoding='utf-8-sig')
+        controller = (resolve(path)).read_text(encoding='utf-8-sig')
         assert clip['source_guid'] in controller.split('m_Name: Show', 1)[1].split('--- !u!', 1)[0]
         assert 'm_Name: Empty' in controller
     prefab = (ROOT / (PREFAB + 'UI_Win_Scout.prefab')).read_text(encoding='utf-8-sig')

@@ -9,12 +9,13 @@ import re
 from pathlib import Path
 
 from BuildRokUnityEconomyCatalog import localized_text, read_language_lookup
+from rok_data_paths import DATA_ROOT, label, resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 CSV_ROOT = ROOT / "ref/config-tables/编译客户端配置/CSV"
-CHAPTER = ROOT / "Saved/RokUnityMigration/TaskChapterConfigPreview/v2/catalog.json"
+CHAPTER = DATA_ROOT / "TaskChapterConfigPreview/v2/catalog.json"
 INVENTORY = ROOT / "Saved/RokUnityMigration/BatchReview20261009QuestChapterArtAndHallCamera/task_chapter_row_art_inventory_v1.json"
-OUTPUT = ROOT / "Saved/RokUnityMigration/TaskChapterRewardPreview/v1/catalog.json"
+OUTPUT = DATA_ROOT / "TaskChapterRewardPreview/v1/catalog.json"
 CHAPTER_SHA = "3f3848e9f8898668ff2a8ebeddeace1dfc1d557f110cb1339c74882c396b7bb5"
 INVENTORY_SHA = "8becc5e791af24e8c13b0cd895ef95aaa0c6abe868a9c4eeb163e2b5b08c26d6"
 KINDS = {
@@ -61,8 +62,8 @@ def atlas_specs(inventory: dict) -> dict[str, dict]:
         assert namespace not in specs
         for field in ("source_png", "source_meta", "source_tpsheet", "ue_uasset"):
             item = entry[field]
-            assert sha(ROOT / item["path"]) == item["sha256"], item["path"]
-        sheet_path = ROOT / entry["source_tpsheet"]["path"]
+            assert sha(resolve(item["path"])) == item["sha256"], item["path"]
+        sheet_path = resolve(entry["source_tpsheet"]["path"])
         lines = sheet_path.read_text(encoding="utf-8-sig").splitlines()
         width, height = (int(value) for value in next(
             line for line in lines if line.startswith(":size=")).split("=", 1)[1].split("x"))
@@ -102,7 +103,7 @@ def source_paths(inventory: dict) -> list[Path]:
         ROOT / "ref/client-unity/Assets/Scripts/Hotfix/MVC/View_Mediator/UIQuest/UI_Win_QuestMediator.cs",
     ))
     for entry in inventory["static_reward_preview"]["reusable_atlases"]:
-        paths.extend(ROOT / entry[field]["path"] for field in
+        paths.extend(resolve(entry[field]["path"]) for field in
                      ("source_png", "source_meta", "source_tpsheet", "ue_uasset"))
     paths.append(Path(__file__))
     assert len(paths) == len(set(paths))
@@ -211,7 +212,7 @@ def build() -> dict:
         "reward_row_count": 123,
         "chapters": chapter_catalog,
         "groups": groups,
-        "sources": [{"path": path.relative_to(ROOT).as_posix(), "sha256": sha(path)}
+        "sources": [{"path": label(path), "sha256": sha(path)}
                     for path in source_paths(inventory)],
     }
 

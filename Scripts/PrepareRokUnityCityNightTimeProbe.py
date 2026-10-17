@@ -12,6 +12,7 @@ import re
 import shutil
 import struct
 from pathlib import Path
+from rok_data_paths import resolve
 
 from PIL import Image
 
@@ -359,7 +360,7 @@ def prepare() -> None:
     if not dst_contract.exists() or read_json(dst_contract) != c:
         dst_contract.write_text(json.dumps(c, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     for item in c["source_files"]:
-        original = ROOT / item["source_path"]
+        original = resolve(item["source_path"])
         copy = PROBE / item["probe_path"]
         copy.parent.mkdir(parents=True, exist_ok=True)
         for src, dst, expected in ((original, copy, item["source_sha256"]),

@@ -12,6 +12,7 @@ import tempfile
 import wave
 from datetime import datetime, timezone
 from pathlib import Path
+from rok_data_paths import resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 PROBE = ROOT / "Saved/UnityCityAudioProbeV1"
@@ -63,23 +64,23 @@ def active_prepare_report() -> Path:
 def verify_prepared() -> dict:
     selected_report = active_prepare_report()
     report = load_json(selected_report)
-    contract_path = contained(ROOT / report["contract"]["path"], PROBE)
+    contract_path = contained(resolve(report["contract"]["path"]), PROBE)
     contract = load_json(contract_path)
     if report["status"] != "PREPARED_NO_UNITY_RUN" or contract["schema"] != "rok.unity_city_audio_probe.contract.v2":
         fail("prepare report/contract schema or state mismatch")
     script_pins = {row["path"]: row["sha256"] for row in report.get("scripts", [])}
     for rel in ("Scripts/PrepareRokUnityCityAudioProbe.py", "Scripts/VerifyRokUnityCityAudioProbe.py"):
-        if script_pins.get(rel) != sha(ROOT / rel):
+        if script_pins.get(rel) != sha(resolve(rel)):
             fail(f"prepare report script pin stale: {rel}")
     if sha(contract_path) != report["contract"]["sha256"] or len(contract["tracks"]) != 4:
         fail("contract hash/track count mismatch")
-    exporter_path = contained(ROOT / report["exporter"]["path"], PROBE)
+    exporter_path = contained(resolve(report["exporter"]["path"]), PROBE)
     if not exporter_path.is_file() or sha(exporter_path) != report["exporter"]["sha256"]:
         fail("isolated exporter source hash differs from the prepared report")
     if len(report["project_settings_files"]) != 19 or len(report["packages"]) != 2:
         fail("unexpected isolated Unity project settings/package count")
     for row in report["project_settings_files"] + report["packages"]:
-        path = contained(ROOT / row["path"], PROBE)
+        path = contained(resolve(row["path"]), PROBE)
         if not path.is_file() or sha(path) != row["sha256"]:
             fail(f"copied Unity project template changed: {row['path']}")
     if (PROBE / "Library").exists():
@@ -93,7 +94,7 @@ def verify_prepared() -> dict:
         if str(track.get("source_import_settings", {}).get("loadType")) != "2":
             fail(f"source meta is not pinned to Streaming for decode-only comparison: {track['name']}")
         for key in ("source_path", "meta_path"):
-            src = contained(ROOT / track[key], ROOT)
+            src = contained(resolve(track[key]), ROOT)
             expected = track["source_sha256"] if key == "source_path" else track["meta_sha256"]
             if not src.is_file() or sha(src) != expected:
                 fail(f"Unity source input drift: {track[key]}")
@@ -164,7 +165,7 @@ def verify_run(run_dir: Path, verify_preparation: bool = True) -> dict:
         fail("decode-only qualification/override policy is missing")
     selected_report = active_prepare_report()
     prepare = load_json(selected_report)
-    exporter_path = contained(ROOT / prepare["exporter"]["path"], PROBE)
+    exporter_path = contained(resolve(prepare["exporter"]["path"]), PROBE)
     if manifest.get("exporter_sha256") != sha(exporter_path) or manifest.get("exporter_sha256") != prepare["exporter"]["sha256"]:
         fail("native manifest exporter hash does not match prepared exporter source")
     state_path = PROBE / "probe_state.json"

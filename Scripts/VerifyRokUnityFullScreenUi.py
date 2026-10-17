@@ -1,6 +1,7 @@
 import hashlib
 import json
 from pathlib import Path
+from rok_data_paths import resolve
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -32,17 +33,17 @@ def main():
         manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
 
     for label, relative_path in manifest.get("source_prefabs", {}).items():
-        source_path = PROJECT_ROOT / relative_path
+        source_path = resolve(relative_path)
         if not source_path.exists():
             failures.append("missing source prefab {0}: {1}".format(label, source_path))
 
     for label, relative_path in manifest.get("source_runtime", {}).items():
-        source_path = PROJECT_ROOT / relative_path
+        source_path = resolve(relative_path)
         if not source_path.exists():
             failures.append("missing source runtime {0}: {1}".format(label, source_path))
 
     for field_name in ("ue_import_script", "ue_widget"):
-        path = PROJECT_ROOT / manifest.get(field_name, "")
+        path = resolve(manifest.get(field_name, ""))
         if not path.exists():
             failures.append("missing {0}: {1}".format(field_name, path))
 
@@ -176,8 +177,8 @@ def main():
             failures.append("duplicate full-screen sprite mapping: {0}".format(identity))
         seen.add(identity)
 
-        source_path = PROJECT_ROOT / sprite.get("source_atlas", "")
-        meta_path = PROJECT_ROOT / sprite.get("source_meta", "")
+        source_path = resolve(sprite.get("source_atlas", ""))
+        meta_path = resolve(sprite.get("source_meta", ""))
         if not source_path.exists():
             failures.append("missing full-screen source atlas: {0}".format(source_path))
             continue
@@ -232,7 +233,7 @@ def main():
         failures.append("task 200900 runtime reward mapping drift")
 
     for region in manifest.get("spine_regions", []):
-        source_path = PROJECT_ROOT / region.get("source", "")
+        source_path = resolve(region.get("source", ""))
         if not source_path.exists():
             failures.append("missing full-screen Spine source: {0}".format(source_path))
         elif sha256_file(source_path) != region.get("source_sha256"):
@@ -382,7 +383,7 @@ def main():
         "server_role_logic",
         "server_role_definition",
     ):
-        config_path = PROJECT_ROOT / reference_vip_state.get(config_key, "")
+        config_path = resolve(reference_vip_state.get(config_key, ""))
         if not config_path.exists():
             failures.append("missing VIP source config {0}: {1}".format(config_key, config_path))
 

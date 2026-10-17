@@ -1,6 +1,7 @@
 """Verify new resource night graphs against the independently tested village graph."""
 import ast,hashlib,json
 from pathlib import Path
+from rok_data_paths import resolve
 from PIL import Image
 ROOT=Path(__file__).resolve().parents[1]
 def shader(path):
@@ -14,10 +15,10 @@ def main():
         path=ROOT/f'Scripts/CreateRokUnity{kind}DepositMaterial.py';text,code=shader(path)
         if code!=reference:failures.append(kind+' source Gamma/night formula differs')
         if 'transparency, night_light)' not in text or '"Transparency", "NightLight")' not in text or 'night_light = vector("NightLight", (0, 0, 0, 0))' not in text:failures.append(kind+' input/default missing')
-        data=json.loads((ROOT/f'Saved/RokUnityMigration/unity_{kind.lower()}_deposit.json').read_text(encoding='utf-8'))
+        data=json.loads(resolve(f'Saved/RokUnityMigration/unity_{kind.lower()}_deposit.json').read_text(encoding='utf-8'))
         if len(data['items'])!=count:failures.append(kind+' count')
         for item in data['items']:
-            mask=item['sprites'][0]['mask'];p=ROOT/mask['path']
+            mask=item['sprites'][0]['mask'];p=resolve(mask['path'])
             if hashlib.sha256(p.read_bytes()).hexdigest()!=mask['sha256']:failures.append(kind+' mask hash')
             with Image.open(p) as image:
                 if image.convert('RGB').getchannel('B').getextrema()[1]!=0:failures.append(kind+' nonzero mask blue')

@@ -1,15 +1,16 @@
 """Verify completed native source snapshots; must run after Unity reports completion."""
 import json,hashlib
 from pathlib import Path
+from rok_data_paths import resolve
 from PIL import Image
 from BuildRokUnityVillageDayNight import ROOT,OUT
 
 def main():
     source=json.loads(OUT.read_text(encoding='utf-8'))
-    prepared=json.loads(OUT.with_name('unity_village_day_night_prepare.json').read_text(encoding='utf-8'))
+    prepared=json.loads((ROOT / 'Saved/RokUnityMigration/unity_village_day_night_prepare.json').read_text(encoding='utf-8'))
     for record in prepared['source_copies']:
-        assert hashlib.sha256((ROOT/record['copy']).read_bytes()).hexdigest()==record['sha256']
-        assert hashlib.sha256((ROOT/record['source']).read_bytes()).hexdigest()==record['sha256']
+        assert hashlib.sha256((resolve(record['copy'])).read_bytes()).hexdigest()==record['sha256']
+        assert hashlib.sha256((resolve(record['source'])).read_bytes()).hexdigest()==record['sha256']
     directory=ROOT/'Saved/RokUnityMigration/VillageDayNightReference'
     native=json.loads((directory/'native_render.json').read_text(encoding='utf-8'))
     assert native['unityVersion']=='2019.4.28f1c1' and native['colorSpace']=='Gamma' and native['graphicsDevice']!='Null Device'
@@ -24,7 +25,7 @@ def main():
         error=max(abs(a-b) for a,b in zip(frame['spriteColor'],sample['sprite_color']))
         assert error<2e-6
         path=Path(frame['path'])
-        if not path.is_absolute(): path=ROOT/path
+        if not path.is_absolute(): path=resolve(path)
         with Image.open(path) as image:
             assert image.size==(1280,720)
             colors=image.convert('RGB').getcolors(1280*720); assert colors and len(colors)>1000

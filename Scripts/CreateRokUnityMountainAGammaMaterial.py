@@ -1,6 +1,9 @@
 """Upgrade only the existing opaque mountain A material; never generate a map."""
 from pathlib import Path
 import unreal
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from rok_data_paths import DATA_ROOT  # noqa: E402
 
 NAME = 'M_WorldSource_build_mountain_A'
 RAW_NAME = 'T_WorldSource_build_mountain_A_RawGamma'
@@ -64,7 +67,7 @@ def main():
     level = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
     if root != Path('D:/ueDemo/Rok').resolve() or level is None or level.get_name() != 'L_RokUnityWorldMapPrototype':
         raise RuntimeError('Wrong mountain upgrade project/world')
-    source = json.loads((root/'Saved/RokUnityMigration/unity_village_day_night.json').read_text(encoding='utf-8'))
+    source = json.loads((DATA_ROOT / 'unity_village_day_night.json').read_text(encoding='utf-8'))
     day = source['presets'][1]
     values = [day['ambient'][i] + day['directional'][i]*day['intensity']*.75 for i in range(3)]
     material, path = create(dict(zip(('r', 'g', 'b', 'a'), (*values, 1))))

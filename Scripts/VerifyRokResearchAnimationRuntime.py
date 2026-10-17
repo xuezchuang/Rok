@@ -10,6 +10,7 @@ import json
 import math
 import traceback
 from pathlib import Path
+from rok_data_paths import resolve
 
 import numpy as np
 from PIL import Image
@@ -79,7 +80,7 @@ def source_contract():
     clips = {clip['phase']: clip for clip in data['clips']}
     assert set(clips) == {'detail_open', 'power_show_128', 'detail_back_128', 'detail_close'}
     for item in data['sourceFiles']:
-        path = (ROOT / item['path']).resolve()
+        path = (resolve(item['path'])).resolve()
         assert path.is_relative_to(ROOT.resolve()) and sha(path) == item['sha256'], item['path']
     expected_properties = {
         'detail_open': {'m_LocalScale.x', 'm_LocalScale.y'},
@@ -136,7 +137,7 @@ def get_native(clips):
     assert verified['schema'] == 'rok.research.animation_native_close_verified.v1'
     assert verified['complete'] and verified['renderEvidenceSha256'] == NATIVE_SHA256
     assert verified['sampleCount'] == len(evidence['samples']) == 62
-    assert (ROOT / verified['artifact'] / 'render_evidence.json').resolve() == NATIVE.resolve()
+    assert (resolve(verified['artifact']) / 'render_evidence.json').resolve() == NATIVE.resolve()
     assert evidence['animationDataSha256'] == sha(CONTRACT)
     phases = [
         'detail_open', 'power_show_128', 'detail_back_128',
@@ -233,7 +234,7 @@ def get_native(clips):
 
 
 def image_at(capture):
-    image = ROOT / capture['file']
+    image = resolve(capture['file'])
     assert image.is_file() and sha(image) == capture['png_sha256']
     assert image.stat().st_size == capture['file_bytes']
     with Image.open(image) as picture:
@@ -273,14 +274,14 @@ def verify(run):
         assert not manifest['account_research_state_synced']
         assert not manifest['research_queue_synced']
         assert manifest['expected_capture_count'] == len(NAMES)
-        assert (ROOT / manifest['source_contract']).resolve() == CONTRACT.resolve()
-        assert (ROOT / manifest['native_evidence']).resolve() == NATIVE.resolve()
-        assert (ROOT / manifest['native_verified']).resolve() == VERIFIED.resolve()
-        assert (ROOT / manifest['native_baseline_evidence']).resolve() == BASELINE_NATIVE.resolve()
-        assert (ROOT / manifest['native_baseline_verified']).resolve() == BASELINE_VERIFIED.resolve()
+        assert (resolve(manifest['source_contract'])).resolve() == CONTRACT.resolve()
+        assert (resolve(manifest['native_evidence'])).resolve() == NATIVE.resolve()
+        assert (resolve(manifest['native_verified'])).resolve() == VERIFIED.resolve()
+        assert (resolve(manifest['native_baseline_evidence'])).resolve() == BASELINE_NATIVE.resolve()
+        assert (resolve(manifest['native_baseline_verified'])).resolve() == BASELINE_VERIFIED.resolve()
         inputs = manifest['input_hashes']
         for relative, identity in inputs.items():
-            path = (ROOT / relative).resolve()
+            path = (resolve(relative)).resolve()
             assert path.is_relative_to(ROOT.resolve()) and path.is_file(), relative
             if relative == VERIFIER_PATH:
                 assert (CAPTURE_VERIFIER_IDENTITIES.get(identity['sha256'])
@@ -570,7 +571,7 @@ def verify(run):
             'slate_clicks': 23, 'native_evidence_sha256': NATIVE_SHA256,
             'source_animation_sha256': sha(CONTRACT),
             'capture_verifier_sha256': inputs[VERIFIER_PATH]['sha256'],
-            'current_verifier_sha256': sha(ROOT / VERIFIER_PATH),
+            'current_verifier_sha256': sha(resolve(VERIFIER_PATH)),
             'pixel_changes_ge16': changed,
             'scope': 'GameApp HUD command-line reference, virtual Slate events; Academy/account/request unverified'}
     except Exception as exc:

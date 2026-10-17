@@ -1,6 +1,7 @@
 #include "RokMainTaskGoToTownHallAuditSubsystem.h"
 
 #include "RokBuildingUpgradeSubsystem.h"
+#include "RokDataPaths.h"
 #include "RokMainHudWidget.h"
 #include "RokPlayerController.h"
 #include "RokServerSubsystem.h"
@@ -266,7 +267,7 @@ bool URokMainTaskGoToTownHallAuditSubsystem::Begin()
 	Inputs = MakeShared<FJsonObject>();
 	for (const FInputPin& Pin : Pinned)
 	{
-		const FString Actual = FileSha(FPaths::ProjectDir() / Pin.Path);
+		const FString Actual = FileSha(RokDataPaths::ResolveProjectPath(Pin.Path));
 		if (!Expect(Actual == Pin.Sha, TEXT("Source or V2 product SHA differs from reviewed input"))) return false;
 		Inputs->SetStringField(Pin.Path, Actual);
 	}
@@ -274,7 +275,7 @@ bool URokMainTaskGoToTownHallAuditSubsystem::Begin()
 		TEXT("Source/Rok/RokMainTaskGoToTownHallAuditSubsystem.cpp"),
 		TEXT("Scripts/VerifyRokMainTaskGoToTownHallRuntime.py")})
 	{
-		const FString Actual = FileSha(FPaths::ProjectDir() / Path);
+		const FString Actual = FileSha(RokDataPaths::ResolveProjectPath(Path));
 		if (!Expect(Actual.Len() == 64, TEXT("Integrated audit/verifier input missing"))) return false;
 		Inputs->SetStringField(Path, Actual);
 	}

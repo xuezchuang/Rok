@@ -11,6 +11,7 @@ import math
 import re
 from collections import Counter
 from pathlib import Path
+from rok_data_paths import resolve
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -168,7 +169,7 @@ class Builder:
         self.guid_paths = {}
 
     def read(self, source_path):
-        path = PROJECT_ROOT / source_path
+        path = resolve(source_path)
         if not path.is_file():
             raise SourceError(f"Missing source: {source_path}")
         data = path.read_bytes()
@@ -362,7 +363,7 @@ class Builder:
         def binary_asset(path, expected_guid):
             if self.guid(path) != expected_guid:
                 raise SourceError(f"UI_10010 dependency GUID mismatch: {path}")
-            data = (PROJECT_ROOT / path).read_bytes()
+            data = resolve(path).read_bytes()
             self.sources[path] = {"path": path, "sha256": hashlib.sha256(data).hexdigest(),
                                   "bytes": len(data), "binary": True}
             return {"path": path, "guid": expected_guid}
@@ -459,7 +460,7 @@ class Builder:
             sprite_id = referenced_id(body, "m_Sprite")
             guid_match = re.search(r"m_Sprite:\s*\{[^}]*guid:\s*([0-9a-f]{32})", body)
             guid = guid_match[1] if guid_match else None
-            if guid != self.guid(source_path) or not (PROJECT_ROOT / source_path).is_file():
+            if guid != self.guid(source_path) or not resolve(source_path).is_file():
                 raise SourceError(f"Wrong/missing task sprite source: {source_path}")
             meta = self.read(source_path + ".meta")
             items = re.split(r"(?m)(?=^    - serializedVersion:)", meta)

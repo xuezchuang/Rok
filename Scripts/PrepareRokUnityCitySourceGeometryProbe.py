@@ -8,6 +8,7 @@ import math
 import os
 import struct
 from pathlib import Path
+from rok_data_paths import resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 PROBE = ROOT / "Saved/UnityCitySourceGeometryProbeV1"
@@ -63,7 +64,7 @@ def copy_sealed(folder: str, count: int) -> tuple[list[dict], str]:
 
 
 def copy_binary(spec: dict) -> dict:
-    source = ROOT / spec["path"]
+    source = resolve(spec["path"])
     need(source.resolve().is_relative_to(GEOMETRY.parent.resolve()), "Geometry source outside sealed v1")
     need(sha(source) == spec["sha256"] and source.stat().st_size == spec["byte_count"]
          == spec["count"] * spec["stride_bytes"], f"Geometry binary differs: {source}")
@@ -153,7 +154,7 @@ def main() -> None:
             item[name] = {"path": "ProbeInputs/Geometry/" + Path(spec["path"]).name,
                           "sha256": spec["sha256"], "count": spec["count"],
                           "stride_bytes": spec["stride_bytes"], "byte_count": spec["byte_count"]}
-        raw, recipe = case_matrix(row["positions"], (ROOT / row["positions"]["path"]).read_bytes())
+        raw, recipe = case_matrix(row["positions"], (resolve(row["positions"]["path"])).read_bytes())
         matrix_path = PROBE / f"ProbeInputs/Matrices/row_{index:02d}_local_to_clip_f32le.bin"
         place(matrix_path, raw)
         matrix_files.append({"probe_path": relative(matrix_path), "sha256": sha(matrix_path),

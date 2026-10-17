@@ -9,6 +9,7 @@
 #include "ImageUtils.h"
 #include "Materials/MaterialInterface.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "RokDataPaths.h"
 #include "RokWorldMapCityPulse.h"
 #include "RokWorldMapCameraPawn.h"
 #include "Kismet/GameplayStatics.h"
@@ -324,8 +325,7 @@ void ARokWorldMapCityActor::EnsureFarVisualLoaded()
 		return;
 	}
 	const FString TexturePath = FPaths::ConvertRelativePathToFull(
-		FPaths::ProjectSavedDir()
-		/ TEXT("RokUnityMigration/WorldEntityPopulation/player_city_lod3.png"));
+		RokDataPaths::Resolve(TEXT("WorldEntityPopulation/player_city_lod3.png")));
 	if (!FPaths::FileExists(TexturePath))
 	{
 		return;

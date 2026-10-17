@@ -1,4 +1,6 @@
 #include "RokTrainArmyDetail.h"
+
+#include "RokDataPaths.h"
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonSerializer.h"
 #include "Misc/FileHelper.h"
@@ -10,7 +12,7 @@ bool RokTrainArmyDetail::Load(int32 TroopId, FRokTrainArmyDetail& Detail, FStrin
 	FString Json;
 	TSharedPtr<FJsonObject> Root;
 	const TArray<TSharedPtr<FJsonValue>>* Entries = nullptr;
-	if (!FFileHelper::LoadFileToString(Json, *(FPaths::ProjectSavedDir() / TEXT("RokUnityMigration/train_army_detail.json")))
+	if (!FFileHelper::LoadFileToString(Json, *(RokDataPaths::Resolve(TEXT("train_army_detail.json"))))
 		|| !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json), Root)
 		|| !Root.IsValid() || !Root->TryGetArrayField(TEXT("entries"), Entries))
 	{

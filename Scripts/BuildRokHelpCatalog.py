@@ -8,6 +8,7 @@ from pathlib import Path
 from BuildRokTrainParameterLayout import documents, vector
 from BuildRokUnityEconomyCatalog import read_language_lookup, localized_text
 from PIL import Image
+from rok_data_paths import DATA_ROOT, label
 
 ROOT = Path(__file__).resolve().parents[1]
 UI = ROOT / 'ref/client-unity/Assets/BundleAssets/UI'
@@ -17,7 +18,7 @@ def build():
     language, _ = read_language_lookup()
     sources = []
     def read(path):
-        sources.append({'path': path.relative_to(ROOT).as_posix(), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()})
+        sources.append({'path': label(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()})
         return path.read_text(encoding='utf-8-sig')
     rows = list(csv.DictReader(read(ROOT/'ref/config-tables/编译客户端配置/CSV/GameSprite.csv').splitlines()))[1:]
     binary_path=ROOT/'ref/client-unity/Assets/StreamingAssets/Config/Bin/GameSprite.bin'
@@ -31,7 +32,7 @@ def build():
     count,columns=take('i'),take('B');assert columns==4
     decoded=[[strings[take('i')] for _ in range(columns)] for _ in range(count)]
     assert offset==len(binary) and decoded==[[r[k] for k in ['ID','title','subTitle','text']] for r in rows]
-    sources.append({'path':binary_path.relative_to(ROOT).as_posix(),'sha256':hashlib.sha256(binary).hexdigest()})
+    sources.append({'path':label(binary_path),'sha256':hashlib.sha256(binary).hexdigest()})
     entries = [{'id': int(r['ID']), 'group_id': int(r['title']), 'question_id': int(r['subTitle']), 'answer_id': int(r['text']),
                 'group': localized_text(language,int(r['title']),'cn'), 'question': localized_text(language,int(r['subTitle']),'cn'),
                 'answer': localized_text(language,int(r['text']),'cn')} for r in rows]
@@ -116,7 +117,7 @@ def build():
     layouts['frame']['title/lbl_title']['text_id']=300082
     result={'schema':'rok.help.v1','entries':entries,'layouts':layouts,'sources':sources,'group_order':list(dict.fromkeys(e['group_id'] for e in entries)),
             'boundary':'Local FAQ only; customer-service SDK unavailable. T1 lifecycle belongs to hosting Feature screen.'}
-    out=ROOT/'Saved/RokUnityMigration/help_catalog.json';out.parent.mkdir(parents=True,exist_ok=True);out.write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
+    out=DATA_ROOT / 'help_catalog.json';out.parent.mkdir(parents=True,exist_ok=True);out.write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
     print(json.dumps({'entries':len(entries),'groups':len(result['group_order']),'output':str(out)}))
     return result
 

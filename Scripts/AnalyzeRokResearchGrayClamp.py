@@ -6,6 +6,7 @@ source/UE reports remain immutable pending a real-RHI visual comparison.
 import hashlib
 import json
 from pathlib import Path
+from rok_data_paths import DATA_ROOT, label, resolve
 
 import numpy as np
 from PIL import Image
@@ -13,7 +14,7 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / 'Saved/RokUnityMigration/ResearchNative'
 SHADER = ROOT / 'ref/client-unity/Assets/BundleAssets/UI/UIShader/ImageGrayShader.shader'
-ATLAS = PACKAGE / 'atlas_manifest.json'
+ATLAS = DATA_ROOT / 'ResearchNative/atlas_manifest.json'
 FIXTURE = PACKAGE / 'research_fixture.json'
 SOURCE = PACKAGE / 'gray_material_source.json'
 UE = PACKAGE / 'gray_material_ue.json'
@@ -46,7 +47,7 @@ def main():
     sheets = {row['atlasName']: row for row in atlas['atlases']}
     locked = sorted({node['icon'] for node in fixture['nodes'] if any(
         node['preconditionStudy' + str(i)] for i in range(1, 5))})
-    images = {name: np.asarray(Image.open(ROOT / sheet['source']).convert('RGBA'), dtype=np.float32) / 255
+    images = {name: np.asarray(Image.open(resolve(sheet['source'])).convert('RGBA'), dtype=np.float32) / 255
               for name, sheet in sheets.items()}
     total = {'spritePixels': 0, 'fragmentGrayOverOneAtTexelCenter': 0,
              'overOneAndOpaque': 0, 'overOneAndPartiallyTransparent': 0,
@@ -80,7 +81,7 @@ def main():
         'texelCenterMethod': '69 unique locked icon sprite rects, sampled from source RGBA PNGs in Unity bottom-left sprite-rect coordinates; source vertex/material color is white in the native locked-node fixture.',
         'uniqueLockedIconSprites': len(locked), 'counts': total, 'maxUnclampedGray': maximum,
         'interpretation': 'Every observed over-one source texel center is fully opaque; pre-clamp is harmless for those centers after straight-alpha blend to an SDR UNORM target. Bilinear edge samples and final Slate output remain a runtime visual gate.',
-        'sources': {path.relative_to(ROOT).as_posix(): sha(path) for path in
+        'sources': {label(path): sha(path) for path in
                     (SHADER, ATLAS, FIXTURE, SOURCE, UE, ASSET)},
         'producer': {'path': Path(__file__).relative_to(ROOT).as_posix(), 'sha256': sha(Path(__file__))},
     }

@@ -6,6 +6,7 @@ import math
 import re
 from collections import Counter
 from pathlib import Path
+from rok_data_paths import resolve
 
 from BuildRokUnityWorldMapRuntimeData import (
     EXPECTED_STATISTICS,
@@ -38,7 +39,7 @@ def source_record_is_current(record, context, failures):
     if not relative_path:
         failures.append(f"{context} has no source path")
         return
-    path = PROJECT_ROOT / relative_path
+    path = resolve(relative_path)
     if not path.exists():
         failures.append(f"{context} source is missing: {relative_path}")
         return
@@ -125,7 +126,7 @@ def validate_reference(reference, context, failures, require_asset=False):
         failures.append(f"{context} Unity built-in flag is inconsistent")
     asset_path = reference.get("asset_path", "")
     if asset_path:
-        if not (PROJECT_ROOT / asset_path).exists():
+        if not (resolve(asset_path)).exists():
             failures.append(
                 f"{context} referenced asset is missing: {asset_path}"
             )

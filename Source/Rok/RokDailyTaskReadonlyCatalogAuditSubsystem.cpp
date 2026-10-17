@@ -1,6 +1,7 @@
 #include "RokDailyTaskReadonlyCatalogAuditSubsystem.h"
 
 #include "RokBuildingUpgradeSubsystem.h"
+#include "RokDataPaths.h"
 #include "RokMainHudWidget.h"
 #include "RokPlayerController.h"
 #include "RokServerSubsystem.h"
@@ -393,7 +394,7 @@ bool URokDailyTaskReadonlyCatalogAuditSubsystem::Begin()
 	Inputs = MakeShared<FJsonObject>();
 	for (const FInputPin& Pin : Pinned)
 	{
-		const FString Actual = FileSha(FPaths::ProjectDir() / Pin.Path);
+		const FString Actual = FileSha(RokDataPaths::ResolveProjectPath(Pin.Path));
 		if (!Expect(Actual == Pin.Sha, TEXT("Pinned source/product SHA differs from reviewed input"))) return false;
 		Inputs->SetStringField(Pin.Path, Actual);
 	}
@@ -401,7 +402,7 @@ bool URokDailyTaskReadonlyCatalogAuditSubsystem::Begin()
 		TEXT("Source/Rok/RokDailyTaskReadonlyCatalogAuditSubsystem.cpp"),
 		TEXT("Scripts/VerifyRokDailyTaskReadonlyCatalogRuntime.py")})
 	{
-		const FString Actual = FileSha(FPaths::ProjectDir() / Path);
+		const FString Actual = FileSha(RokDataPaths::ResolveProjectPath(Path));
 		if (!Expect(Actual.Len() == 64, TEXT("Integrated audit/verifier input missing"))) return false;
 		Inputs->SetStringField(Path, Actual);
 	}

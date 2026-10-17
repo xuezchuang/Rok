@@ -15,11 +15,12 @@ from PIL import Image
 
 from BuildRokUnityEconomyCatalog import localized_text, read_language_lookup
 from PrepareRokUiTextures import unity_sprite_rect
+from rok_data_paths import DATA_ROOT, label, resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNS = ROOT / 'Saved/RokUnityMigration/BarracksLevelDetailAudit'
 GAP = ROOT / 'Saved/BarracksParentWindow/next_building_info_button_gap.json'
-CATALOG = ROOT / 'Saved/RokUnityMigration/building_level_details.json'
+CATALOG = DATA_ROOT / 'building_level_details.json'
 STEMS = [
     '01_selected_city', '02_barracks_upgrade', '03_level_detail_initial',
     '04_level_detail_last_rows', '05_back_to_upgrade',
@@ -66,12 +67,12 @@ def source():
         'ref/config-tables/编译客户端配置/CSV/BuildingLevelData.csv',
     )
     for relative in source_prefixes:
-        path = ROOT / relative
+        path = resolve(relative)
         assert path.stat().st_size == gap['input_hashes'][relative]['bytes']
         assert sha(path) == gap['input_hashes'][relative]['sha256'], relative
     native_v5 = ROOT / 'Saved/UnityBarracksParentWindowV5Probe/Artifacts/native_20260925_120725_828'
     native_path = native_v5 / 'render_evidence.json'
-    assert sha(native_path) == gap['input_hashes'][str(native_path.relative_to(ROOT)).replace('\\', '/')]['sha256']
+    assert sha(native_path) == gap['input_hashes'][label(native_path)]['sha256']
     native = json.loads(native_path.read_text(encoding='utf-8-sig'))
     check = json.loads((native_v5 / 'verify_v5.json').read_text(encoding='utf-8-sig'))
     assert check['passed'] and check['evidence_sha256'] == sha(native_path)
@@ -168,12 +169,12 @@ def source():
             'power': power,
         }
         expected.append([str(level), str(int(row['infantryTrainNumber'])), attack, str(power)])
-    header_base = ROOT / 'Saved/RokUnityMigration/BarracksLevelHeaderText'
+    header_base = DATA_ROOT / 'BarracksLevelHeaderText'
     package = json.loads((header_base / 'manifest.json').read_text(encoding='utf-8-sig'))
     header_texts = json.loads((header_base / 'texts.json').read_text(encoding='utf-8-sig'))
     header_inputs = json.loads((header_base / 'ReferenceInputs.json').read_text(encoding='utf-8-sig'))
     native_mesh = json.loads((header_base / 'source_text_meshes.json').read_text(encoding='utf-8-sig'))
-    glyph_verify = json.loads((header_base / 'glyph_verify.json').read_text(encoding='utf-8-sig'))
+    glyph_verify = json.loads((ROOT / 'Saved/RokUnityMigration/BarracksLevelHeaderText/glyph_verify.json').read_text(encoding='utf-8-sig'))
     assert package['schema'] == 'rok.barracks.source_text.package.v1'
     assert package['coordinate_transform']['scope'] == 'header_0..3 only'
     assert package['coordinate_transform']['pivot'] == [.5, .5]
@@ -197,7 +198,7 @@ def source():
         'Scripts/RenderRokBarracksLevelHeaderText.cs',
     }
     assert {entry['path'] for entry in header_inputs['sources']} == expected_paths
-    assert all(sha(ROOT / entry['path']) == entry['sha256'] for entry in header_inputs['sources'])
+    assert all(sha(resolve(entry['path'])) == entry['sha256'] for entry in header_inputs['sources'])
     assert len(package['atlases']) == 1
     atlas = package['atlases'][0]
     assert atlas['path'].startswith('glyph_') and atlas['path'].endswith('.png')
@@ -334,7 +335,7 @@ def verify(run):
     assert [item['button'] for item in data['actions']] == ACTIONS
     assert all(item['method'] == 'UButton.OnClicked.Broadcast' for item in data['actions'])
     for relative, info in data['input_hashes'].items():
-        path = (ROOT / relative).resolve()
+        path = resolve(relative).resolve()
         assert path.is_relative_to(ROOT.resolve()) and path.is_file()
         assert path.stat().st_size == info['bytes'] and sha(path) == info['sha256'], relative
     assert len(data['input_hashes']) >= 12

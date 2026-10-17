@@ -7,6 +7,7 @@ from PIL import Image
 
 from BuildRokAcademyVisualSource import (ROOT, OUT, PREFAB, SPRITE, MASK, MATERIAL, SHADER,
                                          MASK_SCRIPT, MODEL_CSV, MODEL_CATALOG, build)
+from rok_data_paths import resolve
 
 REPORT = OUT.with_name("verify.json")
 
@@ -17,7 +18,7 @@ def verify():
     assert manifest["schema"] == "rok.academy_visual_source.v1" and manifest["model_id"] == "build_13_101_2"
     assert manifest["qualification"].startswith("Unity source extraction only")
     for name, expected_hash in manifest["sources"].items():
-        path = ROOT / name
+        path = resolve(name)
         assert path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest() == expected_hash
     assert len(manifest["sources"]) == 14
     prefab = PREFAB.read_text(encoding="utf-8-sig")

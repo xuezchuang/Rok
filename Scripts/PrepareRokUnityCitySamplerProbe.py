@@ -7,6 +7,7 @@ import json
 import os
 import re
 from pathlib import Path
+from rok_data_paths import resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 PROBE = ROOT / "Saved/UnityCitySamplerProbeV1"
@@ -58,7 +59,7 @@ def source_textures(inventory: dict) -> list[dict]:
             continue
         original = chain["source_original"]
         meta = chain["source_sampler_meta"]
-        src = ROOT / original["path"]
+        src = resolve(original["path"])
         src_meta = Path(str(src) + ".meta")
         need(relative(src_meta) == meta["path"] and src.suffix.lower() == ".png",
              f"Unexpected masked texture pair: {original['path']}")

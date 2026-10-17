@@ -1,5 +1,6 @@
 #include "RokUnityTileRippleRenderer.h"
 
+#include "RokDataPaths.h"
 #include "RokServerSubsystem.h"
 #include "RokTrainArmyMeshData.h"
 #include "Components/SceneComponent.h"
@@ -62,7 +63,7 @@ bool ValidateImportedAssets(FString& Error)
 		Error = TEXT("Tile ripple asset import manifest external SHA missing"); return false;
 	}
 	TArray<uint8> Bytes;
-	if (!ReadPinned(FPaths::ProjectDir() / AssetManifestRelative, Expected.ToLower(), Bytes))
+	if (!ReadPinned(RokDataPaths::ResolveProjectPath(AssetManifestRelative), Expected.ToLower(), Bytes))
 	{
 		Error = TEXT("Tile ripple asset import manifest external SHA differs"); return false;
 	}
@@ -83,7 +84,7 @@ bool ValidateImportedAssets(FString& Error)
 		const TSharedPtr<FJsonObject> Row = Json->GetArrayField(TEXT("packages"))[Index]->AsObject();
 		const FString Relative = Row->GetStringField(TEXT("path"));
 		TArray<uint8> PackageBytes;
-		if (Relative != ExpectedPaths[Index] || !ReadPinned(FPaths::ProjectDir() / Relative,
+		if (Relative != ExpectedPaths[Index] || !ReadPinned(RokDataPaths::ResolveProjectPath(Relative),
 			Row->GetStringField(TEXT("sha256")), PackageBytes) ||
 			PackageBytes.Num() != Row->GetIntegerField(TEXT("byte_count")))
 		{
@@ -92,7 +93,7 @@ bool ValidateImportedAssets(FString& Error)
 	}
 	const FString Script = TEXT("Scripts/CreateRokTileRippleDiagnosticAssets.py");
 	TArray<uint8> ScriptBytes;
-	if (!ReadPinned(FPaths::ProjectDir() / Script,
+	if (!ReadPinned(RokDataPaths::ResolveProjectPath(Script),
 		Json->GetStringField(TEXT("creation_script_sha256")), ScriptBytes))
 	{
 		Error = TEXT("Tile ripple asset creation script changed"); return false;
@@ -128,12 +129,12 @@ bool FRokTileRippleGeometryContract::LoadPinned(const FString& AbsolutePath,
 		const FString Relative = Pin->GetStringField(TEXT("path"));
 		if (Relative.IsEmpty() || Relative.Contains(TEXT("..")) || Relative.Contains(TEXT(":")) ||
 			Relative.Contains(TEXT("\\")) || Relative.StartsWith(TEXT("/")) ||
-			!(Relative.StartsWith(TEXT("Saved/")) || Relative.StartsWith(TEXT("ref/client-unity/Assets/BundleAssets/"))))
+			!(Relative.StartsWith(TEXT("Saved/")) || RokDataPaths::IsDataPath(Relative) || Relative.StartsWith(TEXT("ref/client-unity/Assets/BundleAssets/"))))
 		{
 			Error = TEXT("Tile ripple renderer source pin path rejected"); return false;
 		}
 		TArray<uint8> Original;
-		if (!ReadPinned(FPaths::ProjectDir() / Relative, Pin->GetStringField(TEXT("sha256")), Original) ||
+		if (!ReadPinned(RokDataPaths::ResolveProjectPath(Relative), Pin->GetStringField(TEXT("sha256")), Original) ||
 			Original.Num() != Pin->GetIntegerField(TEXT("byte_count")))
 		{
 			Error = TEXT("Tile ripple renderer source pin changed: ") + Relative; return false;
@@ -260,12 +261,12 @@ void ARokUnityTileRippleDiagnosticActor::BeginPlay()
 		return;
 	FString Error;
 	if (!FRokTileRippleGeometryContract::LoadPinned(
-		FPaths::ProjectDir() / RokTileRippleRenderer::ContractRelative, Geometry, Error))
+		RokDataPaths::ResolveProjectPath(RokTileRippleRenderer::ContractRelative), Geometry, Error))
 	{
 		UE_LOG(LogTemp, Error, TEXT("TileRipple diagnostic geometry: %s"), *Error); return;
 	}
 	TArray<uint8> CpuBytes;
-	if (!RokTileRippleRenderer::ReadPinned(FPaths::ProjectDir() / RokTileRippleRenderer::SourceCpuRelative,
+	if (!RokTileRippleRenderer::ReadPinned(RokDataPaths::ResolveProjectPath(RokTileRippleRenderer::SourceCpuRelative),
 		RokTileRippleRenderer::CpuSha, CpuBytes)) return;
 	if (!RokTileRippleRenderer::ValidateImportedAssets(Error))
 	{
@@ -273,7 +274,7 @@ void ARokUnityTileRippleDiagnosticActor::BeginPlay()
 	}
 	TArray<FRokTileRippleSourceConfig> Configs;
 	if (!FRokTileRippleSourceConfig::LoadSourceFixture(
-		FPaths::ProjectDir() / RokTileRippleRenderer::SourceCpuRelative, Configs, Error) ||
+		RokDataPaths::ResolveProjectPath(RokTileRippleRenderer::SourceCpuRelative), Configs, Error) ||
 		Configs.Num() != 2) return;
 	UMaterialInterface* Material = LoadObject<UMaterialInterface>(nullptr, RokTileRippleRenderer::MaterialPath);
 	SourceTexture = LoadObject<UTexture2D>(nullptr, RokTileRippleRenderer::TexturePath);

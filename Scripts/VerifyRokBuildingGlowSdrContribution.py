@@ -11,15 +11,16 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
+from rok_data_paths import DATA_ROOT
 
 ROOT = Path(__file__).resolve().parents[1]
 AUDIT_ROOT = ROOT / "Saved/RokUnityMigration/BuildingPreviewGlowAudit"
-SOURCE = ROOT / "Saved/RokUnityMigration/BuildingPreviewGlow/glow_data.json"
+SOURCE = DATA_ROOT / "BuildingPreviewGlow/glow_data.json"
 TEXTURE = ROOT / "Saved/RokUnityMigration/BuildingGlowTexture/sampled_gpu_mip0.png"
 TEXTURE_NATIVE = ROOT / "Saved/RokUnityMigration/BuildingGlowTexture/native.json"
 TEXTURE_VERIFY = ROOT / "Saved/RokUnityMigration/BuildingGlowTexture/verify.json"
 FRAME = ROOT / "ref/client-unity/Assets/BundleAssets/UI/UITextureStatic/ui_res_common/ui_frame.png"
-PREVIEW_LAYOUT = ROOT / "Saved/RokUnityMigration/BuildingSourcePreview/source_preview.json"
+PREVIEW_LAYOUT = DATA_ROOT / "BuildingSourcePreview/source_preview.json"
 MODAL_SOURCE = ROOT / "Source/Rok/RokUnityModalWidget.cpp"
 PIXEL_NAMES = ("05_diagnostic_none", "06_diagnostic_layer0", "07_diagnostic_layer1", "08_diagnostic_both")
 MATERIAL_SCRIPT = ROOT / "Scripts/CreateRokBuildingPreviewGlowMaterial.py"

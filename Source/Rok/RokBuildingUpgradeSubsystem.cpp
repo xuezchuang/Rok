@@ -8,6 +8,7 @@
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "Stats/Stats.h"
+#include "RokDataPaths.h"
 #include "RokUnityConfigSubsystem.h"
 #include "RokUnityGameplayCatalogSubsystem.h"
 #include "RokUnityRuntimeStateSubsystem.h"
@@ -1706,11 +1707,7 @@ bool URokBuildingUpgradeSubsystem::LoadUnityBuildingLevelConfig()
 		}
 	}
 
-	const FString ConfigPath = FPaths::Combine(
-		FPaths::ProjectSavedDir(),
-		TEXT("RokUnityMigration"),
-		TEXT("ConfigTables"),
-		TEXT("BuildingLevelData.json"));
+	const FString ConfigPath = RokDataPaths::Resolve(TEXT("ConfigTables/BuildingLevelData.json"));
 
 	FString JsonText;
 	if (!FFileHelper::LoadFileToString(JsonText, *ConfigPath))
@@ -1796,11 +1793,7 @@ bool URokBuildingUpgradeSubsystem::LoadUnityBuildingProduceConfig()
 		}
 	}
 
-	const FString ConfigPath = FPaths::Combine(
-		FPaths::ProjectSavedDir(),
-		TEXT("RokUnityMigration"),
-		TEXT("ConfigTables"),
-		TEXT("BuildingResourcesProduce.json"));
+	const FString ConfigPath = RokDataPaths::Resolve(TEXT("ConfigTables/BuildingResourcesProduce.json"));
 	FString JsonText;
 	if (!FFileHelper::LoadFileToString(JsonText, *ConfigPath))
 	{
@@ -1845,10 +1838,7 @@ bool URokBuildingUpgradeSubsystem::LoadUnityInitialCityState()
 	ProductionRates = FRokResourceRates();
 	bUnityInitialCityStateLoaded = false;
 
-	const FString StatePath = FPaths::Combine(
-		FPaths::ProjectSavedDir(),
-		TEXT("RokUnityMigration"),
-		TEXT("unity_initial_city_state.json"));
+	const FString StatePath = RokDataPaths::Resolve(TEXT("unity_initial_city_state.json"));
 
 	FString JsonText;
 	if (!FFileHelper::LoadFileToString(JsonText, *StatePath))

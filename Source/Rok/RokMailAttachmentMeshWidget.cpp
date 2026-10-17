@@ -1,4 +1,6 @@
 #include "RokMailAttachmentMeshWidget.h"
+
+#include "RokDataPaths.h"
 #include "Dom/JsonObject.h"
 #include "Engine/Texture2D.h"
 #include "Framework/Application/SlateApplication.h"
@@ -86,11 +88,11 @@ bool URokMailAttachmentMeshWidget::LoadSource()
     ResetModel();LoadError.Empty();
     auto Fail=[this](const FString& Why){ResetModel();LoadError=Why;UE_LOG(LogTemp,Error,TEXT("Mail attachment mesh rejected: %s"),*Why);return false;};
     const FString Relative=TEXT("Saved/RokUnityMigration/MailSpine/gift5_stay_mesh.json");
-    const FString Filename=FPaths::ProjectDir()/Relative;
+    const FString Filename=RokDataPaths::ResolveProjectPath(Relative);
     if(IFileManager::Get().FileSize(*Filename)<=0||IFileManager::Get().FileSize(*Filename)>64*1024*1024)return Fail(TEXT("Missing/oversized source mesh"));
     TArray<uint8> Bytes;if(!FFileHelper::LoadFileToArray(Bytes,*Filename))return Fail(TEXT("Cannot read source mesh"));
     FString Report;TSharedPtr<FJsonObject> ReportRoot;
-    if(!FFileHelper::LoadFileToString(Report,*(FPaths::ProjectSavedDir()/TEXT("RokUnityMigration/MailSpine/export_report.json")))
+    if(!FFileHelper::LoadFileToString(Report,*(RokDataPaths::Resolve(TEXT("MailSpine/export_report.json"))))
         ||!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Report),ReportRoot)||!ReportRoot.IsValid())return Fail(TEXT("Missing export hash manifest"));
     FString Hash,Output,Animation,Skin;
     if(!ReportRoot->TryGetStringField(TEXT("output"),Output)||Output!=Relative
@@ -102,7 +104,7 @@ bool URokMailAttachmentMeshWidget::LoadSource()
     if(!RokMailAttachmentMesh::Parse(Json,Candidate,Error))return Fail(Error);
     for(const auto& Source:Candidate.Sources)
     {
-        const FString Path=FPaths::ProjectDir()/Source.Key;
+        const FString Path=RokDataPaths::ResolveProjectPath(Source.Key);
         const int64 Size=IFileManager::Get().FileSize(*Path);
         TArray<uint8> SourceBytes;
         if(Size<=0||Size>64*1024*1024||!FFileHelper::LoadFileToArray(SourceBytes,*Path)||RokMailAttachmentMesh::Sha256(SourceBytes)!=Source.Value)
@@ -111,7 +113,7 @@ bool URokMailAttachmentMeshWidget::LoadSource()
     for(const auto& Frame:Candidate.Frames)for(const auto& Draw:Frame.Draws)
     {
         if(TextureIndices.Contains(Draw.Texture))continue;
-        UTexture2D* Texture=FImageUtils::ImportFileAsTexture2D(FPaths::ProjectDir()/Draw.Texture);
+        UTexture2D* Texture=FImageUtils::ImportFileAsTexture2D(RokDataPaths::ResolveProjectPath(Draw.Texture));
         if(!Texture)return Fail(TEXT("Failed to decode source atlas"));
         // Source ProjectSettings.m_ActiveColorSpace=0 (Gamma); preserve PMA atlas samples in that domain.
         Texture->SRGB=false;Texture->Filter=TF_Bilinear;Texture->AddressX=TA_Clamp;Texture->AddressY=TA_Clamp;Texture->UpdateResource();

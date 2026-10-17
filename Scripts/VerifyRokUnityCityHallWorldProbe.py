@@ -8,6 +8,7 @@ import math
 import re
 import struct
 from pathlib import Path
+from rok_data_paths import resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 PROBE = ROOT / "Saved/UnityCityHallWorldProbeV1"
@@ -153,8 +154,8 @@ def verify_contract() -> dict:
     need(Path(c["probe_root"]).resolve() == PROBE.resolve(), "Contract project path differs")
     need(c["qualification"] == "transform_fixture_only" and c["lod_qualified"] is False, "LOD scope differs")
     need(c["unity_version"] == "2019.4.28f1c1", "Unity version differs")
-    need(sha(ROOT / c["producer_path"]) == c["producer_sha256"], "Producer hash differs")
-    need(sha(ROOT / c["exporter_path"]) == c["exporter_sha256"], "Exporter hash differs")
+    need(sha(resolve(c["producer_path"])) == c["producer_sha256"], "Producer hash differs")
+    need(sha(resolve(c["exporter_path"])) == c["exporter_sha256"], "Exporter hash differs")
     for path, digest in c["source_paths_sha256"].items():
         need(sha(inside(ROOT, path)) == digest, f"Pinned source differs: {path}")
     scene = SOURCE_SCENE.read_text(encoding="utf-8-sig")

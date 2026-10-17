@@ -1,4 +1,5 @@
 #include "RokVillageDayNightAuditSubsystem.h"
+#include "RokDataPaths.h"
 #include "RokVillagePresentationComponent.h"
 #include "RokWorldMapCameraPawn.h"
 #include "RokWorldMapEntityActor.h"
@@ -31,7 +32,7 @@ namespace
 bool ReadJson(const FString& Name, TSharedPtr<FJsonObject>& Out)
 {
     FString Text;
-    return FFileHelper::LoadFileToString(Text, *(FPaths::ProjectSavedDir() / TEXT("RokUnityMigration") / Name))
+    return FFileHelper::LoadFileToString(Text, *RokDataPaths::Resolve(Name))
         && FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Out) && Out.IsValid();
 }
 bool ReadColor(const TSharedPtr<FJsonObject>& Object, const TCHAR* Key, int32 Count, FLinearColor& Out)

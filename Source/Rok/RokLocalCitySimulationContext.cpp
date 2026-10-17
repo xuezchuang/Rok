@@ -1,5 +1,6 @@
 #include "RokLocalCitySimulationContext.h"
 
+#include "RokDataPaths.h"
 #include "RokTrainArmyMeshData.h"
 #include "Dom/JsonObject.h"
 #include "Engine/World.h"
@@ -15,7 +16,7 @@ namespace
 bool ReadJson(const FString& RelativePath, TSharedPtr<FJsonObject>& Out)
 {
 	FString Json;
-	return FFileHelper::LoadFileToString(Json, *(FPaths::ProjectDir() / RelativePath))
+	return FFileHelper::LoadFileToString(Json, *(RokDataPaths::ResolveProjectPath(RelativePath)))
 		&& FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json), Out) && Out.IsValid();
 }
 
@@ -160,7 +161,7 @@ bool FRokLocalCitySimulationContext::Load(FString& OutError)
 		TArray<uint8> Bytes;
 		if (!Sources->TryGetStringField(Required, Expected) || Expected.Len() != 64
 			|| !IsSourcePath(Required)
-			|| !FFileHelper::LoadFileToArray(Bytes, *(FPaths::ProjectDir() / Required))
+			|| !FFileHelper::LoadFileToArray(Bytes, *(RokDataPaths::ResolveProjectPath(Required)))
 			|| RokTrainArmyMesh::Sha256(Bytes) != Expected)
 		{
 			OutError = FString::Printf(TEXT("Local city source hash changed: %s"), Required);

@@ -5,6 +5,7 @@
 #include "Engine/Texture2D.h"
 #include "Engine/World.h"
 #include "Engine/GameInstance.h"
+#include "RokDataPaths.h"
 #include "RokWorldMapConfigActor.h"
 #include "EngineUtils.h"
 #include "GameFramework/PlayerController.h"
@@ -190,7 +191,7 @@ bool URokVillagePresentationAuditSubsystem::PrepareIntegrationSamples()
 {
 	// Read the production population contract, then cross-check its loaded record.
 	FString Json; TSharedPtr<FJsonObject> Population;
-	if (!FFileHelper::LoadFileToString(Json, *(FPaths::ProjectSavedDir() / TEXT("RokUnityMigration/unity_world_entity_population.json")))
+	if (!FFileHelper::LoadFileToString(Json, *(RokDataPaths::Resolve(TEXT("unity_world_entity_population.json"))))
 		|| !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json), Population) || !Population)
 	{ Finish(TEXT("Missing world entity LOD contract.")); return false; }
 	const TSharedPtr<FJsonObject>* Lod = nullptr;

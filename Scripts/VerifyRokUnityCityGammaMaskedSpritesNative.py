@@ -14,6 +14,7 @@ import shutil
 import struct
 from collections import Counter
 from pathlib import Path
+from rok_data_paths import resolve
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -77,7 +78,7 @@ def source_files(rows: list[dict]) -> list[dict]:
         for role in ("prefab", "raw_sprite", "raw_mask", "material", "shader"):
             item = roles[role]
             rel = normalized_source(item["source_path"])
-            source = ROOT / rel
+            source = resolve(rel)
             need(item["exists"] and source.is_file() and sha(source) == item["sha256"],
                  f"closure source changed: {rel}")
             if rel in expected:
@@ -85,7 +86,7 @@ def source_files(rows: list[dict]) -> list[dict]:
             expected[rel] = item["sha256"]
     files = []
     for relative, digest in sorted(expected.items()):
-        source = ROOT / relative
+        source = resolve(relative)
         meta = Path(str(source) + ".meta")
         need(meta.is_file(), f"Unity metadata missing: {relative}")
         meta_text = meta.read_text(encoding="utf-8-sig")
@@ -149,7 +150,7 @@ def prepare() -> None:
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
         manifest_path.write_text(json.dumps(contract, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     for item in files:
-        source = ROOT / item["source_path"]
+        source = resolve(item["source_path"])
         target = PROBE / item["probe_path"]
         target.parent.mkdir(parents=True, exist_ok=True)
         for current, copy, digest in ((source, target, item["source_sha256"]),
@@ -197,7 +198,7 @@ def verify(run: Path) -> None:
     need(len(contract["rows"]) == 27 and {r["source_key"] for r in contract["rows"]} ==
          {r["source_key"] for r in rows}, "probe allowlist differs")
     for item in contract["source_files"]:
-        source, copy = ROOT / item["source_path"], PROBE / item["probe_path"]
+        source, copy = resolve(item["source_path"]), PROBE / item["probe_path"]
         need(sha(source) == sha(copy) == item["source_sha256"] and
              sha(Path(str(source) + ".meta")) == sha(Path(str(copy) + ".meta")) == item["meta_sha256"],
              f"source/copy hash differs: {item['source_path']}")

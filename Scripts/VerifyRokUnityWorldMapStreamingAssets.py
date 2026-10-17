@@ -4,6 +4,7 @@ import re
 import struct
 from collections import defaultdict
 from pathlib import Path
+from rok_data_paths import resolve
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -383,7 +384,7 @@ def verify_usage(actual, uses, label):
 
 
 def verify_source_record(record):
-    path = PROJECT_ROOT / record["path"]
+    path = resolve(record["path"])
     if not path.is_file():
         raise RuntimeError(f"Missing recorded source: {record['path']}")
     if path.stat().st_size != int(record["size"]):
@@ -392,7 +393,7 @@ def verify_source_record(record):
         raise RuntimeError(f"Source hash changed: {record['path']}")
     meta = record.get("meta")
     if meta:
-        meta_path = PROJECT_ROOT / meta["path"]
+        meta_path = resolve(meta["path"])
         if not meta_path.is_file():
             raise RuntimeError(f"Missing source meta: {meta['path']}")
         if meta_path.stat().st_size != int(meta["size"]):
@@ -476,7 +477,7 @@ def mesh_source_facts(path):
 def verify_obj(record):
     obj_record = record["exported_obj"]
     verify_source_record(obj_record)
-    obj_path = PROJECT_ROOT / obj_record["path"]
+    obj_path = resolve(obj_record["path"])
     if obj_path.parent != (
         MIGRATION_ROOT / "WorldMapStreamingAssets" / "Meshes"
     ):
@@ -691,7 +692,7 @@ def close_tuple(actual, expected, tolerance=1e-6):
 def verify_sprite_obj(record, expected):
     obj_record = record["exported_quad_obj"]
     verify_source_record(obj_record)
-    path = PROJECT_ROOT / obj_record["path"]
+    path = resolve(obj_record["path"])
     expected_root = (
         MIGRATION_ROOT / "WorldMapStreamingAssets" / "SpriteMeshes"
     )
@@ -868,7 +869,7 @@ def main():
             if soft_path in soft_paths:
                 raise RuntimeError(f"Duplicate UE soft path: {soft_path}")
             soft_paths.add(soft_path)
-            source_path = PROJECT_ROOT / key[0]
+            source_path = resolve(key[0])
             if item["kind"] == "unity_serialized_mesh":
                 if item["export_policy"] != (
                     "deterministic_exact_source_attributes_obj"
@@ -989,7 +990,7 @@ def main():
                 )
             soft_paths.add(soft_path)
             shader_ref, texture_refs = parse_material_refs(
-                PROJECT_ROOT / key[0]
+                resolve(key[0])
             )
             shader = item["shader"]
             if (
@@ -1000,7 +1001,7 @@ def main():
             shader_text = ""
             if shader["source_shader"]:
                 verify_source_record(shader["source_shader"])
-                shader_path = PROJECT_ROOT / shader["source_shader"]["path"]
+                shader_path = resolve(shader["source_shader"]["path"])
                 shader_text = shader_path.read_text(
                     encoding="utf-8",
                     errors="strict",
@@ -1031,7 +1032,7 @@ def main():
                 elif "source_texture" in recorded:
                     verify_source_record(recorded["source_texture"])
                     texture_path = (
-                        PROJECT_ROOT / recorded["source_texture"]["path"]
+                        resolve(recorded["source_texture"]["path"])
                     )
                     if parse_meta_guid(Path(str(texture_path) + ".meta")) != (
                         source_ref["guid"]
@@ -1084,7 +1085,7 @@ def main():
                     f"Invalid/duplicate texture soft path: {soft_path}"
                 )
             soft_paths.add(soft_path)
-            source_path = PROJECT_ROOT / path_text
+            source_path = resolve(path_text)
             importer, sprite_ids = parse_texture_importer(
                 Path(str(source_path) + ".meta"),
                 source_path,
@@ -1411,7 +1412,7 @@ def main():
             recorded_slots = []
             for slot in record["source_materials"]:
                 verify_source_record(slot["source"])
-                source_path = PROJECT_ROOT / slot["path"]
+                source_path = resolve(slot["path"])
                 if parse_meta_guid(Path(str(source_path) + ".meta")) != (
                     slot["guid"]
                 ):
@@ -1476,7 +1477,7 @@ def main():
                 raise RuntimeError(
                     f"MeshCollider source differs: {file_id}"
                 )
-            source_path = PROJECT_ROOT / source_mesh["path"]
+            source_path = resolve(source_mesh["path"])
             if parse_meta_guid(Path(str(source_path) + ".meta")) != (
                 source_mesh["guid"]
             ):

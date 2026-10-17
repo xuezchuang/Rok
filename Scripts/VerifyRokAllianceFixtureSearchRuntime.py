@@ -9,6 +9,7 @@ import re
 import struct
 import tempfile
 from pathlib import Path
+from rok_data_paths import resolve
 
 ROOT = Path(__file__).resolve().parents[3]
 STAGE = Path(__file__).resolve().parents[1]
@@ -340,7 +341,7 @@ def validate(d: dict, run: Path) -> None:
         expected[relative] = sha(STAGE / relative)
     need(d["inputs_sha256"] == expected, "exact pinned input map")
     for relative, digest in expected.items():
-        need(sha(exact_file(ROOT / relative, ROOT)) == digest, "live source pin drift " + relative)
+        need(sha(exact_file(resolve(relative), ROOT)) == digest, "live source pin drift " + relative)
     phases = FIXTURE_PHASES if d["mode"] == "fixture" else PRODUCTION_PHASES
     intervals = FIXTURE_INTERVALS if d["mode"] == "fixture" else PRODUCTION_INTERVALS
     caps, acts = d["captures"], d["actions"]

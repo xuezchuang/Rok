@@ -1,4 +1,6 @@
 #include "RokBuildingLevelDetails.h"
+
+#include "RokDataPaths.h"
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonSerializer.h"
 #include "Misc/FileHelper.h"
@@ -11,7 +13,7 @@ bool RokBuildingLevelDetails::Load(int32 Type, TArray<FString>& Headers, TArray<
 	if (Description) Description->Reset();
 	FString Json; TSharedPtr<FJsonObject> Root;
 	const TArray<TSharedPtr<FJsonValue>>* Tables = nullptr;
-	if (!FFileHelper::LoadFileToString(Json, *(FPaths::ProjectSavedDir() / TEXT("RokUnityMigration/building_level_details.json")))
+	if (!FFileHelper::LoadFileToString(Json, *(RokDataPaths::Resolve(TEXT("building_level_details.json"))))
 		|| !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json), Root) || !Root.IsValid()
 		|| !Root->TryGetArrayField(TEXT("tables"), Tables))
 	{ Error = TEXT("Building level details missing/invalid: run BuildRokBuildingLevelDetails.py"); return false; }
@@ -53,7 +55,7 @@ bool RokBuildingLevelDetails::LoadBarracks(TArray<FString>& Headers, TArray<FRok
 	if (Description) Description->Reset();
 	FString Json; TSharedPtr<FJsonObject> Root;
 	const TArray<TSharedPtr<FJsonValue>>* Tables = nullptr;
-	if (!FFileHelper::LoadFileToString(Json, *(FPaths::ProjectSavedDir() / TEXT("RokUnityMigration/building_level_details.json")))
+	if (!FFileHelper::LoadFileToString(Json, *(RokDataPaths::Resolve(TEXT("building_level_details.json"))))
 		|| !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json), Root) || !Root.IsValid()
 		|| !Root->TryGetArrayField(TEXT("tables"), Tables))
 	{ Error = TEXT("Building level details missing/invalid: run BuildRokBuildingLevelDetails.py"); return false; }

@@ -7,11 +7,12 @@ import json
 from pathlib import Path
 
 from ExtractRokUnityConfigTables import parse_table
+from rok_data_paths import DATA_ROOT, label
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKBOOK = ROOT / "ref/config-tables/s_AudioInfo.xlsm"
-EXTRACTED = ROOT / "Saved/RokUnityMigration/ConfigTables/AudioInfo.json"
-OUTPUT = ROOT / "Saved/RokUnityMigration/CityAudio/catalog.json"
+EXTRACTED = DATA_ROOT / "ConfigTables/AudioInfo.json"
+OUTPUT = DATA_ROOT / "CityAudio/catalog.json"
 EVENT_IDS = (1007, 1008, 4001, 4005, 4037, 4048, 4051)
 BGM_IDS = (1007, 1008)
 ASSET_ROOT = "/Game/RokPrototype/UI/Audio"
@@ -61,9 +62,9 @@ def build() -> dict:
             package = (f"{ASSET_ROOT}/CityBgm/{clip}" if is_bgm
                        else f"{ASSET_ROOT}/{clip}")
             clip_rows.append({"name": clip, "ue_object_path": f"{package}.{clip}",
-                              "source_mp3": mp3.relative_to(ROOT).as_posix(),
+                              "source_mp3": label(mp3),
                               "source_mp3_sha256": sha(mp3),
-                              "source_meta": meta.relative_to(ROOT).as_posix(),
+                              "source_meta": label(meta),
                               "source_meta_sha256": sha(meta)})
         events.append({
             "id": event_id, "name": row["name"], "channel": "music" if is_bgm else "sfx",
@@ -82,7 +83,7 @@ def build() -> dict:
         "gain_policy": "AudioService AudioConfig ignores AudioInfo.volume; multiply source voice once by channel slider, not by table volume",
         "source_table_row_count": 650,
         "event_count": len(events), "events": events,
-        "sources": [{"path": path.relative_to(ROOT).as_posix(), "sha256": sha(path)}
+        "sources": [{"path": label(path), "sha256": sha(path)}
                     for path in source_files],
     }
 

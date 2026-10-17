@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
+from rok_data_paths import DATA_ROOT, resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "Saved/RokUnityMigration/PowerGain"
@@ -23,7 +24,7 @@ def verify(data):
     check(data["lifetime"] == 1, "Source AutoDestory lifetime changed")
     check(len(data["sources"]) == 8, "Incomplete source dependency chain")
     for source in data["sources"]:
-        path = ROOT / source["path"]
+        path = resolve(source["path"])
         for suffix, field in (("", "sha256"), (".meta", "metadataSha256")):
             actual = hashlib.sha256(Path(str(path) + suffix).read_bytes()).hexdigest()
             check(actual == source[field], f"Source changed: {source['path']}{suffix}")
@@ -74,7 +75,7 @@ def verify(data):
 
 
 if __name__ == "__main__":
-    data = json.loads((OUTPUT / "source_geometry.json").read_text(encoding="utf-8"))
+    data = json.loads((DATA_ROOT / "PowerGain/source_geometry.json").read_text(encoding="utf-8"))
     failures = verify(data)
     report = {"scope": "Unity source export only; UE runtime and HUD visual acceptance remain open",
               "failures": failures, "samples": len(data["samples"]),

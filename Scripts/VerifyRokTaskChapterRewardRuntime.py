@@ -10,11 +10,12 @@ import json
 import math
 import struct
 from pathlib import Path
+from rok_data_paths import DATA_ROOT, resolve
 
 ROOT = Path(__file__).resolve().parents[1]
-CATALOG = ROOT / "Saved/RokUnityMigration/TaskChapterConfigPreview/v2/catalog.json"
+CATALOG = DATA_ROOT / "TaskChapterConfigPreview/v2/catalog.json"
 CATALOG_SHA = "3f3848e9f8898668ff2a8ebeddeace1dfc1d557f110cb1339c74882c396b7bb5"
-REWARD_CATALOG = ROOT / "Saved/RokUnityMigration/TaskChapterRewardPreview/v1/catalog.json"
+REWARD_CATALOG = DATA_ROOT / "TaskChapterRewardPreview/v1/catalog.json"
 REWARD_CATALOG_SHA = "eab124c2aea9cc265dd2a185c7383f7ab5df02493303bba6dcd18c7c42041d4e"
 CAPTURED_VERIFIER_SHA = "d7c72f26eed75963c4f29e4c65af849c15be3dc7a366df6a88210ba518b1f0fb"
 CAPTURED_VERIFIER_SNAPSHOT = ROOT / "Saved/RokUnityMigration/BatchReview20261009QuestChapterArtAndHallCamera/VerifyRokTaskChapterRewardRuntime_revision2_snapshot.py"
@@ -111,7 +112,7 @@ def check_catalog() -> dict:
     data = json.loads(CATALOG.read_text(encoding="utf-8"))
     check_catalog_shape(data)
     for source in data["sources"]:
-        path = ROOT / source["path"]
+        path = resolve(source["path"])
         require(path.is_file() and sha(path) == source["sha256"], f"catalog source drift: {path}")
     return data
 
@@ -134,7 +135,7 @@ def check_reward_catalog() -> dict:
     require(len({row["atlas_object_path"] for group in data["groups"] for row in group["entries"]}) == 5,
             "five source reward atlases")
     for source in data["sources"]:
-        path = ROOT / source["path"]
+        path = resolve(source["path"])
         require(path.is_file() and sha(path) == source["sha256"],
                 f"reward source drift: {source['path']}")
     return data
@@ -413,7 +414,7 @@ def check_inputs(manifest: dict) -> None:
     ]
     require(all(key in inputs for key in required), "runtime source pin list incomplete")
     for name, digest in inputs.items():
-        path = ROOT / name
+        path = resolve(name)
         if name == "Scripts/VerifyRokTaskChapterRewardRuntime.py" and digest == CAPTURED_VERIFIER_SHA:
             require(CAPTURED_VERIFIER_SNAPSHOT.is_file()
                     and sha(CAPTURED_VERIFIER_SNAPSHOT) == digest,

@@ -16,6 +16,9 @@ import CreateRokPrototypeScene as proto
 import CreateRokRuntimeCityScene as runtime
 import CreateRokTestUnityGameAppCityScene as source3d
 import CreateRokUnityGameAppCityScene as gameapp
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from rok_data_paths import DATA_ROOT  # noqa: E402
 
 
 TARGET_LEVEL = os.environ.get("ROK_UNITY_FRESH_CITY_LEVEL", "/Game/Maps/L_RokUnityFreshCity")
@@ -211,7 +214,7 @@ def spawn_static_mesh_actor(
 
 
 def load_initial_city_manifest():
-    path = os.path.join(MIGRATION_ROOT, "unity_initial_city_state.json")
+    path = str(DATA_ROOT / "unity_initial_city_state.json")
     if not os.path.exists(path):
         raise RuntimeError("Missing generated initial city state: {0}".format(path))
     with open(path, "r", encoding="utf-8") as handle:

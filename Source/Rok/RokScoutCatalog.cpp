@@ -1,4 +1,6 @@
 #include "RokScoutCatalog.h"
+
+#include "RokDataPaths.h"
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonSerializer.h"
 #include "Misc/FileHelper.h"
@@ -12,7 +14,7 @@ bool FRokScoutCatalog::Load(FString& Error)
 	const TArray<TSharedPtr<FJsonValue>>* Rows = nullptr;
 	const TSharedPtr<FJsonObject>* Strings = nullptr;
 	int32 BuildingType = 0;
-	if (!FFileHelper::LoadFileToString(Json, *(FPaths::ProjectSavedDir() / TEXT("RokUnityMigration/scout_catalog.json")))
+	if (!FFileHelper::LoadFileToString(Json, *(RokDataPaths::Resolve(TEXT("scout_catalog.json"))))
 		|| !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json), Root) || !Root.IsValid()
 		|| !Root->TryGetNumberField(TEXT("building_type"), BuildingType) || BuildingType != 28
 		|| !Root->TryGetArrayField(TEXT("levels"), Rows) || !Root->TryGetObjectField(TEXT("text"), Strings))

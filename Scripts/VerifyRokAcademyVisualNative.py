@@ -8,6 +8,7 @@ import hashlib
 import argparse
 import json
 from pathlib import Path
+from rok_data_paths import resolve
 
 import numpy as np
 from PIL import Image
@@ -101,12 +102,12 @@ def verify(output):
        contract["unity_project_settings_sha256"] != sha(ROOT / "ref/client-unity/ProjectSettings/ProjectSettings.asset"):
         raise RuntimeError("Native camera or Unity color-space source changed")
     for relative, expected in catalog["sources"].items():
-        if sha(ROOT / relative) != expected:
+        if sha(resolve(relative)) != expected:
             raise RuntimeError(f"Source changed: {relative}")
     for relative, copied in contract["source_files"].items():
-        if sha(ROOT / relative) != copied["sha256"] or sha(PROBE / copied["probe_asset"]) != copied["sha256"]:
+        if sha(resolve(relative)) != copied["sha256"] or sha(PROBE / copied["probe_asset"]) != copied["sha256"]:
             raise RuntimeError(f"Native probe source copy changed: {relative}")
-        if sha(Path(str(ROOT / relative) + ".meta")) != copied["meta_sha256"] or \
+        if sha(Path(str(resolve(relative)) + ".meta")) != copied["meta_sha256"] or \
            sha(Path(str(PROBE / copied["probe_asset"]) + ".meta")) != copied["meta_sha256"]:
             raise RuntimeError(f"Native probe import metadata changed: {relative}")
 
@@ -147,7 +148,7 @@ def verify(output):
         if [imported["width"], imported["height"]] != [report[role + "TextureWidth"], report[role + "TextureHeight"]] or \
            imported["mipmapCount"] != 1:
             raise RuntimeError(role + " imported GPU size/mip differs")
-        platforms = source_platforms(ROOT / catalog[role]["path"])
+        platforms = source_platforms(resolve(catalog[role]["path"]))
         for key, actual_key in (("DefaultTexturePlatform", "defaultPlatform"), ("Standalone", "standalonePlatform")):
             actual = imported[actual_key]
             expected = platforms[key]

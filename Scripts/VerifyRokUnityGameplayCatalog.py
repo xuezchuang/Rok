@@ -2,12 +2,13 @@ import csv
 import json
 import re
 from pathlib import Path
+from rok_data_paths import DATA_ROOT, label
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 MIGRATION_ROOT = PROJECT_ROOT / "Saved" / "RokUnityMigration"
-CONFIG_ROOT = MIGRATION_ROOT / "ConfigTables"
-CATALOG_PATH = MIGRATION_ROOT / "unity_gameplay_catalog.json"
+CONFIG_ROOT = DATA_ROOT / "ConfigTables"
+CATALOG_PATH = DATA_ROOT / "unity_gameplay_catalog.json"
 OUTPUT_PATH = MIGRATION_ROOT / "unity_gameplay_catalog_verify.json"
 HERO_UI_ATLAS_ROOT = (
     PROJECT_ROOT
@@ -338,7 +339,7 @@ def verify_civilizations(catalog, failures):
 
 
 def project_relative(path):
-    return path.relative_to(PROJECT_ROOT).as_posix()
+    return label(path)
 
 
 def read_hero_icon_atlas_sprites():
@@ -993,7 +994,7 @@ def main():
         failures.append("At least one VIP level has no configured price display")
 
     result = {
-        "catalog": str(CATALOG_PATH.relative_to(PROJECT_ROOT)),
+        "catalog": str(Path(label(CATALOG_PATH))),
         "summary": summary,
         "core_building_types": sorted(building_type_ids & CORE_BUILDING_TYPES),
         "heroes_with_4plus_skills": heroes_with_skills,

@@ -3,6 +3,7 @@
 #include "RokCitySpriteActor.h"
 #include "RokCityConstructionGrid.h"
 #include "RokBuildingUpgradeSubsystem.h"
+#include "RokDataPaths.h"
 #include "RokStrategyCameraPawn.h"
 #include "RokTrainArmyMeshData.h"
 #include "Camera/CameraComponent.h"
@@ -185,7 +186,7 @@ bool URokAcademyPresentationAuditSubsystem::Begin()
                 SourcePath == TEXT("Saved/RokUnityMigration/CityConstructionSources/catalog.json")) ||
             SourcePath.Contains(TEXT("..")) ||
             !Entry.Value.IsValid() || !Entry.Value->TryGetString(Expected) ||
-            ShaFile(FPaths::ProjectDir() / SourcePath) != Expected)
+            ShaFile(RokDataPaths::ResolveProjectPath(SourcePath)) != Expected)
         { Finish(FString::Printf(TEXT("Academy source input changed: %s"), *SourcePath)); return false; }
     }
 
@@ -457,7 +458,7 @@ bool URokAcademyPresentationAuditSubsystem::CaptureGameAppContext()
     const FString MapPath = FPaths::ProjectContentDir() / TEXT("Maps/L_RokUnityGameAppCity.umap");
     const FString PosePath = SavePath(TEXT("RokUnityMigration/BatchReview20261009/root_city_pose_crosscheck.json"));
     const FString ReadbackPath = SavePath(TEXT("RokUnityMigration/BatchReview20261009/current_city_pose_readback.json"));
-    const FString ModelsPath = SavePath(TEXT("RokUnityMigration/CityConstructionSources/catalog.json"));
+    const FString ModelsPath = RokDataPaths::Resolve(TEXT("CityConstructionSources/catalog.json"));
     TSharedPtr<FJsonObject> Pose, Models;
     const TArray<TSharedPtr<FJsonValue>>* PoseActors = nullptr;
     if (ShaFile(MapPath) != SourceMapSha || !ReadJson(PosePath, Pose) || !ReadJson(ModelsPath, Models) ||
@@ -465,7 +466,7 @@ bool URokAcademyPresentationAuditSubsystem::CaptureGameAppContext()
         Pose->GetStringField(TEXT("schema")) != TEXT("rok.current_city_anchor_source_grid_crosscheck.v1") ||
         Pose->GetStringField(TEXT("source_readback_sha256")) != ShaFile(ReadbackPath) ||
         Pose->GetStringField(TEXT("source_grid_catalog_sha256")) !=
-            ShaFile(SavePath(TEXT("RokUnityMigration/CityConstructionGridSources/catalog.json"))) ||
+            ShaFile(RokDataPaths::Resolve(TEXT("CityConstructionGridSources/catalog.json"))) ||
         !Pose->TryGetArrayField(TEXT("actors"), PoseActors) || !PoseActors || PoseActors->Num() != 24)
     { ContextRecord->SetStringField(TEXT("status"), TEXT("pending_map_pose_source_chain")); return true; }
     for (const TSharedPtr<FJsonValue>& Value : *PoseActors)
@@ -555,7 +556,7 @@ bool URokAcademyPresentationAuditSubsystem::CaptureGameAppContext()
     ContextRecord->SetStringField(TEXT("pose_crosscheck_sha256"), ShaFile(PosePath));
     ContextRecord->SetStringField(TEXT("pose_readback_sha256"), ShaFile(ReadbackPath));
     ContextRecord->SetStringField(TEXT("construction_models_sha256"), ShaFile(ModelsPath));
-    ContextRecord->SetStringField(TEXT("grid_catalog_sha256"), ShaFile(SavePath(TEXT("RokUnityMigration/CityConstructionGridSources/catalog.json"))));
+    ContextRecord->SetStringField(TEXT("grid_catalog_sha256"), ShaFile(RokDataPaths::Resolve(TEXT("CityConstructionGridSources/catalog.json"))));
     ContextRecord->SetNumberField(TEXT("age"), 1);
     ContextRecord->SetNumberField(TEXT("model_key"), 131011);
     ContextRecord->SetNumberField(TEXT("first_free_radius"), RadiusFound);
@@ -640,7 +641,7 @@ void URokAcademyPresentationAuditSubsystem::Finish(const FString& Error)
         TEXT("Scripts/CreateRokAcademyPresentationMesh.py") };
     for (const TCHAR* Relative : InputFiles)
     {
-        const FString Hash = ShaFile(FPaths::ProjectDir() / Relative);
+        const FString Hash = ShaFile(RokDataPaths::ResolveProjectPath(Relative));
         if (Hash.IsEmpty()) Failures.Add(FString::Printf(TEXT("Academy capture input missing: %s"), Relative));
         InputHashes->SetStringField(Relative, Hash);
     }

@@ -6,6 +6,7 @@ import shutil
 import struct
 import subprocess
 from pathlib import Path
+from rok_data_paths import resolve
 from BuildRokUnityEconomyCatalog import read_language_lookup, localized_text, LANGUAGE_WORKBOOK
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -177,7 +178,7 @@ namespace UnityEngine.UI
     contract=json.loads(source_report.read_text(encoding='utf-8'))
     # Immutable source report is input; do not regenerate or alter prior preview evidence.
     for entry in contract['sources']:
-        source=ROOT/entry['path']
+        source=resolve(entry['path'])
         if source.suffix=='.cpp': continue # Product code may progress independently; not a Unity source dependency.
         assert digest(source)==entry['sha256'],str(source)
         record(source)

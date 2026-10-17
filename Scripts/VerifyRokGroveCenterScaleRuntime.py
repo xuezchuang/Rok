@@ -9,6 +9,7 @@ from collections import Counter
 import hashlib
 import json
 from pathlib import Path
+from rok_data_paths import resolve
 import struct
 
 import numpy as np
@@ -52,7 +53,7 @@ def source_data():
     assert native['unityVersion'] == '2019.4.28f1c1' and native['shader'] == 'custom/landmap/tree-16-nomask' and native['colorSpace'] == 'Gamma'
     assert len(source['source_files']) == 6
     for item in source['source_files']:
-        path = (ROOT/item['path']).resolve()
+        path = (resolve(item['path'])).resolve()
         assert path.is_relative_to((ROOT/'ref').resolve()) and sha(path) == item['sha256']
     positions = finite(source['positions'], (377, 3)).astype(np.float32)
     colors = finite(source['source_color_rgba'], (377, 4)).astype(np.float32)

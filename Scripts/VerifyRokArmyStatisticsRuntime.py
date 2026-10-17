@@ -9,6 +9,7 @@ import json
 import re
 import struct
 from pathlib import Path
+from rok_data_paths import resolve
 
 SCRIPT = Path(__file__).resolve()
 ROOT = SCRIPT.parents[1] if SCRIPT.parent.name == "Scripts" else SCRIPT.parents[2]
@@ -240,7 +241,7 @@ def verify(run: Path) -> dict:
         need(required_button_source in inputs, f"missing source-pinned UButton class input: {required_button_source}")
     for rel, expected in inputs.items():
         need(re.fullmatch(r"[0-9a-f]{64}", expected) is not None, f"bad hash: {rel}")
-        need(sha(under_root(ROOT / rel)) == expected, f"input drift: {rel}")
+        need(sha(under_root(resolve(rel))) == expected, f"input drift: {rel}")
     actions, captures = m["actions"], m["captures"]
     need(len(actions) == 6 and len(captures) == 7, "capture/action cardinality wrong")
     need([a["label"] for a in actions] == ACTIONS and [c["phase"] for c in captures] == PHASES,

@@ -1,4 +1,5 @@
 #include "RokBarracksSourceTextData.h"
+#include "RokDataPaths.h"
 #include "RokTrainArmyMeshData.h"
 #include "Dom/JsonObject.h"
 #include "Engine/Texture2D.h"
@@ -38,8 +39,8 @@ bool URokBarracksSourceTextData::LoadPackage(FString& Error,bool bLevelHeaders)
 {
     Texts.Reset();Textures.Reset();Brushes.Reset();
     auto Fail=[this,&Error](const TCHAR* Message){Texts.Reset();Textures.Reset();Brushes.Reset();Error=Message;return false;};
-    const FString Base=FPaths::ProjectSavedDir()/(bLevelHeaders?TEXT("RokUnityMigration/BarracksLevelHeaderText"):TEXT("RokUnityMigration/BarracksSourceText"));
-    const FString Catalog=FPaths::ProjectSavedDir()/(bLevelHeaders?TEXT("RokUnityMigration/building_level_details.json"):TEXT("RokUnityMigration/barracks_upgrade_attribute.json"));
+    const FString Base=RokDataPaths::Resolve(bLevelHeaders?TEXT("BarracksLevelHeaderText"):TEXT("BarracksSourceText"));
+    const FString Catalog=RokDataPaths::Resolve(bLevelHeaders?TEXT("building_level_details.json"):TEXT("barracks_upgrade_attribute.json"));
     TSharedPtr<FJsonObject> Manifest,Root,Inputs;FString Schema,Hash;
     if(!ReadJson(Base/TEXT("manifest.json"),Manifest)||!Manifest->TryGetStringField(TEXT("schema"),Schema)||Schema!=TEXT("rok.barracks.source_text.package.v1"))return Fail(TEXT("Barracks glyph package manifest missing/invalid"));
     for(const auto& P:{TPair<const TCHAR*,FString>(TEXT("texts_sha256"),Base/TEXT("texts.json")),
@@ -83,7 +84,7 @@ bool URokBarracksSourceTextData::LoadPackage(FString& Error,bool bLevelHeaders)
     {
         if(!V.IsValid()||V->Type!=EJson::Object)return Fail(TEXT("Invalid glyph provenance entry"));
         FString Path,SourceHash;const auto S=V->AsObject();
-        if(!S->TryGetStringField(TEXT("path"),Path)||!RequiredSources.Contains(Path)||SourcePaths.Contains(Path)||!S->TryGetStringField(TEXT("sha256"),SourceHash)||!HashMatches(FPaths::ProjectDir()/Path,SourceHash))return Fail(TEXT("Glyph provenance changed"));
+        if(!S->TryGetStringField(TEXT("path"),Path)||!RequiredSources.Contains(Path)||SourcePaths.Contains(Path)||!S->TryGetStringField(TEXT("sha256"),SourceHash)||!HashMatches(RokDataPaths::ResolveProjectPath(Path),SourceHash))return Fail(TEXT("Glyph provenance changed"));
         SourcePaths.Add(Path);
     }
     TArray<FString> HeaderTexts;

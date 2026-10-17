@@ -9,6 +9,7 @@
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "../RokBuildingUpgradeSubsystem.h"
+#include "../RokDataPaths.h"
 #include "../RokUnityRuntimeStateSubsystem.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
@@ -132,7 +133,7 @@ bool FRokLocalAcademyCurrentAccountTest::RunTest(const FString&)
 	TestTrue(TEXT("Initial map age is supported"), Context.SupportsAge(1));
 	TestFalse(TEXT("Hall4 config age lacks verified local map conversion"), Context.SupportsAge(2));
 	FString LevelJson;
-	const FString LevelPath = FPaths::ProjectSavedDir() / TEXT("RokUnityMigration/ConfigTables/BuildingLevelData.json");
+	const FString LevelPath = RokDataPaths::Resolve(TEXT("ConfigTables/BuildingLevelData.json"));
 	if (!TestTrue(TEXT("Source building level rows exist"), FFileHelper::LoadFileToString(LevelJson, *LevelPath)))
 		return false;
 	TSharedPtr<FJsonObject> LevelRoot;

@@ -2,6 +2,7 @@
 
 #include "RokBuildingPanelWidget.h"
 #include "RokBuildingUpgradeSubsystem.h"
+#include "RokDataPaths.h"
 #include "RokMainHudWidget.h"
 #include "RokPlayerController.h"
 #include "RokServerSubsystem.h"
@@ -300,7 +301,7 @@ bool URokTaskDetailProjectionAuditSubsystem::Begin()
 		TEXT("Saved/RokUnityMigration/unity_runtime_bootstrap_state.json")};
 	for (const TCHAR* Path : Required)
 	{
-		const FString Hash = FileSha(FPaths::ProjectDir() / Path);
+		const FString Hash = FileSha(RokDataPaths::ResolveProjectPath(Path));
 		if (!Expect(Hash.Len() == 64, TEXT("Task audit source input missing"))) return false;
 		Inputs->SetStringField(Path, Hash);
 	}

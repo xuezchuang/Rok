@@ -1,11 +1,12 @@
 import json
 import re
 from pathlib import Path
+from rok_data_paths import DATA_ROOT, resolve
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 OUTPUT_DIR = PROJECT_ROOT / "Saved" / "RokUnityMigration"
-OUTPUT_JSON = OUTPUT_DIR / "unity_ui_catalog.json"
+OUTPUT_JSON = DATA_ROOT / "unity_ui_catalog.json"
 OUTPUT_MD = OUTPUT_DIR / "unity_ui_catalog.md"
 
 
@@ -79,14 +80,14 @@ UE_TEXTURE_TARGETS = [
 
 
 def read_text(relative_path):
-    path = PROJECT_ROOT / relative_path
+    path = resolve(relative_path)
     if not path.exists():
         return ""
     return path.read_text(encoding="utf-8", errors="ignore")
 
 
 def exists(relative_path):
-    return (PROJECT_ROOT / relative_path).exists()
+    return resolve(relative_path).exists()
 
 
 def parse_main_modules():

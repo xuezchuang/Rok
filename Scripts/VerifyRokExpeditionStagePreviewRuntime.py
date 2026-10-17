@@ -8,9 +8,10 @@ import json
 import math
 import pathlib
 import struct
+from rok_data_paths import DATA_ROOT, resolve
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-CATALOG = ROOT / "Saved/RokUnityMigration/expedition_stage_preview.json"
+CATALOG = DATA_ROOT / "expedition_stage_preview.json"
 PHASES = [
     "01_normal_stage1_open", "02_preview_stage1_start",
     "03_preview_stage1_mid", "04_preview_stage1_end",
@@ -215,7 +216,7 @@ def verify(run: pathlib.Path) -> dict:
          and set(manifest["source_stage_ids"]) == {1, 2}
          and {1, 2}.issubset(stage_ids), "Source stage identity")
     for relative, expected in source["source_files_sha256"].items():
-        path = ROOT / relative
+        path = resolve(relative)
         need(path.is_file() and sha(path) == expected, f"Unity source drift: {relative}")
     pins = manifest["inputs_sha256"]
     required = {"Scripts/VerifyRokExpeditionStagePreviewRuntime.py",
@@ -224,7 +225,7 @@ def verify(run: pathlib.Path) -> dict:
                 "Source/Rok/RokExpeditionStagePreviewAuditSubsystem.cpp"}
     need(required.issubset(pins), "Missing runtime producer/input pin")
     for relative, expected in pins.items():
-        path = ROOT / relative
+        path = resolve(relative)
         need(path.is_file() and sha(path) == expected, f"Runtime input drift: {relative}")
     baseline = manifest["initial_business_state"]
     curves = source["animation_zero_tangent_hermite_curves"]

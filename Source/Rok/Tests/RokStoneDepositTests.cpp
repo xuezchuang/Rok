@@ -6,6 +6,7 @@
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "Dom/JsonObject.h"
+#include "../RokDataPaths.h"
 #include "../RokStoneDepositData.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRokStoneNativeZoomTest,
@@ -64,7 +65,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRokStoneMalformedDataTest,
 bool FRokStoneMalformedDataTest::RunTest(const FString& Parameters)
 {
 	FString Original;
-	if (!FFileHelper::LoadFileToString(Original, *(FPaths::ProjectSavedDir() / TEXT("RokUnityMigration/unity_stone_deposit.json")))) return false;
+	if (!FFileHelper::LoadFileToString(Original, *(RokDataPaths::Resolve(TEXT("unity_stone_deposit.json"))))) return false;
 	for (int32 Case = 0; Case < 9; ++Case)
 	{
 		TSharedPtr<FJsonObject> Root;

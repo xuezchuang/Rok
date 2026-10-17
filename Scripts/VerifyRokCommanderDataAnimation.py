@@ -6,6 +6,7 @@ UE5.8 and capture the real HUD commander entry for runtime/visual acceptance.
 import json
 import hashlib
 from pathlib import Path
+from rok_data_paths import resolve
 
 from BuildRokUnityUiAnimationManifest import Builder
 
@@ -26,7 +27,7 @@ def main():
     # This legacy mediator is not UTF-8. Verify its ASCII call without changing
     # or lossy-decoding reference source bytes.
     mediator_path = SCRIPT + "Captain/CaptainMediator.cs"
-    mediator = (ROOT / mediator_path).read_bytes()
+    mediator = resolve(mediator_path).read_bytes()
     assert b"view.m_UI_Item_CaptainData.Open();" in mediator
     builder.sources[mediator_path] = {"path": mediator_path,
         "sha256": hashlib.sha256(mediator).hexdigest(), "bytes": len(mediator)}

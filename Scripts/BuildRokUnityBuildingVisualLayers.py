@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from PIL import Image, ImageFilter
+from rok_data_paths import DATA_ROOT, label
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -9,13 +10,13 @@ OUTPUT_DIR = PROJECT_ROOT / "Saved" / "RokUnityMigration"
 LAYER_OUTPUT_DIR = OUTPUT_DIR / "CityBuildingVisualLayers"
 OUTPUT_JSON = OUTPUT_DIR / "unity_building_visual_layers.json"
 OUTPUT_MD = OUTPUT_DIR / "unity_building_visual_layers.md"
-INIT_BUILDING_RESOLUTION_PATH = OUTPUT_DIR / "unity_gameapp_city_init_building_resolution.json"
+INIT_BUILDING_RESOLUTION_PATH = DATA_ROOT / "unity_gameapp_city_init_building_resolution.json"
 
 UNITY_BUILDING_ROOT = PROJECT_ROOT / "ref" / "client-unity" / "Assets" / "BundleAssets" / "Map" / "Building" / "Building_use" / "shared_building" / "Building_101" / "city_building_1"
 
 
 def rel(path):
-    return str(path.relative_to(PROJECT_ROOT)).replace("\\", "/")
+    return label(path)
 
 
 def load_json(path):

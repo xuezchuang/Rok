@@ -16,6 +16,7 @@ import uuid
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
+from rok_data_paths import resolve
 from typing import Any
 
 
@@ -83,7 +84,7 @@ def project_path(value: str | None) -> Path | None:
     normalized = value.replace("\\", "/")
     if normalized.startswith("Assets/"):
         return ROOT / "ref" / "client-unity" / normalized
-    return ROOT / normalized
+    return resolve(normalized)
 
 
 def source_file(value: str | None, role: str, expected_sha: str | None = None) -> dict[str, Any]:
@@ -534,7 +535,7 @@ def verify(directory: Path, require_ready: bool) -> int:
             "closure schema differs")
     require(report["catalog_sha256"] == sha256(directory / "catalog.json"), "catalog changed after generation")
     for key, relative in catalog["input_paths"].items():
-        require(sha256(ROOT / relative) == catalog["input_sha256"][key], f"input hash changed: {relative}")
+        require(sha256(resolve(relative)) == catalog["input_sha256"][key], f"input hash changed: {relative}")
     rows = catalog["rows"]
     require(len(rows) == 32 and len({row["source_key"] for row in rows}) == 32,
             "row identity or count differs")
@@ -550,7 +551,7 @@ def verify(directory: Path, require_ready: bool) -> int:
     dynamic_models = {row["model_id"]: row for row in load(RESOURCE_SOURCES)["models"]}
     for row in rows:
         if row["category"] == "dynamic_local_new":
-            require(sha256(ROOT / row["source_mesh_manifest"]) == row["source_mesh_manifest_sha256"],
+            require(sha256(resolve(row["source_mesh_manifest"])) == row["source_mesh_manifest_sha256"],
                     f"source mesh manifest changed: {row['source_key']}")
             prefab = dynamic_models[row["model_id"]]["prefab"]
             root_node = next(node for node in prefab["nodes"] if node["file_id"] == prefab["root_game_object_file_id"])

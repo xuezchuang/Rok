@@ -3,6 +3,7 @@
 #include "RokBuildingUpgradeSubsystem.h"
 #include "RokCityConstructionGrid.h"
 #include "RokCitySpriteActor.h"
+#include "RokDataPaths.h"
 #include "RokTrainArmyMeshData.h"
 #if WITH_EDITOR
 #include "AssetCompilingManager.h"
@@ -90,7 +91,7 @@ bool Rotation(const JObject& Owner, FQuat4d& Out)
 
 bool LoadPinned(const FString& Relative, const TCHAR* Expected, JObject& Out, FString& Error)
 {
-	const FString Path = FPaths::ProjectDir() / Relative;
+	const FString Path = RokDataPaths::ResolveProjectPath(Relative);
 	TArray<uint8> Bytes;
 	FString Text;
 	if (!FFileHelper::LoadFileToArray(Bytes, *Path) || Bytes.Num() > 32 * 1024 * 1024

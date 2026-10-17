@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+from rok_data_paths import resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNS = ROOT / "Saved/RokUnityMigration/MailAttachmentPulseAudit"
@@ -55,7 +56,7 @@ def verify(path):
     recorded_sha = runtime.get("geometry_source_sha256")
     assert (recorded_sha == approved_sha if contract == "mail_native_final_v2"
             else recorded_sha in (None, approved_sha)), "runtime approved source SHA"
-    native_path = ROOT / source
+    native_path = resolve(source)
     assert sha(native_path) == approved_sha, "native evidence changed after strict review"
     native = json.loads(native_path.read_text(encoding="utf-8"))
     assert native["complete"] and native["failure"] in (None, ""), "native probe incomplete"

@@ -3,6 +3,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Containers/StringConv.h"
+#include "../RokDataPaths.h"
 #include "../RokTaskChapterRewardPreviewData.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRokTaskChapterRewardPreviewTest,
@@ -44,8 +45,7 @@ bool FRokTaskChapterRewardPreviewTest::RunTest(const FString&)
 	TestEqual(TEXT("Failed task lookup clears output"), Group.Rows.Num(), 0);
 
 	TArray<uint8> SourceBytes;
-	const FString CatalogPath = FPaths::ProjectSavedDir() /
-		TEXT("RokUnityMigration/TaskChapterRewardPreview/v1/catalog.json");
+	const FString CatalogPath = RokDataPaths::Resolve(TEXT("TaskChapterRewardPreview/v1/catalog.json"));
 	if (!TestTrue(TEXT("Read generated catalog, never mutate it"),
 		FFileHelper::LoadFileToArray(SourceBytes, *CatalogPath))) return false;
 	if (!TestTrue(TEXT("Exact bytes pass identity and schema"),

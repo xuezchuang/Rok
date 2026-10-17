@@ -1,17 +1,18 @@
 import json
 from pathlib import Path, PurePosixPath
+from rok_data_paths import DATA_ROOT, label
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 MIGRATION_ROOT = PROJECT_ROOT / "Saved" / "RokUnityMigration"
-CONFIG_ROOT = MIGRATION_ROOT / "ConfigTables"
+CONFIG_ROOT = DATA_ROOT / "ConfigTables"
 UNITY_CLIENT_ROOT = PROJECT_ROOT / "ref" / "client-unity"
 
 INIT_BUILDING_PATH = CONFIG_ROOT / "InitBuilding.json"
 BUILDING_MODEL_PATH = CONFIG_ROOT / "BuildingModelData.json"
 RUNTIME_BUILDINGS_PATH = MIGRATION_ROOT / "unity_runtime_city_buildings_obj_manifest.json"
 RUNTIME_BOUNDARY_PATH = MIGRATION_ROOT / "unity_runtime_boundary_obj_manifest.json"
-OUTPUT_PATH = MIGRATION_ROOT / "unity_initial_building_visual_resolution.json"
+OUTPUT_PATH = DATA_ROOT / "unity_initial_building_visual_resolution.json"
 
 CIV_TYPE = 101
 AGE = 1
@@ -158,7 +159,7 @@ def main():
                 "representation": "runtime_boundary_mesh_collection",
                 "resolution": "unity_runtime_boundary_obj_manifest",
                 "sprite_name": "",
-                "source_manifest": str(RUNTIME_BOUNDARY_PATH.relative_to(PROJECT_ROOT)).replace("\\", "/"),
+                "source_manifest": label(RUNTIME_BOUNDARY_PATH),
                 "boundary_object_count": len(boundary_records),
                 "container_yaw": runtime_boundary.get("container_yaw"),
             })
@@ -210,7 +211,7 @@ def main():
             "representation": "runtime_sprite_renderer_card",
             "resolution": "unity_prefab_sprite_renderer",
             "sprite_name": sprite_name,
-            "source_manifest": str(RUNTIME_BUILDINGS_PATH.relative_to(PROJECT_ROOT)).replace("\\", "/"),
+            "source_manifest": label(RUNTIME_BUILDINGS_PATH),
             "prefab_path": prefab_path,
             "renderer_name": source.get("renderer_name", ""),
             "renderer_path": source.get("renderer_path", ""),
@@ -253,10 +254,10 @@ def main():
         "civ_type": CIV_TYPE,
         "age": AGE,
         "source_files": {
-            "init_building": str(INIT_BUILDING_PATH.relative_to(PROJECT_ROOT)).replace("\\", "/"),
-            "building_model_data": str(BUILDING_MODEL_PATH.relative_to(PROJECT_ROOT)).replace("\\", "/"),
-            "runtime_buildings": str(RUNTIME_BUILDINGS_PATH.relative_to(PROJECT_ROOT)).replace("\\", "/"),
-            "runtime_boundary": str(RUNTIME_BOUNDARY_PATH.relative_to(PROJECT_ROOT)).replace("\\", "/"),
+            "init_building": label(INIT_BUILDING_PATH),
+            "building_model_data": label(BUILDING_MODEL_PATH),
+            "runtime_buildings": label(RUNTIME_BUILDINGS_PATH),
+            "runtime_boundary": label(RUNTIME_BOUNDARY_PATH),
         },
         "building_count": len(records),
         "runtime_sprite_building_count": len(sprite_init_ids),

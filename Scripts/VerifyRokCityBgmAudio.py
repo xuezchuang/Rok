@@ -8,6 +8,7 @@ import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from rok_data_paths import resolve
 
 import unreal
 
@@ -87,7 +88,7 @@ def verify(args) -> dict:
     import ImportRokCityBgmAudio as importer
     pins = manifest["input_pins"]
     fresh_inputs = importer.validate_native_inputs(
-        ROOT / pins["run"], ROOT / pins["strict_verify_report"], pins["strict_verify_sha256"])
+        resolve(pins["run"]), resolve(pins["strict_verify_report"]), pins["strict_verify_sha256"])
     for key in ("native_manifest_sha256", "strict_verify_sha256", "contract_sha256", "probe_state_sha256", "exporter_sha256"):
         if fresh_inputs.get(key) != pins.get(key):
             raise RuntimeError(f"native audio input chain changed after import: {key}")

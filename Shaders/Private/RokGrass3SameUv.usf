@@ -1,3 +1,4 @@
+#include "/Engine/Public/Platform.ush"
 #include "/Rok/Private/RokGrass3SameUvPoints.ush"
 
 Texture2D SourceAtlas;

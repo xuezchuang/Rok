@@ -1,6 +1,7 @@
 import hashlib
 import json
 from pathlib import Path
+from rok_data_paths import resolve
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -31,7 +32,7 @@ def main():
     else:
         manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
 
-    import_script = PROJECT_ROOT / manifest.get("ue_import_script", "")
+    import_script = resolve(manifest.get("ue_import_script", ""))
     if not import_script.exists():
         failures.append("missing UE HUD atlas import script: {0}".format(import_script))
 
@@ -46,14 +47,14 @@ def main():
             failures.append("duplicate sprite mapping: {0}".format(identity))
         seen.add(identity)
 
-        source_path = PROJECT_ROOT / sprite.get("source_atlas", "")
+        source_path = resolve(sprite.get("source_atlas", ""))
         if not source_path.exists():
             failures.append("missing source atlas: {0}".format(source_path))
             continue
         if sha256_file(source_path) != sprite.get("source_atlas_sha256"):
             failures.append("source atlas hash drift: {0}".format(source_path))
 
-        meta_path = PROJECT_ROOT / sprite.get("source_meta", "")
+        meta_path = resolve(sprite.get("source_meta", ""))
         if not meta_path.exists():
             failures.append("missing source atlas metadata: {0}".format(meta_path))
         elif sha256_file(meta_path) != sprite.get("source_meta_sha256"):

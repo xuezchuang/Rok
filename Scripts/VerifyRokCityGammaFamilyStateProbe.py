@@ -7,6 +7,7 @@ import json
 import re
 import shutil
 from pathlib import Path
+from rok_data_paths import resolve
 
 from PIL import Image
 
@@ -92,7 +93,7 @@ def contract() -> dict:
          "five-family source/input proof differs")
     files = list(base["source_files"])
     for rel in SCRIPTS:
-        path = ROOT / rel
+        path = resolve(rel)
         meta = Path(str(path) + ".meta")
         need(path.is_file() and meta.is_file(), f"source script/.meta absent: {rel}")
         match = re.search(r"(?m)^guid:\s*([0-9a-fA-F]{32})\s*$", meta.read_text(encoding="utf-8-sig"))
@@ -123,7 +124,7 @@ def prepare() -> None:
     if not path.exists() or read(path) != c:
         path.write_text(json.dumps(c, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     for item in c["source_files"]:
-        src = ROOT / item["source_path"]
+        src = resolve(item["source_path"])
         dst = PROBE / item["probe_path"]
         dst.parent.mkdir(parents=True, exist_ok=True)
         for a, b, digest in ((src, dst, item["source_sha256"]),

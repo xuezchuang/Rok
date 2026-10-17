@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
+from rok_data_paths import resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 PROBE = ROOT / "Saved/UnityCityHallCameraMaterialProbeV1"
@@ -77,7 +78,7 @@ def object_guid(path: Path) -> str:
 def main() -> None:
     need(EXPORTER.is_file() and SHADER.is_file() and VERIFY.is_file(), "New exporter/shader/verifier absent")
     for source, digest in PINNED.items():
-        need(sha(ROOT / source) == digest, f"Pinned source changed: {source}")
+        need(sha(resolve(source)) == digest, f"Pinned source changed: {source}")
     camera_sha = sha(NATIVE_CAMERA)
     camera_verified = NATIVE_CAMERA.parent / "verified_camera_lod_v2.json"
     need(json.loads(camera_verified.read_text(encoding="utf-8"))["passed"] is True, "NativeCamera2 not strictly verified")
@@ -159,9 +160,9 @@ def main() -> None:
                      "source_sha256": sha(original)})
         camera_matrix_paths[name + "_path"] = "ProbeInputs/" + name + ".f32le"
     geometry_paths = {
-        "positions": ROOT / geometry["positions"]["path"],
-        "uv0": ROOT / geometry["uv_channels"][0]["binary"]["path"],
-        "indices": ROOT / geometry["indices"]["binary"]["path"],
+        "positions": resolve(geometry["positions"]["path"]),
+        "uv0": resolve(geometry["uv_channels"][0]["binary"]["path"]),
+        "indices": resolve(geometry["indices"]["binary"]["path"]),
     }
     for name, original in geometry_paths.items():
         copied = PROBE / "ProbeInputs" / ("hall_" + name + ".bin")

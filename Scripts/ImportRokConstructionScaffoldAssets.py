@@ -20,7 +20,7 @@ import VerifyRokConstructionScaffoldAssets as verify
 WORLD = "L_RokUnityGameAppCity"
 APPLY_ENV = "ROK_SCAFFOLD_ASSETS_APPLY"
 RESUME_ENV = "ROK_SCAFFOLD_ASSETS_RESUME_PROOF"
-REPORT = source.OUT / "ue_import_report.json"
+REPORT = source.DATA / "ue_import_report.json"
 
 
 def asset_file(asset_path):

@@ -3,6 +3,7 @@ import argparse,hashlib,json,math
 from pathlib import Path
 import numpy as np
 from PIL import Image
+from rok_data_paths import DATA_ROOT, resolve
 ROOT=Path(__file__).resolve().parents[1]
 PARENT_SOURCE=ROOT/'Saved/UnityBarracksParentWindowProbe/Artifacts/native_20260925_111125_541/render_evidence.json'
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
@@ -23,17 +24,17 @@ def verify(directory):
     body_rect,header_rect=((177.,139.2,720.,800.),(160.,108.,720.,168.)) if layout_contract=='legacy_type2_v1_unversioned' else source_type9_parent_rects()
     assert m['passed'] and m['complete'] and not m['failures'] and m['capture_includes_slate_ui'] and m['owns_target_world']
     assert Path(m['project']).resolve()==ROOT.resolve() and m['world']=='/Game/Maps/L_RokUnityGameAppCity'
-    sourcepath=ROOT/'Saved/RokUnityMigration/barracks_upgrade_attribute.json';source=json.loads(sourcepath.read_text(encoding='utf-8-sig'))
+    sourcepath=DATA_ROOT / 'barracks_upgrade_attribute.json';source=json.loads(sourcepath.read_text(encoding='utf-8-sig'))
     assert source['building_type']==9 and source['current_level']==1 and source['next_level']==2
     assert [(r['current'],r['delta']) for r in source['rows']]==[(20,30),(5,5)]
     assert source['row_height']==40 and source['attribute_height']==110
     assert source['omitted_attack']['current']==source['omitted_attack']['next']==0
     for s in source['sources']:
-        f=(ROOT/s['path']).resolve();assert f.is_relative_to(ROOT.resolve()) and sha(f)==s['sha256']
+        f=resolve(s['path']).resolve();assert f.is_relative_to(ROOT.resolve()) and sha(f)==s['sha256']
     native_path=ROOT/'Saved/UnityBarracksUpgradeAttributeNativeReferenceProbe/Artifacts/native_20260912_130037_811/render_evidence.json'
     native=json.loads(native_path.read_text(encoding='utf-8-sig'));assert native['nativeRendered'] and not native['failure'] and native['levelArrowMirrored']
     assert native['levelBefore']['text']=='等级1' and native['levelAfter']['text']=='2'
-    glyphpath=ROOT/'Saved/RokUnityMigration/BarracksSourceText/texts.json'
+    glyphpath=DATA_ROOT / 'BarracksSourceText/texts.json'
     glyphs={g['key']:g for g in json.loads(glyphpath.read_text(encoding='utf-8'))['texts']}
     assert len(glyphs)==6
     for key in ['level_before','level_after']:

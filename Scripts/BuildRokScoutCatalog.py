@@ -6,9 +6,10 @@ import re
 from pathlib import Path
 from BuildRokUnityEconomyCatalog import read_language_lookup, localized_text
 from BuildRokUnityUiAnimationManifest import Builder, unity_blocks, field, referenced_id
+from rok_data_paths import DATA_ROOT, label, resolve
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / 'Saved/RokUnityMigration/scout_catalog.json'
+OUT = DATA_ROOT / 'scout_catalog.json'
 UI = 'ref/client-unity/Assets/BundleAssets/UI/'
 CSV = 'ref/config-tables/编译客户端配置/CSV/'
 MEDIATOR = 'ref/client-unity/Assets/Scripts/Hotfix/MVC/View_Mediator/UIScout/UI_Win_ScoutMediator.cs'
@@ -67,7 +68,7 @@ def build(write=True):
     b.read(UI + 'UIAnimation/shared_uianimation/UA_WinAnime_T1.controller')
     language, _ = read_language_lookup()
     language_path = 'ref/config-tables/s_Language.xlsm'
-    b.sources[language_path] = {'path': language_path, 'sha256': hashlib.sha256((ROOT / language_path).read_bytes()).hexdigest()}
+    b.sources[language_path] = {'path': language_path, 'sha256': hashlib.sha256(resolve(language_path).read_bytes()).hexdigest()}
     b.read('ref/client-unity/Assets/Scripts/Client/Compoment/ArabLayout/ArabLayoutCompment.cs')
     b.read('ref/client-unity/Assets/Scripts/Client/Compoment/UIExtend/LanguageText.cs')
     text = {str(key): localized_text(language, key, 'cn') for key in [180021, 181002, 181144, 181145, 181147, 181151, 181156, 181157, 181158, 181164]}
@@ -77,19 +78,19 @@ def build(write=True):
                     'body': ('ui_frame', '-4541723960758869015'), 'header': ('ui_frame', '-7211365897215382766')}
     sprites = {}
     for role, (atlas, identity) in sprite_specs.items():
-        sheets = list((ROOT / UI).rglob(atlas + '.tpsheet'))
+        sheets = list(resolve(UI).rglob(atlas + '.tpsheet'))
         assert len(sheets) == 1, (atlas, sheets)
         sheet = sheets[0]
-        meta = b.read(sheet.with_suffix('.png.meta').relative_to(ROOT).as_posix())
+        meta = b.read(label(sheet.with_suffix('.png.meta')))
         ids = dict(re.findall(r'213: (-?\d+)\n\s+second: (\S+)', meta))
         name = ids[identity]
-        lines = b.read(sheet.relative_to(ROOT).as_posix()).splitlines()
+        lines = b.read(label(sheet)).splitlines()
         rect = list(map(int, next(line for line in lines if line.startswith(name + ';')).split(';')[1:5]))
         size = list(map(int, next(line for line in lines if line.startswith(':size='))[6:].split('x')))
         target = '/Game/RokPrototype/UI/' + ('MainHudAtlases/rok_hud_atlas_common' if atlas == 'ui_common' else 'ModalAtlases/rok_modal_atlas_frame')
-        sprites[role] = {'name': name, 'file_id': identity, 'source': sheet.with_suffix('.png').relative_to(ROOT).as_posix(), 'rect': rect, 'size': size, 'target': target}
+        sprites[role] = {'name': name, 'file_id': identity, 'source': label(sheet.with_suffix('.png')), 'rect': rect, 'size': size, 'target': target}
         image_path = sprites[role]['source']
-        b.sources[image_path] = {'path': image_path, 'sha256': hashlib.sha256((ROOT / image_path).read_bytes()).hexdigest()}
+        b.sources[image_path] = {'path': image_path, 'sha256': hashlib.sha256(resolve(image_path).read_bytes()).hexdigest()}
     result = {'building_type': 28, 'menu': route, 'building': building, 'levels': levels, 'text': text,
               'layouts': layouts, 'arabic_flags': arabic_flags, 'text_styles': text_styles,
               'sprites': sprites, 'animations': animations, 'sources': b.sources,

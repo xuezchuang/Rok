@@ -6,6 +6,9 @@ import json
 from pathlib import Path
 
 import unreal
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from rok_data_paths import DATA_ROOT, resolve  # noqa: E402
 
 ROOT = Path("D:/ueDemo/Rok")
 DEST = "/Game/RokUnityWorldMapPrototype/TileRipple"
@@ -15,7 +18,7 @@ SOURCE = ROOT / "ref/client-unity/Assets/BundleAssets/land/Texture/Ring_07.png"
 SOURCE_SHA = "1112dbcab4e82c35afb4686153aff77b0ae1397695bc466f99db24ccea7d1237"
 META = Path(str(SOURCE) + ".meta")
 META_SHA = "d2676b0686754f92d55e4d2b9b39cee0850b6597f4e9bf4e8f9cdd3d4d176a6e"
-REPORT = ROOT / "Saved/PendingUnityTileRippleRendererV8/asset_import_manifest.json"
+REPORT = DATA_ROOT / "TileRippleRendererV8/asset_import_manifest.json"
 
 
 def check_identity() -> None:
@@ -109,7 +112,7 @@ def main() -> None:
         packages = []
         for name in (TEXTURE_NAME, MATERIAL_NAME):
             relative = f"Content/RokUnityWorldMapPrototype/TileRipple/{name}.uasset"
-            payload = (ROOT / relative).read_bytes()
+            payload = (resolve(relative)).read_bytes()
             packages.append({"path": relative, "sha256": hashlib.sha256(payload).hexdigest(),
                              "byte_count": len(payload)})
         script = ROOT / "Scripts/CreateRokTileRippleDiagnosticAssets.py"

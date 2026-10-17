@@ -9,6 +9,7 @@ import json
 import re
 from functools import lru_cache
 from pathlib import Path
+from rok_data_paths import resolve
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1] if Path(__file__).resolve().parent.name == "Scripts" else Path(__file__).resolve().parents[2]
@@ -37,7 +38,7 @@ def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 
 def checked(relative):
     need(relative and not Path(relative).is_absolute() and ".." not in Path(relative).parts, "path escape")
-    path = (ROOT / relative).resolve(strict=True)
+    path = resolve(relative).resolve(strict=True)
     need(ROOT.resolve() in path.parents and path.is_file(), "input outside project")
     return path
 

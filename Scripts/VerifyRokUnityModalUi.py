@@ -1,6 +1,7 @@
 import hashlib
 import json
 from pathlib import Path
+from rok_data_paths import resolve
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -32,16 +33,16 @@ def main():
         manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
 
     for label, relative_path in manifest.get("source_prefabs", {}).items():
-        source_path = PROJECT_ROOT / relative_path
+        source_path = resolve(relative_path)
         if not source_path.exists():
             failures.append("missing source prefab {0}: {1}".format(label, source_path))
 
     for label, relative_path in manifest.get("source_runtime", {}).items():
-        source_path = PROJECT_ROOT / relative_path
+        source_path = resolve(relative_path)
         if not source_path.exists():
             failures.append("missing source runtime {0}: {1}".format(label, source_path))
 
-    import_script = PROJECT_ROOT / manifest.get("ue_import_script", "")
+    import_script = resolve(manifest.get("ue_import_script", ""))
     if not import_script.exists():
         failures.append("missing modal UI import script: {0}".format(import_script))
 
@@ -56,8 +57,8 @@ def main():
             failures.append("duplicate modal sprite mapping: {0}".format(identity))
         seen.add(identity)
 
-        source_path = PROJECT_ROOT / sprite.get("source_atlas", "")
-        meta_path = PROJECT_ROOT / sprite.get("source_meta", "")
+        source_path = resolve(sprite.get("source_atlas", ""))
+        meta_path = resolve(sprite.get("source_meta", ""))
         if not source_path.exists():
             failures.append("missing modal source atlas: {0}".format(source_path))
             continue
@@ -85,7 +86,7 @@ def main():
             failures.append("missing UE modal atlas target for {0}: {1}".format(identity, target_path))
 
     for texture in manifest.get("independent_textures", []):
-        source_path = PROJECT_ROOT / texture.get("source", "")
+        source_path = resolve(texture.get("source", ""))
         if not source_path.exists():
             failures.append("missing independent modal texture: {0}".format(source_path))
         elif sha256_file(source_path) != texture.get("source_sha256"):

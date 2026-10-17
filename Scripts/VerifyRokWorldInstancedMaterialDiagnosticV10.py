@@ -16,6 +16,7 @@ import tempfile
 import zlib
 from collections import defaultdict
 from pathlib import Path
+from rok_data_paths import resolve
 from PrepareWorldInstancedAliasContractV7 import make_template, make_actual_alias
 
 
@@ -548,7 +549,7 @@ def verify_stage_pins(runtime: bool = False) -> dict:
     require({row["path"] for row in ready["read_only_input_pins"]} == expected_sources,
             "six read-only Source input paths differ")
     for record in ready["stage_files"] + ready["read_only_input_pins"]:
-        path = ROOT / record["path"]
+        path = resolve(record["path"])
         require(path.is_file() and path.stat().st_size == record["bytes"]
                 and sha(path) == record["sha256"],
                 "visibility stage/read-only input bytes differ: " + record["path"])
@@ -1057,7 +1058,7 @@ def verify_local_only_boundary(record: dict, where: str) -> None:
 def normalize_run_directory(value: str) -> Path:
     candidate = Path(value)
     if not candidate.is_absolute():
-        candidate = ROOT / candidate
+        candidate = resolve(candidate)
     resolved = candidate.resolve()
     require(resolved == ROOT or ROOT in resolved.parents,
             f"runtime run directory escapes project root: {value}")

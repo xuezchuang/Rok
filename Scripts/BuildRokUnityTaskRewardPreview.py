@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 
 from BuildRokUnityEconomyCatalog import localized_text, read_language_lookup
+from rok_data_paths import DATA_ROOT, label
 
 ROOT = Path(__file__).resolve().parents[1]
 CSV_ROOT = ROOT / "ref/config-tables/编译客户端配置/CSV"
@@ -19,7 +20,7 @@ SHEET = ROOT / "ref/client-unity/Assets/BundleAssets/UI/UITextureStatic/ui_res_c
 PROXY = ROOT / "ref/client-unity/Assets/Scripts/Hotfix/MVC/Proxy/RewardGroupProxy.cs"
 MEDIATOR = ROOT / "ref/client-unity/Assets/Scripts/Hotfix/MVC/View_Mediator/UIQuest/UI_Win_QuestMediator.cs"
 LANGUAGE_PARSER = ROOT / "Scripts/BuildRokUnityEconomyCatalog.py"
-OUTPUT = ROOT / "Saved/RokUnityMigration/task_reward_preview.json"
+OUTPUT = DATA_ROOT / "task_reward_preview.json"
 SOURCES = (TASK, PACKAGE, CURRENCY, LANGUAGE, SHEET, PROXY, MEDIATOR, LANGUAGE_PARSER, Path(__file__))
 
 
@@ -103,7 +104,7 @@ def build() -> dict:
         "resolver": "RewardGroupProxy.GetRewardDataByGroup(sort:true): contiguous ItemPackageShow IDs, Currency ID order",
         "atlas_asset": "/Game/RokPrototype/UI/MainHudAtlases/rok_hud_atlas_common.rok_hud_atlas_common",
         "entries": entries,
-        "sources": [{"path": path.relative_to(ROOT).as_posix(), "sha256": sha(path)} for path in SOURCES],
+        "sources": [{"path": label(path), "sha256": sha(path)} for path in SOURCES],
     }
 
 

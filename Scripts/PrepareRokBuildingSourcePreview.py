@@ -6,6 +6,7 @@ import shutil
 import struct
 import subprocess
 from pathlib import Path
+from rok_data_paths import resolve
 from BuildRokUnityEconomyCatalog import read_language_lookup, localized_text, LANGUAGE_WORKBOOK
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -175,7 +176,7 @@ namespace UnityEngine.UI
     copy(renderer, 'Assets/Editor/' + renderer.name)
     from BuildRokBuildingSourcePreview import build
     contract=build()
-    for entry in contract['sources']:record(ROOT/entry['path'])
+    for entry in contract['sources']:record(resolve(entry['path']))
     manifest={'scope':'Explicit existing Init6 scene model presentation only; not player country or full building upgrade window acceptance.',
         'prefab':LANG+'UI_Win_BuildingUpdate.prefab','buildingPrefab':ITEM,'modelId':contract['model_id'],
         'width':1440,'height':810,'texts':entries,'sources':sources,'byte_identical_copies':copies,

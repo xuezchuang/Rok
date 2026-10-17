@@ -3,6 +3,7 @@ import csv
 import json
 from pathlib import Path
 from BuildRokUnityEconomyCatalog import read_language_lookup, localized_text
+from rok_data_paths import DATA_ROOT
 
 ROOT = Path(__file__).resolve().parents[1]
 CSV = ROOT / 'ref/config-tables/编译客户端配置/CSV'
@@ -56,7 +57,7 @@ def build():
     result = {'source': 'BuildingDescMediator.ResBuildLevelInfo/GetPower; UI_Win_BuildingUpdateMediator.ReadBuildLevelInfo/GetPower', 'power_semantics': 'row.power; not cumulative',
               'barracks_attack_semantics': 'zero blank; positive raw permille / 1000 * 100 formatted with language 180357',
               'tables': tables, 'runtime_verified': False, 'visual_verified': False}
-    path = ROOT / 'Saved/RokUnityMigration/building_level_details.json'
+    path = DATA_ROOT / 'building_level_details.json'
     path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
     print(json.dumps({'tables': 5, 'rows': 125, 'output': str(path)}))
 

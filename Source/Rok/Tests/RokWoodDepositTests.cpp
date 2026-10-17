@@ -6,6 +6,7 @@
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "Dom/JsonObject.h"
+#include "../RokDataPaths.h"
 #include "../RokWoodDepositData.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRokWoodNativeZoomTest,
@@ -57,7 +58,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRokWoodMalformedDataTest,
 bool FRokWoodMalformedDataTest::RunTest(const FString& Parameters)
 {
 	FString Original;
-	if (!FFileHelper::LoadFileToString(Original, *(FPaths::ProjectSavedDir() / TEXT("RokUnityMigration/unity_wood_deposit.json")))) return false;
+	if (!FFileHelper::LoadFileToString(Original, *(RokDataPaths::Resolve(TEXT("unity_wood_deposit.json"))))) return false;
 	for (int32 Case = 0; Case < 6; ++Case)
 	{
 		TSharedPtr<FJsonObject> Root;

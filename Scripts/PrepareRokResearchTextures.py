@@ -7,11 +7,12 @@ import shutil
 from pathlib import Path
 
 from PIL import Image
+from rok_data_paths import DATA_ROOT, label
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / 'ref/client-unity/Assets/BundleAssets/UI/UITextureStatic'
 OUT = ROOT / 'Saved/RokUiProcessed/ResearchAtlases'
-REPORT = ROOT / 'Saved/RokUnityMigration/ResearchNative/atlas_manifest.json'
+REPORT = DATA_ROOT / 'ResearchNative/atlas_manifest.json'
 RESEARCH = SOURCE / 'ui_res_research'
 HUD = SOURCE / 'ui_res_map/ui_hud.png'
 MENU = ROOT / 'ref/config-tables/编译客户端配置/CSV/BuildingMenuData.csv'
@@ -36,7 +37,7 @@ def sheet(path):
 
 def main():
     assert OUT.resolve().is_relative_to((ROOT / 'Saved').resolve())
-    assert REPORT.resolve().is_relative_to((ROOT / 'Saved').resolve())
+    assert REPORT.resolve().is_relative_to(DATA_ROOT.resolve())
     OUT.mkdir(parents=True, exist_ok=True)
     REPORT.parent.mkdir(parents=True, exist_ok=True)
     atlases, sprites, sources = [], [], {}
@@ -50,15 +51,15 @@ def main():
         assert sha(dest) == sha(image)
         with Image.open(image) as im:
             size = {'width': im.width, 'height': im.height}
-        atlases.append({'atlasName': name, 'source': image.relative_to(ROOT).as_posix(),
-                        'sourceMeta': meta.relative_to(ROOT).as_posix(),
-                        'atlasSize': size, 'output': dest.relative_to(ROOT).as_posix(),
+        atlases.append({'atlasName': name, 'source': label(image),
+                        'sourceMeta': label(meta),
+                        'atlasSize': size, 'output': label(dest),
                         'ueAssetPath': ue_path, 'sha256': sha(image)})
         for path in (image, meta):
-            sources[path.relative_to(ROOT).as_posix()] = sha(path)
+            sources[label(path)] = sha(path)
         tpsheet = RESEARCH / (name + '.tpsheet')
         if tpsheet.exists():
-            sources[tpsheet.relative_to(ROOT).as_posix()] = sha(tpsheet)
+            sources[label(tpsheet)] = sha(tpsheet)
             rects = sheet(tpsheet)
         else:
             rects = {name: dict(x=0, y=0, width=size['width'], height=size['height'])}
@@ -88,13 +89,13 @@ def main():
         crop = rgba.crop((x, rgba.height-y-h, x+w, rgba.height-y))
         crop.save(menu_output)
     for path in (HUD, HUD.with_suffix('.tpsheet'), HUD.with_suffix('.png.meta'), MENU, TABLE):
-        sources[path.relative_to(ROOT).as_posix()] = sha(path)
+        sources[label(path)] = sha(path)
     report = {'schema': 'rok.research.atlas.v1',
               'coordinateSystem': 'rect uses Unity/TexturePacker bottom-left pixels; slateUV uses top-left normalized coordinates',
               'atlases': atlases, 'sprites': sprites,
               'menuIcon': {'buildingType': 13, 'menuId': 110, 'sourceReference': menu['btnIcon'],
-                           'sourceAtlas': HUD.relative_to(ROOT).as_posix(), 'rect': rect,
-                           'output': menu_output.relative_to(ROOT).as_posix(),
+                           'sourceAtlas': label(HUD), 'rect': rect,
+                           'output': label(menu_output),
                            'ueAssetPath': '/Game/RokPrototype/UI/BuildingMenu/rok_building_menu_research',
                            'sha256': sha(menu_output)},
               'sources': sources}

@@ -7,6 +7,7 @@ import math
 import os
 import struct
 from pathlib import Path
+from rok_data_paths import resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 PROBE = ROOT / "Saved/UnityCityHallWorldRasterProbeV1"
@@ -76,7 +77,7 @@ def transpose(a: list[list[float]]) -> list[list[float]]:
 
 
 def spec_copy(spec: dict, output: Path) -> dict:
-    source = ROOT / spec["path"]
+    source = resolve(spec["path"])
     need(sha(source) == spec["sha256"] and source.stat().st_size == spec["byte_count"] == spec["count"] * spec["stride_bytes"],
          f"Source typed binary differs: {source}")
     place(output, source.read_bytes())
@@ -123,8 +124,8 @@ def main() -> None:
     place(SHADER, SOURCE_SHADER.read_bytes())
     geom = {name: spec_copy(spec, PROBE / f"ProbeInputs/Geometry/{name}.bin") for name, spec in
             (("positions", row["positions"]), ("uv0", uv), ("indices", row["indices"]["binary"]))}
-    positions = list(struct.iter_unpack("<3f", (ROOT / row["positions"]["path"]).read_bytes()))
-    indices = list(struct.iter_unpack("<I", (ROOT / row["indices"]["binary"]["path"]).read_bytes()))
+    positions = list(struct.iter_unpack("<3f", (resolve(row["positions"]["path"])).read_bytes()))
+    indices = list(struct.iter_unpack("<I", (resolve(row["indices"]["binary"]["path"])).read_bytes()))
     need(len(positions) == 240 and all(i[0] < 240 for i in indices), "Hall source indices out of range")
     world_specs = []
     all_world_vertices = []
@@ -167,7 +168,7 @@ def main() -> None:
     fit_path = PROBE / "ProbeInputs/Matrices/shared_world_to_clip_column.f32le"
     place(fit_path, pack_matrix(column))
     for case in world_specs:
-        world = matrix((ROOT / case["world_matrix"]["source_path"]).read_bytes())
+        world = matrix((resolve(case["world_matrix"]["source_path"])).read_bytes())
         final = transpose(mul(column, world))
         target = PROBE / f"ProbeInputs/Matrices/{case['phase']}_source_to_clip_row.f32le"
         place(target, pack_matrix(final))

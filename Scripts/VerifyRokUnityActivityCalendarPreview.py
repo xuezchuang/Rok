@@ -11,6 +11,7 @@ import re
 import struct
 import sys
 from pathlib import Path
+from rok_data_paths import resolve
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -99,7 +100,7 @@ def main() -> int:
             errors.append(f"duplicate pinned source path: {source_path}")
             continue
         seen_source_paths.add(source_path)
-        path = ROOT / source_path
+        path = resolve(source_path)
         if not path.is_file():
             errors.append(f"pinned source missing: {source_path}")
         elif sha256(path) != source.get("sha256"):
@@ -113,7 +114,7 @@ def main() -> int:
     verify_script = ROOT / "Scripts/VerifyRokUnityActivityCalendarPreview.py"
 
     source_table = catalog.get("source_table", {})
-    csv_path = ROOT / source_table.get("path", "")
+    csv_path = resolve(source_table.get("path", ""))
     header, type_row, source_rows = load_csv(csv_path)
     catalog_rows = catalog.get("rows", [])
     source_ids = [row.get("ID", "") for row in source_rows]
@@ -167,7 +168,7 @@ def main() -> int:
                 errors.append(f"row {source_row.get('ID')}: {field} sheet path does not match asset key")
                 continue
             try:
-                atlas_size, sprites = sheet_cache.setdefault(sheet_path, load_sheet(ROOT / sheet_path))
+                atlas_size, sprites = sheet_cache.setdefault(sheet_path, load_sheet(resolve(sheet_path)))
             except Exception as exc:
                 errors.append(f"cannot parse {sheet_path}: {exc}")
                 continue
@@ -238,7 +239,7 @@ def main() -> int:
             errors.append(f"prefab does not reference declared Animator GUID {guid}")
         if not meta_path.is_file() or f"guid: {guid}" not in meta_path.read_text(encoding="utf-8-sig"):
             errors.append(f"Animator controller meta GUID mismatch: {controller_path}")
-        if not (ROOT / controller_path).is_file():
+        if not (resolve(controller_path)).is_file():
             errors.append(f"Animator controller asset missing: {controller_path}")
 
     checks = {

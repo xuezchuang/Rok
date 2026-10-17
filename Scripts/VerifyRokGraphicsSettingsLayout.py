@@ -2,13 +2,14 @@
 import json
 import re
 from pathlib import Path
+from rok_data_paths import resolve as data_resolve
 from BuildRokTrainParameterLayout import documents, vector
 from PrepareRokUiTextures import unity_sprite_rect
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = 'ref/client-unity/Assets/BundleAssets/UI/UIPrefabs/ui_prefabs_player/UIPlayerData/UI_Item_GraphicsSetting.prefab'
 
 def main():
-    docs = documents((ROOT / SOURCE).read_text(encoding='utf-8-sig'))
+    docs = documents(data_resolve(SOURCE).read_text(encoding='utf-8-sig'))
     objects = {k:v for k,v in docs.items() if v.startswith('GameObject:')}
     rects = {k:v for k,v in docs.items() if v.startswith('RectTransform:')}
     by_name = {}

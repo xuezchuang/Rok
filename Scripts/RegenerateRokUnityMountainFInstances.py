@@ -20,6 +20,7 @@ import importlib.util
 import json
 import struct
 from pathlib import Path
+from rok_data_paths import resolve
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -74,7 +75,7 @@ def read_json(path, schema):
 def source_file(record):
     if not isinstance(record, dict) or not isinstance(record.get("path"), str):
         raise RuntimeError("Source file record lacks a path")
-    path = (ROOT / record["path"]).resolve()
+    path = (resolve(record["path"])).resolve()
     if not path.is_relative_to(ROOT) or not path.is_file():
         raise RuntimeError(f"Source file is outside project or missing: {path}")
     if path.stat().st_size != record.get("size") or sha256(path) != record.get("sha256"):
@@ -235,11 +236,11 @@ def build_preflight():
     material_meta = Path(str(material_source) + ".meta")
     if f"guid: {geometry['body_render_node']['material_guid']}" not in material_meta.read_text(encoding="utf-8-sig"):
         raise RuntimeError("F source body material GUID changed")
-    source_meta_sha = sha256(ROOT / SOURCE_META)
+    source_meta_sha = sha256(resolve(SOURCE_META))
     if (source_meta_sha != upgrade["source_hashes"].get("source_meta_sha256")
             or sha256(texture_source) != product["source_hashes"].get("source_png_sha256")):
         raise RuntimeError("F Unity texture/source metadata changed")
-    prefab_path = (ROOT / source["source_prefab"]).resolve()
+    prefab_path = (resolve(source["source_prefab"])).resolve()
     if not prefab_path.is_relative_to(ROOT) or not prefab_path.is_file():
         raise RuntimeError("F source prefab path escaped project or is missing")
     prefab = prefab_path.read_text(encoding="utf-8-sig")
@@ -258,7 +259,7 @@ def build_preflight():
         raise RuntimeError("F decoded product/upgrade backup provenance changed")
     backup = Path(upgrade["backup"])
     if not backup.is_absolute():
-        backup = ROOT / backup
+        backup = resolve(backup)
     backup = backup.resolve()
     if not backup.is_relative_to(PRODUCT_PATH.parent / "BeforeUpgradeBackup") or not backup.is_file():
         raise RuntimeError("F original material backup path escaped dedicated product folder")

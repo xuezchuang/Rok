@@ -2,6 +2,7 @@ import json
 import os
 import re
 from pathlib import Path
+from rok_data_paths import resolve
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -183,7 +184,7 @@ def discover_boundary_assets(guid_index):
 
 
 def material_main_texture_guid(material_path):
-    path = PROJECT_ROOT / material_path
+    path = resolve(material_path)
     if not path.exists() or path.suffix.lower() != ".mat":
         return ""
     text = read_text(path)

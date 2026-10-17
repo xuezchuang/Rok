@@ -8,6 +8,7 @@ import json
 import math
 import re
 from pathlib import Path
+from rok_data_paths import resolve
 
 from PIL import Image, ImageChops
 
@@ -119,7 +120,7 @@ def main() -> None:
          sha(PROBE / "Assets/Editor/RenderRokConstructionScaffoldNative.cs"),
          "Scaffold contract/project/renderer identity differs")
     need(contract["camera_evidence_sha256"] == CAMERA_SHA and
-         sha(ROOT / contract["camera_evidence_path"]) == CAMERA_SHA and
+         sha(resolve(contract["camera_evidence_path"])) == CAMERA_SHA and
          contract["camera"]["source_row"] == "city_default" and
          contract["camera"]["vertical_fov"] == 7.5 and
          contract["camera"]["width"] == 1280 and
@@ -132,7 +133,7 @@ def main() -> None:
          sum(bool(row["copied"]) for row in contract["source_files"]) == 46,
          "Source dependency closure/allowlist differs")
     for row in contract["source_files"]:
-        original = ROOT / row["source_path"]
+        original = resolve(row["source_path"])
         need(original.is_file() and sha(original) == row["source_sha256"] and
              sha(Path(str(original) + ".meta")) == row["meta_sha256"],
              f"Original source/meta changed: {original}")
@@ -153,7 +154,7 @@ def main() -> None:
     for row in contract["mask_bindings"]:
         need(sha(PROBE / row["sprite_path"]) == row["sprite_sha256"] and
              sha(PROBE / row["mask_path"]) == row["mask_sha256"] and
-             sha(ROOT / row["source_prefab_path"]) == row["source_prefab_sha256"],
+             sha(resolve(row["source_prefab_path"])) == row["source_prefab_sha256"],
              "Source mask mapping file hash differs")
     report_path = run / "native_scaffold_render.json"
     need(report_path.is_file() and not (run / "failure.txt").exists(),

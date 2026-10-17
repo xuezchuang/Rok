@@ -1,6 +1,8 @@
 #include "Misc/AutomationTest.h"
 
+
 #if WITH_DEV_AUTOMATION_TESTS
+#include "../RokDataPaths.h"
 #include "../RokUnityTileRippleRenderer.h"
 #include "Dom/JsonObject.h"
 #include "Misc/FileHelper.h"
@@ -26,8 +28,7 @@ bool FRokTileRippleBakedGeometryTest::RunTest(const FString&)
 	FRokTileRippleGeometryContract Contract;
 	FString Error;
 	if (!TestTrue(TEXT("Pinned two-system V5 geometry fixture"),
-		FRokTileRippleGeometryContract::LoadPinned(FPaths::ProjectDir() /
-		TEXT("Saved/PendingUnityTileRippleRendererV8/geometry_contract.json"), Contract, Error))) return false;
+		FRokTileRippleGeometryContract::LoadPinned(RokDataPaths::Resolve(TEXT("TileRippleRendererV8/geometry_contract.json")), Contract, Error))) return false;
 	FString Source;
 	if (!TestTrue(TEXT("Sealed V5 Native exists"), FFileHelper::LoadFileToString(Source,
 		*(FPaths::ProjectDir() /

@@ -8,10 +8,12 @@ import shutil
 from pathlib import Path
 
 from PIL import Image
+from rok_data_paths import DATA_ROOT, resolve
 
 ROOT = Path(__file__).resolve().parents[1]
-TARGET = ROOT / 'Saved/RokUnityMigration/BarracksLevelHeaderText'
-CATALOG = ROOT / 'Saved/RokUnityMigration/building_level_details.json'
+TARGET = DATA_ROOT / 'BarracksLevelHeaderText'
+GLYPH_VERIFY = ROOT / 'Saved/RokUnityMigration/BarracksLevelHeaderText/glyph_verify.json'
+CATALOG = DATA_ROOT / 'building_level_details.json'
 EXPECTED_SOURCES = {
     'ref/client-unity/Assets/StreamingAssets/Config/Bin/Language.bin',
     'ref/client-unity/Assets/BundleAssets/UI/UIPrefabs/ui_prefabs_build/UIBuildingDesc/UI_Item_BuildingLevelData_Title_Four.prefab',
@@ -42,7 +44,7 @@ def verify(directory):
     assert inputs['renderer_sha256'] == inputs['copied_renderer_sha256']
     assert {s['path'] for s in inputs['sources']} == EXPECTED_SOURCES
     for source in inputs['sources']:
-        assert sha(ROOT / source['path']) == source['sha256'], source['path']
+        assert sha(resolve(source['path'])) == source['sha256'], source['path']
     specs = {s['key']: s for s in inputs['sourceTexts']}
     assert set(specs) == {'header_0', 'header_1', 'header_2', 'header_3'}
     assert len(native['texts']) == 4 and {t['key'] for t in native['texts']} == set(specs)
@@ -152,7 +154,8 @@ def stage(directory, inputs, native, verified):
     packaged_verify = dict(verified, coordinate_transform_applied=True,
                            staged_texts_sha256=manifest['texts_sha256'],
                            coordinate_transform_script_sha256=manifest['coordinate_transform_script_sha256'])
-    (TARGET / 'glyph_verify.json').write_text(json.dumps(packaged_verify, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    GLYPH_VERIFY.parent.mkdir(parents=True, exist_ok=True)
+    GLYPH_VERIFY.write_text(json.dumps(packaged_verify, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     assert manifest['texts_sha256'] == sha(TARGET / 'texts.json')
     assert manifest['catalog_sha256'] == sha(CATALOG)
     assert manifest['coordinate_transform_script_sha256'] == sha(Path(__file__).resolve())

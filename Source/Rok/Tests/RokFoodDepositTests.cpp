@@ -6,6 +6,7 @@
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "Dom/JsonObject.h"
+#include "../RokDataPaths.h"
 #include "../RokFoodDepositData.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRokFoodNativeZoomTest,
@@ -57,7 +58,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRokFoodMalformedDataTest,
 bool FRokFoodMalformedDataTest::RunTest(const FString& Parameters)
 {
 	FString Original;
-	if (!FFileHelper::LoadFileToString(Original, *(FPaths::ProjectSavedDir() / TEXT("RokUnityMigration/unity_food_deposit.json")))) return false;
+	if (!FFileHelper::LoadFileToString(Original, *(RokDataPaths::Resolve(TEXT("unity_food_deposit.json"))))) return false;
 	for (int32 Case = 0; Case < 6; ++Case)
 	{
 		TSharedPtr<FJsonObject> Root;

@@ -6,6 +6,7 @@ import math
 import struct
 from collections import Counter
 from pathlib import Path
+from rok_data_paths import resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT = ROOT / 'Saved/UnityResearchAnimationProbe'
@@ -72,7 +73,7 @@ def verify(artifact):
     assert source['fixture']['state']['synthetic'] and not source['fixture']['state']['accountBacked']
     assert len(source['fixture']['moreLevels']) == 10
     for row in animation['sourceFiles']:
-        assert sha(ROOT / row['path']) == row['sha256'], row['path']
+        assert sha(resolve(row['path'])) == row['sha256'], row['path']
     assert [x['phase'] for x in animation['clips']] == [*PHASES[:3], 'detail_close']
     assert all(x['durationSeconds'] == (.15 if x['phase']=='detail_close' else .25) and not x['loop'] for x in animation['clips'])
     assert animation['clips'][3]['events'] == [{'time':.15,'functionName':'CloseAnimatorCallback'}]

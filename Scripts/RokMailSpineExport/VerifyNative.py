@@ -1,11 +1,13 @@
 """Compare original SkeletonGraphic mesh to offline Spine export at exact samples."""
 import hashlib,json,sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from rok_data_paths import DATA_ROOT
 ROOT=Path(__file__).resolve().parents[2]
 OUT=ROOT/'Saved/RokUnityMigration/MailSpine'
 def main():
     path=Path(sys.argv[1]) if len(sys.argv)>1 else sorted((OUT/'NativeReference').glob('*/native_mesh.json'))[-1]
-    native=json.loads(path.read_text());clip=json.loads((OUT/'gift5_stay_mesh.json').read_text())
+    native=json.loads(path.read_text());clip=json.loads((DATA_ROOT/'MailSpine/gift5_stay_mesh.json').read_text())
     assert native['unityVersion']=='2019.4.28f1c1' and native['colorSpace']=='Gamma' and len(native['samples'])==8
     results=[]
     for sample in native['samples']:

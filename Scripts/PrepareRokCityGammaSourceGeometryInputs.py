@@ -13,6 +13,7 @@ import math
 import os
 import struct
 from pathlib import Path
+from rok_data_paths import resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = ROOT / "Saved/RokUnityMigration/BatchReview20261009NightTimeAndExpedition/all32_source_rhi_admission_inventory.json"
@@ -164,7 +165,7 @@ def mip_references(inventory: dict, masked_assets: dict, masked_ue: dict,
             for level in source["levels"]:
                 gpu = gpu_levels[(source["texture_id"], level["level"])]
                 raw = FAMILY_VERIFIED.parent / gpu["gpu_readback_file"]
-                prepared = ROOT / level["prepared_bgra_file"]
+                prepared = resolve(level["prepared_bgra_file"])
                 fail_if(not gpu["byte_exact"] or file_sha(raw) != level["prepared_bgra_sha256"]
                         or file_sha(prepared) != level["prepared_bgra_sha256"],
                         f"Family source mip GPU bytes differ: {guid}/{level['level']}")

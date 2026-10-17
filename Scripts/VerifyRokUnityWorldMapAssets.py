@@ -4,6 +4,7 @@ import json
 import math
 import re
 from pathlib import Path
+from rok_data_paths import resolve
 
 import numpy as np
 from PIL import Image
@@ -116,7 +117,7 @@ def verify_file(record, role, failures):
         failures.append(f"{role} has no source record")
         return None
     relative_path = record.get("path", "")
-    path = PROJECT_ROOT / relative_path
+    path = resolve(relative_path)
     if not path.exists():
         failures.append(f"{role} is missing: {relative_path}")
         return None
@@ -619,7 +620,7 @@ def main():
         failures.append(f"Unexpected schema: {manifest.get('schema')}")
 
     world_source = manifest.get("source_world_manifest", {})
-    world_path = PROJECT_ROOT / world_source.get("path", "")
+    world_path = resolve(world_source.get("path", ""))
     world_manifest = {}
     if not world_path.exists():
         failures.append("World-map source manifest is missing")
@@ -778,7 +779,7 @@ def main():
         failures.append("No selected Unity object sources were classified")
     guid_index = build_guid_index()
     for prefab_id, record in object_sources.items():
-        source_prefab = PROJECT_ROOT / record.get("source_prefab", "")
+        source_prefab = resolve(record.get("source_prefab", ""))
         if not source_prefab.exists():
             failures.append(f"{prefab_id} source prefab is missing")
         if record.get("source_mesh"):
@@ -827,9 +828,9 @@ def main():
             geometry = record.get("mountain_geometry_contract", {})
             expected_body_name = prefab_id
             expected_edge_name = f"{prefab_id}_edge"
-            source_prefab_for_nodes = PROJECT_ROOT / record.get(
+            source_prefab_for_nodes = resolve(record.get(
                 "source_prefab", ""
-            )
+            ))
             prefab_collision_nodes = sorted(
                 set(
                     re.findall(
@@ -978,10 +979,10 @@ def main():
                                 f"{field} is not present in the source prefab"
                             )
             source_mesh_record = record.get("source_mesh", {})
-            source_mesh_path = PROJECT_ROOT / source_mesh_record.get(
+            source_mesh_path = resolve(source_mesh_record.get(
                 "path",
                 "",
-            )
+            ))
             if source_mesh_path.exists():
                 source_bytes = source_mesh_path.read_bytes()
                 for node_name in [
@@ -1127,7 +1128,7 @@ def main():
     ):
         try:
             expected_waterfall = parse_waterfall_geometry_contract(
-                PROJECT_ROOT / waterfall_record["source_prefab"],
+                resolve(waterfall_record["source_prefab"]),
                 guid_index,
             )
         except Exception as error:
@@ -1263,10 +1264,10 @@ def main():
             "Pending object reasons do not cover the exact pending inventory"
         )
     for prefab_id, reason in pending_object_reasons.items():
-        source_prefab = PROJECT_ROOT / reason.get(
+        source_prefab = resolve(reason.get(
             "source_prefab",
             "",
-        )
+        ))
         if not source_prefab.exists():
             failures.append(
                 f"{prefab_id} pending source prefab is missing"

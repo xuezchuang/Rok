@@ -1,6 +1,7 @@
 """Verify explicit model native UI preview and its baseline pixel contribution."""
 import argparse,hashlib,json,sys
 from pathlib import Path
+from rok_data_paths import resolve
 import numpy as np
 from PIL import Image
 ROOT=Path(__file__).resolve().parents[1]
@@ -12,7 +13,7 @@ def verify(path,output=None):
         if not ok:fail.append(why)
     check(e.get('nativeRendered') and not e.get('failure'),'native execution')
     check(e.get('modelId')=='build_9_101_1' and e.get('inputSha256')==sha(ip),'model/input identity')
-    for row in i['sources']:check(sha(ROOT/row['path'])==row['sha256'],'source changed '+row['path'])
+    for row in i['sources']:check(sha(resolve(row['path']))==row['sha256'],'source changed '+row['path'])
     check(e.get('spriteGuid')==i['contract']['sprite']['guid'],'actual sprite GUID')
     check(e.get('shaderName')=='UI/Default','actual source default UI shader')
     check(len(e.get('vertices',[]))==4 and len(e.get('triangles',[]))==6 and len(e.get('uv',[]))==4,'actual native simple quad')

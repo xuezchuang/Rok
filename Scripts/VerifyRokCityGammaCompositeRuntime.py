@@ -13,6 +13,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
+from rok_data_paths import resolve
 
 import numpy as np
 from PIL import Image
@@ -192,8 +193,8 @@ def source_inputs(manifest: dict, native: dict, contract: dict, native_verify: d
         require(relative.startswith("ref/") and ".." not in Path(relative).parts,
                 "Source chain contains path outside ref")
         copy = ROOT / "Saved/UnityCityGammaCompositeProbe" / item["probe_asset"]
-        require(sha(ROOT / relative) == item["sha256"] == sha(copy) and
-                sha(Path(str(ROOT / relative) + ".meta")) == item["meta_sha256"] ==
+        require(sha(resolve(relative)) == item["sha256"] == sha(copy) and
+                sha(Path(str(resolve(relative)) + ".meta")) == item["meta_sha256"] ==
                 sha(Path(str(copy) + ".meta")), "Unity source/import metadata changed: " + relative)
     catalogs = {"academy": ROOT / "Saved/RokUnityMigration/AcademyVisualSource/catalog.json",
                 "resources": ROOT / "Saved/RokUnityMigration/CityResourceBuildingVisualSources/catalog.json"}
@@ -211,7 +212,7 @@ def source_inputs(manifest: dict, native: dict, contract: dict, native_verify: d
     }
     require(set(manifest["input_sha256"]) == expected_inputs, "UE capture source-file list changed")
     for relative, expected in manifest["input_sha256"].items():
-        require(expected == sha(ROOT / relative), "UE capture source changed: " + relative)
+        require(expected == sha(resolve(relative)), "UE capture source changed: " + relative)
 
 
 def canonical_position(position: list[float], pivot: dict) -> tuple[float, float, float]:

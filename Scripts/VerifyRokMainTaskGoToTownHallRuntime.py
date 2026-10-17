@@ -10,6 +10,7 @@ import json
 import re
 import tempfile
 from pathlib import Path
+from rok_data_paths import resolve
 
 from PIL import Image
 
@@ -91,7 +92,7 @@ def expected_inputs() -> dict[str, str]:
 
 
 def checked_project_file(root: Path, relative: str) -> Path:
-    path = (root / relative).resolve(strict=True)
+    path = resolve(relative).resolve(strict=True)
     need(path == root or root in path.parents, f"input outside project: {relative}")
     return path
 

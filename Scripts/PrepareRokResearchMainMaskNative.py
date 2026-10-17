@@ -4,6 +4,7 @@ import json
 import shutil
 import subprocess
 from pathlib import Path
+from rok_data_paths import resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE = ROOT / 'Saved/UnityResearchAnimationProbe'
@@ -76,7 +77,7 @@ def main():
         'prepareSha256': sha(Path(__file__)),
         'viewBinderAdapterSha256': sha(adapter),
         'copiedAssetFileCount': copied,
-        'sourceFiles': [{'path': p, 'sha256': sha(ROOT / p)} for p in SOURCES],
+        'sourceFiles': [{'path': p, 'sha256': sha(resolve(p))} for p in SOURCES],
         'maskRule': {
             'sourceMethod': 'UIManager.AddMask', 'status': 'kTouchClose',
             'sourceUi': 'UI.s_ResearchMain', 'layer': 'WindowLayer',

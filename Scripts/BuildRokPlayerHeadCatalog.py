@@ -5,9 +5,10 @@ import json
 import re
 from pathlib import Path
 from BuildRokUnityEconomyCatalog import read_language_lookup, localized_text
+from rok_data_paths import DATA_ROOT, label
 
 ROOT = Path(__file__).resolve().parents[1]
-OUTPUT = ROOT / 'Saved/RokUnityMigration/player_head_catalog.json'
+OUTPUT = DATA_ROOT / 'player_head_catalog.json'
 
 
 def build():
@@ -29,7 +30,7 @@ def build():
                 if texture.exists():
                     lines = sheet.read_text(encoding='utf-8-sig').splitlines()
                     info['size'] = list(map(int, next(line[6:] for line in lines if line.startswith(':size=')).split('x')))
-                    info['source'] = str(texture.relative_to(ROOT)).replace('\\', '/')
+                    info['source'] = label(texture)
                     info['target'] = ('/Game/RokPrototype/UI/MainHudAtlases/rok_hud_atlas_player_head' if atlas == 'player_head'
                                       else '/Game/RokPrototype/UI/PlayerHeadAtlases/' + atlas)
                     for line in lines:

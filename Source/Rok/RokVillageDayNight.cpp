@@ -1,4 +1,6 @@
 #include "RokVillageDayNight.h"
+
+#include "RokDataPaths.h"
 #include "Dom/JsonObject.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
@@ -55,7 +57,7 @@ bool FRokVillageDayNightData::Evaluate(const FRokVillageDayNightSample& Sample, 
 bool FRokVillageDayNightData::Load()
 {
 	FString Text;
-	return FFileHelper::LoadFileToString(Text, *(FPaths::ProjectSavedDir() / TEXT("RokUnityMigration/unity_village_day_night.json"))) && LoadJson(Text);
+	return FFileHelper::LoadFileToString(Text, *(RokDataPaths::Resolve(TEXT("unity_village_day_night.json")))) && LoadJson(Text);
 }
 
 bool FRokVillageDayNightData::LoadJson(const FString& Text)

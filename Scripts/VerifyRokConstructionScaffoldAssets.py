@@ -8,9 +8,9 @@ from pathlib import Path
 import BuildRokConstructionScaffoldAnimationData as animation
 import PrepareRokConstructionScaffoldAssets as source
 
-MANIFEST = source.OUT / "prepared_manifest.json"
-ANIMATION = source.OUT / "animation_data.json"
-IMPORT = source.OUT / "ue_import_report.json"
+MANIFEST = source.DATA / "prepared_manifest.json"
+ANIMATION = source.DATA / "animation_data.json"
+IMPORT = source.DATA / "ue_import_report.json"
 RESUME_FAILURE = (source.ROOT / "Saved/RokUnityMigration/BatchReview20261009ScaffoldAndFamilyState"
                   / "scaffold_root_import_20261008_234037_377056.json")
 RESUME_FAILURE_SHA = "cbab362964603d74c68317f0a9be2ba27cf05d4fd9c9212758d92f508edb6f16"

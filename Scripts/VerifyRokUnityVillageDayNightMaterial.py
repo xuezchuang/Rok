@@ -5,6 +5,7 @@ import json
 import math
 from pathlib import Path
 from PIL import Image
+from rok_data_paths import DATA_ROOT, resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -16,10 +17,10 @@ def main():
         if not value:
             failures.append(label)
 
-    manifest_path = ROOT / "Saved/RokUnityMigration/unity_village_day_night.json"
+    manifest_path = DATA_ROOT / "unity_village_day_night.json"
     data = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
     for source in data["sources"] + [row["source"] for row in data["materials"].values()]:
-        check(hashlib.sha256((ROOT / source["path"]).read_bytes()).hexdigest() == source["sha256"], "source hash: " + source["path"])
+        check(hashlib.sha256(resolve(source["path"]).read_bytes()).hexdigest() == source["sha256"], "source hash: " + source["path"])
     shader = (ROOT / "ref/client-unity/Assets/BundleAssets/Map/Shader/cm_city_mask_night.shader").read_text(encoding="utf-8-sig")
     compact = "".join(shader.split())
     for token in ("OUT.lightColor=_Color_3.rgb*l;", "abs(sin((_Time.y*0.5)))", "c_2=(c_2*_SpriteColor);",
@@ -36,7 +37,7 @@ def main():
     check('transparency, night_light)' in generator and '"Transparency", "NightLight")' in generator, "custom input actually connected")
     check(data["materials"]["night"]["color1"] == [1, 1, 1, 1] and data["materials"]["night"]["color2"] == [1, 1, 1, 1], "night uses source white team colors")
     for mask in data["masks"]:
-        path = ROOT / mask["mask"]["path"]
+        path = resolve(mask["mask"]["path"])
         check(hashlib.sha256(path.read_bytes()).hexdigest() == mask["mask"]["sha256"], "mask hash " + mask["transform_id"])
         with Image.open(path) as image:
             check(image.convert("RGB").getchannel("B").getextrema()[1] == 0, "no manufactured village lights " + mask["transform_id"])

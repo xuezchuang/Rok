@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 from pathlib import Path
+from rok_data_paths import resolve
 
 from PIL import Image
 
@@ -30,7 +31,7 @@ def verify():
     assert "local visual variant" in manifest["qualification"]
     assert len(manifest["models"]) == 2
     for relative, expected in manifest["sources"].items():
-        path = ROOT / relative
+        path = resolve(relative)
         assert path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest() == expected
     catalog = json.loads(MODEL_CATALOG.read_text(encoding="utf-8"))
     source_models = rows(MODEL_CSV)
@@ -67,7 +68,7 @@ def verify():
         actual_keys = sorted((r["id"], r["type"], r["civilization"], r["age"])
                              for r in model["matching_model_keys"])
         assert actual_keys == expected_keys and len(actual_keys) == 2
-        prefab = (ROOT / model["prefab"]["path"]).read_text(encoding="utf-8-sig")
+        prefab = (resolve(model["prefab"]["path"])).read_text(encoding="utf-8-sig")
         nodes = model["prefab"]["nodes"]
         total_nodes += len(nodes)
         assert len(nodes) == 12
@@ -88,7 +89,7 @@ def verify():
         assert board["renderer"]["sprite_guid"] != main["renderer"]["sprite_guid"]
         for name in ("sprite", "mask"):
             record = model[name]
-            path = ROOT / record["path"]
+            path = resolve(record["path"])
             with Image.open(path) as png:
                 rgba = png.convert("RGBA")
                 assert list(png.size) == record["size"]

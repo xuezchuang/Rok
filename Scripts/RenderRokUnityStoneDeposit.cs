@@ -58,7 +58,7 @@ public class RenderRokUnityStoneDeposit : MonoBehaviour
     {
         Directory.CreateDirectory(Output);
         var prefab=AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Source/build_Rssstone_Big.prefab");
-        var library=JsonUtility.FromJson<Library>(File.ReadAllText(Root+"/Saved/RokUnityMigration/unity_stone_deposit.json"));
+        var library=JsonUtility.FromJson<Library>(File.ReadAllText(Root+"/Content/RokData/unity_stone_deposit.json"));
         Common.Distance=480;
         var obj=Instantiate(prefab); obj.transform.position=Vector3.zero; obj.transform.localScale=Vector3.one;
         yield return null; yield return null;

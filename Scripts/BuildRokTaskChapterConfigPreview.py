@@ -9,17 +9,18 @@ from collections import defaultdict
 from pathlib import Path
 
 from BuildRokUnityEconomyCatalog import LANGUAGE_WORKBOOK, localized_text, read_language_lookup
+from rok_data_paths import DATA_ROOT, label
 
 
 ROOT = Path(__file__).resolve().parents[1]
 CSV_ROOT = ROOT / "ref/config-tables/编译客户端配置/CSV"
 TASK_CSV = CSV_ROOT / "TaskChapter.csv"
 CHAPTER_CSV = CSV_ROOT / "TaskChapterData.csv"
-GAMEPLAY_CATALOG = ROOT / "Saved/RokUnityMigration/unity_gameplay_catalog.json"
+GAMEPLAY_CATALOG = DATA_ROOT / "unity_gameplay_catalog.json"
 VIEW = ROOT / "ref/client-unity/Assets/Scripts/Hotfix/MVC/View_Mediator/UIQuest/UI_Win_QuestView.cs"
 MEDIATOR = ROOT / "ref/client-unity/Assets/Scripts/Hotfix/MVC/View_Mediator/UIQuest/UI_Win_QuestMediator.cs"
 PREFAB = ROOT / "ref/client-unity/Assets/BundleAssets/UI/UIPrefabs/ui_prefabs_task/UIQuest/UI_Win_Quest.prefab"
-OUTPUT = ROOT / "Saved/RokUnityMigration/TaskChapterConfigPreview/v2/catalog.json"
+OUTPUT = DATA_ROOT / "TaskChapterConfigPreview/v2/catalog.json"
 LOCALE_HELPER = ROOT / "Scripts/BuildRokUnityEconomyCatalog.py"
 SOURCES = (TASK_CSV, CHAPTER_CSV, LANGUAGE_WORKBOOK, GAMEPLAY_CATALOG, VIEW, MEDIATOR, PREFAB,
            LOCALE_HELPER,
@@ -31,7 +32,7 @@ def sha(path: Path) -> str:
 
 
 def source(path: Path) -> dict:
-    return {"path": path.relative_to(ROOT).as_posix(), "sha256": sha(path)}
+    return {"path": label(path), "sha256": sha(path)}
 
 
 def csv_rows(path: Path, columns: tuple[str, ...]) -> list[tuple[int, dict[str, str]]]:

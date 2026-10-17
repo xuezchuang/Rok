@@ -6,6 +6,7 @@ import hashlib
 import json
 import struct
 from pathlib import Path
+from rok_data_paths import resolve
 
 from PIL import Image
 
@@ -30,7 +31,7 @@ def pinned(item: dict) -> Path:
     name = item["path"]
     need(isinstance(name, str) and name and not name.startswith("/") and ":" not in name and
          "\\" not in name and ".." not in Path(name).parts, "Unsafe source pin")
-    path = (ROOT / name).resolve()
+    path = (resolve(name)).resolve()
     need(path.is_relative_to(ROOT.resolve()) and path.is_file() and
          sha(path) == item["sha256"] and path.stat().st_size == item["byte_count"],
          f"Source pin differs: {name}")

@@ -1,11 +1,12 @@
 import json
 from pathlib import Path
+from rok_data_paths import DATA_ROOT, label
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 MIGRATION_ROOT = PROJECT_ROOT / "Saved" / "RokUnityMigration"
-BOOTSTRAP_PATH = MIGRATION_ROOT / "unity_runtime_bootstrap_state.json"
-CATALOG_PATH = MIGRATION_ROOT / "unity_gameplay_catalog.json"
+BOOTSTRAP_PATH = DATA_ROOT / "unity_runtime_bootstrap_state.json"
+CATALOG_PATH = DATA_ROOT / "unity_gameplay_catalog.json"
 CATALOG_VERIFY_PATH = MIGRATION_ROOT / "unity_gameplay_catalog_verify.json"
 CITY_VERIFY_PATH = MIGRATION_ROOT / "unity_initial_city_state_verify.json"
 OUTPUT_PATH = MIGRATION_ROOT / "unity_runtime_bootstrap_state_verify.json"
@@ -169,7 +170,7 @@ def main():
         failures.append(f"Missing initial city verification evidence: {CITY_VERIFY_PATH}")
 
     result = {
-        "runtime_bootstrap": str(BOOTSTRAP_PATH.relative_to(PROJECT_ROOT)),
+        "runtime_bootstrap": str(Path(label(BOOTSTRAP_PATH))),
         "catalog_verify": str(CATALOG_VERIFY_PATH.relative_to(PROJECT_ROOT)),
         "initial_city_verify": str(CITY_VERIFY_PATH.relative_to(PROJECT_ROOT)),
         "summary": summary,

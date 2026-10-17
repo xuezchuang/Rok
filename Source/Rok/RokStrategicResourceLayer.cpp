@@ -1,4 +1,5 @@
 #include "RokStrategicResourceLayer.h"
+#include "RokDataPaths.h"
 #include "RokWorldExplorationState.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -35,9 +36,9 @@ bool ARokStrategicResourceLayer::LoadSource()
 {
 	FString Json;
 	TSharedPtr<FJsonObject> Root;
-	const TCHAR* Manifest = bExploration ? TEXT("RokUnityMigration/unity_strategic_exploration.json") : TEXT("RokUnityMigration/unity_strategic_resources.json");
+	const TCHAR* Manifest = bExploration ? TEXT("unity_strategic_exploration.json") : TEXT("unity_strategic_resources.json");
 	const TCHAR* Schema = bExploration ? TEXT("rok.unity.strategic_exploration.v1") : TEXT("rok.unity.strategic_resources.v1");
-	if (!FFileHelper::LoadFileToString(Json, *(FPaths::ProjectSavedDir() / Manifest))
+	if (!FFileHelper::LoadFileToString(Json, *(RokDataPaths::Resolve(Manifest)))
 		|| !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json), Root) || !Root.IsValid()
 		|| Root->GetStringField(TEXT("schema")) != Schema) return false;
 	PlaneMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane.Plane"));
@@ -45,7 +46,7 @@ bool ARokStrategicResourceLayer::LoadSource()
 	if (!PlaneMesh || !BaseMaterial) return false;
 	const auto LoadMaterial = [&](const FString& Path, bool bPoint) -> UMaterialInstanceDynamic*
 	{
-		auto* Texture = FImageUtils::ImportFileAsTexture2D(FPaths::ProjectDir() / Path);
+		auto* Texture = FImageUtils::ImportFileAsTexture2D(RokDataPaths::ResolveProjectPath(Path));
 		if (!Texture) return nullptr;
 		Texture->NeverStream = true;
 		Texture->Filter = bPoint ? TF_Nearest : TF_Bilinear;

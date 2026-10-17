@@ -4,6 +4,7 @@ import math
 import os
 import re
 from pathlib import Path
+from rok_data_paths import DATA_ROOT, label
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -18,7 +19,7 @@ MIGRATION_ROOT = PROJECT_ROOT / "Saved" / "RokUnityMigration"
 OUTPUT_ROOT = MIGRATION_ROOT / "UnityRuntimeCitySupportLayers"
 MANIFEST_PATH = MIGRATION_ROOT / "unity_runtime_city_support_layers.json"
 VERIFY_PATH = MIGRATION_ROOT / "unity_runtime_city_support_layers_verify.json"
-INITIAL_CITY_STATE_PATH = MIGRATION_ROOT / "unity_initial_city_state.json"
+INITIAL_CITY_STATE_PATH = DATA_ROOT / "unity_initial_city_state.json"
 
 RUNTIME_LOD_SCALE = 1.1210888
 CONTAINER_YAW_DEGREES = -45.0
@@ -75,7 +76,7 @@ def sha256(path):
 def project_relative(path):
     path = Path(path).resolve()
     try:
-        return str(path.relative_to(PROJECT_ROOT)).replace("\\", "/")
+        return label(path)
     except ValueError:
         return str(path).replace("\\", "/")
 

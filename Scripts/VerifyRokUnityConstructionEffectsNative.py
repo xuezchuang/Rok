@@ -8,6 +8,7 @@ import json
 import math
 import re
 from pathlib import Path
+from rok_data_paths import resolve
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -84,7 +85,7 @@ def main() -> None:
         rel = item["source_path"]
         need(rel.startswith("ref/client-unity/Assets/") and ".." not in rel,
              f"Unsafe source path: {rel}")
-        source = ROOT / rel
+        source = resolve(rel)
         need(source.is_file() and digest(source) == item["source_sha256"] and
              digest(Path(str(source) + ".meta")) == item["meta_sha256"],
              f"Source asset/meta changed: {rel}")

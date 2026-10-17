@@ -5,12 +5,13 @@ from pathlib import Path
 from PIL import Image
 from BuildRokUnityEconomyCatalog import read_language_lookup, localized_text
 from PrepareRokUiTextures import unity_sprite_rect
+from rok_data_paths import DATA_ROOT, resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def main():
-    data = json.loads((ROOT / 'Saved/RokUnityMigration/leaderboard_catalog.json').read_text(encoding='utf-8'))['entries']
+    data = json.loads((DATA_ROOT / 'leaderboard_catalog.json').read_text(encoding='utf-8'))['entries']
     rows = list(csv.DictReader((ROOT / 'ref/config-tables/编译客户端配置/CSV/Leaderboard.csv').read_text(encoding='utf-8-sig').splitlines()))[1:]
     expected = sorted((row for row in rows if row['list'] == '2'), key=lambda row: int(row['ID']))[:9]
     language, _ = read_language_lookup()
@@ -32,7 +33,7 @@ def main():
             assert actual['rect'] == []
     assert data[-1]['id'] == 401 and not data[-1]['name'] and not data[-1]['icon']
     source_path = 'ref/client-unity/Assets/Scripts/Hotfix/MVC/View_Mediator/Ranking/UI_Win_RankingMediator.cs'
-    mediator = (ROOT / source_path).read_text(encoding='utf-8-sig')
+    mediator = resolve(source_path).read_text(encoding='utf-8-sig')
     bind = mediator.split('private void BindEntryBtns()', 1)[1].split('private void DataProcess()', 1)[0]
     assert bind.count('m_entryBtns.Add(') == 9
     assert 'm_baseLeaderboardDefines.Sort((a, b) => { return a.ID - b.ID; });' in mediator

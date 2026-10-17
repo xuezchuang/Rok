@@ -5,6 +5,7 @@
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
+#include "../RokDataPaths.h"
 #include "../RokVillageDayNight.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRokVillageDayNightSamplesTest,
@@ -15,7 +16,7 @@ bool FRokVillageDayNightSamplesTest::RunTest(const FString& Parameters)
 	FRokVillageDayNightData Data;
 	if (!TestTrue(TEXT("Source light and material data loads"), Data.Load())) return false;
 	FString Text; TSharedPtr<FJsonObject> Root;
-	if (!FFileHelper::LoadFileToString(Text, *(FPaths::ProjectSavedDir()/TEXT("RokUnityMigration/unity_village_day_night.json")))
+	if (!FFileHelper::LoadFileToString(Text, *(RokDataPaths::Resolve(TEXT("unity_village_day_night.json"))))
 		|| !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Root)) return false;
 	int32 Count = 0;
 	for (const auto& Value : Root->GetArrayField(TEXT("samples")))

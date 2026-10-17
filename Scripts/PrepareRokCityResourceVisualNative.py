@@ -4,6 +4,7 @@ import hashlib
 import json
 import shutil
 from pathlib import Path
+from rok_data_paths import resolve
 
 from BuildRokCityResourceBuildingVisualSources import ROOT, OUT, build
 
@@ -26,13 +27,13 @@ def prepare():
     if catalog != build(write=False):
         raise RuntimeError("Farm/Sawmill visual source catalog is stale")
     for relative, expected in catalog["sources"].items():
-        source = ROOT / relative
+        source = resolve(relative)
         if not source.is_file() or digest(source) != expected:
             raise RuntimeError(f"Source hash mismatch: {relative}")
     models = catalog["models"]
     if [m["model_id"] for m in models] != ["build_2_101_1", "build_3_101_1"]:
         raise RuntimeError("Unexpected exact local visual model list")
-    shader_path = ROOT / catalog["material"]["shader_path"]
+    shader_path = resolve(catalog["material"]["shader_path"])
     shader = shader_path.read_text(encoding="utf-8-sig")
     if "_CityTransparency" in shader.split("SubShader", 1)[0] or "float _CityTransparency;" not in shader:
         raise RuntimeError("Source shader global transparency contract changed")
@@ -58,7 +59,7 @@ def prepare():
         selected.extend([model["sprite"]["path"], model["mask"]["path"]])
     copies = {}
     for relative in selected:
-        source = ROOT / relative
+        source = resolve(relative)
         target = source_dir / source.name
         if target.is_file() and digest(target) != digest(source):
             raise RuntimeError(f"Conflicting probe basename: {source.name}")

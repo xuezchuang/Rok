@@ -1,6 +1,7 @@
 #include "Misc/AutomationTest.h"
 #include "../RokBuildingSourcePreviewData.h"
 #include "../RokBuildingSourcePreviewWidget.h"
+#include "../RokDataPaths.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 
@@ -18,7 +19,7 @@ bool FRokBuildingSourcePreviewBindingTest::RunTest(const FString& Parameters)
     TestFalse(TEXT("Duplicate manifest row rejected"),RokBuildingSourcePreview::ResolveDeclaredModel(Tags,TEXT("{\"buildings\":[")+Row+TEXT(",")+Row+TEXT("]}"),Model,Error));
     TestFalse(TEXT("Missing declared model stays unknown"),RokBuildingSourcePreview::ResolveDeclaredModel(Tags,Json.Replace(TEXT("model_id"),TEXT("missing_model")),Model,Error));
     TestFalse(TEXT("Type disagreement rejected"),RokBuildingSourcePreview::ResolveDeclaredModel(Tags,Json.Replace(TEXT("\"type_id\":9"),TEXT("\"type_id\":10")),Model,Error));
-    FString Actual;TestTrue(TEXT("Existing source initial manifest available"),FFileHelper::LoadFileToString(Actual,*(FPaths::ProjectSavedDir()/TEXT("RokUnityMigration/unity_initial_city_state.json"))));
+    FString Actual;TestTrue(TEXT("Existing source initial manifest available"),FFileHelper::LoadFileToString(Actual,*(RokDataPaths::Resolve(TEXT("unity_initial_city_state.json")))));
     TestTrue(TEXT("Actual Init6 declared model resolves"),RokBuildingSourcePreview::ResolveDeclaredModel(Tags,Actual,Model,Error));TestEqual(TEXT("Actual declared model"),Model,FString(TEXT("build_9_101_1")));
     RokBuildingSourcePreview::FLayout Layout;
     TestFalse(TEXT("Empty explicit model never falls back"),RokBuildingSourcePreview::LoadLayout(FString(),RokBuildingSourcePreview::MetadataFile(),Layout,Error));

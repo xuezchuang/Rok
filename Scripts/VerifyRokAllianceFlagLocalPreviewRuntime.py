@@ -9,6 +9,7 @@ import re
 import struct
 import tempfile
 from pathlib import Path
+from rok_data_paths import resolve
 
 ROOT = Path(__file__).resolve().parents[3]
 STAGE = Path(__file__).resolve().parents[1]
@@ -96,7 +97,7 @@ def expected_pins() -> dict[str, str]:
          'server create action 623 no longer same-base')
     for rel, digest in pins.items():
         if rel.startswith('Saved/') or rel.startswith('ref/'):
-            need(sha(ROOT/rel) == digest, 'source/reference SHA drift ' + rel)
+            need(sha(resolve(rel)) == digest, 'source/reference SHA drift ' + rel)
     return pins
 
 
@@ -463,7 +464,7 @@ def validate(d: dict, run: Path, *, live: bool = True) -> None:
             expected[rel] = sha(STAGE/rel)
         check_input_map(d['inputs_sha256'], expected)
         for rel, digest in expected.items():
-            need(sha(contained_file(ROOT/rel, ROOT)) == digest, 'live input changed ' + rel)
+            need(sha(contained_file(resolve(rel), ROOT)) == digest, 'live input changed ' + rel)
     expected = expected_config()
     rows = d['source_config']['rows']
     need(d['source_config']['atlas'] == ATLAS

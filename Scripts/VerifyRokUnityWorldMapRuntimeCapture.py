@@ -2,6 +2,7 @@ import hashlib
 import json
 import re
 from pathlib import Path
+from rok_data_paths import resolve
 
 from PIL import Image, ImageStat
 
@@ -316,7 +317,7 @@ def verify_runtime_capture():
     visual_images = {}
     for role in ("map_tactical", "prototype_3x3_overview"):
         record = visual_capture.get(role, {})
-        image_path = PROJECT_ROOT / record.get("path", "")
+        image_path = resolve(record.get("path", ""))
         if not image_path.exists():
             failures.append(
                 f"Visual capture image is missing for {role}: {image_path}"

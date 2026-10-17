@@ -1,6 +1,7 @@
 #include "RokResearchScreenWidget.h"
 
 #include "RokArmyShowPanelAnimation.h"
+#include "RokDataPaths.h"
 #include "RokUiWindowAnimation.h"
 #include "RokUnityFeatureScreenWidget.h"
 #include "Blueprint/WidgetTree.h"
@@ -135,7 +136,7 @@ bool URokResearchScreenWidget::LoadSpriteManifest(FString& Error)
 {
     Sprites.Reset();
     FString Json;
-    const FString Path = FPaths::ProjectSavedDir() / TEXT("RokUnityMigration/ResearchNative/atlas_manifest.json");
+    const FString Path = RokDataPaths::Resolve(TEXT("ResearchNative/atlas_manifest.json"));
     if (!FFileHelper::LoadFileToString(Json, *Path))
     {
         Error = TEXT("Research atlas manifest is missing");

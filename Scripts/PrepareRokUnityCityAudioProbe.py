@@ -9,6 +9,7 @@ import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
+from rok_data_paths import DATA_ROOT, label, resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 PROBE = ROOT / "Saved/UnityCityAudioProbeV1"
@@ -29,7 +30,7 @@ REPORT_REVISION13 = BATCH / "city_audio_probe_prepare_revision13.json"
 REPORT_REVISION14 = BATCH / "city_audio_probe_prepare_revision14.json"
 BASE = ROOT / "Saved/UnityExpeditionAnimationProbeV1"
 BASE_REPORT = ROOT / "Saved/RokUnityMigration/BatchReview20261009NightTimeAndExpedition/expedition_animation_probe_prepare_revision3.json"
-AUDIOINFO = ROOT / "Saved/RokUnityMigration/ConfigTables/AudioInfo.json"
+AUDIOINFO = DATA_ROOT / "ConfigTables/AudioInfo.json"
 WORKBOOK = ROOT / "ref/config-tables/s_AudioInfo.xlsm"
 UNITY_VERSION = "2019.4.28f1c1"
 TRACKS = [
@@ -216,7 +217,7 @@ def sha(path: Path) -> str:
 
 
 def record(path: Path) -> dict:
-    return {"path": path.relative_to(ROOT).as_posix(), "sha256": sha(path), "bytes": path.stat().st_size}
+    return {"path": label(path), "sha256": sha(path), "bytes": path.stat().st_size}
 
 
 def main() -> int:
@@ -232,10 +233,10 @@ def main() -> int:
         contract = PROBE / "probe_contract.json"
         contract_data = json.loads(contract.read_text(encoding="utf-8-sig"))
         for row in previous["source_records"]:
-            if sha(ROOT / row["path"]) != row["sha256"]:
+            if sha(resolve(row["path"])) != row["sha256"]:
                 raise RuntimeError(f"pinned source changed: {row['path']}")
         for track in previous["tracks"]:
-            if sha(ROOT / track["source_path"]) != track["source_sha256"] or sha(ROOT / track["meta_path"]) != track["meta_sha256"]:
+            if sha(resolve(track["source_path"])) != track["source_sha256"] or sha(resolve(track["meta_path"])) != track["meta_sha256"]:
                 raise RuntimeError(f"pinned track changed: {track['name']}")
         exporter_path = PROBE / "Assets/Editor/ExportRokUnityCityAudioProbe.cs"
         exporter_path.write_text(EXPORTER, encoding="utf-8")
@@ -243,16 +244,16 @@ def main() -> int:
             raise RuntimeError("revision6 expects the v2 decode-only contract")
         revised = dict(previous)
         revised.update({"schema": "rok.unity_city_audio_probe.prepare.v14", "revision": 14,
-            "supersedes": {"path": REPORT_REVISION13.relative_to(ROOT).as_posix(), "sha256": sha(REPORT_REVISION13)},
+            "supersedes": {"path": label(REPORT_REVISION13), "sha256": sha(REPORT_REVISION13)},
             "decode_policy": contract_data["decoding_policy"],
-            "contract": {"path": contract.relative_to(ROOT).as_posix(), "sha256": sha(contract)},
+            "contract": {"path": label(contract), "sha256": sha(contract)},
             "scripts": [{"path": "Scripts/PrepareRokUnityCityAudioProbe.py", "sha256": sha(ROOT / "Scripts/PrepareRokUnityCityAudioProbe.py")},
                         {"path": "Scripts/VerifyRokUnityCityAudioProbe.py", "sha256": sha(ROOT / "Scripts/VerifyRokUnityCityAudioProbe.py")}],
             "exporter": {"path": "Saved/UnityCityAudioProbeV1/Assets/Editor/ExportRokUnityCityAudioProbe.cs",
                          "sha256": sha(exporter_path),
                          "meta_sha256": sha(PROBE / "Assets/Editor/ExportRokUnityCityAudioProbe.cs.meta")}})
         REPORT_REVISION14.write_text(json.dumps(revised, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        print(json.dumps({"status": revised["status"], "report": REPORT_REVISION14.relative_to(ROOT).as_posix(),
+        print(json.dumps({"status": revised["status"], "report": label(REPORT_REVISION14),
                           "report_sha256": sha(REPORT_REVISION14)}, ensure_ascii=False))
         return 0
     if PROBE.exists() or REPORT.exists():
@@ -296,8 +297,8 @@ def main() -> int:
     for name, row_id, row_name in TRACKS:
         source_rel = f"ref/client-unity/Assets/BundleAssets/Souds/{name}.mp3"
         meta_rel = source_rel + ".meta"
-        source = ROOT / source_rel
-        meta = ROOT / meta_rel
+        source = resolve(source_rel)
+        meta = resolve(meta_rel)
         if not source.is_file() or not meta.is_file():
             raise FileNotFoundError(source)
         meta_text = meta.read_text(encoding="utf-8-sig")
@@ -327,7 +328,7 @@ def main() -> int:
         shutil.copy2(BASE / row["path"], PROBE / row["path"])
     copied_tracks = []
     for track in tracks:
-        src, meta = ROOT / track["source_path"], ROOT / track["meta_path"]
+        src, meta = resolve(track["source_path"]), resolve(track["meta_path"])
         dst = PROBE / track["unity_asset_path"]
         shutil.copy2(src, dst)
         shutil.copy2(meta, Path(str(dst) + ".meta"))
@@ -348,23 +349,23 @@ def main() -> int:
     packages_copied = [record(PROBE / row["path"]) for row in package_rows]
     verify_path = ROOT / "Scripts/VerifyRokUnityCityAudioProbe.py"
     report = {"schema": "rok.unity_city_audio_probe.prepare.v1", "status": "PREPARED_NO_UNITY_RUN",
-        "prepared_utc": datetime.now(timezone.utc).isoformat(), "isolated_project": PROBE.relative_to(ROOT).as_posix(),
-        "unity_version_target": UNITY_VERSION, "template_project": BASE.relative_to(ROOT).as_posix(),
-        "template_report": {"path": BASE_REPORT.relative_to(ROOT).as_posix(), "sha256": sha(BASE_REPORT)},
+        "prepared_utc": datetime.now(timezone.utc).isoformat(), "isolated_project": label(PROBE),
+        "unity_version_target": UNITY_VERSION, "template_project": label(BASE),
+        "template_report": {"path": label(BASE_REPORT), "sha256": sha(BASE_REPORT)},
         "project_settings_count": len(settings_copied), "project_settings_files": settings_copied,
         "packages": packages_copied, "source_records": source_records, "audio_info_rows": [rows[i] for i in (1007, 1008, 4005)],
         "tracks": tracks, "copied_assets": copied_tracks,
-        "contract": {"path": contract_path.relative_to(ROOT).as_posix(), "sha256": sha(contract_path)},
-        "exporter": {"path": exporter.relative_to(ROOT).as_posix(), "sha256": sha(exporter), "meta_sha256": sha(exporter_meta)},
+        "contract": {"path": label(contract_path), "sha256": sha(contract_path)},
+        "exporter": {"path": label(exporter), "sha256": sha(exporter), "meta_sha256": sha(exporter_meta)},
         "scripts": [{"path": "Scripts/PrepareRokUnityCityAudioProbe.py", "sha256": sha(ROOT / "Scripts/PrepareRokUnityCityAudioProbe.py")},
-                    {"path": verify_path.relative_to(ROOT).as_posix(), "sha256": sha(verify_path)}],
+                    {"path": label(verify_path), "sha256": sha(verify_path)}],
         "root_unity_command": f'& "C:/Program Files/Unity/Hub/Editor/{UNITY_VERSION}/Editor/Unity.exe" -batchmode -quit -projectPath "{PROBE}" -executeMethod ExportRokUnityCityAudioProbe.Run -logFile "{ROOT}/Saved/Logs/UnityCityAudioProbe_<UTC>.log"',
         "root_verify_command_template": f'& "<bundled-python>" "{verify_path}" --run "{PROBE}/OutputRuns/<run_id>"',
         "qualification": "Unity imported AudioClip.GetData float PCM oracle and PCM16 WAV export; not audible playback, city scene BGM timing, or UE asset acceptance."}
     BATCH.mkdir(parents=True, exist_ok=True)
     REPORT.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"status": report["status"], "project": report["isolated_project"],
-                      "tracks": len(tracks), "report": REPORT.relative_to(ROOT).as_posix(), "report_sha256": sha(REPORT)}, ensure_ascii=False))
+                      "tracks": len(tracks), "report": label(REPORT), "report_sha256": sha(REPORT)}, ensure_ascii=False))
     return 0
 
 

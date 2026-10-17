@@ -1,4 +1,5 @@
 #include "RokHelpSourceTextData.h"
+#include "RokDataPaths.h"
 #include "RokTrainArmyMeshData.h"
 #include "Dom/JsonObject.h"
 #include "Engine/Texture2D.h"
@@ -36,13 +37,13 @@ bool URokHelpSourceTextData::Load(FString& Error)
 {
     Texts.Reset();Textures.Reset();Brushes.Reset();
     auto Fail=[this,&Error](const TCHAR* Message){Texts.Reset();Textures.Reset();Brushes.Reset();Error=Message;return false;};
-    const FString Base=FPaths::ProjectSavedDir()/TEXT("RokUnityMigration/HelpSourceText");
+    const FString Base=RokDataPaths::Resolve(TEXT("HelpSourceText"));
     TSharedPtr<FJsonObject> Manifest,Root,Inputs;FString Schema,Hash;
     if(!ReadJson(Base/TEXT("manifest.json"),Manifest)||!Manifest->TryGetStringField(TEXT("schema"),Schema)||Schema!=TEXT("rok.help.source_text.package.v1"))return Fail(TEXT("Help glyph package manifest missing/invalid"));
     for(const auto& P:{TPair<const TCHAR*,FString>(TEXT("texts_sha256"),Base/TEXT("texts.json")),
         TPair<const TCHAR*,FString>(TEXT("input_sha256"),Base/TEXT("ReferenceInputs.json")),
         TPair<const TCHAR*,FString>(TEXT("native_mesh_sha256"),Base/TEXT("source_text_meshes.json")),
-        TPair<const TCHAR*,FString>(TEXT("catalog_sha256"),FPaths::ProjectSavedDir()/TEXT("RokUnityMigration/help_catalog.json"))})
+        TPair<const TCHAR*,FString>(TEXT("catalog_sha256"),RokDataPaths::Resolve(TEXT("help_catalog.json")))})
         if(!Manifest->TryGetStringField(P.Key,Hash)||!HashMatches(P.Value,Hash))return Fail(TEXT("Help glyph source/package hash mismatch"));
     if(!ReadJson(Base/TEXT("texts.json"),Root)||!ReadJson(Base/TEXT("ReferenceInputs.json"),Inputs)||!Root->TryGetStringField(TEXT("schema"),Schema)||Schema!=TEXT("rok.help.source_text.v1"))return Fail(TEXT("Help source glyph schema invalid"));
     FString InputHash;if(!Root->TryGetStringField(TEXT("inputSha256"),InputHash)||!Manifest->TryGetStringField(TEXT("input_sha256"),Hash)||InputHash!=Hash)return Fail(TEXT("Help glyph input provenance mismatch"));

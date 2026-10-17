@@ -11,6 +11,7 @@
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "Styling/CoreStyle.h"
+#include "RokDataPaths.h"
 #include "RokTrainArmyMeshData.h"
 
 bool URokHospitalExplanationWidget::HasExactSourcePaths(const TArray<FString>& Paths)
@@ -33,7 +34,7 @@ bool URokHospitalExplanationWidget::InitializeExplanation()
 {
     LoadError.Empty();FString Json;TSharedPtr<FJsonObject> Data;
     auto Fail=[this](const TCHAR* Message){LoadError=Message;return false;};
-    if(!FFileHelper::LoadFileToString(Json,*(FPaths::ProjectSavedDir()/TEXT("RokUnityMigration/hospital_explanation.json")))||!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json),Data)||!Data.IsValid())return Fail(TEXT("Missing source hospital explanation"));
+    if(!FFileHelper::LoadFileToString(Json,*(RokDataPaths::Resolve(TEXT("hospital_explanation.json"))))||!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json),Data)||!Data.IsValid())return Fail(TEXT("Missing source hospital explanation"));
     FString Schema,Raw,Rich;double Id;
     const TArray<TSharedPtr<FJsonValue>>* Sources=nullptr;
     if(!Data->TryGetStringField(TEXT("schema"),Schema)||Schema!=TEXT("rok.hospital.explanation.v1")||!Data->TryGetNumberField(TEXT("language_id"),Id)||Id!=181001||!Data->TryGetStringField(TEXT("source_text"),Raw)||!Data->TryGetStringField(TEXT("rich_text"),Rich)||Raw.IsEmpty()||Raw.Len()>10000||!Data->TryGetArrayField(TEXT("sources"),Sources))return Fail(TEXT("Invalid hospital source identity"));
@@ -50,7 +51,7 @@ bool URokHospitalExplanationWidget::InitializeExplanation()
     {
         if(!Value.IsValid()||Value->Type!=EJson::Object)return Fail(TEXT("Invalid hospital provenance"));
         const auto S=Value->AsObject();FString Path,Hash;TArray<uint8> Bytes;
-        if(!S->TryGetStringField(TEXT("path"),Path)||!Path.StartsWith(TEXT("ref/"))||Path.Contains(TEXT(".."))||!S->TryGetStringField(TEXT("sha256"),Hash)||!FFileHelper::LoadFileToArray(Bytes,*(FPaths::ProjectDir()/Path))||RokTrainArmyMesh::Sha256(Bytes)!=Hash)return Fail(TEXT("Hospital source hash changed"));
+        if(!S->TryGetStringField(TEXT("path"),Path)||!Path.StartsWith(TEXT("ref/"))||Path.Contains(TEXT(".."))||!S->TryGetStringField(TEXT("sha256"),Hash)||!FFileHelper::LoadFileToArray(Bytes,*(RokDataPaths::ResolveProjectPath(Path)))||RokTrainArmyMesh::Sha256(Bytes)!=Hash)return Fail(TEXT("Hospital source hash changed"));
     }
     const TSharedPtr<FJsonObject>* Nodes=nullptr;if(!Data->TryGetObjectField(TEXT("nodes"),Nodes))return Fail(TEXT("Hospital source layout missing"));
     const FString Page=TEXT("Rect/Right/pl_explain"),Label=Page/TEXT("sv_explain_view/v_explain_view/c_explain_view/lbl_explain");

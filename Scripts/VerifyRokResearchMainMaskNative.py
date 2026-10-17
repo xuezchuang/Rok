@@ -6,6 +6,7 @@ import math
 import struct
 from collections import Counter
 from pathlib import Path
+from rok_data_paths import resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT = ROOT / 'Saved/UnityResearchMainMaskProbe'
@@ -83,7 +84,7 @@ def verify(artifact):
     assert inputs['viewBinderAdapterSha256'] == report['viewBinderAdapterSha256'] == sha(PROJECT / 'Assets/ReferenceComponents/ViewBinder.cs')
     assert inputs['uiRootPrefab'] == source['uiRootPrefab'] and inputs['mainPrefab'] == source['mainPrefab']
     for item in inputs['sourceFiles']:
-        assert sha(ROOT / item['path']) == item['sha256'], item['path']
+        assert sha(resolve(item['path'])) == item['sha256'], item['path']
     rule = inputs['maskRule']
     assert (rule['sourceMethod'], rule['status'], rule['sourceUi'], rule['layer']) == (
         'UIManager.AddMask', 'kTouchClose', 'UI.s_ResearchMain', 'WindowLayer')

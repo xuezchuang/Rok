@@ -17,6 +17,9 @@ import CreateRokUnityRuntimeGroundScene as ground
 import CreateRokUnityRuntimeCitySupportLayers as support
 import CreateRokUnityRuntimeCityGateFlags as gate_flags
 import CreateRokRuntimeCityScene as runtime
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from rok_data_paths import DATA_ROOT  # noqa: E402
 
 
 TARGET_LEVEL = os.environ.get("ROK_UNITY_RUNTIME_CITY_ALL_BUILDINGS_LEVEL", "/Game/Maps/L_RokUnityRuntimeCityAllBuildings")
@@ -1016,7 +1019,7 @@ def spawn_buildings_from_runtime_obj_manifest(building_manifest):
 
 
 def load_building_type_sizes():
-    path = os.path.join(MIGRATION_ROOT, "ConfigTables", "BuildingTypeConfig.json")
+    path = str(DATA_ROOT / "ConfigTables/BuildingTypeConfig.json")
     if not os.path.exists(path):
         return {}
     with open(path, "r", encoding="utf-8-sig") as handle:

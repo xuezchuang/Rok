@@ -10,6 +10,7 @@
 #include "Engine/Texture2D.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "RokDataPaths.h"
 #include "RokModalNineSlice.h"
 #include "RokTrainArmyMeshData.h"
 #include "Serialization/JsonReader.h"
@@ -19,7 +20,7 @@ bool URokBarracksUpgradeAttributes::InitializeAttributes()
 {
     AttributeCount=0;LoadError.Empty();FString Json;TSharedPtr<FJsonObject> Data;
     auto Fail=[this](const TCHAR* Message){LoadError=Message;return false;};
-    if(!FFileHelper::LoadFileToString(Json,*(FPaths::ProjectSavedDir()/TEXT("RokUnityMigration/barracks_upgrade_attribute.json"))) ||
+    if(!FFileHelper::LoadFileToString(Json,*(RokDataPaths::Resolve(TEXT("barracks_upgrade_attribute.json")))) ||
        !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json),Data)||!Data.IsValid())return Fail(TEXT("Missing barracks attribute source"));
     FString Schema;double Type,Before,After,RowHeight,Height;
     const TArray<TSharedPtr<FJsonValue>> *Rows=nullptr,*Sources=nullptr;
@@ -48,7 +49,7 @@ bool URokBarracksUpgradeAttributes::InitializeAttributes()
         if(!V.IsValid()||V->Type!=EJson::Object)return Fail(TEXT("Invalid barracks source row"));
         const auto S=V->AsObject();
         if(!S->TryGetStringField(TEXT("path"),Path)||!Required.Contains(Path)||Seen.Contains(Path)||!S->TryGetStringField(TEXT("sha256"),Hash)||
-           !FFileHelper::LoadFileToArray(Bytes,*(FPaths::ProjectDir()/Path))||RokTrainArmyMesh::Sha256(Bytes)!=Hash)return Fail(TEXT("Barracks source hash changed"));
+           !FFileHelper::LoadFileToArray(Bytes,*(RokDataPaths::ResolveProjectPath(Path)))||RokTrainArmyMesh::Sha256(Bytes)!=Hash)return Fail(TEXT("Barracks source hash changed"));
         Seen.Add(Path);
     }
     TArray<FString> Labels,Values;

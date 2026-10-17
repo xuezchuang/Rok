@@ -1,6 +1,9 @@
 """Prepare only: isolated native SkeletonGraphic comparison; never launch Unity."""
 import hashlib,json,shutil
+import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from rok_data_paths import resolve
 ROOT=Path(__file__).resolve().parents[2]
 TARGET=ROOT/"Saved/UnityTrainSpineProbe"
 def main():
@@ -17,7 +20,7 @@ def main():
         for src in srcdir.iterdir():
             if src.is_file():copy(src,assets/"Models"/model/src.name)
     for relative in ("ref/client-unity/Assets/BundleAssets/UI/UIPrefabs/ui_prefabs_troops/UIArmyTrain/UI_Win_TrainArmy.prefab","ref/client-unity/Assets/BundleAssets/Troop/shared_spriteunit/SkeletonGraphicDefault_1.mat"):
-        src=ROOT/relative
+        src=resolve(relative)
         copy(src,assets/"Source"/src.name);copy(Path(str(src)+".meta"),assets/"Source"/(src.name+".meta"))
     copy(ROOT/"Scripts/RokTrainSpineExport/RenderNative.cs",assets/"RenderNative.cs")
     (TARGET/"Packages").mkdir(exist_ok=True)

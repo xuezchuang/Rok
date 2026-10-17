@@ -9,18 +9,19 @@ import re
 from pathlib import Path
 
 from BuildRokUnityEconomyCatalog import LANGUAGE_WORKBOOK, localized_text, read_language_lookup
+from rok_data_paths import DATA_ROOT, label
 
 ROOT = Path(__file__).resolve().parents[1]
-OUTPUT = ROOT / "Saved/RokUnityMigration/mail_reward_presentation.json"
+OUTPUT = DATA_ROOT / "mail_reward_presentation.json"
 CSV_ROOT = ROOT / "ref/config-tables/编译客户端配置/CSV"
 MAIL = ROOT / "ref/client-unity/Assets/Scripts/Hotfix/MVC/View_Mediator/Mail/MailMediator.cs"
 SPROTO = ROOT / "ref/client-unity/Assets/Scripts/Hotfix/Protocol/Sproto.cs"
 EMAIL_PROXY = ROOT / "ref/client-unity/Assets/Scripts/Hotfix/MVC/Proxy/EmailProxy.cs"
 LANGUAGE_BIN = ROOT / "ref/client-unity/Assets/StreamingAssets/Config/Bin/Language.bin"
 SHEET = ROOT / "ref/client-unity/Assets/BundleAssets/UI/UITextureStatic/ui_res_item/item5.tpsheet"
-ECONOMY = ROOT / "Saved/RokUnityMigration/unity_economy_catalog.json"
-GAMEPLAY = ROOT / "Saved/RokUnityMigration/unity_gameplay_catalog.json"
-TRAIN = ROOT / "Saved/RokUnityMigration/train_army_detail.json"
+ECONOMY = DATA_ROOT / "unity_economy_catalog.json"
+GAMEPLAY = DATA_ROOT / "unity_gameplay_catalog.json"
+TRAIN = DATA_ROOT / "train_army_detail.json"
 SOURCES = [MAIL, SPROTO, EMAIL_PROXY, CSV_ROOT / "Currency.csv", CSV_ROOT / "Item.csv", CSV_ROOT / "Arms.csv",
            CSV_ROOT / "Mail.csv", CSV_ROOT / "ActivityCalendar.csv",
            LANGUAGE_WORKBOOK, LANGUAGE_BIN, SHEET, ECONOMY, GAMEPLAY, TRAIN]
@@ -35,7 +36,7 @@ def sha256(path):
 
 
 def source_path(path):
-    return path.relative_to(ROOT).as_posix()
+    return label(path)
 
 
 def build(write=True):

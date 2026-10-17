@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from rok_data_paths import resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 OLD = ROOT / "Saved/RokUnityMigration/CityHallCameraMaterialGpuFixture/v1/manifest.json"
@@ -83,7 +84,7 @@ def prepare(refresh: bool = False) -> dict:
                "rok.city_hall_camera_material_gpu_runtime.v2"]
     need(not OUT.exists() or (refresh and not v2_runs),
          "Fixture v3 already exists or runtime has begun; refusing replacement")
-    code = [pin(ROOT / item) for item in CODE]
+    code = [pin(resolve(item)) for item in CODE]
     extended_native = list(base["native_pins"])
     for source in (V2_NATIVE, V2_VERIFIED, V2_CONTRACT,
                    V2_RUN / native["actual_renderer_world_matrix"]["path"]):

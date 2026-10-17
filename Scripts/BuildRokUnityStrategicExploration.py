@@ -6,6 +6,7 @@ import json
 import re
 import sys
 from PIL import Image
+from rok_data_paths import DATA_ROOT, label
 
 root = Path(__file__).resolve().parents[1]
 owner = root / 'ref/client-unity/Assets/Scripts/Hotfix/MVC/View_Mediator/Common/Logic/UI_Item_LodMenu_SubView.cs'
@@ -21,12 +22,12 @@ rs_text = rs.read_text(encoding='utf-8-sig', errors='replace')
 atlas_text = atlas.read_text(encoding='utf-8-sig')
 
 def evidence(path):
-    return {'path': path.relative_to(root).as_posix(), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
+    return {'path': label(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
 
 visuals = {}
 runtime_visuals = {}
 atlas_image = Image.open(atlas.with_suffix('')).convert('RGBA')
-crop_dir = root / 'Saved/RokUnityMigration/StrategicExplorationIcons'
+crop_dir = DATA_ROOT / 'StrategicExplorationIcons'
 if '--verify' not in sys.argv:
     crop_dir.mkdir(parents=True, exist_ok=True)
 for kind in ('cave', 'village'):
@@ -79,7 +80,7 @@ result = {'schema': 'rok.unity.strategic_exploration.v1', 'sources': [evidence(p
     'visuals': visuals, 'runtime_visuals': runtime_visuals, 'points': points, 'cells': cells, 'cell_size': 300, 'cells_per_axis': 24,
     'progress_source': 'CurrentRoleInfo.villageCaves[index].rule', 'missing_word_opened': False,
     'status': 'runtime_presentation_local_missing_progress_defaults_unopened'}
-output = root / 'Saved/RokUnityMigration/unity_strategic_exploration.json'
+output = DATA_ROOT / 'unity_strategic_exploration.json'
 if '--verify' in sys.argv:
     assert json.loads(output.read_text(encoding='utf-8')) == result, 'Stale source export'
 else:

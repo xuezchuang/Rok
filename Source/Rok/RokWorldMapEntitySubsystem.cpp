@@ -1,5 +1,7 @@
 #include "RokWorldMapEntitySubsystem.h"
 
+#include "RokDataPaths.h"
+
 #include "Dom/JsonObject.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
@@ -9,11 +11,11 @@
 namespace
 {
 const TCHAR* PopulationRelativePath =
-	TEXT("Saved/RokUnityMigration/unity_world_entity_population.json");
+	TEXT("unity_world_entity_population.json");
 const TCHAR* PopulationSchema =
 	TEXT("rok.unity_world_entity_population.v1");
 const TCHAR* PresentationRelativePath =
-	TEXT("Saved/RokUnityMigration/unity_world_entity_presentation.json");
+	TEXT("unity_world_entity_presentation.json");
 
 TSharedPtr<FJsonObject> JsonObjectField(
 	const TSharedPtr<FJsonObject>& Object,
@@ -65,8 +67,7 @@ bool JsonBoolField(
 FString ResolveProjectPath(const FString& RelativePath)
 {
 	return FPaths::ConvertRelativePathToFull(
-		FPaths::ProjectDir(),
-		RelativePath);
+		RokDataPaths::ResolveProjectPath(RelativePath));
 }
 }
 
@@ -82,8 +83,7 @@ bool URokWorldMapEntitySubsystem::LoadPopulation()
 	Entities.Reset();
 	bPopulationLoaded = false;
 
-	const FString PopulationPath = ResolveProjectPath(
-		PopulationRelativePath);
+	const FString PopulationPath = FPaths::ConvertRelativePathToFull(RokDataPaths::Resolve(PopulationRelativePath));
 	FString JsonText;
 	if (!FFileHelper::LoadFileToString(JsonText, *PopulationPath))
 	{
@@ -279,8 +279,7 @@ void URokWorldMapEntitySubsystem::LoadPresentation()
 		Record.FormationUnits.Reset();
 	}
 
-	const FString PresentationPath = ResolveProjectPath(
-		PresentationRelativePath);
+	const FString PresentationPath = FPaths::ConvertRelativePathToFull(RokDataPaths::Resolve(PresentationRelativePath));
 	FString JsonText;
 	if (!FFileHelper::LoadFileToString(JsonText, *PresentationPath))
 	{

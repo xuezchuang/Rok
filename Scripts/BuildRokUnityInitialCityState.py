@@ -1,13 +1,14 @@
 import json
 from pathlib import Path
+from rok_data_paths import DATA_ROOT, label
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-CONFIG_ROOT = PROJECT_ROOT / "Saved" / "RokUnityMigration" / "ConfigTables"
+CONFIG_ROOT = DATA_ROOT / "ConfigTables"
 MIGRATION_ROOT = PROJECT_ROOT / "Saved" / "RokUnityMigration"
-VISUAL_RESOLUTION_PATH = MIGRATION_ROOT / "unity_initial_building_visual_resolution.json"
-LEGACY_RESOLUTION_PATH = MIGRATION_ROOT / "unity_gameapp_city_init_building_resolution.json"
-OUTPUT_JSON = MIGRATION_ROOT / "unity_initial_city_state.json"
+VISUAL_RESOLUTION_PATH = DATA_ROOT / "unity_initial_building_visual_resolution.json"
+LEGACY_RESOLUTION_PATH = DATA_ROOT / "unity_gameapp_city_init_building_resolution.json"
+OUTPUT_JSON = DATA_ROOT / "unity_initial_city_state.json"
 OUTPUT_MD = MIGRATION_ROOT / "unity_initial_city_state.md"
 
 UNITY_INIT_CITY_CIV_TYPE = 101
@@ -92,16 +93,16 @@ def load_visual_resolution():
         manifest = json.loads(VISUAL_RESOLUTION_PATH.read_text(encoding="utf-8-sig"))
         records = manifest.get("records", [])
         failures = list(manifest.get("failures", []))
-        return records, failures, str(VISUAL_RESOLUTION_PATH.relative_to(PROJECT_ROOT)).replace("\\", "/")
+        return records, failures, label(VISUAL_RESOLUTION_PATH)
     if LEGACY_RESOLUTION_PATH.exists():
         manifest = json.loads(LEGACY_RESOLUTION_PATH.read_text(encoding="utf-8-sig"))
         records = []
         for record in manifest.get("records", []):
             legacy = dict(record)
             legacy.setdefault("representation", "legacy_filename_resolution")
-            legacy.setdefault("source_manifest", str(LEGACY_RESOLUTION_PATH.relative_to(PROJECT_ROOT)).replace("\\", "/"))
+            legacy.setdefault("source_manifest", label(LEGACY_RESOLUTION_PATH))
             records.append(legacy)
-        return records, [], str(LEGACY_RESOLUTION_PATH.relative_to(PROJECT_ROOT)).replace("\\", "/")
+        return records, [], label(LEGACY_RESOLUTION_PATH)
     return [], [], ""
 
 

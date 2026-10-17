@@ -6,10 +6,11 @@ import re
 import sys
 from pathlib import Path
 from BuildRokUnityEconomyCatalog import read_language_lookup
+from rok_data_paths import DATA_ROOT, label
 
 ROOT = Path(__file__).resolve().parents[1]
 TABLE = ROOT / "ref/config-tables/编译客户端配置/CSV/ResourceGatherType.csv"
-OUTPUT = ROOT / "Saved/RokUnityMigration/world_resource_descriptions.json"
+OUTPUT = DATA_ROOT / "world_resource_descriptions.json"
 
 
 def to_slate(text):
@@ -46,7 +47,7 @@ def build():
             "text": re.sub(r"</?b>", "", rich_text),
         }
     return {"schema": "rok.world_resource_descriptions.v1",
-            "source_table": TABLE.relative_to(ROOT).as_posix(),
+            "source_table": label(TABLE),
             "source_language": "ref/config-tables/s_Language.xlsm",
             "descriptions": descriptions}
 

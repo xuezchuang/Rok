@@ -1,4 +1,5 @@
 #include "RokCityAudioCatalog.h"
+#include "RokDataPaths.h"
 #include "RokTrainArmyMeshData.h"
 
 #include "Containers/StringConv.h"
@@ -121,7 +122,7 @@ bool Parse(TConstArrayView<uint8> Bytes, TMap<int32, FRokCityAudioEvent>& OutEve
 bool RokCityAudioCatalog::Load(TMap<int32, FRokCityAudioEvent>& OutEvents, FString& Error)
 {
 	TArray<uint8> Bytes;
-	const FString Path = FPaths::ProjectSavedDir() / TEXT("RokUnityMigration/CityAudio/catalog.json");
+	const FString Path = RokDataPaths::Resolve(TEXT("CityAudio/catalog.json"));
 	if (!FFileHelper::LoadFileToArray(Bytes, *Path))
 	{
 		OutEvents.Reset(); Error = TEXT("City audio source catalog missing"); return false;

@@ -5,6 +5,7 @@ import json
 import re
 import struct
 from pathlib import Path
+from rok_data_paths import resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "Saved/RokUnityMigration/ExpeditionVisualAssets/v1/atlas_manifest.json"
@@ -29,11 +30,11 @@ def verify() -> None:
         payload["selected_nodes_without_static_sprite"]) == 4
     assert report["ue_import"] == report["unity_gameview"] == "not_run"
     for relative, expected in payload["sources_sha256"].items():
-        assert digest(ROOT / relative) == expected, relative
+        assert digest(resolve(relative)) == expected, relative
     atlas_paths = set()
     for atlas in payload["atlases"]:
-        source = ROOT / atlas["source"]
-        prepared = ROOT / atlas["prepared"]
+        source = resolve(atlas["source"])
+        prepared = resolve(atlas["prepared"])
         raw = source.read_bytes()
         assert raw == prepared.read_bytes(), prepared
         assert hashlib.sha256(raw).hexdigest() == atlas["sha256"]
@@ -55,7 +56,7 @@ def verify() -> None:
         assert re.search(r"m_Sprite: \{fileID: " + str(item["source_file_id"]) +
                          r", guid: " + item["source_guid"] + r",", component)
         assert item["atlas_source"] in atlas_paths
-        png = ROOT / item["atlas_source"]
+        png = resolve(item["atlas_source"])
         meta = png.with_suffix(".png.meta")
         meta_text = meta.read_text(encoding="utf-8-sig")
         assert f"guid: {item['source_guid']}" in meta_text

@@ -3,6 +3,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+from rok_data_paths import resolve
 
 import numpy as np
 from PIL import Image
@@ -138,7 +139,7 @@ def verify_model(run, catalog, contract):
         source_size = model[role]["size"]
         if measured_size[0] > source_size[0] or measured_size[1] > source_size[1]:
             raise RuntimeError(f"{role} imported image is larger than its source PNG")
-        source_meta = source_platforms(ROOT / model[role]["path"])
+        source_meta = source_platforms(resolve(model[role]["path"]))
         for platform, field in (("DefaultTexturePlatform", "defaultPlatform"), ("Standalone", "standalonePlatform")):
             actual, expected = imported[field], source_meta[platform]
             names = (("maxTextureSize", "maxTextureSize"), ("resizeAlgorithm", "resizeAlgorithm"),
@@ -229,10 +230,10 @@ def verify(run):
     if [item["model"] for item in package["models"]] != ["build_2_101_1", "build_3_101_1"]:
         raise RuntimeError("Wrong exact source models")
     for relative, expected in catalog["sources"].items():
-        if sha(ROOT / relative) != expected:
+        if sha(resolve(relative)) != expected:
             raise RuntimeError(f"Visual catalog source changed: {relative}")
     for relative, copied in package["source_files"].items():
-        origin = ROOT / relative
+        origin = resolve(relative)
         copy = PROBE / copied["probe_asset"]
         if sha(origin) != copied["sha256"] or sha(copy) != copied["sha256"] or \
                 sha(Path(str(origin) + ".meta")) != copied["meta_sha256"] or \

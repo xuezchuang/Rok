@@ -1,5 +1,7 @@
 #include "RokUnityEconomyCatalogSubsystem.h"
 
+#include "RokDataPaths.h"
+
 #include "Dom/JsonObject.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
@@ -8,7 +10,7 @@
 
 namespace
 {
-const TCHAR* EconomyCatalogRelativePath = TEXT("Saved/RokUnityMigration/unity_economy_catalog.json");
+const TCHAR* EconomyCatalogRelativePath = TEXT("unity_economy_catalog.json");
 const TCHAR* EconomyCatalogSchema = TEXT("rok.unity_economy_catalog.v1");
 
 TSharedPtr<FJsonObject> JsonObjectField(const TSharedPtr<FJsonObject>& Object, const TCHAR* FieldName)
@@ -122,7 +124,7 @@ bool URokUnityEconomyCatalogSubsystem::LoadCatalog()
 	AllianceCreateConfig = FRokUnityAllianceCreateConfig();
 	bCatalogLoaded = false;
 
-	const FString CatalogPath = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir(), EconomyCatalogRelativePath);
+	const FString CatalogPath = FPaths::ConvertRelativePathToFull(RokDataPaths::Resolve(EconomyCatalogRelativePath));
 	FString JsonText;
 	if (!FFileHelper::LoadFileToString(JsonText, *CatalogPath))
 	{

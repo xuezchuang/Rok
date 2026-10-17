@@ -3,6 +3,7 @@
 #include "Misc/AutomationTest.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "../RokDataPaths.h"
 #include "../RokExpeditionStagePreviewData.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRokExpeditionStagePreviewSourceTest,
@@ -34,7 +35,7 @@ bool FRokExpeditionStagePreviewSourceTest::RunTest(const FString&)
 	TestEqual(TEXT("Stage 1 localized text"), One.StarDescriptions[0], FString(TEXT("全歼敌人")));
 	TestEqual(TEXT("Stage 1 reward group is a config key"), One.FirstRewardGroup, 2000001);
 	TArray<uint8> SourceBytes;
-	const FString Path = FPaths::ProjectSavedDir() / TEXT("RokUnityMigration/expedition_stage_preview.json");
+	const FString Path = RokDataPaths::Resolve(TEXT("expedition_stage_preview.json"));
 	if (!TestTrue(TEXT("Read generated source bytes"), FFileHelper::LoadFileToArray(SourceBytes, *Path))) return false;
 	TestTrue(TEXT("Exact bytes accepted"),
 		RokExpeditionStagePreviewData::LoadBytesForTesting(SourceBytes, Rows, Error));

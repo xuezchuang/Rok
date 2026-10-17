@@ -4,6 +4,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from rok_data_paths import resolve
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -47,7 +48,7 @@ def verify_fade_subpixels(unit):
     Interior sprite polygons are tested; polygon rasterization equivalence
     and GPU filtering/color-space acceptance remain runtime visual gates.
     """
-    sheet_path = PROJECT_ROOT / unit["sprite_sheet"]["path"]
+    sheet_path = resolve(unit["sprite_sheet"]["path"])
     sheet = Image.open(sheet_path).convert("RGBA")
     geometries = parse_packed_sprite_geometry(sheet_path)
     checked = 0
@@ -57,7 +58,7 @@ def verify_fade_subpixels(unit):
         width, height = int(rect["width"]), int(rect["height"])
         source = sheet.crop((x0, top, x0 + width, top + height))
         mask = decode_unit_sprite(Image.new("RGBA", source.size, (255, 255, 255, 255)), geometries[frame["name"]], fade=True)
-        output = Image.open(PROJECT_ROOT / record["fade_path"]).convert("RGBA")
+        output = Image.open(resolve(record["fade_path"])).convert("RGBA")
         offset_x = round(record["pivot"]["x"] * output.width) - round(frame["pivot"]["x"] * width)
         offset_y = output.height - round(record["pivot"]["y"] * output.height) - (height - round(frame["pivot"]["y"] * height))
         edge_count = 0
@@ -114,7 +115,7 @@ def main():
         failures.append("unit scale curve lost source tangents or constant LOD boundary")
     if manifest.get("schema") != SCHEMA:
         failures.append("schema changed")
-    if not (PROJECT_ROOT / manifest["source_population"]).exists():
+    if not resolve(manifest["source_population"]).exists():
         failures.append("source population manifest missing")
 
     formations = manifest.get("formations", {})
@@ -166,12 +167,12 @@ def main():
                             f"formation level {level} unit close-LOD "
                             "expansion is malformed"
                         )
-        if not (PROJECT_ROOT / formation["source_prefab"]["path"]).exists():
+        if not resolve(formation["source_prefab"]["path"]).exists():
             failures.append(
                 f"formation level {level} source prefab missing"
             )
         elif sha256(
-            PROJECT_ROOT / formation["source_prefab"]["path"]
+            resolve(formation["source_prefab"]["path"])
         ) != formation["source_prefab"]["sha256"]:
             failures.append(
                 f"formation level {level} source prefab changed"
@@ -188,7 +189,7 @@ def main():
             print(f"Fade subpixel source checks {name}: {verify_fade_subpixels(unit)}")
         except (AssertionError, KeyError, FileNotFoundError) as error:
             failures.append(str(error))
-        prefab = (PROJECT_ROOT / unit["source_prefab"]["path"]).read_text(encoding="utf-8")
+        prefab = resolve(unit["source_prefab"]["path"]).read_text(encoding="utf-8")
         idle_state = prefab.split("m_state:", 1)[1].split("- m_direction", 2)[1]
         expected_rate = float(re.search(r"m_update_rate:\s*([-0-9.eE]+)", idle_state).group(1))
         expected_offset = float(re.search(r"m_playing_random_offset:\s*([-0-9.eE]+)", prefab).group(1))
@@ -197,7 +198,7 @@ def main():
         if unit.get("idle_direction_index") != 0:
             failures.append(f"unit {name} default dummy direction is not +Z")
         geometry_source = unit.get("sprite_geometry_source", {})
-        geometry_path = PROJECT_ROOT / geometry_source.get("path", "")
+        geometry_path = resolve(geometry_source.get("path", ""))
         if not geometry_path.is_file() or sha256(geometry_path) != geometry_source.get("sha256"):
             failures.append(f"unit {name} source polygon geometry missing or changed")
         if len(unit["quad_size_unity"]) != 2:
@@ -209,7 +210,7 @@ def main():
             )
         crops = unit.get("frame_crops", [])
         for crop_record in crops:
-            fade_path = PROJECT_ROOT / crop_record.get("fade_path", "")
+            fade_path = resolve(crop_record.get("fade_path", ""))
             if not fade_path.is_file() or sha256(fade_path) != crop_record.get("fade_sha256"):
                 failures.append(f"unit {name} source fade frame missing or changed")
             elif Image.open(fade_path).size != (crop_record["width"], crop_record["height"]):
@@ -223,7 +224,7 @@ def main():
                 failures.append(f"unit {name} frame {frame_index} lost packed sprite geometry")
             if crops and any(crop.get(key) != crops[0].get(key) for key in ("width", "height", "pivot")):
                 failures.append(f"unit {name} frame {frame_index} shifts its pivot/size")
-            crop_path = PROJECT_ROOT / crop.get("path", "")
+            crop_path = resolve(crop.get("path", ""))
             if not crop_path.exists():
                 failures.append(f"unit {name} frame {frame_index} missing")
             elif sha256(crop_path) != crop.get("sha256"):
@@ -241,7 +242,7 @@ def main():
     if set(badges) != set(BADGE_SPRITES):
         failures.append(f"badge sprites are {sorted(badges)}")
     for name, badge in badges.items():
-        output = PROJECT_ROOT / badge["output"]["path"]
+        output = resolve(badge["output"]["path"])
         if not output.exists():
             failures.append(f"badge {name} crop missing")
         elif sha256(output) != badge["output"]["sha256"]:
@@ -250,7 +251,7 @@ def main():
             failures.append(f"badge {name} crop width differs from atlas")
 
     for prefab_name, spec in manifest.get("nameplate_specs", {}).items():
-        if not (PROJECT_ROOT / spec["source_prefab"]["path"]).exists():
+        if not resolve(spec["source_prefab"]["path"]).exists():
             failures.append(f"nameplate prefab {prefab_name} missing")
 
     pending = manifest.get("pending", [])
@@ -266,7 +267,7 @@ def main():
     ):
         failures.append("idle animation metadata is not source-faithful")
     animation_source = animation.get("source", {})
-    animation_path = PROJECT_ROOT / animation_source.get("path", "")
+    animation_path = resolve(animation_source.get("path", ""))
     if not animation_path.is_file() or sha256(animation_path) != animation_source.get("sha256"):
         failures.append("idle AnimationBase source missing or changed")
     fade = manifest.get("spawn_fade", {})
@@ -274,7 +275,7 @@ def main():
         failures.append("spawn fade rate differs from AnimationBase.UpdateFade")
     for key in ("source", "shader"):
         record = fade.get(key, {})
-        source_path = PROJECT_ROOT / record.get("path", "")
+        source_path = resolve(record.get("path", ""))
         if not source_path.is_file() or sha256(source_path) != record.get("sha256"):
             failures.append(f"spawn fade {key} missing or changed")
 

@@ -8,6 +8,7 @@ import math
 import os
 import struct
 from pathlib import Path
+from rok_data_paths import resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "Saved/RokUnityMigration/CityGammaSourceGeometryInputs/v1"
@@ -25,7 +26,7 @@ def sha(data: bytes) -> str:
 
 
 def repo_path(value: str) -> Path:
-    path = (ROOT / value).resolve()
+    path = (resolve(value)).resolve()
     require(path.is_relative_to(ROOT), f"Path escapes repo: {value}")
     return path
 

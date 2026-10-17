@@ -2,6 +2,7 @@
 import json
 import shutil
 from pathlib import Path
+from rok_data_paths import resolve
 from BuildRokUnityVillagePresentation import ROOT, OUT
 
 
@@ -17,7 +18,7 @@ def main():
         "LodManager/LevelDetailBase.cs", "LodManager/LevelDetailCastle.cs", "LodManager/LevelDetailDeposit.cs"))
     paths.add("ref/client-unity/Assets/BundleAssets/Map/Building/map_building_with_mask-5.shader")
     for relative in paths:
-        path = ROOT / relative
+        path = resolve(relative)
         shutil.copy2(path, source_dir / path.name)
         shutil.copy2(str(path)+".meta", str(source_dir/path.name)+".meta")
     shutil.copy2(ROOT/"Scripts/ProbeRokUnityVillagePresentation.cs", target/"Assets/ProbeRokUnityVillagePresentation.cs")

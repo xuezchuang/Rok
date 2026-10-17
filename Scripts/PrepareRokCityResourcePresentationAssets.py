@@ -5,6 +5,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
+from rok_data_paths import resolve
 
 from PIL import Image
 
@@ -41,7 +42,7 @@ def load_source(run):
     if catalog != build(write=False) or catalog["schema"] != "rok.city_resource_building_visual_sources.v1":
         raise RuntimeError("Resource visual source catalog differs from current immutable sources")
     for relative, expected in catalog["sources"].items():
-        if sha(ROOT / relative) != expected:
+        if sha(resolve(relative)) != expected:
             raise RuntimeError(f"Resource source hash differs: {relative}")
     summary = json.loads(SUMMARY.read_text(encoding="utf-8"))
     contract_path = PROBE / "probe_contract.json"
@@ -81,8 +82,8 @@ def load_source(run):
         sprite = catalog_model["sprite"]
         mask = catalog_model["mask"]
         for role, item in (("sprite", sprite), ("mask", mask)):
-            if sha(ROOT / item["path"]) != item["sha256"] or \
-               sha(Path(str(ROOT / item["path"]) + ".meta")) != item["meta_sha256"]:
+            if sha(resolve(item["path"])) != item["sha256"] or \
+               sha(Path(str(resolve(item["path"])) + ".meta")) != item["meta_sha256"]:
                 raise RuntimeError(f"Resource {model_id} {role} source/hash differs")
             native_import = report[role + "Import"]
             platform = item["platform"]["platform_settings"]

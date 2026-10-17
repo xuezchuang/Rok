@@ -3,9 +3,10 @@ import csv
 import hashlib
 import json
 from pathlib import Path
+from rok_data_paths import DATA_ROOT
 
 root = Path(__file__).resolve().parents[1]
-data = json.loads((root / 'Saved/RokUnityMigration/player_head_catalog.json').read_text(encoding='utf-8'))
+data = json.loads((DATA_ROOT / 'player_head_catalog.json').read_text(encoding='utf-8'))
 source = root / data['source']
 rows = list(csv.DictReader(source.read_text(encoding='utf-8-sig').splitlines()))[1:]
 assert data['source_sha256'] == hashlib.sha256(source.read_bytes()).hexdigest()

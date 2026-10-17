@@ -11,6 +11,7 @@ import json
 import math
 import struct
 from pathlib import Path
+from rok_data_paths import resolve
 
 from PIL import Image
 
@@ -44,7 +45,7 @@ def safe(record: dict) -> Path:
     value = record["path"]
     need(isinstance(value, str) and not value.startswith("/") and "\\" not in value and ":" not in value,
          "Unsafe pinned path")
-    path = (ROOT / value).resolve()
+    path = (resolve(value)).resolve()
     need(path.is_relative_to(ROOT.resolve()) and path.is_file() and
          sha(path) == record["sha256"] and path.stat().st_size == record["byte_count"],
          f"Pinned file differs: {value}")

@@ -9,9 +9,10 @@ from BuildRokCityConstructionGridSources import (
     AGE_TABLE, CITY_OBJECT, INIT_TABLE, MEDIATOR, OUT, PROXY, ROOT, SOURCES,
     TYPE_TABLE,
 )
+from rok_data_paths import label
 
 
-REPORT = OUT.with_name("verify.json")
+REPORT = ROOT / "Saved/RokUnityMigration/CityConstructionGridSources/verify.json"
 SIZES = (41, 45, 49, 53, 57)
 
 
@@ -25,7 +26,7 @@ def csv_data(path):
 def verify():
     package = json.loads(OUT.read_text(encoding="utf-8"))
     assert package["schema"] == "rok.city_construction_grid_sources.v1"
-    hashes = {path.relative_to(ROOT).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+    hashes = {label(path): hashlib.sha256(path.read_bytes()).hexdigest()
               for path in SOURCES}
     assert package["sources"] == hashes
     text = PROXY.read_text(encoding="utf-8-sig")

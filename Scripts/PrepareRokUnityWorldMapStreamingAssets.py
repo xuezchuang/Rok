@@ -4,6 +4,7 @@ import re
 import struct
 from collections import defaultdict
 from pathlib import Path
+from rok_data_paths import resolve
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -425,7 +426,7 @@ def collect_blocked_component_records(runtime_data):
                                 ),
                                 "guid": ref["guid"].lower(),
                                 "source": source_record(
-                                    PROJECT_ROOT / ref["asset_path"]
+                                    resolve(ref["asset_path"])
                                 ),
                             }
                             for slot, ref in enumerate(
@@ -465,7 +466,7 @@ def collect_blocked_component_records(runtime_data):
                             ),
                             "guid": mesh_ref["guid"].lower(),
                             "source": source_record(
-                                PROJECT_ROOT / mesh_ref["asset_path"]
+                                resolve(mesh_ref["asset_path"])
                             ),
                         },
                         "enabled": int(collider["enabled"]),
@@ -1604,7 +1605,7 @@ def main():
     expected_obj_names = set()
     ue_names = set()
     for (path_text, file_id), uses in sorted(mesh_uses.items()):
-        path = PROJECT_ROOT / path_text
+        path = resolve(path_text)
         if not path.is_file():
             raise RuntimeError(f"Missing mesh source: {path_text}")
         extension = path.suffix.lower()
@@ -1696,7 +1697,7 @@ def main():
     material_records = []
     material_names = set()
     for (path_text, file_id), uses in sorted(material_uses.items()):
-        path = PROJECT_ROOT / path_text
+        path = resolve(path_text)
         name = ue_name("MI_RokStream", path, file_id)
         if name in material_names:
             raise RuntimeError(f"Duplicate material UE name: {name}")
@@ -1743,7 +1744,7 @@ def main():
     expected_sprite_obj_names = set()
     sprite_binding_ambiguity_count = 0
     for path_text, uses in sorted(sprite_path_uses.items()):
-        path = PROJECT_ROOT / path_text
+        path = resolve(path_text)
         meta_path = Path(str(path) + ".meta")
         importer, sprite_sheet = parse_sprite_sheet(meta_path, path)
         referenced_ids = sorted(

@@ -3,10 +3,11 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from rok_data_paths import DATA_ROOT, resolve
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_MANIFEST = PROJECT_ROOT / "Saved" / "RokUnityMigration" / "ConfigTables" / "config_tables_manifest.json"
+DEFAULT_MANIFEST = DATA_ROOT / "ConfigTables" / "config_tables_manifest.json"
 
 CRITICAL_TABLES = {
     "Arms",
@@ -56,8 +57,8 @@ def main() -> int:
 
     for item in tables:
         table_name = item.get("table_name", "<unknown>")
-        json_path = PROJECT_ROOT / item.get("json_path", "")
-        csv_path = PROJECT_ROOT / item.get("csv_path", "")
+        json_path = resolve(item.get("json_path", ""))
+        csv_path = resolve(item.get("csv_path", ""))
         if not json_path.exists():
             failures.append(f"missing JSON for {table_name}: {json_path}")
         if not csv_path.exists():

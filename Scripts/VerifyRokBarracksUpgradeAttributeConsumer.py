@@ -2,9 +2,10 @@
 import hashlib
 import json
 from pathlib import Path
+from rok_data_paths import DATA_ROOT, resolve
 
 ROOT = Path(__file__).resolve().parents[1]
-data = json.loads((ROOT / 'Saved/RokUnityMigration/barracks_upgrade_attribute.json').read_text(encoding='utf-8'))
+data = json.loads((DATA_ROOT / 'barracks_upgrade_attribute.json').read_text(encoding='utf-8'))
 assert data['schema'] == 'rok.barracks.upgrade_attribute.v1'
 assert (data['building_type'], data['current_level'], data['next_level']) == (9, 1, 2)
 assert [(r['label_id'], r['label'], r['current'], r['delta'], r['separator']) for r in data['rows']] == [
@@ -14,7 +15,7 @@ assert data['row_height'] == 40 and data['attribute_height'] == 110
 assert data['omitted_attack']['current'] == data['omitted_attack']['next'] == 0
 assert len(data['sources']) == len({r['path'] for r in data['sources']}) == 11
 for row in data['sources']:
-    assert hashlib.sha256((ROOT / row['path']).read_bytes()).hexdigest() == row['sha256'], row['path']
+    assert hashlib.sha256(resolve(row['path']).read_bytes()).hexdigest() == row['sha256'], row['path']
 cpp = (ROOT / 'Source/Rok/RokBarracksUpgradeAttributes.cpp').read_text(encoding='utf-8')
 modal = (ROOT / 'Source/Rok/RokUnityModalWidget.cpp').read_text(encoding='utf-8')
 assert all(row['path'] in cpp for row in data['sources'])

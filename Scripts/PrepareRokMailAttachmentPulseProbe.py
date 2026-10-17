@@ -8,6 +8,7 @@ import json
 import shutil
 import subprocess
 from pathlib import Path
+from rok_data_paths import resolve
 from VerifyRokLeaderboardOverviewLayout import documents, node, vector
 from VerifyRokMailAttachmentPulse import CLIP, PREFAB, main as verify_source
 
@@ -34,12 +35,12 @@ def main():
         shutil.copy2(source, p)
         assert sha(source) == sha(p)
         copies.append({'source': source.relative_to(ROOT).as_posix(), 'target': target, 'sha256': sha(source)})
-    clip = ROOT / CLIP
+    clip = resolve(CLIP)
     copy(clip, 'Assets/Source/UA_Item_HotTask_bag.anim')
     copy(Path(str(clip) + '.meta'), 'Assets/Source/UA_Item_HotTask_bag.anim.meta')
     renderer = ROOT / 'Scripts/RenderRokMailAttachmentPulseProbe.cs'
     copy(renderer, 'Assets/Editor/' + renderer.name)
-    prefab = ROOT / PREFAB
+    prefab = resolve(PREFAB)
     parts = node(documents(prefab.read_text(encoding='utf-8-sig')), 'img_bag')
     def xy(name):
         a = vector(parts[0], name)

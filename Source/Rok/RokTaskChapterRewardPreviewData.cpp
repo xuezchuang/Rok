@@ -1,4 +1,5 @@
 #include "RokTaskChapterRewardPreviewData.h"
+#include "RokDataPaths.h"
 #include "RokTrainArmyMeshData.h"
 
 #include "Containers/StringConv.h"
@@ -176,7 +177,7 @@ bool Parse(TConstArrayView<uint8> Bytes, TArray<FRokTaskChapterRewardGroup>& Out
 bool RokTaskChapterRewardPreviewData::LoadAll(TArray<FRokTaskChapterRewardGroup>& OutGroups, FString& Error)
 {
 	TArray<uint8> Bytes;
-	const FString Path = FPaths::ProjectSavedDir() / TEXT("RokUnityMigration/TaskChapterRewardPreview/v1/catalog.json");
+	const FString Path = RokDataPaths::Resolve(TEXT("TaskChapterRewardPreview/v1/catalog.json"));
 	if (!FFileHelper::LoadFileToArray(Bytes, *Path))
 	{
 		OutGroups.Reset(); Error = TEXT("Chapter reward catalog missing: run BuildRokTaskChapterRewardPreview.py");

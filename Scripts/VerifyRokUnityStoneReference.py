@@ -2,6 +2,7 @@
 import hashlib
 import json
 from pathlib import Path
+from rok_data_paths import resolve
 from PIL import Image
 from BuildRokUnityStoneDeposit import ROOT, OUT, source
 
@@ -10,14 +11,14 @@ def main():
     directory = ROOT / "Saved/RokUnityMigration/StoneReference"
     report = json.loads((directory/"native_render.json").read_text(encoding="utf-8"))
     data = json.loads(OUT.read_text(encoding="utf-8"))
-    native = json.loads(OUT.with_name("unity_stone_deposit_native_probe.json").read_text(encoding="utf-8"))
+    native = json.loads((ROOT / "Saved/RokUnityMigration/unity_stone_deposit_native_probe.json").read_text(encoding="utf-8"))
     assert report["unityVersion"] == "2019.4.28f1c1"
     assert report["colorSpace"] == "Gamma" and report["graphicsDevice"] != "Null Device"
     assert len(report["frames"]) == 3
     assets = [data["source"]] + [s[k] for item in data["items"] for s in item["sprites"] for k in ("texture", "mask", "material")]
     provenance = []
     for asset in assets:
-        path = ROOT/asset["path"]
+        path = resolve(asset["path"])
         copied = ROOT/"Saved/UnityStoneDepositProbe/Assets/Source"/path.name
         assert hashlib.sha256(copied.read_bytes()).hexdigest() == asset["sha256"]
         assert Path(str(path)+".meta").read_bytes() == Path(str(copied)+".meta").read_bytes()
@@ -33,7 +34,7 @@ def main():
             colors = image.convert("RGB").getcolors(1280*720)
             assert colors and len(colors) > 1000, "Reference rendered blank or failed shader"
         frames.append({**source(path), "dxf":frame["dxf"], "active":frame["active"], "distinct_colors":len(colors)})
-    provenance.extend(source(ROOT/path) for path in (
+    provenance.extend(source(resolve(path)) for path in (
         "Scripts/RenderRokUnityStoneDeposit.cs",
         "ref/client-unity/Assets/Scripts/Client/Compoment/WorldCamera.cs",
         "ref/client-unity/Assets/Scripts/Client/Compoment/MaskSprite.cs",

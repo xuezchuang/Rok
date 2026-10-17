@@ -9,6 +9,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
+from rok_data_paths import resolve
 
 from BuildRokAcademyVisualSource import OUT as CATALOG_PATH, ROOT, build
 
@@ -34,7 +35,7 @@ def load_source(run):
     if catalog != build(write=False):
         raise RuntimeError("Academy source catalog differs from current immutable sources")
     for relative, expected in catalog["sources"].items():
-        if sha(ROOT / relative) != expected:
+        if sha(resolve(relative)) != expected:
             raise RuntimeError(f"Academy source hash differs: {relative}")
     verify_path = run / "native_verify.json"
     render_path = run / "native_render.json"

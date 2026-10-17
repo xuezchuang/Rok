@@ -4,9 +4,12 @@ import json
 from pathlib import Path
 
 import unreal
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from rok_data_paths import DATA_ROOT, resolve  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
-MANIFEST = ROOT / 'Saved/RokUnityMigration/ResearchNative/atlas_manifest.json'
+MANIFEST = DATA_ROOT / 'ResearchNative/atlas_manifest.json'
 
 
 def sha(path):
@@ -23,7 +26,7 @@ def main():
     report = json.loads(MANIFEST.read_text(encoding='utf-8'))
     assert report['schema'] == 'rok.research.atlas.v1'
     for relative, expected in report['sources'].items():
-        assert sha(ROOT / relative) == expected, relative
+        assert sha(resolve(relative)) == expected, relative
     imported = []
     rows = [*report['atlases'], report['menuIcon']]
     assert len(rows) == 5 and len({row['ueAssetPath'] for row in rows}) == 5
@@ -31,7 +34,7 @@ def main():
     if existing:
         raise RuntimeError('Research import requires five new assets; existing: ' + ', '.join(existing))
     for row in rows:
-        src = ROOT / row['output']
+        src = resolve(row['output'])
         assert src.exists() and sha(src) == row['sha256'], str(src)
         destination = row['ueAssetPath']
         parent, name = destination.rsplit('/', 1)

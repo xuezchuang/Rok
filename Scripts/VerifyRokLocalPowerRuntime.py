@@ -17,11 +17,12 @@ import re
 import sys
 
 from PIL import Image, ImageChops, ImageStat
+from rok_data_paths import DATA_ROOT, resolve
 
 
 ROOT = Path(__file__).resolve().parents[1]
 AUDIT_ROOT = (ROOT / "Saved/RokUnityMigration/SpeedUpAudit").resolve()
-SOURCE_GEOMETRY = ROOT / "Saved/RokUnityMigration/PowerGain/source_geometry.json"
+SOURCE_GEOMETRY = DATA_ROOT / "PowerGain/source_geometry.json"
 CAPTURE_NAMES = [
     "01_city_source_barracks",
     "02_barracks_blocked_cityhall_requirement",
@@ -348,7 +349,7 @@ def review(manifest_path: Path) -> dict:
     source_inputs = []
     for item in geometry.get("sources", []):
         relative = item.get("path")
-        source = (ROOT / relative).resolve() if isinstance(relative, str) else None
+        source = resolve(relative).resolve() if isinstance(relative, str) else None
         safe = source is not None and source.is_relative_to(ROOT)
         actual_hash = sha256(source) if safe and source.is_file() else None
         source_inputs.append({"path": relative, "sha256": actual_hash,

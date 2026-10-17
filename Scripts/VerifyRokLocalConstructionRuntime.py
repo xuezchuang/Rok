@@ -8,6 +8,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
+from rok_data_paths import resolve
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -61,11 +62,11 @@ def verify_menu_revision(revision: dict, revision3: dict, hashes: dict) -> None:
           "GetPlacementMenuAnimationElapsedSecondsForAudit"],
          "Placement menu ColorTint/opening source contract differs")
     for relative, sha in revision["source_sha256"].items():
-        source = ROOT / relative
+        source = resolve(relative)
         need(source.is_file() and digest(source) == sha,
              f"Placement menu Unity source changed: {relative}")
     close_source = "Saved/RokUnityMigration/BatchReview20261009ConstructionVisual/placement_menu_close_input_source.json"
-    close_report = json.loads((ROOT / close_source).read_text(encoding="utf-8-sig"))
+    close_report = json.loads(resolve(close_source).read_text(encoding="utf-8-sig"))
     need(close_source in hashes and
          close_report["schema"] == "rok.placement_menu_close_input_source.v1" and
          "CanvasGroup continues to allow raycasts" in
@@ -73,10 +74,10 @@ def verify_menu_revision(revision: dict, revision3: dict, hashes: dict) -> None:
          "Placement menu Close interaction source contract differs")
     for source_row in close_report["source_files"]:
         relative = source_row["path"]
-        need(digest(ROOT / relative) == source_row["sha256"],
+        need(digest(resolve(relative)) == source_row["sha256"],
              f"Placement menu Close source changed: {relative}")
     animation_source = "Saved/RokUnityMigration/BatchReview20261009ConstructionVisual/placement_menu_animation_source_inventory.json"
-    animation_report = json.loads((ROOT / animation_source).read_text(encoding="utf-8-sig"))
+    animation_report = json.loads(resolve(animation_source).read_text(encoding="utf-8-sig"))
     need(animation_source in hashes and
          animation_report["schema"] == "rok.placement_menu_animation_source_inventory.v1" and
          animation_report["animation_contract"]["open_clip"]["duration_seconds"] == .25 and
@@ -84,10 +85,10 @@ def verify_menu_revision(revision: dict, revision3: dict, hashes: dict) -> None:
          "BuildingMenu source animation duration differs")
     for source_row in animation_report["source_files"]:
         relative = source_row["path"]
-        need(digest(ROOT / relative) == source_row["sha256"],
+        need(digest(resolve(relative)) == source_row["sha256"],
              f"BuildingMenu animation source changed: {relative}")
     previous_source = "Saved/RokUnityMigration/BatchReview20261009ConstructionVisual/placement_previous_selection_source.json"
-    previous_report = json.loads((ROOT / previous_source).read_text(encoding="utf-8-sig"))
+    previous_report = json.loads(resolve(previous_source).read_text(encoding="utf-8-sig"))
     need(previous_source in hashes and
          previous_report["schema"] == "rok.placement_previous_selection_source.v1" and
          "does not prescribe keeping the previously selected regular building menu" in
@@ -95,10 +96,10 @@ def verify_menu_revision(revision: dict, revision3: dict, hashes: dict) -> None:
          "Placement previous-selection source contract differs")
     for source_row in previous_report["files"]:
         relative = source_row["path"]
-        need(digest(ROOT / relative) == source_row["sha256"],
+        need(digest(resolve(relative)) == source_row["sha256"],
              f"Placement previous-selection source changed: {relative}")
     gray_source = "Saved/RokUnityMigration/BatchReview20261009ConstructionVisual/placement_menu_gray_render_diagnosis.json"
-    gray_report = json.loads((ROOT / gray_source).read_text(encoding="utf-8-sig"))
+    gray_report = json.loads(resolve(gray_source).read_text(encoding="utf-8-sig"))
     need(gray_source in hashes and
          gray_report["schema"] == "rok.placement_menu.gray_render_diagnosis.v1" and
          "(128/255)^2" in gray_report["root_cause"]["ue"],
@@ -107,10 +108,10 @@ def verify_menu_revision(revision: dict, revision3: dict, hashes: dict) -> None:
                            gray_report["root_cause"]["source_shader_sha256"]),
                           (gray_report["root_cause"]["research_material_generator"],
                            gray_report["root_cause"]["research_material_generator_sha256"])):
-        need(digest(ROOT / relative) == sha,
+        need(digest(resolve(relative)) == sha,
              f"Placement gray shader diagnostic source changed: {relative}")
     material_source = "Saved/RokUnityMigration/BatchReview20261009ConstructionVisual/placement_gray_material_source.json"
-    material_report = json.loads((ROOT / material_source).read_text(encoding="utf-8-sig"))
+    material_report = json.loads(resolve(material_source).read_text(encoding="utf-8-sig"))
     need(material_source in hashes and
          material_report["schema"] == "rok.placement.gray_material_source.v1" and
          material_report["target"] ==
@@ -120,10 +121,10 @@ def verify_menu_revision(revision: dict, revision3: dict, hashes: dict) -> None:
          "Dedicated Placement gray material source formula differs")
     for source_row in material_report["source_files"]:
         relative = source_row["path"]
-        need(digest(ROOT / relative) == source_row["sha256"],
+        need(digest(resolve(relative)) == source_row["sha256"],
              f"Dedicated gray material source changed: {relative}")
     material_v2_source = "Saved/RokUnityMigration/BatchReview20261009ConstructionVisual/placement_gray_material_source_v2.json"
-    material_v2 = json.loads((ROOT / material_v2_source).read_text(encoding="utf-8-sig"))
+    material_v2 = json.loads(resolve(material_v2_source).read_text(encoding="utf-8-sig"))
     need(material_v2_source in hashes and
          material_v2["schema"] == "rok.placement.gray_material_source.v2" and
          "output RGBA index 5" in material_v2["tint_contract"] and
@@ -132,10 +133,10 @@ def verify_menu_revision(revision: dict, revision3: dict, hashes: dict) -> None:
          "Dedicated Placement gray material RGBA graph differs")
     for source_row in material_v2["source_files"]:
         relative = source_row["path"]
-        need(digest(ROOT / relative) == source_row["sha256"],
+        need(digest(resolve(relative)) == source_row["sha256"],
              f"Dedicated gray material v2 source changed: {relative}")
     material_v3_source = "Saved/RokUnityMigration/BatchReview20261009ConstructionVisual/placement_gray_material_source_v3.json"
-    material_v3 = json.loads((ROOT / material_v3_source).read_text(encoding="utf-8-sig"))
+    material_v3 = json.loads(resolve(material_v3_source).read_text(encoding="utf-8-sig"))
     need(material_v3_source in hashes and
          material_v3["schema"] == "rok.placement.gray_material_source.v3" and
          material_v3["target"] == material_v2["target"] and
@@ -149,9 +150,9 @@ def verify_menu_revision(revision: dict, revision3: dict, hashes: dict) -> None:
          "Dedicated Placement gray material final Gamma/RGBA graph differs")
     for source_row in material_v3["source_files"]:
         relative = source_row["path"]
-        need(digest(ROOT / relative) == source_row["sha256"],
+        need(digest(resolve(relative)) == source_row["sha256"],
              f"Dedicated gray material v3 source changed: {relative}")
-    need(digest(ROOT / material_v3["producer"]["path"]) ==
+    need(digest(resolve(material_v3["producer"]["path"])) ==
          material_v3["producer"]["sha256"],
          "Dedicated gray material final producer changed")
     asset_path = "Content/RokPrototype/UI/PlacementAtlases/M_RokPlacementGrayUI.uasset"
@@ -159,8 +160,8 @@ def verify_menu_revision(revision: dict, revision3: dict, hashes: dict) -> None:
                    "PlacementGrayMaterial/20261008T230559679259Z_46968_ebba69ea/create.json")
     root_create_path = ("Saved/RokUnityMigration/BatchReview20261009ConstructionVisual/"
                         "placement_gray_material_root_create.json")
-    create = json.loads((ROOT / create_path).read_text(encoding="utf-8-sig"))
-    root_create = json.loads((ROOT / root_create_path).read_text(encoding="utf-8-sig"))
+    create = json.loads(resolve(create_path).read_text(encoding="utf-8-sig"))
+    root_create = json.loads(resolve(root_create_path).read_text(encoding="utf-8-sig"))
     need(create_path in hashes and root_create_path in hashes and
          create["schema"] == "rok.placement.gray_material_create.v1" and
          create["project"] == root_create["project"] == str(ROOT) and
@@ -424,7 +425,7 @@ def main() -> None:
     }
     need(required.issubset(hashes), "Missing source trace hashes")
     for relative, sha in hashes.items():
-        source = ROOT / relative
+        source = resolve(relative)
         need(source.is_file() and digest(source) == sha.lower(),
              f"Runtime input changed or missing: {relative}")
     ui_source = json.loads((ROOT / "Saved/RokUnityMigration/BatchReview20261009ConstructionVisual/placement_menu_hud_ui_static.json").read_text(encoding="utf-8-sig"))

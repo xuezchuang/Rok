@@ -5,6 +5,7 @@ import math
 import re
 import struct
 from pathlib import Path
+from rok_data_paths import resolve
 
 import numpy as np
 from PIL import Image
@@ -855,8 +856,8 @@ def parse_river_core_geometry_contract(
         )
 
     material_paths = {
-        "edge": PROJECT_ROOT / RIVER_EDGE_MATERIAL_PATH,
-        "water": PROJECT_ROOT / RIVER_WATER_MATERIAL_PATH,
+        "edge": resolve(RIVER_EDGE_MATERIAL_PATH),
+        "water": resolve(RIVER_WATER_MATERIAL_PATH),
     }
     material_contracts = {
         role: parse_river_material_contract(
@@ -1176,7 +1177,7 @@ def derive_source_semantics(world_manifest):
         CITY_CONTAINER_PREFAB_PATH,
         "m_scale_curve",
     )
-    tree_curve_path = PROJECT_ROOT / TREE_SCALE_CURVE_SOURCE
+    tree_curve_path = resolve(TREE_SCALE_CURVE_SOURCE)
     tree_curve = parse_unity_curve(
         tree_curve_path,
         "m_tree_scale_curve",
@@ -1738,7 +1739,7 @@ def bake_splat_material(prefab_id, material_path, guid_index):
 
 
 def material_texture_record(material_relative_path, guid_index):
-    material_path = PROJECT_ROOT / material_relative_path
+    material_path = resolve(material_relative_path)
     if not material_path.exists():
         raise RuntimeError(f"Missing source material: {material_relative_path}")
     material_text = material_path.read_text(encoding="utf-8", errors="ignore")
@@ -2301,13 +2302,13 @@ def parse_waterfall_geometry_contract(prefab_path, guid_index):
     river_f_contract = parse_river_core_geometry_contract(
         "Rive_CO_F",
         river_f_prefab,
-        PROJECT_ROOT / RIVER_CORE_FBX_PATHS["Rive_CO_F"],
+        resolve(RIVER_CORE_FBX_PATHS["Rive_CO_F"]),
         guid_index,
     )
     mountain_g_contract = parse_mountain_geometry_contract(
         "build_mountain_G",
         mountain_g_prefab,
-        PROJECT_ROOT / MOUNTAIN_FBX_PATHS["build_mountain_G"],
+        resolve(MOUNTAIN_FBX_PATHS["build_mountain_G"]),
         guid_index,
     )
     mesh_node_by_file_id = {
@@ -2318,7 +2319,7 @@ def parse_waterfall_geometry_contract(prefab_path, guid_index):
         node = mountain_g_contract[role]
         mesh_node_by_file_id[node["mesh_file_id"]] = node["game_object"]
     mountain_g_fbx_models, _ = parse_fbx_binary_nodes(
-        PROJECT_ROOT / MOUNTAIN_FBX_PATHS["build_mountain_G"]
+        resolve(MOUNTAIN_FBX_PATHS["build_mountain_G"])
     )
     water_node = "build_mountain_G_water"
     if water_node not in mountain_g_fbx_models:
@@ -2479,8 +2480,8 @@ def build_object_source_records(world_manifest, guid_index):
         if prefab_id.startswith("I_TYPE_"):
             continue
         if prefab_id in RIVER_CORE_IDS:
-            source_path = PROJECT_ROOT / RIVER_CORE_FBX_PATHS[prefab_id]
-            prefab_path = PROJECT_ROOT / record["source_prefab_path"]
+            source_path = resolve(RIVER_CORE_FBX_PATHS[prefab_id])
+            prefab_path = resolve(record["source_prefab_path"])
             geometry_contract = parse_river_core_geometry_contract(
                 prefab_id,
                 prefab_path,
@@ -2496,8 +2497,8 @@ def build_object_source_records(world_manifest, guid_index):
                 "ue_mesh_name": "",
             }
         elif prefab_id in MOUNTAIN_FBX_PATHS:
-            source_path = PROJECT_ROOT / MOUNTAIN_FBX_PATHS[prefab_id]
-            prefab_path = PROJECT_ROOT / record["source_prefab_path"]
+            source_path = resolve(MOUNTAIN_FBX_PATHS[prefab_id])
+            prefab_path = resolve(record["source_prefab_path"])
             geometry_contract = parse_mountain_geometry_contract(
                 prefab_id,
                 prefab_path,
@@ -2513,7 +2514,7 @@ def build_object_source_records(world_manifest, guid_index):
                 "ue_mesh_folder": geometry_contract["ue_body_mesh_folder"],
             }
         elif prefab_id == WATERFALL_PREFAB_ID:
-            prefab_path = PROJECT_ROOT / record["source_prefab_path"]
+            prefab_path = resolve(record["source_prefab_path"])
             waterfall_contract = parse_waterfall_geometry_contract(
                 prefab_path,
                 guid_index,
@@ -2533,7 +2534,7 @@ def build_object_source_records(world_manifest, guid_index):
             }
         else:
             mesh_paths = [
-                PROJECT_ROOT / dependency["path"]
+                resolve(dependency["path"])
                 for dependency in record["resolved_dependencies"]
                 if dependency["path"].endswith(".asset")
             ]
@@ -2662,7 +2663,7 @@ def main():
     for prefab_id in plane_ids:
         dependencies = source_prefabs[prefab_id]["resolved_dependencies"]
         material_paths = [
-            PROJECT_ROOT / item["path"]
+            resolve(item["path"])
             for item in dependencies
             if item["path"].endswith(".mat")
         ]
@@ -2725,7 +2726,7 @@ def main():
         "mountain_materials": mountain_materials,
         "tree_materials": tree_materials,
         "tree_scale_curve_source": source_record(
-            PROJECT_ROOT / TREE_SCALE_CURVE_SOURCE
+            resolve(TREE_SCALE_CURVE_SOURCE)
         ),
         "tree_scale_bake_dxf": TREE_SCALE_BAKE_DXF,
         "tree_scale_bake_value": TREE_VERTEX_SCALE,

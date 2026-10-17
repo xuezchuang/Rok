@@ -1,4 +1,5 @@
 #include "RokExpeditionStagePreviewData.h"
+#include "RokDataPaths.h"
 #include "RokTrainArmyMeshData.h"
 
 #include "Containers/StringConv.h"
@@ -102,7 +103,7 @@ static bool ParsePinnedBytes(TConstArrayView<uint8> Bytes,
 bool RokExpeditionStagePreviewData::LoadAll(TArray<FRokExpeditionStagePreviewRow>& OutRows, FString& Error)
 {
 	TArray<uint8> Bytes;
-	const FString Path = FPaths::ProjectSavedDir() / TEXT("RokUnityMigration/expedition_stage_preview.json");
+	const FString Path = RokDataPaths::Resolve(TEXT("expedition_stage_preview.json"));
 	if (!FFileHelper::LoadFileToArray(Bytes, *Path))
 	{
 		OutRows.Reset();

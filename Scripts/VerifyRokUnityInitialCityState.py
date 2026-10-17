@@ -1,11 +1,12 @@
 import json
 from pathlib import Path, PurePosixPath
+from rok_data_paths import DATA_ROOT, label
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 MIGRATION_ROOT = PROJECT_ROOT / "Saved" / "RokUnityMigration"
-STATE_PATH = MIGRATION_ROOT / "unity_initial_city_state.json"
-VISUAL_RESOLUTION_PATH = MIGRATION_ROOT / "unity_initial_building_visual_resolution.json"
+STATE_PATH = DATA_ROOT / "unity_initial_city_state.json"
+VISUAL_RESOLUTION_PATH = DATA_ROOT / "unity_initial_building_visual_resolution.json"
 SCENE_VERIFY_PATH = MIGRATION_ROOT / "unity_gameapp_city_runtime_verify.json"
 OUTPUT_PATH = MIGRATION_ROOT / "unity_initial_city_state_verify.json"
 
@@ -141,8 +142,8 @@ def main():
         failures.append(f"Missing scene verification evidence: {SCENE_VERIFY_PATH}")
 
     result = {
-        "state_manifest": str(STATE_PATH.relative_to(PROJECT_ROOT)),
-        "visual_resolution": str(VISUAL_RESOLUTION_PATH.relative_to(PROJECT_ROOT)),
+        "state_manifest": str(Path(label(STATE_PATH))),
+        "visual_resolution": str(Path(label(VISUAL_RESOLUTION_PATH))),
         "scene_verify": str(SCENE_VERIFY_PATH.relative_to(PROJECT_ROOT)),
         "building_count": len(buildings),
         "gameplay_building_count": state.get("gameplay_building_count"),

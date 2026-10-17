@@ -1,5 +1,7 @@
 #include "RokUnityGameplayCatalogSubsystem.h"
 
+#include "RokDataPaths.h"
+
 #include "Dom/JsonObject.h"
 #include "Misc/FileHelper.h"
 #include "Misc/SecureHash.h"
@@ -9,13 +11,13 @@
 
 namespace
 {
-const TCHAR* CatalogRelativePath = TEXT("Saved/RokUnityMigration/unity_gameplay_catalog.json");
-const TCHAR* LanguageTableRelativePath = TEXT("Saved/RokUnityMigration/ConfigTables/Language.json");
-const TCHAR* ActivityCalendarTableRelativePath = TEXT("Saved/RokUnityMigration/ConfigTables/ActivityCalendar.json");
-const TCHAR* AllianceOfficiallyTableRelativePath = TEXT("Saved/RokUnityMigration/ConfigTables/AllianceOfficially.json");
-const TCHAR* AllianceTechnologyRelativePath = TEXT("Saved/RokUnityMigration/AllianceTechnologyReadonlyCatalogV1.json");
-const TCHAR* AllianceGiftRelativePath = TEXT("Saved/RokUnityMigration/AllianceGiftReadonlyCatalogV2.json");
-const TCHAR* AllianceShopRelativePath = TEXT("Saved/RokUnityMigration/AllianceShopReadonlyCatalogV1.json");
+const TCHAR* CatalogRelativePath = TEXT("unity_gameplay_catalog.json");
+const TCHAR* LanguageTableRelativePath = TEXT("ConfigTables/Language.json");
+const TCHAR* ActivityCalendarTableRelativePath = TEXT("ConfigTables/ActivityCalendar.json");
+const TCHAR* AllianceOfficiallyTableRelativePath = TEXT("ConfigTables/AllianceOfficially.json");
+const TCHAR* AllianceTechnologyRelativePath = TEXT("AllianceTechnologyReadonlyCatalogV1.json");
+const TCHAR* AllianceGiftRelativePath = TEXT("AllianceGiftReadonlyCatalogV2.json");
+const TCHAR* AllianceShopRelativePath = TEXT("AllianceShopReadonlyCatalogV1.json");
 
 // The manifest's own source hash fields cannot authenticate its payload.
 bool ValidateAllianceShopManifestBytes(const TArray<uint8>& Bytes)
@@ -38,7 +40,7 @@ bool LoadReadonlyConfigTable(const TCHAR* RelativePath, const TCHAR* TableName,
 	int32 ExpectedRows, TArray<TSharedPtr<FJsonValue>>& OutRows)
 {
 	FString Text;
-	const FString Path = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir(), RelativePath);
+	const FString Path = FPaths::ConvertRelativePathToFull(RokDataPaths::Resolve(RelativePath));
 	if (!FFileHelper::LoadFileToString(Text, *Path)) return false;
 	TSharedPtr<FJsonObject> Root;
 	const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Text);
@@ -351,7 +353,7 @@ void URokUnityGameplayCatalogSubsystem::Initialize(FSubsystemCollectionBase& Col
 void URokUnityGameplayCatalogSubsystem::LoadVipDailyPointHelpText()
 {
 	VipDailyPointHelpText.Reset();
-	const FString LanguagePath = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir(), LanguageTableRelativePath);
+	const FString LanguagePath = FPaths::ConvertRelativePathToFull(RokDataPaths::Resolve(LanguageTableRelativePath));
 	FString JsonText;
 	if (!FFileHelper::LoadFileToString(JsonText, *LanguagePath))
 	{
@@ -430,7 +432,7 @@ bool URokUnityGameplayCatalogSubsystem::LoadCatalog()
 	Summary = FRokUnityGameplayCatalogSummary();
 	bCatalogLoaded = false;
 
-	const FString CatalogPath = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir(), CatalogRelativePath);
+	const FString CatalogPath = FPaths::ConvertRelativePathToFull(RokDataPaths::Resolve(CatalogRelativePath));
 	FString JsonText;
 	if (!FFileHelper::LoadFileToString(JsonText, *CatalogPath))
 	{
@@ -1415,7 +1417,7 @@ bool URokUnityGameplayCatalogSubsystem::LoadAllianceTechnologyReadonly()
 	bAllianceTechnologyReadonlyLoadAttempted = true;
 	AllianceTechnologyReadonlyRows.Reset();
 	FString Text;
-	const FString Path = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir(), AllianceTechnologyRelativePath);
+	const FString Path = FPaths::ConvertRelativePathToFull(RokDataPaths::Resolve(AllianceTechnologyRelativePath));
 	if (!FFileHelper::LoadFileToString(Text, *Path))
 	{
 		UE_LOG(LogTemp, Warning, TEXT("AllianceStudy source manifest unavailable; no static technology definitions shown."));
@@ -1572,7 +1574,7 @@ bool URokUnityGameplayCatalogSubsystem::LoadAllianceShopReadonly()
 	AllianceShopReadonlyRows.Reset();
 	AllianceShopReadonlyGroups.Reset();
 	TArray<uint8> ManifestBytes;
-	const FString Path = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir(), AllianceShopRelativePath);
+	const FString Path = FPaths::ConvertRelativePathToFull(RokDataPaths::Resolve(AllianceShopRelativePath));
 	if (!FFileHelper::LoadFileToArray(ManifestBytes, *Path))
 	{
 		UE_LOG(LogTemp, Warning, TEXT("Alliance shop static manifest unavailable; no definitions shown."));
@@ -1709,7 +1711,7 @@ bool URokUnityGameplayCatalogSubsystem::LoadAllianceGiftReadonly()
 	AllianceGiftLevelReadonlyRows.Reset();
 	AllianceGiftRewardReadonlyRows.Reset();
 	TArray<uint8> ManifestBytes;
-	const FString Path = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir(), AllianceGiftRelativePath);
+	const FString Path = FPaths::ConvertRelativePathToFull(RokDataPaths::Resolve(AllianceGiftRelativePath));
 	if (!FFileHelper::LoadFileToArray(ManifestBytes, *Path))
 	{
 		UE_LOG(LogTemp, Warning, TEXT("Alliance gift static manifest unavailable; no definitions shown."));

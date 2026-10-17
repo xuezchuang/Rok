@@ -8,12 +8,13 @@ import re
 import zipfile
 from pathlib import Path
 from typing import Any
+from rok_data_paths import DATA_ROOT, label
 import xml.etree.ElementTree as ET
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_UNITY_ROOT = Path(os.environ.get("ROK_UNITY_ROOT", r"D:\ueDemo\Rok-unity"))
-DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "Saved" / "RokUnityMigration" / "ConfigTables"
+DEFAULT_OUTPUT_ROOT = DATA_ROOT / "ConfigTables"
 
 MAIN_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -59,7 +60,8 @@ def row_index(cell_ref: str) -> int:
 
 def rel(path: Path, root: Path) -> str:
     try:
-        return path.relative_to(root).as_posix()
+        # Project paths keep their pre-move names; see rok_data_paths.label().
+        return label(path) if root == PROJECT_ROOT else path.relative_to(root).as_posix()
     except ValueError:
         return str(path)
 

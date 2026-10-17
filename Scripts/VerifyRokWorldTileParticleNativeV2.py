@@ -7,6 +7,7 @@ import json
 import math
 import os
 from pathlib import Path
+from rok_data_paths import resolve
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -102,7 +103,7 @@ def validate_inputs() -> tuple[dict, dict, dict, list[dict]]:
     for kind, name in (("prefab", "Tile-JuDian-A2_lod2.prefab"),
                        ("material", "Ring_06_light.mat"), ("texture", "Ring_07.png")):
         row = source["source_files"][kind]
-        path, meta = ROOT / row["path"], ROOT / row["meta_path"]
+        path, meta = resolve(row["path"]), resolve(row["meta_path"])
         copy, copy_meta = PROBE / "Assets/ProbeInputs" / name, PROBE / "Assets/ProbeInputs" / (name + ".meta")
         check(sha(path) == row["sha256"] == contract[kind + "_sha256"], f"{kind} source SHA")
         check(sha(meta) == row["meta_sha256"], f"{kind} source meta SHA")

@@ -1,4 +1,5 @@
 #include "RokBuildingPreviewGlowData.h"
+#include "RokDataPaths.h"
 #include "RokTrainArmyMeshData.h"
 #include "Dom/JsonObject.h"
 #include "Misc/FileHelper.h"
@@ -20,7 +21,7 @@ bool ArrayNumbers(const TSharedPtr<FJsonValue>& V,int32 Count,TArray<double>& Ou
 bool FieldNumbers(const TSharedPtr<FJsonObject>& O,const TCHAR* K,int32 Count,TArray<double>& Out)
 {const auto* V=O->Values.Find(K);return V&&ArrayNumbers(*V,Count,Out);}
 }
-FString FData::DefaultPath(){return FPaths::ProjectSavedDir()/TEXT("RokUnityMigration/BuildingPreviewGlow/glow_data.json");}
+FString FData::DefaultPath(){return RokDataPaths::Resolve(TEXT("BuildingPreviewGlow/glow_data.json"));}
 bool FData::Load(const FString& Path,FString& Error)
 {
     Layers.Reset();Error.Reset();auto Fail=[&](const TCHAR* Why){Error=Why;return false;};
@@ -36,7 +37,7 @@ bool FData::Load(const FString& Path,FString& Error)
         if(!V.IsValid()||V->Type!=EJson::Object)return Fail(TEXT("Invalid provenance"));
         FString P,H;const auto O=V->AsObject();TArray<uint8> Bytes;
         if(!O->TryGetStringField(TEXT("path"),P)||!O->TryGetStringField(TEXT("sha256"),H)||H.Len()!=64||!FPaths::IsRelative(P)||P.Contains(TEXT(".."))||Seen.Contains(P)
-            ||(!P.StartsWith(TEXT("Saved/"))&&!P.StartsWith(TEXT("Scripts/")))||!FFileHelper::LoadFileToArray(Bytes,*(FPaths::ProjectDir()/P))||RokTrainArmyMesh::Sha256(Bytes)!=H)return Fail(TEXT("Glow provenance changed or unsafe"));
+            ||(!P.StartsWith(TEXT("Saved/"))&&!P.StartsWith(TEXT("Scripts/"))&&!RokDataPaths::IsDataPath(P))||!FFileHelper::LoadFileToArray(Bytes,*(RokDataPaths::ResolveProjectPath(P)))||RokTrainArmyMesh::Sha256(Bytes)!=H)return Fail(TEXT("Glow provenance changed or unsafe"));
         Seen.Add(P);
     }
     const TArray<TSharedPtr<FJsonValue>>* Rows=nullptr;if(!Root->TryGetArrayField(TEXT("layers"),Rows)||Rows->Num()!=2)return Fail(TEXT("Expected two source layers"));

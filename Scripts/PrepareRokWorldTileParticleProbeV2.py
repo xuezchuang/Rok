@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from rok_data_paths import resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 BATCH = ROOT / "Saved/RokUnityMigration/BatchReview20261009WorldSearchAndTileEffects/TileParticleSource"
@@ -63,8 +64,8 @@ def main() -> None:
                "texture": "Ring_07.png"}
     for kind, dest in mapping.items():
         record = pinned[kind]
-        source = ROOT / record["path"]
-        meta = ROOT / record["meta_path"]
+        source = resolve(record["path"])
+        meta = resolve(record["meta_path"])
         if digest(source) != record["sha256"] or digest(meta) != record["meta_sha256"]:
             raise ValueError(f"source input drift: {kind}")
         create_exact(PROBE / "Assets/ProbeInputs" / dest, source.read_bytes())

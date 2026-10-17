@@ -1,6 +1,7 @@
 """Source layout checks; does not substitute for real UMG screenshots."""
 import json
 from pathlib import Path
+from rok_data_paths import resolve
 from BuildRokTrainParameterLayout import main as build
 from PrepareRokUiTextures import unity_sprite_rect
 
@@ -20,7 +21,7 @@ def main():
     ]:
         assert all(abs(a-b) < .001 for a,b in zip(source[name]['position'], position)), name
         assert all(abs(a-b) < .001 for a,b in zip(source[name]['size'], size)), name
-    window = (ROOT / source['source']).read_text(encoding='utf-8')
+    window = resolve(source['source']).read_text(encoding='utf-8')
     assert 'm_FontSize: 26' in window and 'm_FontSize: 18' in window
     quantity = (ROOT / (UI + 'ui_prefabs_noaddressable/UI_Model_TrainResCost.prefab')).read_text(encoding='utf-8')
     for token in ['m_SizeDelta: {x: 136.53, y: 40}', 'm_AnchoredPosition: {x: -232.8, y: 29.2}',

@@ -1,16 +1,18 @@
 """Source/consumer contract checks only; UE runtime and visual acceptance remain separate."""
 import hashlib,json,math,re
 from pathlib import Path
+from rok_data_paths import DATA_ROOT, resolve
 ROOT=Path(__file__).resolve().parents[1]
 def main():
     base=ROOT/'Saved/RokUnityMigration/TrainArmy'
-    report=json.loads((base/'export_report.json').read_text(encoding='utf-8'))
-    catalog=json.loads((ROOT/'Saved/RokUnityMigration/unity_gameplay_catalog.json').read_text(encoding='utf-8-sig'))
+    data_dir=DATA_ROOT/'TrainArmy'
+    report=json.loads((data_dir/'export_report.json').read_text(encoding='utf-8'))
+    catalog=json.loads((DATA_ROOT / 'unity_gameplay_catalog.json').read_text(encoding='utf-8-sig'))
     rows={r['id']:r for r in catalog['troops']}
     verified=[]
     for entry in report['results']:
         if entry.get('status')!='exported':continue
-        data=(ROOT/entry['output']).read_bytes()
+        data=resolve(entry['output']).read_bytes()
         assert hashlib.sha256(data).hexdigest()==entry['sha256']
         mesh=json.loads(data)
         assert rows[mesh['arms_id']]['show_asset']==mesh['arms_show']==entry['arms_show']
@@ -40,7 +42,7 @@ def main():
     native=json.loads((base/'native_render.json').read_text()) if (base/'native_render.json').exists() else json.loads((base/'NativeReference/native_render.json').read_text())
     max_xy=max_uv=0
     for c in native['captures']:
-        mesh=json.loads((base/f"arms_{c['armsId']}_idle_mesh.json").read_text(encoding='utf-8'))
+        mesh=json.loads((data_dir/f"arms_{c['armsId']}_idle_mesh.json").read_text(encoding='utf-8'))
         frame=mesh['frames'][round(c['time']/mesh['duration']*len(mesh['frames']))%len(mesh['frames'])]
         xy=[p for d in frame['draws'] for p in zip(d['xy'][::2],d['xy'][1::2])]
         uv=[p for d in frame['draws'] for p in zip(d['uv'][::2],d['uv'][1::2])]

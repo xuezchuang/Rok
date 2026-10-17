@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+from rok_data_paths import resolve
 
 import numpy as np
 from PIL import Image
@@ -100,8 +101,8 @@ def verify_run(run):
             "Pinned source catalog hashes changed")
     for relative, record in contract["source_files"].items():
         target = PROBE / record["probe_asset"]
-        require(sha(ROOT / relative) == record["sha256"] == sha(target) and
-                sha(Path(str(ROOT / relative) + ".meta")) == record["meta_sha256"] ==
+        require(sha(resolve(relative)) == record["sha256"] == sha(target) and
+                sha(Path(str(resolve(relative)) + ".meta")) == record["meta_sha256"] ==
                 sha(Path(str(target) + ".meta")), f"Source/import copy changed: {relative}")
     old = contract["old_academy_control"]
     require(Path(old["run"]).resolve() == OLD_RUN.resolve(), "Old Academy control directory changed")

@@ -2,6 +2,7 @@
 import hashlib
 import json
 from pathlib import Path
+from rok_data_paths import resolve
 
 from BuildRokUnityStoneDeposit import ROOT, OUT
 
@@ -47,7 +48,7 @@ def main():
     assert {i["name"] for i in data["items"]} == {"stone_1"}
     assert sorted(i["priority"] for i in data["items"]) == [60]*17+[103]
     for record in [data["source"], data["native_order_evidence"]] + data["algorithm_sources"] + [s[k] for i in data["items"] for s in i["sprites"] for k in ("texture", "mask", "material")]:
-        assert hashlib.sha256((ROOT / record["path"]).read_bytes()).hexdigest() == record["sha256"]
+        assert hashlib.sha256((resolve(record["path"])).read_bytes()).hexdigest() == record["sha256"]
     for record in data["algorithm_sources"]:
         copy = ROOT/"Saved/UnityStoneDepositProbe/Assets/Source"/Path(record["path"]).name
         assert hashlib.sha256(copy.read_bytes()).hexdigest() == record["sha256"]
@@ -57,7 +58,7 @@ def main():
     a = update(forward, scale, data["bounds_size"])
     b = update(reverse, scale, data["bounds_size"])
     order_changes_output = set(a) != set(b)
-    native = json.loads((ROOT/data["native_order_evidence"]["path"]).read_text(encoding="utf-8"))
+    native = json.loads((resolve(data["native_order_evidence"]["path"])).read_text(encoding="utf-8"))
     samples_checked = 0
     for run in native["runs"]:
         previous, previous_scale = None, -1
@@ -73,7 +74,7 @@ def main():
                                  "first_survivors": a, "second_order": [i["source_transform_id"] for i in reverse],
                                  "second_survivors": b},
               "scope": "Source-extracted data and exact RotateSquar/GridCollideMgr predicate reproduction only; no UE runtime change or visual acceptance."}
-    path = OUT.with_name("unity_stone_deposit_verify.json")
+    path = ROOT / "Saved/RokUnityMigration/unity_stone_deposit_verify.json"
     path.write_text(json.dumps(result, ensure_ascii=False, indent=2)+"\n", encoding="utf-8")
     print(json.dumps(result, ensure_ascii=False))
 

@@ -8,6 +8,7 @@ import json
 import math
 import re
 from pathlib import Path
+from rok_data_paths import resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT = ROOT / "Saved/UnityExpeditionAnimationProbeV1"
@@ -37,17 +38,17 @@ def verify_prepare() -> dict:
     require(len(settings) == 19, "ProjectSettings inventory length mismatch")
     for row in settings:
         copied = PROJECT / row["path"]
-        source = ROOT / report["base_project"] / row["path"]
+        source = resolve(report["base_project"]) / row["path"]
         require(copied.is_file() and source.is_file(), f"missing ProjectSettings file: {row['path']}")
         require(sha(copied) == row["sha256"] == sha(source), f"ProjectSettings hash mismatch: {row['path']}")
     for row in report["packages"]:
         copied = PROJECT / row["path"]
-        source = ROOT / report["base_project"] / row["path"]
+        source = resolve(report["base_project"]) / row["path"]
         require(copied.is_file() and sha(copied) == row["sha256"] == sha(source), f"package hash mismatch: {row['path']}")
     for row in report["source_files"]:
-        source = ROOT / row["path"]
+        source = resolve(row["path"])
         require(source.is_file() and sha(source) == row["sha256"], f"pinned source changed: {row['path']}")
-    contract_path = ROOT / report["contract_path"]
+    contract_path = resolve(report["contract_path"])
     require(contract_path.is_file() and sha(contract_path) == report["contract_sha256"], "project contract hash mismatch")
     contract = load_json(contract_path)
     require(contract.get("schema") == "rok.unity_expedition_animation_probe_contract.v1", "contract schema mismatch")
@@ -58,7 +59,7 @@ def verify_prepare() -> dict:
         copied_meta = Path(str(copied) + ".meta")
         source_meta = ROOT / f"{row['source_path']}.meta"
         require(copied.is_file() and copied_meta.is_file(), f"missing clip copy/meta: {row['asset_path']}")
-        require(sha(ROOT / row["source_path"]) == row["sha256"] and sha(copied) == row["sha256"], f"clip bytes differ: {row['id']}")
+        require(sha(resolve(row["source_path"])) == row["sha256"] and sha(copied) == row["sha256"], f"clip bytes differ: {row['id']}")
         require(sha(source_meta) == sha(copied_meta), f"clip meta bytes differ: {row['id']}")
         guid = re.search(r"^guid: ([0-9a-f]+)$", copied_meta.read_text(encoding="utf-8-sig"), re.M)
         require(guid and guid.group(1) == row["guid"], f"clip GUID mismatch: {row['id']}")
@@ -67,7 +68,7 @@ def verify_prepare() -> dict:
         copied_meta = Path(str(copied) + ".meta")
         source_meta = ROOT / f"{row['source_path']}.meta"
         require(copied.is_file() and copied_meta.is_file(), f"missing controller copy/meta: {row['name']}")
-        require(sha(ROOT / row["source_path"]) == row["sha256"] and sha(copied) == row["sha256"], f"controller bytes differ: {row['name']}")
+        require(sha(resolve(row["source_path"])) == row["sha256"] and sha(copied) == row["sha256"], f"controller bytes differ: {row['name']}")
         require(sha(source_meta) == sha(copied_meta), f"controller meta differs: {row['name']}")
     require(len(report.get("expected_clip_curves", [])) == 4, "expected clip curve inventory missing")
     for row in report["expected_clip_curves"]:
@@ -86,15 +87,15 @@ def verify_revision2_prepare() -> dict:
     require(report.get("supersedes_prepare_report") == REPORT.relative_to(ROOT).as_posix(), "revision2 provenance mismatch")
     require(report.get("project_settings_count") == 19 and len(report.get("project_settings_files", [])) == 19, "revision2 ProjectSettings pin mismatch")
     for row in report["source_files"]:
-        require(sha(ROOT / row["path"]) == row["sha256"], f"revision2 Unity source hash mismatch: {row['path']}")
+        require(sha(resolve(row["path"])) == row["sha256"], f"revision2 Unity source hash mismatch: {row['path']}")
     for row in report["scripts"]:
-        require(sha(ROOT / row["path"]) == row["sha256"], f"revision2 script hash mismatch: {row['path']}")
+        require(sha(resolve(row["path"])) == row["sha256"], f"revision2 script hash mismatch: {row['path']}")
     exporter = PROJECT / "Assets/Editor/ExportRokUnityExpeditionAnimationProbe.cs"
     require(sha(exporter) == report["exporter_sha256"], "revision2 exporter hash mismatch")
     require("EditorApplication.Exit(exitCode)" in exporter.read_text(encoding="utf-8"), "exporter does not exit on success/failure")
     require("-quit" in " ".join(report.get("root_commands", [])), "root command missing -quit")
     native1 = report.get("native1_diagnostic", {})
-    native1_path = ROOT / native1.get("path", "")
+    native1_path = resolve(native1.get("path", ""))
     require(native1_path.is_file() and sha(native1_path) == native1.get("sha256"), "preserved Native1 diagnostic hash mismatch")
     require(len(report.get("expected_clip_curves", [])) == 4, "revision2 source curve inventory missing")
     for clip in report["expected_clip_curves"]:
@@ -122,10 +123,10 @@ def verify_revision3_prepare() -> dict:
     require(report["contract_sha256"] == previous["contract_sha256"]
             and report["exporter_sha256"] == previous["exporter_sha256"],
             "revision3 changed the Unity contract or exporter")
-    require(sha(ROOT / report["exporter_path"]) == report["exporter_sha256"],
+    require(sha(resolve(report["exporter_path"])) == report["exporter_sha256"],
             "Unity exporter changed after Native2")
     for row in report["scripts"]:
-        require(sha(ROOT / row["path"]) == row["sha256"],
+        require(sha(resolve(row["path"])) == row["sha256"],
                 f"revision3 script changed: {row['path']}")
     require(report["expected_clip_curves"] == [read_expected_clip(row) for row in CLIPS],
             "source editor-binding inventory changed")
@@ -133,9 +134,9 @@ def verify_revision3_prepare() -> dict:
             == {"right_show": 3, "right_hide": 3, "center_show": 8, "center_hide": 6},
             "source editor-binding count differs")
     native2 = report["native2_diagnostic"]
-    require(sha(ROOT / native2["path"]) == native2["sha256"], "Native2 raw changed")
+    require(sha(resolve(native2["path"])) == native2["sha256"], "Native2 raw changed")
     package = report["source_preview_package"]
-    require(sha(ROOT / package["path"]) == package["sha256"],
+    require(sha(resolve(package["path"])) == package["sha256"],
             "source preview curve package changed")
     return {**base, "revision3": "pass", "curve_inventory": 20}
 
@@ -195,7 +196,7 @@ def verify_run(run_dir: Path) -> dict:
         for source_state in expected["states"]:
             native_state = next(s for s in actual_states if s["name"] == source_state["name"])
             if source_state["motion_guid"]:
-                clip_contract = next((c for c in load_json(ROOT / report["contract_path"])["clips"] if c["guid"] == source_state["motion_guid"]), None)
+                clip_contract = next((c for c in load_json(resolve(report["contract_path"]))["clips"] if c["guid"] == source_state["motion_guid"]), None)
                 require(clip_contract is not None, f"source state GUID not mapped to clip: {name}/{source_state['name']}")
                 require(Path(native_state.get("motion_asset_path", "")).as_posix() == clip_contract["asset_path"], f"controller GUID-to-motion mismatch: {name}/{source_state['name']}")
             else:
@@ -212,7 +213,7 @@ def verify_run(run_dir: Path) -> dict:
     expected_clips = {x["id"]: x for x in report["expected_clip_curves"]}
     actual_clips = {x["id"]: x for x in native["clips"]}
     require(set(expected_clips) == set(actual_clips), "native clip IDs differ from pinned source")
-    package = load_json(ROOT / report["source_preview_package"]["path"])
+    package = load_json(resolve(report["source_preview_package"]["path"]))
     source_curves = package["animation_zero_tangent_hermite_curves"]
     require(set(source_curves) == set(name for mapping in NUMERIC_CURVES.values()
                                      for name in mapping.values()),

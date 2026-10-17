@@ -17,11 +17,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import unreal
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from rok_data_paths import DATA_ROOT, label, resolve  # noqa: E402
 
 ROOT = Path("D:/ueDemo/Rok").resolve()
 BATCH = ROOT / "Saved/RokUnityMigration/BatchReview20261009AudioSettingsAndHallMaterial"
 PROBE = ROOT / "Saved/UnityCityAudioProbeV1"
-CATALOG = ROOT / "Saved/RokUnityMigration/CityAudio/catalog.json"
+CATALOG = DATA_ROOT / "CityAudio/catalog.json"
 VERIFY_SCRIPT = ROOT / "Scripts/VerifyRokUnityCityAudioProbe.py"
 PREPARE_PREFIX = "city_audio_probe_prepare_revision"
 EXPECTED = {
@@ -38,7 +41,7 @@ def sha(path: Path) -> str:
 
 
 def repo_path(path: Path) -> str:
-    return path.resolve().relative_to(ROOT).as_posix()
+    return label(path.resolve())
 
 
 def contained(path: Path, parent: Path) -> Path:
@@ -172,7 +175,7 @@ def validate_native_inputs(run_arg: Path, verify_arg: Path, verify_sha: str) -> 
         for key in ("source_path", "source_sha256", "meta_path", "meta_sha256", "guid"):
             if clip.get(key) != source.get(key):
                 raise RuntimeError(f"native contract source pin mismatch {name}:{key}")
-        source_file, source_meta = ROOT / clip["source_path"], ROOT / clip["meta_path"]
+        source_file, source_meta = resolve(clip["source_path"]), resolve(clip["meta_path"])
         if sha(source_file) != clip["source_sha256"] or sha(source_meta) != clip["meta_sha256"]:
             raise RuntimeError(f"Unity source MP3/meta changed since decode: {name}")
         if (clip.get("source_default_settings", {}).get("load_type") != 2 or
@@ -291,7 +294,7 @@ def main(argv=None) -> int:
             if target_exists(name):
                 raise RuntimeError(f"Target appeared after preflight; refusing overwrite: {name}")
             source = native_clips[name]
-            wav_path = ROOT / source["wav_path"]
+            wav_path = resolve(source["wav_path"])
             target = f"{TARGET_DIR}/{name}"
             journal["inflight_target"] = {"name": name, "asset": target, "wav_sha256": source["wav_sha256"]}
             write_journal(journal_path, journal)

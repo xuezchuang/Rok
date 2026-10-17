@@ -8,10 +8,11 @@ import math
 import re
 import sys
 from pathlib import Path
+from rok_data_paths import DATA_ROOT
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CATALOG = ROOT / "Saved/RokUnityMigration/CityConstructionGridSources/catalog.json"
+CATALOG = DATA_ROOT / "CityConstructionGridSources/catalog.json"
 EXPECTED_PROJECT = str(ROOT.resolve())
 EXPECTED_WORLD = "/Game/Maps/L_RokUnityGameAppCity.L_RokUnityGameAppCity"
 MAP_FILE = ROOT / "Content/Maps/L_RokUnityGameAppCity.umap"

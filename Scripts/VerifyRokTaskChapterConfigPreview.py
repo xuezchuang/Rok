@@ -9,15 +9,16 @@ from collections import defaultdict
 from pathlib import Path
 
 from BuildRokUnityEconomyCatalog import LANGUAGE_WORKBOOK, localized_text, read_language_lookup
+from rok_data_paths import DATA_ROOT, label, resolve
 
 
 ROOT = Path(__file__).resolve().parents[1]
 CSV_ROOT = ROOT / "ref/config-tables/编译客户端配置/CSV"
-OUTPUT = ROOT / "Saved/RokUnityMigration/TaskChapterConfigPreview/v2/catalog.json"
+OUTPUT = DATA_ROOT / "TaskChapterConfigPreview/v2/catalog.json"
 SOURCE_PATHS = [
     "ref/config-tables/编译客户端配置/CSV/TaskChapter.csv",
     "ref/config-tables/编译客户端配置/CSV/TaskChapterData.csv",
-    LANGUAGE_WORKBOOK.relative_to(ROOT).as_posix(),
+    label(LANGUAGE_WORKBOOK),
     "Saved/RokUnityMigration/unity_gameplay_catalog.json",
     "ref/client-unity/Assets/Scripts/Hotfix/MVC/View_Mediator/UIQuest/UI_Win_QuestView.cs",
     "ref/client-unity/Assets/Scripts/Hotfix/MVC/View_Mediator/UIQuest/UI_Win_QuestMediator.cs",
@@ -55,7 +56,7 @@ def check(data: dict) -> None:
     assert data["task_count"] == 39 and data["chapter_count"] == 7
     assert data["chapter_metadata_row_count"] == 6
     assert data["missing_chapter_metadata_ids"] == [7]
-    expected_sources = [{"path": path, "sha256": digest(ROOT / path)} for path in SOURCE_PATHS]
+    expected_sources = [{"path": path, "sha256": digest(resolve(path))} for path in SOURCE_PATHS]
     assert data["sources"] == expected_sources, "source chain drift"
 
     def no_account_state(value: object) -> None:
@@ -104,7 +105,7 @@ def check(data: dict) -> None:
                                                  "age_character_assets"))
 
     by_chapter: dict[int, list[dict]] = defaultdict(list)
-    gameplay = json.loads((ROOT / "Saved/RokUnityMigration/unity_gameplay_catalog.json").read_text(encoding="utf-8"))
+    gameplay = json.loads((DATA_ROOT / "unity_gameplay_catalog.json").read_text(encoding="utf-8"))
     existing = {row["id"]: row for row in gameplay["chapter_tasks"]}
     assert len(existing) == 39 and set(existing) == set(task_by_id)
     for line, raw in raw_tasks:

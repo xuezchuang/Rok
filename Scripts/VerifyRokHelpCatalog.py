@@ -1,6 +1,7 @@
 """Check complete source FAQ and local tree contract, without running UE."""
 import hashlib,json
 from pathlib import Path
+from rok_data_paths import resolve
 from BuildRokHelpCatalog import build,ROOT
 
 def main():
@@ -16,7 +17,7 @@ def main():
     service=(ROOT/'ref/client-unity/Assets/Skyunion/RunTime/DataService/DataService.cs').read_text(encoding='utf-8-sig')
     assert 'listRecords = new List<T>(records);' in service and 'records[i] = ConvertToObject(rows[i]);' in service
     assert data['group_order']==[900005,900004,900003,900002,900007,900001,900006]
-    for row in data['sources']:assert hashlib.sha256((ROOT/row['path']).read_bytes()).hexdigest()==row['sha256']
+    for row in data['sources']:assert hashlib.sha256((resolve(row['path'])).read_bytes()).hexdigest()==row['sha256']
     assert data['layouts']['group']['']['rect'][3]==43
     assert data['layouts']['question']['']['rect'][3]==54
     assert data['layouts']['window']['pl_detial/sv_list/v/c/lbl_detial']['font_px']==20

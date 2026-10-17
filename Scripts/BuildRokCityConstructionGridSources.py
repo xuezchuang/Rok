@@ -5,6 +5,7 @@ import json
 import re
 from collections import defaultdict
 from pathlib import Path
+from rok_data_paths import DATA_ROOT, label
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,7 +16,7 @@ CITY_OBJECT = ROOT / "ref/client-unity/Assets/Scripts/Hotfix/Common/Utils/CityOb
 AGE_TABLE = CSV_ROOT / "CityAgeSize.csv"
 INIT_TABLE = CSV_ROOT / "InitBuilding.csv"
 TYPE_TABLE = CSV_ROOT / "BuildingTypeConfig.csv"
-OUT = ROOT / "Saved/RokUnityMigration/CityConstructionGridSources/catalog.json"
+OUT = DATA_ROOT / "CityConstructionGridSources/catalog.json"
 SOURCES = (PROXY, MEDIATOR, CITY_OBJECT, AGE_TABLE, INIT_TABLE, TYPE_TABLE)
 SIZES = (41, 45, 49, 53, 57)
 
@@ -140,7 +141,7 @@ def build(write=True):
                 for age, used in occupancy_by_age.items() for index, ids in sorted(used.items()) if len(ids) > 1]
     manifest = {
         "schema": "rok.city_construction_grid_sources.v1",
-        "sources": {path.relative_to(ROOT).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+        "sources": {label(path): hashlib.sha256(path.read_bytes()).hexdigest()
                     for path in SOURCES},
         "grid_index": {"formula": "(y + (size - 1) / 2) * size + (x + (size - 1) / 2 + 1)",
                        "x_offset": 1, "traversal": "row-major y ascending, x ascending",

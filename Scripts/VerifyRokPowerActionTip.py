@@ -2,6 +2,7 @@
 import json
 import re
 from pathlib import Path
+from rok_data_paths import resolve
 from PIL import Image
 from BuildRokUnityUiAnimationManifest import Builder
 from BuildRokUnityEconomyCatalog import read_language_lookup, localized_text
@@ -41,7 +42,7 @@ def main():
     atlas_path = UI + 'UITextureStatic/ui_res_common/ui_common.png'
     atlas = builder.read(atlas_path + '.meta')
     assert tuple(unity_sprite_rect(atlas, 'pl_com_1002_1')) == (774, 276, 72, 72)
-    image = Image.open(ROOT / atlas_path).convert('RGBA')
+    image = Image.open(resolve(atlas_path)).convert('RGBA')
     center_alpha = image.getpixel((810, image.height - 1 - 312))[3]
     assert center_alpha == 204  # Preserve source ~80% alpha; do not force opaque.
     clip = builder.clip(UI + 'UIAnimation/shared_uianimation/UA_TextTipAnime_On.anim')

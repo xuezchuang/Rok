@@ -12,6 +12,7 @@ import io
 import json
 import re
 from pathlib import Path
+from rok_data_paths import resolve
 
 from PIL import Image
 
@@ -48,7 +49,7 @@ def sha(path: Path) -> str:
 
 def checked(root: Path, relative: str) -> Path:
     need(not Path(relative).is_absolute() and ".." not in Path(relative).parts, "input path escape")
-    path = (root / relative).resolve(strict=True)
+    path = resolve(relative).resolve(strict=True)
     need(root.resolve() in path.parents, "input outside project")
     return path
 

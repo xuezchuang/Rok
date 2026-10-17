@@ -72,7 +72,7 @@ def main():
               'runtime_entry': 'BuildingFeatureButton -> OpenTrainArmy -> TrainArmyDetailButton -> TrainArmyDetailBackButton',
               'player_modifiers_available': False, 'visual_verified': False,
               'remaining_gates': ['UE build and Rok.Ui.Animation.TrainArmy.DetailNavigation', 'ImportRokTrainArmyDetail.py in verified city editor', 'Real city interaction screenshots and source visual comparison']}
-    output = OUTPUT.with_name('train_army_detail_source_verify.json')
+    output = ROOT / 'Saved/RokUnityMigration/train_army_detail_source_verify.json'
     output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
     print(json.dumps({'source_verified': True, 'rows': len(entries), 'clips': len(clips)}))
 

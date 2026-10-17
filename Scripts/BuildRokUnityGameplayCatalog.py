@@ -3,12 +3,13 @@ import json
 import re
 from collections import defaultdict
 from pathlib import Path
+from rok_data_paths import DATA_ROOT, label
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-CONFIG_ROOT = PROJECT_ROOT / "Saved" / "RokUnityMigration" / "ConfigTables"
+CONFIG_ROOT = DATA_ROOT / "ConfigTables"
 MIGRATION_ROOT = PROJECT_ROOT / "Saved" / "RokUnityMigration"
-OUTPUT_JSON = MIGRATION_ROOT / "unity_gameplay_catalog.json"
+OUTPUT_JSON = DATA_ROOT / "unity_gameplay_catalog.json"
 OUTPUT_MD = MIGRATION_ROOT / "unity_gameplay_catalog.md"
 COMPILED_TASK_CSVS = {
     "main_tasks": PROJECT_ROOT / "ref" / "config-tables" / "编译客户端配置" / "CSV" / "TaskMain.csv",
@@ -127,7 +128,7 @@ def localized_text(language_by_id, locale_id, language):
 
 
 def project_relative(path):
-    return path.relative_to(PROJECT_ROOT).as_posix()
+    return label(path)
 
 
 def read_hero_icon_atlas_sprites():

@@ -1,4 +1,6 @@
 #include "RokLeaderboardCatalog.h"
+
+#include "RokDataPaths.h"
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonSerializer.h"
 #include "Misc/FileHelper.h"
@@ -9,7 +11,7 @@ bool RokLeaderboardCatalog::Load(TArray<FRokLeaderboardRow>& Rows, FString& Erro
 	Rows.Reset(); Error.Reset();
 	FString Json; TSharedPtr<FJsonObject> Root;
 	const TArray<TSharedPtr<FJsonValue>>* Entries = nullptr;
-	if (!FFileHelper::LoadFileToString(Json, *(FPaths::ProjectSavedDir() / TEXT("RokUnityMigration/leaderboard_catalog.json")))
+	if (!FFileHelper::LoadFileToString(Json, *(RokDataPaths::Resolve(TEXT("leaderboard_catalog.json"))))
 		|| !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json), Root) || !Root.IsValid()
 		|| !Root->TryGetArrayField(TEXT("entries"), Entries) || Entries->Num() != 9)
 	{ Error = TEXT("Leaderboard catalog missing/invalid; run BuildRokLeaderboardCatalog.py"); return false; }

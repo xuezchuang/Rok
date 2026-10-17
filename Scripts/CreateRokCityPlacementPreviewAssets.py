@@ -12,6 +12,7 @@ import math
 import os
 import shutil
 from pathlib import Path
+from rok_data_paths import resolve
 
 import unreal
 
@@ -95,7 +96,7 @@ def native_source():
             behavior["effective_footprint_uv_tiling"]):
         raise RuntimeError("Verified v2 source shader must sample identity mesh UV")
     for item in source["source_hashes"]:
-        if sha(ROOT / item["path"]) != item["sha256"]:
+        if sha(resolve(item["path"])) != item["sha256"]:
             raise RuntimeError(f"Source changed: {item['path']}")
     expected = source["source"]["unity_mesh"]
     if (native["schema"] != "rok.city_placement_bottom_native.v1" or

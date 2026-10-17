@@ -1,6 +1,7 @@
 """Verify actual native attribute region, not the surrounding upgrade window."""
 import hashlib,json,sys
 from pathlib import Path
+from rok_data_paths import resolve
 import numpy as np
 from PIL import Image
 ROOT=Path(__file__).resolve().parents[1]
@@ -14,7 +15,7 @@ def verify(path, output=None):
         if not ok:fail.append(reason)
     check(evidence.get('nativeRendered') and not evidence.get('failure'),'native execution failed')
     check(evidence.get('inputSha256')==sha(inputs_path),'input hash mismatch')
-    for src in inputs['sources']:check(sha(ROOT/src['path'])==src['sha256'],'source changed: '+src['path'])
+    for src in inputs['sources']:check(sha(resolve(src['path']))==src['sha256'],'source changed: '+src['path'])
     check(evidence.get('unityVersion')=='2019.4.28f1c1','Unity version')
     check(abs(evidence.get('attributeHeight',-1)-110)<.05 and abs(evidence.get('rowHeight',-1)-40)<.05,'source row/attribute heights')
     rows=evidence.get('rows',[]);check(len(rows)==2,'must have two source rows')

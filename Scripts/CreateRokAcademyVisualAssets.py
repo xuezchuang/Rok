@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from rok_data_paths import resolve
 
 import unreal
 
@@ -63,7 +64,7 @@ def source_contract():
     if catalog["schema"] != "rok.academy_visual_source.v1" or catalog["model_id"] != "build_13_101_2":
         raise RuntimeError("Wrong Academy source catalog")
     for relative, expected in catalog["sources"].items():
-        if sha(ROOT / relative) != expected:
+        if sha(resolve(relative)) != expected:
             raise RuntimeError(f"Academy source hash changed: {relative}")
     formula = catalog["material"]["shader_formula"]
     if (formula["shader_name"] != "custom/map/map_building_with_mask-5" or
@@ -163,7 +164,7 @@ def import_texture(catalog, role, name, native_render):
     if existing is not None:
         verify_texture(existing, catalog, role, native_render)
         return existing, False
-    source = (ROOT / catalog[role]["path"] if role == "sprite" else
+    source = (resolve(catalog[role]["path"]) if role == "sprite" else
               NATIVE / native_render["maskExport"]["png"])
     task = unreal.AssetImportTask()
     for key, value in {

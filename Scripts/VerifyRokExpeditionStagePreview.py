@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from rok_data_paths import resolve
 
 from BuildRokExpeditionStagePreview import OUTPUT, ROOT, build
 
@@ -18,7 +19,7 @@ def main() -> None:
     assert [row["id"] for row in payload["stages"]] == list(range(1, 81))
     assert [row["battle_coordinate"] for row in payload["stages"][:2]] == [[466, 79], [601, 101]]
     for source, source_hash in payload["source_files_sha256"].items():
-        assert hashlib.sha256((ROOT / source).read_bytes()).hexdigest() == source_hash, source
+        assert hashlib.sha256((resolve(source)).read_bytes()).hexdigest() == source_hash, source
     print(f"passed: 80 source stages, account unsynced, source sha256={hashlib.sha256(actual).hexdigest()}")
 
 

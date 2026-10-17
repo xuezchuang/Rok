@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from rok_data_paths import DATA_ROOT, label, resolve
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -8,8 +9,8 @@ OUTPUT_JSON = OUTPUT_DIR / "unity_city_visual_foundation.json"
 OUTPUT_MD = OUTPUT_DIR / "unity_city_visual_foundation.md"
 
 BOUNDARY_PATH = OUTPUT_DIR / "unity_city_boundary.json"
-INIT_BUILDING_RESOLUTION_PATH = OUTPUT_DIR / "unity_gameapp_city_init_building_resolution.json"
-INITIAL_CITY_STATE_PATH = OUTPUT_DIR / "unity_initial_city_state.json"
+INIT_BUILDING_RESOLUTION_PATH = DATA_ROOT / "unity_gameapp_city_init_building_resolution.json"
+INITIAL_CITY_STATE_PATH = DATA_ROOT / "unity_initial_city_state.json"
 
 GROUND_SOURCE_CANDIDATES = [
     "Saved/RokUnityPlacement/clean/UnityCityGround_build_ground_6_101_1.png",
@@ -28,7 +29,7 @@ def load_json(path):
 
 
 def exists(relative_path):
-    return (PROJECT_ROOT / relative_path).exists()
+    return resolve(relative_path).exists()
 
 
 def build_manifest():
@@ -68,9 +69,9 @@ def build_manifest():
         "schema": "rok.unity_city_visual_foundation.v1",
         "ue_target_level": "/Game/Maps/L_RokUnityGameAppCity",
         "source_manifests": {
-            "city_boundary": str(BOUNDARY_PATH.relative_to(PROJECT_ROOT)).replace("\\", "/"),
-            "init_building_resolution": str(INIT_BUILDING_RESOLUTION_PATH.relative_to(PROJECT_ROOT)).replace("\\", "/"),
-            "initial_city_state": str(INITIAL_CITY_STATE_PATH.relative_to(PROJECT_ROOT)).replace("\\", "/"),
+            "city_boundary": label(BOUNDARY_PATH),
+            "init_building_resolution": label(INIT_BUILDING_RESOLUTION_PATH),
+            "initial_city_state": label(INITIAL_CITY_STATE_PATH),
         },
         "ground_layer": {
             "source_candidates": ground_sources,

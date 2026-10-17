@@ -1,5 +1,6 @@
 #include "RokCityConstructionGrid.h"
 
+#include "RokDataPaths.h"
 #include "RokTrainArmyMeshData.h"
 #include "Dom/JsonObject.h"
 #include "Misc/FileHelper.h"
@@ -65,7 +66,7 @@ bool FRokCityConstructionGrid::Load(FString& OutError)
 	{
 		if (!bLoaded) { Ages.Reset(); InitialOccupancy.Reset(); }
 	};
-	const FString Path = FPaths::ProjectSavedDir() / TEXT("RokUnityMigration/CityConstructionGridSources/catalog.json");
+	const FString Path = RokDataPaths::Resolve(TEXT("CityConstructionGridSources/catalog.json"));
 	FString Json;
 	if (!FFileHelper::LoadFileToString(Json, *Path))
 	{
@@ -109,7 +110,7 @@ bool FRokCityConstructionGrid::Load(FString& OutError)
 		TArray<uint8> Bytes;
 		if (!SourcePath.StartsWith(TEXT("ref/")) || SourcePath.Contains(TEXT("..")) || !Source.Value.IsValid()
 			|| !Source.Value->TryGetString(Expected) || Expected.Len() != 64
-			|| !FFileHelper::LoadFileToArray(Bytes, *(FPaths::ProjectDir() / SourcePath))
+			|| !FFileHelper::LoadFileToArray(Bytes, *(RokDataPaths::ResolveProjectPath(SourcePath)))
 			|| RokTrainArmyMesh::Sha256(Bytes) != Expected)
 		{
 			OutError = FString::Printf(TEXT("Source city grid provenance changed: %s"), *SourcePath);

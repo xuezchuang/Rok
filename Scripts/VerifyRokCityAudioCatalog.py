@@ -9,9 +9,10 @@ from pathlib import Path
 
 import BuildRokCityAudioCatalog as producer
 from ExtractRokUnityConfigTables import parse_table
+from rok_data_paths import DATA_ROOT, label, resolve
 
 ROOT = Path(__file__).resolve().parents[1]
-CATALOG = ROOT / "Saved/RokUnityMigration/CityAudio/catalog.json"
+CATALOG = DATA_ROOT / "CityAudio/catalog.json"
 REPORT = ROOT / "Saved/RokUnityMigration/CityAudio/verify.json"
 WORKBOOK = ROOT / "ref/config-tables/s_AudioInfo.xlsm"
 
@@ -33,13 +34,13 @@ def verify(doc: dict) -> None:
     pins = {entry["path"]: entry["sha256"] for entry in doc["sources"]}
     assert len(pins) == len(doc["sources"])
     for path, digest in pins.items():
-        assert sha(ROOT / path) == digest
+        assert sha(resolve(path)) == digest
     for required in (WORKBOOK, Path(producer.__file__),
                      ROOT / "ref/client-unity/Assets/Skyunion/RunTime/AudioService/AudioService.cs",
                      ROOT / "ref/client-unity/Assets/Skyunion/RunTime/AudioService/AudioConfig.cs",
                      ROOT / "ref/client-unity/Assets/Skyunion/RunTime/AudioService/EAudioMaxCountAction.cs",
                      ROOT / "ref/client-unity/Assets/Scripts/Hotfix/MVC/View_Mediator/Setting/GeneralSettingMediator.cs"):
-        assert required.relative_to(ROOT).as_posix() in pins
+        assert label(required) in pins
     seen_clips = set()
     for event in doc["events"]:
         row = rows[event["id"]]
@@ -65,9 +66,9 @@ def verify(doc: dict) -> None:
                        else f"/Game/RokPrototype/UI/Audio/{name}")
             assert clip == {"name": name, "ue_object_path": package + "." + name,
                             "source_mp3": source_mp3,
-                            "source_mp3_sha256": sha(ROOT / source_mp3),
+                            "source_mp3_sha256": sha(resolve(source_mp3)),
                             "source_meta": source_meta,
-                            "source_meta_sha256": sha(ROOT / source_meta)}
+                            "source_meta_sha256": sha(resolve(source_meta))}
             assert pins[source_mp3] == clip["source_mp3_sha256"]
             assert pins[source_meta] == clip["source_meta_sha256"]
     assert len(seen_clips) == 9
@@ -97,7 +98,7 @@ def main() -> None:
         else:
             raise AssertionError("Damaged source audio was accepted")
     result = {"schema": "rok.city_audio_verify.v1", "status": "passed",
-              "catalog_path": CATALOG.relative_to(ROOT).as_posix(),
+              "catalog_path": label(CATALOG),
               "catalog_sha256": sha(CATALOG), "source_events": 7, "source_clips": 9,
               "negative_cases_rejected": rejected, "engine_started": False}
     REPORT.write_bytes((json.dumps(result, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))

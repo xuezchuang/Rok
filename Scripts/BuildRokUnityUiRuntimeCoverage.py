@@ -2,6 +2,7 @@ import json
 import re
 from collections import Counter
 from pathlib import Path
+from rok_data_paths import resolve
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -2007,11 +2008,11 @@ MAPPINGS = [
 
 
 def read_text(path):
-    return (PROJECT_ROOT / path).read_text(encoding="utf-8", errors="ignore")
+    return resolve(path).read_text(encoding="utf-8", errors="ignore")
 
 
 def tokens_present(path, tokens):
-    source_path = PROJECT_ROOT / path
+    source_path = resolve(path)
     if not source_path.is_file():
         return False
     source = read_text(path)
@@ -2019,8 +2020,8 @@ def tokens_present(path, tokens):
 
 
 def inspect_widget(widget):
-    header_path = PROJECT_ROOT / widget["header"]
-    cpp_path = PROJECT_ROOT / widget["cpp"]
+    header_path = resolve(widget["header"])
+    cpp_path = resolve(widget["cpp"])
     header = read_text(widget["header"]) if header_path.is_file() else ""
     cpp = read_text(widget["cpp"]) if cpp_path.is_file() else ""
     class_name = widget["class"]
@@ -2048,8 +2049,8 @@ def inspect_widget(widget):
 
 
 def inspect_entry(declared):
-    header_path = PROJECT_ROOT / declared["header"]
-    cpp_path = PROJECT_ROOT / declared["cpp"]
+    header_path = resolve(declared["header"])
+    cpp_path = resolve(declared["cpp"])
     header = read_text(declared["header"]) if header_path.is_file() else ""
     cpp = read_text(declared["cpp"]) if cpp_path.is_file() else ""
     owner_class = declared["owner_class"]

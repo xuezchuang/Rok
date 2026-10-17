@@ -10,6 +10,7 @@ import math
 import re
 import struct
 from pathlib import Path
+from rok_data_paths import resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 PROBE = ROOT / "Saved/UnityCityHallCameraLodProbeV1"
@@ -53,8 +54,8 @@ def path_in(base: Path, relative: str) -> Path:
 
 def source_values() -> dict:
     for path, expected in EXPECTED_SOURCES.values():
-        need(sha(ROOT / path) == expected, f"Pinned source SHA drift: {path}")
-    scene = (ROOT / EXPECTED_SOURCES["scene"][0]).read_text(encoding="utf-8-sig")
+        need(sha(resolve(path)) == expected, f"Pinned source SHA drift: {path}")
+    scene = (resolve(EXPECTED_SOURCES["scene"][0])).read_text(encoding="utf-8-sig")
     camera = re.search(r"(?m)^--- !u!20 &105374294\s*\n(.*?)(?=^--- !u!|\Z)", scene, re.S | re.M)
     transform = re.search(r"(?m)^--- !u!4 &105374290\s*\n(.*?)(?=^--- !u!|\Z)", scene, re.S | re.M)
     parent = re.search(r"(?m)^--- !u!4 &425647252\s*\n(.*?)(?=^--- !u!|\Z)", scene, re.S | re.M)
@@ -72,7 +73,7 @@ def source_values() -> dict:
     for label, expected in (("field of view", "30"), ("near clip plane", "2"), ("far clip plane", "3350")):
         need(f"{label}: {expected}" in camera.group(1), f"Source Camera {label} changed")
     def rows(name: str) -> list[dict]:
-        with (ROOT / EXPECTED_SOURCES[name][0]).open("r", encoding="utf-8-sig", newline="") as stream:
+        with (resolve(EXPECTED_SOURCES[name][0])).open("r", encoding="utf-8-sig", newline="") as stream:
             return list(csv.DictReader(stream))[1:]
     row = [r for r in rows("camera_table") if r["ID"] == "city_default"]
     need(len(row) == 1, "city_default not unique")
@@ -83,29 +84,29 @@ def source_values() -> dict:
     ages = rows("age_table")
     need(len([r for r in ages if r["age"] == "1" and r["size"] == "41" and r["townLevel"] == "1"]) == 1 and
          max(int(r["size"]) for r in ages) == 57, "Source age size changed")
-    native3 = json.loads((ROOT / EXPECTED_SOURCES["native3"][0]).read_text(encoding="utf-8-sig"))
+    native3 = json.loads((resolve(EXPECTED_SOURCES["native3"][0])).read_text(encoding="utf-8-sig"))
     need(native3["qualification"] == "transform_fixture_only" and not native3["lod_qualified"],
          "Native3 is not the expected transform-only fixture")
     matches = [n for n in native3["nodes"] if n["phase"] == "runtime_replay_hall" and
                n["component_type"] == "SpriteRenderer" and n["source_file_id"] == "212751466141171401"]
     need(len(matches) == 1 and matches[0]["source_guid"] == "c825e8897df8e424e817e4ed05eef53e",
          "Native3 Hall renderer identity differs")
-    world = (ROOT / EXPECTED_SOURCES["native3"][0]).parent / matches[0]["matrix_path"]
+    world = (resolve(EXPECTED_SOURCES["native3"][0])).parent / matches[0]["matrix_path"]
     need(sha(world) == matches[0]["matrix_sha256"] and world.stat().st_size == 64, "Native3 matrix changed")
-    geometry = json.loads((ROOT / EXPECTED_SOURCES["geometry"][0]).read_text(encoding="utf-8-sig"))
+    geometry = json.loads((resolve(EXPECTED_SOURCES["geometry"][0])).read_text(encoding="utf-8-sig"))
     row27 = geometry["rows"][27]
     need(row27["index"] == 27 and row27["source_key"] == "initial:5" and
          row27["positions"]["count"] == 240 and row27["positions"]["stride_bytes"] == 12,
          "Source geometry row27 differs")
-    positions = ROOT / row27["positions"]["path"]
+    positions = resolve(row27["positions"]["path"])
     need(sha(positions) == row27["positions"]["sha256"] and positions.stat().st_size == 2880,
          "Hall positions buffer differs")
-    container = (ROOT / EXPECTED_SOURCES["container"][0]).read_text(encoding="utf-8-sig")
+    container = (resolve(EXPECTED_SOURCES["container"][0])).read_text(encoding="utf-8-sig")
     need("guid: 7c3728ec13555fb4d8d560e7ec13d2a7" in container and
          "  m_max_scale: 7.8" in container and
          re.search(r"time: 1\s+value: 1", container) and re.search(r"time: 250\s+value: 1", container),
          "Source Hall curve identity changed")
-    hall = (ROOT / EXPECTED_SOURCES["hall"][0]).read_text(encoding="utf-8-sig")
+    hall = (resolve(EXPECTED_SOURCES["hall"][0])).read_text(encoding="utf-8-sig")
     need("&212751466141171401" in hall and
          "m_Sprite: {fileID: 21300000, guid: 57ec7ddf0b743a140b2707fe14b536e2, type: 3}" in hall,
          "Source Hall prefab identity changed")
@@ -147,13 +148,13 @@ def prepared() -> tuple[dict, dict, dict]:
          "Prepared contract identity/qualification differs")
     for path_key, sha_key in (("producer_path", "producer_sha256"), ("verifier_path", "verifier_sha256"),
                               ("exporter_path", "exporter_sha256")):
-        path = ROOT / c[path_key]
+        path = resolve(c[path_key])
         need(path.is_file() and sha(path) == c[sha_key], f"Prepared script SHA mismatch: {path_key}")
     source = source_values()
     need(len(c["sources"]) == 10 and {s["name"] for s in c["sources"]} == set(EXPECTED_SOURCES) | {"world", "positions"},
          "Contract source identity set differs")
     for spec in c["sources"]:
-        original = ROOT / spec["source_path"]
+        original = resolve(spec["source_path"])
         copied = path_in(PROBE, spec["probe_path"])
         need(original.is_file() and copied.is_file() and sha(original) == sha(copied) == spec["sha256"],
              f"Source copy differs: {spec['name']}")
@@ -165,7 +166,7 @@ def prepared() -> tuple[dict, dict, dict]:
                  f"World/geometry binary source changed: {spec['name']}")
     need(len(c["settings_files"]) == 21, "Unity Settings/Packages count differs")
     for spec in c["settings_files"]:
-        original = ROOT / spec["source_path"]
+        original = resolve(spec["source_path"])
         copied = path_in(PROBE, spec["probe_path"])
         need(original.is_file() and copied.is_file() and sha(original) == sha(copied) == spec["sha256"],
              f"Unity Settings/Packages changed: {spec['source_path']}")

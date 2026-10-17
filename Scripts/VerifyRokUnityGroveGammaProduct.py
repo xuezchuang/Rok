@@ -3,10 +3,11 @@ import hashlib,json
 import numpy as np
 from PIL import Image
 from PrepareRokUnityGroveGammaProduct import ROOT,OUT,CODE
+from rok_data_paths import resolve
 
 def main():
     spec=json.loads((OUT/'product_input.json').read_text());native=json.loads((OUT/'native_render.json').read_text())
-    for row in spec['input_files']+[spec['producer']]:assert hashlib.sha256((ROOT/row['path']).read_bytes()).hexdigest()==row['sha256']
+    for row in spec['input_files']+[spec['producer']]:assert hashlib.sha256((resolve(row['path'])).read_bytes()).hexdigest()==row['sha256']
     assert spec['shader_code']==CODE and spec['mode']=='unity_decoded_1024'
     source=np.asarray(Image.open(OUT/'native_imported_texture.png').convert('RGBA'),dtype=np.float64)/255
     rgb=source[:,:,:3];opaque=source[:,:,3]==1

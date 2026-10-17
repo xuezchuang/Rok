@@ -8,9 +8,10 @@ import json
 from pathlib import Path
 
 from BuildRokUnityEconomyCatalog import localized_text, read_language_lookup
+from rok_data_paths import DATA_ROOT, resolve
 
 ROOT = Path(__file__).resolve().parents[1]
-CATALOG = ROOT / "Saved/RokUnityMigration/task_reward_preview.json"
+CATALOG = DATA_ROOT / "task_reward_preview.json"
 CSV_ROOT = ROOT / "ref/config-tables/编译客户端配置/CSV"
 SHEET = ROOT / "ref/client-unity/Assets/BundleAssets/UI/UITextureStatic/ui_res_common/ui_common.tpsheet"
 
@@ -52,7 +53,7 @@ def verify() -> dict:
         "Scripts/BuildRokUnityTaskRewardPreview.py",
     }, "source set")
     for entry in catalog["sources"]:
-        path = ROOT / entry["path"]
+        path = resolve(entry["path"])
         require(path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest() == entry["sha256"],
                 f"source hash {path}")
     package = csv_rows("ItemPackageShow.csv")

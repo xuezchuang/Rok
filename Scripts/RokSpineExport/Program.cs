@@ -90,7 +90,7 @@ if (uniquePoses.Count < 2) throw new InvalidDataException("Idle has no observabl
 var sources = new[] { skeletonPath, atlasPath, assetPath }.Concat(loader.Paths).Distinct().Select(path => new {
     path = Path.GetRelativePath(root, path).Replace('\\', '/'),
     sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant() });
-var output = Path.Combine(root, $"Saved/RokUnityMigration/Commander/hero_{heroId}_{animationName}_mesh.json");
+var output = Path.Combine(root, $"Content/RokData/Commander/hero_{heroId}_{animationName}_mesh.json");
 Directory.CreateDirectory(Path.GetDirectoryName(output)!);
 File.WriteAllText(output, JsonSerializer.Serialize(new {
     schema_version = 1, hero_id = heroId, animation = animationName, loop,

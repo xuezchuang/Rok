@@ -1,5 +1,6 @@
 #include "RokCommanderMeshWidget.h"
 #include "RokCommanderCamera.h"
+#include "RokDataPaths.h"
 
 #include "Dom/JsonObject.h"
 #include "Engine/Texture2D.h"
@@ -88,7 +89,7 @@ bool URokCommanderMeshWidget::LoadHero(int32 HeroId)
 	StandbyFrames.Reset(); StandbyDuration = 0;
 	CameraX = 0;
 	if (!LoadClip(HeroId, TEXT("idle"))) return false;
-	const FString StandbyPath = FPaths::ProjectSavedDir() / FString::Printf(TEXT("RokUnityMigration/Commander/hero_%d_standby_mesh.json"), HeroId);
+	const FString StandbyPath = RokDataPaths::Resolve(FString::Printf(TEXT("Commander/hero_%d_standby_mesh.json"), HeroId));
 	if (FPaths::FileExists(StandbyPath))
 	{
 		auto* Clip = NewObject<URokCommanderMeshWidget>(this);
@@ -133,7 +134,7 @@ bool URokCommanderMeshWidget::LoadClip(int32 HeroId, const FString& Animation)
 {
 	Frames.Reset(); Brushes.Reset(); Textures.Reset(); Time = 0;
 	FString Json;
-	const FString Path = FPaths::ProjectSavedDir() / FString::Printf(TEXT("RokUnityMigration/Commander/hero_%d_%s_mesh.json"), HeroId, *Animation);
+	const FString Path = RokDataPaths::Resolve(FString::Printf(TEXT("Commander/hero_%d_%s_mesh.json"), HeroId, *Animation));
 	if (!FFileHelper::LoadFileToString(Json, *Path)) return false;
 	TSharedPtr<FJsonObject> Root;
 	if (!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json), Root) || !Root.IsValid()) return false;
@@ -161,7 +162,7 @@ bool URokCommanderMeshWidget::LoadClip(int32 HeroId, const FString& Animation)
 			const FString TexturePath = Data->GetStringField(TEXT("texture"));
 			if (!TextureIndices.Contains(TexturePath))
 			{
-				UTexture2D* Texture = FImageUtils::ImportFileAsTexture2D(FPaths::ProjectDir() / TexturePath);
+				UTexture2D* Texture = FImageUtils::ImportFileAsTexture2D(RokDataPaths::ResolveProjectPath(TexturePath));
 				if (!Texture) return false;
 				Texture->Filter = TF_Bilinear;
 				Texture->UpdateResource();

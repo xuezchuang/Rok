@@ -1,6 +1,7 @@
 #include "RokAllianceShopReadonlyAuditSubsystem.h"
 
 #include "RokBuildingUpgradeSubsystem.h"
+#include "RokDataPaths.h"
 #include "RokMainHudWidget.h"
 #include "RokPlayerController.h"
 #include "RokServerSubsystem.h"
@@ -189,8 +190,9 @@ FString PinnedPath(const TCHAR* Relative)
     const bool bOriginalReference = Name.StartsWith(TEXT("ref/"))
         || Name.StartsWith(TEXT("Saved/PendingAllianceShopReadonlyCatalog"))
         || Name == TEXT("Saved/RokUnityMigration/ConfigTables/Language.json");
-    const FString Base = bOriginalReference ? FString(OriginalRoot) : FPaths::ProjectDir();
-    return FPaths::ConvertRelativePathToFull(Base, Name);
+    return bOriginalReference
+        ? FPaths::ConvertRelativePathToFull(FString(OriginalRoot), Name)
+        : FPaths::ConvertRelativePathToFull(RokDataPaths::ResolveProjectPath(Name));
 }
 
 bool TargetWorld(const UWorld* World)
@@ -439,7 +441,7 @@ bool URokAllianceShopReadonlyAuditSubsystem::Begin()
     for (const TCHAR* Path : {TEXT("Source/Rok/RokAllianceShopReadonlyAuditSubsystem.h"),
         TEXT("Source/Rok/RokAllianceShopReadonlyAuditSubsystem.cpp")})
     {
-        const FString Actual = FileSha(FPaths::ProjectDir() / Path);
+        const FString Actual = FileSha(RokDataPaths::ResolveProjectPath(Path));
         if (!Expect(Actual.Len() == 64, TEXT("Integrated audit/verifier input missing"))) return false;
         Inputs->SetStringField(Path, Actual);
     }

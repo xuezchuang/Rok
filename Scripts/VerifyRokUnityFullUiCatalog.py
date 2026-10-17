@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from rok_data_paths import resolve
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -135,7 +136,7 @@ def verify_inventory_paths(catalog, failures):
         if "\\" in path_text:
             failures.append(f"Prefab path is not normalized: {path_text}")
             continue
-        if not (PROJECT_ROOT / path_text).is_file():
+        if not (resolve(path_text)).is_file():
             failures.append(f"Missing inventoried prefab: {path_text}")
 
     family_counts = {

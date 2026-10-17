@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from ExtractRokUnityConfigTables import parse_table
+from rok_data_paths import DATA_ROOT, label
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -17,7 +18,7 @@ ITEM_CSV = PROJECT_ROOT / "ref" / "config-tables" / "编译客户端配置" / "C
 RECHARGE_LIST_CSV = PROJECT_ROOT / "ref" / "config-tables" / "编译客户端配置" / "CSV" / "RechargeList.csv"
 RECHARGE_GEM_MALL_CSV = PROJECT_ROOT / "ref" / "config-tables" / "编译客户端配置" / "CSV" / "RechargeGemMall.csv"
 LANGUAGE_WORKBOOK = PROJECT_ROOT / "ref" / "config-tables" / "s_Language.xlsm"
-CATALOG_PATH = MIGRATION_ROOT / "unity_economy_catalog.json"
+CATALOG_PATH = DATA_ROOT / "unity_economy_catalog.json"
 CATALOG_MD_PATH = MIGRATION_ROOT / "unity_economy_catalog.md"
 OUTPUT_PATH = MIGRATION_ROOT / "unity_economy_catalog_verify.json"
 
@@ -714,8 +715,8 @@ def main() -> int:
     )
     result = {
         "schema": "rok.unity_economy_catalog_verify.v1",
-        "catalog": str(CATALOG_PATH.relative_to(PROJECT_ROOT)).replace("\\", "/"),
-        "source": str(ITEM_CSV.relative_to(PROJECT_ROOT)).replace("\\", "/"),
+        "catalog": label(CATALOG_PATH),
+        "source": label(ITEM_CSV),
         "expected_baseline": EXPECTED_BASELINE,
         "computed_summary": computed_summary,
         "enabled_shop_category_types": list(shop_category_types),

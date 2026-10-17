@@ -7,12 +7,13 @@ from BuildRokBuildingLevelDetails import read
 from BuildRokUnityEconomyCatalog import read_language_lookup, localized_text
 from BuildRokUnityUiAnimationManifest import Builder
 from PrepareRokUiTextures import unity_sprite_rect
+from rok_data_paths import DATA_ROOT
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def main():
-    catalog = json.loads((ROOT / 'Saved/RokUnityMigration/building_level_details.json').read_text(encoding='utf-8'))
+    catalog = json.loads((DATA_ROOT / 'building_level_details.json').read_text(encoding='utf-8'))
     powers = {int(row['ID']): int(row['power']) for row in read('BuildingLevelData.csv')}
     produces = {(int(row['type']), int(row['level'])): row for row in read('BuildingResourcesProduce.csv')}
     assert [t['type'] for t in catalog['tables']] == [2, 3, 4, 5, 9]

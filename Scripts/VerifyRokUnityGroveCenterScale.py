@@ -3,12 +3,13 @@ import hashlib,json
 import numpy as np
 from PIL import Image
 from BuildRokUnityGroveCenterScale import ROOT,OUT
+from rok_data_paths import resolve
 
 
 def main():
     d=json.loads((OUT/'manifest.json').read_text(encoding='utf-8'))
     for record in d['source_files']:
-        assert hashlib.sha256((ROOT/record['path']).read_bytes()).hexdigest()==record['sha256'],record['path']
+        assert hashlib.sha256((resolve(record['path'])).read_bytes()).hexdigest()==record['sha256'],record['path']
     p=np.array(d['positions'],dtype=np.float32);c=np.array(d['source_color_rgba'],dtype=np.float32);center=c[:,:3]*np.float32(180)
     # UV1=rg and UV2=ba store all four original channels in float32.
     uv1=c[:,:2].copy();uv2=c[:,2:].copy();roundtrip=np.column_stack((uv1,uv2));error=float(np.abs(roundtrip-c).max())

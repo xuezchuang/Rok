@@ -2,6 +2,9 @@
 import json
 from pathlib import Path
 import unreal
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from rok_data_paths import DATA_ROOT, resolve  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 project = Path(unreal.Paths.project_dir()).resolve()
@@ -9,12 +12,12 @@ world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_wor
 if project != ROOT.resolve() or world.get_name() != 'L_RokUnityGameAppCity':
     raise RuntimeError(f'Wrong MCP/editor identity: project={project}, world={world.get_name()}')
 
-catalog = json.loads((ROOT / 'Saved/RokUnityMigration/player_head_catalog.json').read_text(encoding='utf-8'))
+catalog = json.loads((DATA_ROOT / 'player_head_catalog.json').read_text(encoding='utf-8'))
 imported = []
 for info in catalog['atlases'].values():
     if not info['source']:
         continue
-    source = ROOT / info['source']
+    source = resolve(info['source'])
     if not source.is_file():
         raise FileNotFoundError(source)
     target = info['target']

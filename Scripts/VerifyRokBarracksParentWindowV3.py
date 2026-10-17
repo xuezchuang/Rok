@@ -4,6 +4,7 @@ import json
 import math
 import sys
 from pathlib import Path
+from rok_data_paths import resolve
 
 import numpy as np
 from PIL import Image
@@ -46,7 +47,7 @@ def verify(path):
     excluded = {"Scripts/PrepareRokBarracksParentWindow.py", "Scripts/RenderRokBarracksParentWindow.cs"}
     check(all(new_sources.get(k) == v for k, v in old_sources.items() if k not in excluded), "A/B original source chain differs")
     for source in inputs["sources"]:
-        check(digest(ROOT / source["path"]) == source["sha256"], "V3 source changed: " + source["path"])
+        check(digest(resolve(source["path"])) == source["sha256"], "V3 source changed: " + source["path"])
     check(evidence.get("complete") and not evidence.get("failure"), "V3 native run incomplete")
     check(evidence.get("playMode") and evidence.get("nativeAnimatorEnabled") and evidence.get("projectionInitialized"), "V3 native Animator/projection")
     check(evidence.get("unityVersion") == "2019.4.28f1c1" and evidence.get("inputSha256") == digest(inputs_path), "V3 version/input")

@@ -4,6 +4,7 @@ import json
 import shutil
 import subprocess
 from pathlib import Path
+from rok_data_paths import resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_PROJECT = ROOT / 'Saved/UnityResearchNativeProbe'
@@ -52,7 +53,7 @@ def main():
     for row in previous['byteIdenticalCopies']:
         if row['target'] == 'Assets/Editor/RenderRokResearchNative.cs':
             continue  # The new project has its own independent Editor entry point.
-        src = ROOT / row['source']
+        src = resolve(row['source'])
         dst = TARGET / row['target']
         assert sha(src) == row['sha256'] == sha(dst), row['source']
     # Keep the source ViewBinder GUID and its actual AnimationEvent method.

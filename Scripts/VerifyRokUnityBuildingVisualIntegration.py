@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from rok_data_paths import resolve
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -16,7 +17,7 @@ def load_json(path):
 
 
 def exists(relative_path):
-    return (PROJECT_ROOT / relative_path).exists()
+    return (resolve(relative_path)).exists()
 
 
 def main():

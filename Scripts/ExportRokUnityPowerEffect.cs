@@ -12,6 +12,7 @@ public static class ExportRokUnityPowerEffect
     const string Root = "D:/ueDemo/Rok";
     const string Source = "ref/client-unity/Assets/";
     const string Output = Root + "/Saved/RokUnityMigration/PowerGain";
+    const string DataOutput = Root + "/Content/RokData/PowerGain";
     [Serializable] public class SourceFile { public string path, sha256, metadataSha256; }
     [Serializable] public class Draw
     {
@@ -176,7 +177,8 @@ public static class ExportRokUnityPowerEffect
                 RenderTexture.active = null;
             }
         }
-        File.WriteAllText(Output + "/source_geometry.json", JsonUtility.ToJson(result, true));
+        Directory.CreateDirectory(DataOutput);
+        File.WriteAllText(DataOutput + "/source_geometry.json", JsonUtility.ToJson(result, true));
         if (result.roundTripMeanChannelError > 0.1f)
             throw new InvalidOperationException("Exported particle geometry does not match source rendering: " + result.roundTripMeanChannelError);
         camera.targetTexture = null;

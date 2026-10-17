@@ -8,6 +8,7 @@ import re
 import shutil
 import struct
 from pathlib import Path
+from rok_data_paths import resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 PROBE = ROOT / "Saved/UnityCityGammaRemainingFamiliesProbe"
@@ -66,7 +67,7 @@ def make_contract() -> dict:
             if item["role"] == "source_obj" or item["source_path"] == "builtin":
                 continue
             rel = source_rel(item["source_path"])
-            path = ROOT / rel
+            path = resolve(rel)
             need(item["exists"] and path.is_file() and sha(path) == item["sha256"], f"source drift: {rel}")
             meta = Path(str(path) + ".meta")
             need(meta.is_file(), f"missing source .meta: {rel}")
@@ -110,7 +111,7 @@ def prepare() -> None:
     if not path.exists() or read(path) != contract:
         path.write_text(json.dumps(contract, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     for item in contract["source_files"]:
-        src = ROOT / item["source_path"]
+        src = resolve(item["source_path"])
         dst = PROBE / item["probe_path"]
         dst.parent.mkdir(parents=True, exist_ok=True)
         for a, b, digest in ((src, dst, item["source_sha256"]),

@@ -5,6 +5,7 @@
 #include "RokCityPlacementPreviewActor.h"
 #include "RokCityPlacementPreviewMath.h"
 #include "RokCitySpriteActor.h"
+#include "RokDataPaths.h"
 #include "RokMainHudWidget.h"
 #include "RokPlayerController.h"
 #include "RokTrainArmyMeshData.h"
@@ -587,7 +588,7 @@ bool URokCityPlacementRuntimeAuditSubsystem::Begin()
 	for (const TCHAR* Relative : Required)
 	{
 		TArray<uint8> Bytes;
-		if (!Expect(FFileHelper::LoadFileToArray(Bytes, *(FPaths::ProjectDir() / Relative))
+		if (!Expect(FFileHelper::LoadFileToArray(Bytes, *(RokDataPaths::ResolveProjectPath(Relative)))
 			&& !Bytes.IsEmpty(), TEXT("Placement audit input missing"))) return false;
 		Inputs->SetStringField(Relative, RokTrainArmyMesh::Sha256(Bytes));
 	}

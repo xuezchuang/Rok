@@ -10,6 +10,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+from rok_data_paths import resolve
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -66,7 +67,7 @@ def verify(run: Path) -> None:
     for field, relative in (("audit_cpp_sha256", "Source/Rok/RokCityGammaInputAuditSubsystem.cpp"),
                             ("audit_h_sha256", "Source/Rok/RokCityGammaInputAuditSubsystem.h"),
                             ("verifier_sha256", "Scripts/VerifyRokCityGammaInputsRuntime.py")):
-        need(result[field] == digest(ROOT / relative), f"runtime source changed: {relative}")
+        need(result[field] == digest(resolve(relative)), f"runtime source changed: {relative}")
     need(result["expected_textures"] == EXPECTED and result["observed_textures"] == EXPECTED and
          result["complete"] is True and result["passed"] is True and result["failures"] == [] and
          len(result["textures"]) == EXPECTED,

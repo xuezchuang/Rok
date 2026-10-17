@@ -6,6 +6,7 @@ from collections import Counter
 import hashlib
 import json
 from pathlib import Path
+from rok_data_paths import resolve
 import struct
 import numpy as np
 from PIL import Image, ImageFilter
@@ -45,7 +46,7 @@ def sources():
     assert native['treeRot']==0 and abs(source['tree_scale']-native['treeScale'])<2e-6 and abs(native['treeScale']-center['bake_scale'])<2e-6
     assert len(source['source_files'])==9
     for item in source['source_files']:
-        path=(ROOT/item['path']).resolve();assert path.is_relative_to((ROOT/'ref').resolve()) and sha(path)==item['sha256']
+        path=(resolve(item['path'])).resolve();assert path.is_relative_to((ROOT/'ref').resolve()) and sha(path)==item['sha256']
     texture=native['texture'];assert texture['format']=='DXT5' and [texture['width'],texture['height'],texture['mips']]==[1024,1024,1]
     decoded=image(SOURCE/'native_imported_texture.png');assert decoded.shape==(1024,1024,4)
     assert int((decoded[:,:,3]==0).sum())==texture['gpuAlphaZero'] and int((decoded[:,:,3]==255).sum())==texture['gpuAlphaOpaque']

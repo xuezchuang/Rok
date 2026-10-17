@@ -1,6 +1,7 @@
 """Validate independent prepared source and optional native results; no engine."""
 import hashlib,json
 from pathlib import Path
+from rok_data_paths import resolve
 from PIL import Image
 from BuildRokUnityGroveGamma import ROOT,OUT
 
@@ -9,7 +10,7 @@ def main():
     assert Path(prep['project']).resolve()==(ROOT/'Saved/UnityGroveGammaProbe').resolve()
     assert data['dxf']==1509 and [s['name'] for s in data['samples']]==['day','dusk','night']
     for row in data['source_files']+prep['copies']:
-        assert hashlib.sha256((ROOT/row.get('path',row.get('source'))).read_bytes()).hexdigest()==row['sha256']
+        assert hashlib.sha256((resolve(row.get('path',row.get('source')))).read_bytes()).hexdigest()==row['sha256']
     assert hashlib.sha256((ROOT/'Saved/RokUnityMigration/GroveCenterScale/manifest.json').read_bytes()).hexdigest()==data['center_manifest_sha256']
     for s in data['samples']:
         assert len(s['spriteColor'])==3

@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 from pathlib import Path
+from rok_data_paths import label, resolve
 import re
 
 from BuildRokUnityEconomyCatalog import localized_text, read_language_lookup
@@ -25,9 +26,9 @@ def verify():
     check(package["schema"] == "rok.mail_reward_presentation.v1", "schema")
     check(set(package["fixtures"]) == {"reference_single", "mixed_audit", "empty_alternate"}, "fixture set")
     check("synthetic" in package["origin"] and "read-only" in package["origin"], "fixture provenance")
-    check(set(package["sources"]) == {path.relative_to(ROOT).as_posix() for path in SOURCES}, "required source set")
+    check(set(package["sources"]) == {label(path) for path in SOURCES}, "required source set")
     for relative, digest in package["sources"].items():
-        source = ROOT / relative
+        source = resolve(relative)
         check(source.is_file() and hashlib.sha256(source.read_bytes()).hexdigest() == digest, f"source hash {relative}")
     mail_source = MAIL.read_text(encoding="utf-8-sig")
     start = mail_source.index("private void OnEnclosureList(")

@@ -5,6 +5,7 @@ import math
 import re
 import struct
 from pathlib import Path
+from rok_data_paths import resolve
 import numpy as np
 import PrepareRokUnityWorldMapAssets as source
 
@@ -31,7 +32,7 @@ def main():
     assert count==377 and len(unique)==16 and len(parsed['triangles'])==309
     triangles=[[a,c,b] for _,a,b,c in parsed['triangles']]
     assert all(np.array_equal(centers[a],centers[b]) and np.array_equal(centers[a],centers[c]) for a,b,c in triangles), 'Triangle crosses source COLOR centers'
-    curvepath=ROOT/source.TREE_SCALE_CURVE_SOURCE
+    curvepath=resolve(source.TREE_SCALE_CURVE_SOURCE)
     keys=source.parse_unity_curve(curvepath,'m_tree_scale_curve')
     curve_text=curvepath.read_text(encoding='utf-8').split('  m_tree_scale_curve:',1)[1].split('  m_unit_scale_curve:',1)[0]
     weights=re.findall(r'inWeight:\s*(\S+)\s*\n\s*outWeight:\s*(\S+)',curve_text)

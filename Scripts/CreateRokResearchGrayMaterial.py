@@ -9,6 +9,9 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from rok_data_paths import DATA_ROOT, label  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'Saved/RokUnityMigration/ResearchNative'
 SOURCE_REPORT = OUT / 'gray_material_source.json'
@@ -19,7 +22,7 @@ MATERIAL = ROOT / 'ref/client-unity/Assets/BundleAssets/Default/UI_GrayWithMask.
 MATERIAL_META = Path(str(MATERIAL) + '.meta')
 RENDERER = ROOT / 'Scripts/RenderRokResearchNative.cs'
 NATIVE = ROOT / 'Saved/UnityResearchNativeProbe/Artifacts/native_20261008_124117_758/render_evidence.json'
-ATLAS_MANIFEST = OUT / 'atlas_manifest.json'
+ATLAS_MANIFEST = DATA_ROOT / 'ResearchNative/atlas_manifest.json'
 IMPORT_REPORT = OUT / 'ue_import.json'
 DESTINATION = '/Game/RokPrototype/UI/Research'
 NAME = 'M_RokResearchGrayUI'
@@ -92,7 +95,7 @@ def source_proof():
         'shaderDomain': 'UI', 'blendMode': 'Translucent', 'twoSided': True,
         'alphaHandling': 'Straight alpha, no premultiply and no material-local clipping; source _UseUIAlphaClip is off.',
         'uvHandling': 'Use Slate Brush UVRegion with TextureCoordinate0; no MID UV scale/offset parameter.',
-        'sources': [{'path': p.relative_to(ROOT).as_posix(), 'sha256': sha(p)} for p in sources],
+        'sources': [{'path': label(p), 'sha256': sha(p)} for p in sources],
         'producer': {'path': Path(__file__).relative_to(ROOT).as_posix(), 'sha256': sha(Path(__file__))},
     }
 

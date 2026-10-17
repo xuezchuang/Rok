@@ -7,6 +7,7 @@ import struct
 import subprocess
 import csv
 from pathlib import Path
+from rok_data_paths import resolve
 from BuildRokUnityEconomyCatalog import read_language_lookup, localized_text, LANGUAGE_WORKBOOK
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -187,7 +188,7 @@ namespace UnityEngine.UI
     review = ROOT / 'Saved/RokUnityMigration/BarracksParentWindowSource/source_review.json'
     record(review)
     for source in json.loads(review.read_text(encoding='utf-8'))['sources']:
-        record(ROOT / source['path'])
+        record(resolve(source['path']))
     record(Path(__file__).resolve())
     renderer = ROOT / 'Scripts/RenderRokBarracksParentWindowV4.cs'
     copy(renderer, 'Assets/Editor/' + renderer.name)

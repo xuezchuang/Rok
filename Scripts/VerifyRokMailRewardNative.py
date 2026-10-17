@@ -4,11 +4,12 @@ import hashlib
 import json
 import math
 from pathlib import Path
+from rok_data_paths import DATA_ROOT, resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT = ROOT / 'Saved/UnityMailRewardNativeProbe'
 STAGE = ROOT / 'Saved/RokUnityMigration/MailRewardNative'
-DATA = ROOT / 'Saved/RokUnityMigration/mail_reward_presentation.json'
+DATA = DATA_ROOT / 'mail_reward_presentation.json'
 
 
 def sha(path):
@@ -65,9 +66,9 @@ def main():
     assert [r['key'] for r in inputs['fixtures']] == ['reference_single', 'mixed_audit', 'empty_alternate']
     assert [len(r['rows']) for r in inputs['fixtures']] == [1, 7, 0]
     for src in inputs['sources']:
-        assert sha(ROOT / src['path']) == src['sha256'], src['path']
+        assert sha(resolve(src['path'])) == src['sha256'], src['path']
     for copied in inputs['byte_identical_copies']:
-        assert sha(ROOT / copied['source']) == sha(PROJECT / copied['target']) == copied['sha256'], copied['target']
+        assert sha(resolve(copied['source'])) == sha(PROJECT / copied['target']) == copied['sha256'], copied['target']
     for adapter in inputs['adapters']:
         assert sha(PROJECT / adapter['target']) == adapter['sha256'], adapter['target']
     assert json.loads((PROJECT / 'Validation/compiler_result.json').read_text(encoding='utf-8'))['exit_code'] == 0

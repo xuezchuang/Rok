@@ -5,6 +5,7 @@ import json
 import re
 import struct
 from pathlib import Path
+from rok_data_paths import resolve
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -55,15 +56,15 @@ def verify() -> None:
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     assert manifest["schema"] == "rok.expedition.result_visual_assets.v2"
     assert manifest["v1_manifest"]["sha256"] == EXPECTED_V1_SHA256
-    v1 = ROOT / manifest["v1_manifest"]["path"]
+    v1 = resolve(manifest["v1_manifest"]["path"])
     assert sha(v1) == EXPECTED_V1_SHA256
     assert manifest["sources_sha256"] == EXPECTED_SOURCES
     for relative, expected in EXPECTED_SOURCES.items():
-        assert sha(ROOT / relative) == expected, relative
+        assert sha(resolve(relative)) == expected, relative
 
     atlas = manifest["atlas"]
-    source_png = ROOT / atlas["source"]
-    prepared_png = ROOT / atlas["prepared"]
+    source_png = resolve(atlas["source"])
+    prepared_png = resolve(atlas["prepared"])
     source_bytes = source_png.read_bytes()
     prepared_bytes = prepared_png.read_bytes()
     assert source_bytes == prepared_bytes, "prepared PNG differs bytewise from Unity source"

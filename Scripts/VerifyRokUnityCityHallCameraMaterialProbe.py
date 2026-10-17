@@ -9,6 +9,7 @@ import math
 import struct
 import subprocess
 from pathlib import Path
+from rok_data_paths import resolve
 
 from PIL import Image
 
@@ -56,7 +57,7 @@ def check_contract(contract: dict) -> dict:
     from PrepareRokUnityCityHallCameraMaterialProbe import PINNED, NATIVE_CAMERA, NATIVE3, GEOMETRY
     need(contract["source_pins"] == PINNED, "Source SHA pin set differs")
     for relative, digest in PINNED.items():
-        need(sha(ROOT / relative) == digest, f"Source byte drift: {relative}")
+        need(sha(resolve(relative)) == digest, f"Source byte drift: {relative}")
     for key, source in (("native_camera_source", NATIVE_CAMERA), ("native3_source", NATIVE3),
                         ("geometry_source", GEOMETRY)):
         value = contract[key]
@@ -168,7 +169,7 @@ def verify_run(run: Path, contract: dict, typed: dict) -> dict:
          "Native source-configured camera changed")
     need(native["sprite_color_global"] == [1.0] * 4 and native["city_transparency_global"] == 1.0,
          "Native globals differ from explicit controlled fixture")
-    camera_source = json.loads((ROOT / contract["native_camera_source"]["path"]).read_text(encoding="utf-8"))
+    camera_source = json.loads((resolve(contract["native_camera_source"]["path"])).read_text(encoding="utf-8"))
     for name in ("camera_world_to_camera", "camera_projection", "camera_gpu_projection_rt"):
         expected = next(m for m in camera_source["matrices"] if m["name"] == name)
         source_raw = path_in(PROBE, typed[name + "_path"]).read_bytes()

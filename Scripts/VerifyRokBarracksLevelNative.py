@@ -5,6 +5,7 @@ import json
 import math
 import sys
 from pathlib import Path
+from rok_data_paths import resolve
 
 from PIL import Image, ImageChops, ImageStat
 
@@ -61,7 +62,7 @@ def verify(evidence_path):
     for entry in inputs.get('sources', []):
         if entry['path'].startswith('Source/Rok/'):
             continue  # Concurrent UE implementation is outside this isolated source capture.
-        path = ROOT / entry['path']
+        path = resolve(entry['path'])
         check(path.is_file() and sha(path) == entry['sha256'], 'source hash: ' + entry['path'])
     for entry in inputs.get('byte_identical_copies', []):
         copied = ROOT / 'Saved/UnityBarracksLevelProbe' / entry['target']

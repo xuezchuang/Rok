@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS && !UE_BUILD_SHIPPING
 #include "Misc/AutomationTest.h"
 #include "Misc/Paths.h"
+#include "../RokDataPaths.h"
 #include "../RokUnityTileRippleSimulation.h"
 #include <limits>
 
@@ -10,8 +11,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRokUnityTileRippleSimulationTest,
 
 bool FRokUnityTileRippleSimulationTest::RunTest(const FString&)
 {
-	const FString Fixture = FPaths::Combine(FPaths::ProjectDir(),
-		TEXT("Saved/PendingUnityTileRippleSimulationV2/tile_ripple_source_config.json"));
+	const FString Fixture = RokDataPaths::Resolve(TEXT("TileRippleSimulationV2/tile_ripple_source_config.json"));
 	TArray<FRokTileRippleSourceConfig> Configs;
 	FString Error;
 	if (!TestTrue(TEXT("Verified two-emitter source fixture loads"),

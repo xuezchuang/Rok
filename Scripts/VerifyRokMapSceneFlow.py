@@ -2,6 +2,7 @@ import argparse
 import json
 import pathlib
 import sys
+from rok_data_paths import resolve
 
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -105,7 +106,7 @@ def main():
         runtime_log = (
             args.runtime_log
             if args.runtime_log.is_absolute()
-            else PROJECT_ROOT / args.runtime_log
+            else resolve(args.runtime_log)
         )
         if not runtime_log.exists():
             failures.append(

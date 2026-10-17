@@ -1,5 +1,6 @@
 """Verify native six-text glyph provenance, topology and source rich colors."""
 from pathlib import Path
+from rok_data_paths import resolve
 import argparse, hashlib, json, math, re
 from PIL import Image
 ROOT=Path(__file__).resolve().parents[1]
@@ -9,7 +10,7 @@ def verify(directory):
     report=json.loads((directory/'source_text_meshes.json').read_text(encoding='utf-8'))
     assert inputs['schema']=='rok.barracks.source_text.inputs.v1' and report['schema']=='rok.barracks.source_text.v1'
     assert report['inputSha256']==sha(directory/'ReferenceInputs.json')
-    for source in inputs['sources']: assert sha(ROOT/source['path'])==source['sha256'],source['path']
+    for source in inputs['sources']: assert sha(resolve(source['path']))==source['sha256'],source['path']
     assert inputs['renderer_sha256']==inputs['copied_renderer_sha256']
     specs={s['key']:s for s in inputs['sourceTexts']}
     assert set(specs)=={'level_before','level_after','label_0','label_1','value_0','value_1'}

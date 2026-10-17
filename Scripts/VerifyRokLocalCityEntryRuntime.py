@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from PIL import Image
+from rok_data_paths import DATA_ROOT, resolve
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -45,13 +46,13 @@ def verify(run: Path) -> dict:
     assert "Production placement and visual factory are not implemented" in manifest["scope"]
 
     for relative, record in manifest["input_hashes"].items():
-        path = ROOT / relative
+        path = resolve(relative)
         assert path.is_file(), relative
         assert path.stat().st_size == record["bytes"], relative
         assert sha256(path) == record["sha256"], relative
 
     baseline = manifest["baseline"]
-    source = json.loads((ROOT / "Saved/RokUnityMigration/unity_initial_city_state.json").read_text(
+    source = json.loads((DATA_ROOT / "unity_initial_city_state.json").read_text(
         encoding="utf-8-sig"))
     scene = json.loads((ROOT / "Saved/RokUnityMigration/unity_gameapp_city_runtime_scene_manifest.json").read_text(
         encoding="utf-8-sig"))

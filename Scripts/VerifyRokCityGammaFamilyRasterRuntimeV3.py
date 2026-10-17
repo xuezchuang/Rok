@@ -7,6 +7,7 @@ import json
 import os
 import struct
 from pathlib import Path
+from rok_data_paths import resolve
 
 from PIL import Image
 
@@ -47,7 +48,7 @@ def safe_repo(relative: str) -> Path:
                                "ref/client-unity/Assets/BundleAssets/Map/Shader/cm_city_mask_night.shader",
                                "Scripts/ExportRokCityGammaFamilyStateProbe.cs")),
           f"input not allowlisted: {relative}")
-    target = (ROOT / relative).resolve()
+    target = (resolve(relative)).resolve()
     check(target.is_relative_to(ROOT), f"input escapes repo: {relative}")
     return target
 
@@ -125,7 +126,7 @@ def verify(run: Path) -> dict:
           and runtime["night_gpu_time_after_sha256"] == night["time_after_sha256"],
           "Night native/metadata/verifier binding differs")
     for relative in CODE:
-        check(runtime[Path(relative).name + "_sha256"] == sha(ROOT / relative),
+        check(runtime[Path(relative).name + "_sha256"] == sha(resolve(relative)),
               f"producer/verifier changed after capture: {relative}")
     check(runtime["expected_cases"] == runtime["observed_cases"] == 42
           and runtime["input_gpu_byte_exact"] == 5

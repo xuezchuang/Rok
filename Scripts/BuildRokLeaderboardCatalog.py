@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 from BuildRokUnityEconomyCatalog import read_language_lookup, localized_text
 from PrepareRokUiTextures import unity_sprite_rect
+from rok_data_paths import DATA_ROOT
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -31,7 +32,7 @@ def build():
                        'show_limit': int(row['showLimit']), 'name': localized_text(language, int(row['nameID']), 'cn') if row['nameID'] else '',
                        'columns': columns, 'icon': icon, 'rect': rect})
     assert len(result) == 9
-    output = ROOT / 'Saved/RokUnityMigration/leaderboard_catalog.json'
+    output = DATA_ROOT / 'leaderboard_catalog.json'
     output.write_text(json.dumps({'source': str(source.relative_to(ROOT)), 'entry_prefab': 'UI_Item_GuildRankingBtn',
         'server_gate': 'Rank_ShowRankFirst.response; UE is explicitly a configuration preview', 'entries': result}, ensure_ascii=False, indent=2), encoding='utf-8')
     print(json.dumps({'entries': len(result), 'output': str(output)}))

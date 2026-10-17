@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 from pathlib import Path
+from rok_data_paths import resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 OLD = ROOT / "Saved/UnityCityHallCameraMaterialProbeV1"
@@ -78,9 +79,9 @@ def main() -> None:
     source_map = {
         "native_camera_lod.json": camera_path,
         "hall_native3_world.f32le": native3_path.parent / hall_node["matrix_path"],
-        "hall_positions.bin": ROOT / row["positions"]["path"],
-        "hall_uv0.bin": ROOT / row["uv_channels"][0]["binary"]["path"],
-        "hall_indices.bin": ROOT / row["indices"]["binary"]["path"],
+        "hall_positions.bin": resolve(row["positions"]["path"]),
+        "hall_uv0.bin": resolve(row["uv_channels"][0]["binary"]["path"]),
+        "hall_indices.bin": resolve(row["indices"]["binary"]["path"]),
     }
     for key in ("camera_world_to_camera", "camera_projection", "camera_gpu_projection_rt"):
         record = next(m for m in camera["matrices"] if m["name"] == key)

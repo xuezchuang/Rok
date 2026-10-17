@@ -4,6 +4,7 @@ import json
 import math
 import sys
 from pathlib import Path
+from rok_data_paths import resolve
 
 from PIL import Image, ImageStat
 
@@ -43,7 +44,7 @@ def verify(path):
     for relative, expected in source_hashes.items():
         if relative.startswith("Source/Rok/"):
             continue  # UE product code may change during this independent Unity capture.
-        check(sha(ROOT / relative) == expected, "source hash changed: " + relative)
+        check(sha(resolve(relative)) == expected, "source hash changed: " + relative)
     setup_path = path.parent / "setup_evidence.json"
     check(setup_path.is_file(), "source setup missing")
     if setup_path.is_file():

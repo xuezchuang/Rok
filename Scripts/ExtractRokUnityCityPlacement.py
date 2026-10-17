@@ -5,6 +5,7 @@ import math
 import os
 import re
 from pathlib import Path
+from rok_data_paths import resolve
 
 from PIL import Image
 
@@ -12,7 +13,7 @@ from PIL import Image
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 UNITY_REFERENCE_ROOT = Path(os.environ.get("ROK_UNITY_REFERENCE_ROOT", PROJECT_ROOT / "ref"))
 if not UNITY_REFERENCE_ROOT.is_absolute():
-    UNITY_REFERENCE_ROOT = PROJECT_ROOT / UNITY_REFERENCE_ROOT
+    UNITY_REFERENCE_ROOT = resolve(UNITY_REFERENCE_ROOT)
 UNITY_CLIENT_ROOT = UNITY_REFERENCE_ROOT / "client-unity"
 UNITY_RESOURCE_ROOT = UNITY_REFERENCE_ROOT / "resources"
 UNITY_SCENE_ROOT = UNITY_CLIENT_ROOT / "Assets/BundleAssets/Map/Scenes"

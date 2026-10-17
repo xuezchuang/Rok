@@ -3,6 +3,7 @@
 #include "RokAudioRouterSubsystem.h"
 #include "RokBuildingUpgradeSubsystem.h"
 #include "RokClientSettingsSubsystem.h"
+#include "RokDataPaths.h"
 #include "RokMainHudWidget.h"
 #include "RokPlayerController.h"
 #include "RokServerSubsystem.h"
@@ -477,7 +478,7 @@ bool URokAudioSettingsAuditSubsystem::Begin()
 		TEXT("Saved/RokUnityMigration/BatchReview20261009AudioSettingsAndHallMaterial/batch_start.json")};
 	for (const TCHAR* Path : Required)
 	{
-		const FString Hash = FileSha(FPaths::ProjectDir() / Path);
+		const FString Hash = FileSha(RokDataPaths::ResolveProjectPath(Path));
 		if (!Expect(Hash.Len() == 64, TEXT("Audio audit source input missing"))) return false;
 		Inputs->SetStringField(Path, Hash);
 	}

@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from PIL import Image
+from rok_data_paths import DATA_ROOT, label, resolve
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -13,8 +14,7 @@ BUILD_SCRIPT = (
     PROJECT_ROOT / "Scripts/BuildRokUnityWorldEntityPopulation.py"
 )
 MANIFEST_PATH = (
-    PROJECT_ROOT
-    / "Saved/RokUnityMigration/unity_world_entity_population.json"
+    DATA_ROOT / "unity_world_entity_population.json"
 )
 VERIFY_PATH = (
     PROJECT_ROOT
@@ -205,7 +205,7 @@ def main():
     for entity in entities:
         for field in ("detail_visual", "far_visual"):
             visual = entity.get(field, {})
-            path = PROJECT_ROOT / visual.get("path", "")
+            path = resolve(visual.get("path", ""))
             if (
                 not path.exists()
                 or sha256(path) != visual.get("sha256")
@@ -255,7 +255,7 @@ def main():
 
     city_lod3 = manifest.get("player_city_lod3_visual", {})
     city_lod3_output = city_lod3.get("output", {})
-    city_lod3_path = PROJECT_ROOT / city_lod3_output.get("path", "")
+    city_lod3_path = resolve(city_lod3_output.get("path", ""))
     city_lod3_failures = []
     if (city_lod3.get("pixels_per_unit") != 100.0
             or city_lod3.get("pivot") != [0.5, 0.5]
@@ -274,7 +274,7 @@ def main():
             if image.size != (188, 80):
                 city_lod3_failures.append("source_rect_was_cropped")
             rgba = image.convert("RGBA")
-            atlas_path = PROJECT_ROOT / city_lod3["source_atlas"]["path"]
+            atlas_path = resolve(city_lod3["source_atlas"]["path"])
             rect = city_lod3["source_sprite"]["rect"]
             with Image.open(atlas_path) as atlas:
                 top = atlas.height - rect["y"] - rect["height"]
@@ -323,7 +323,7 @@ def main():
                     f"{visual.get('key')}:missing_source_record"
                 )
                 continue
-            path = PROJECT_ROOT / record.get("path", "")
+            path = resolve(record.get("path", ""))
             if (
                 not path.exists()
                 or path.stat().st_size != record.get("size")
@@ -338,7 +338,7 @@ def main():
         if not record:
             source_failures.append("player_city_lod3:missing_source_record")
             continue
-        path = PROJECT_ROOT / record.get("path", "")
+        path = resolve(record.get("path", ""))
         if (
             not path.exists()
             or path.stat().st_size != record.get("size")
@@ -355,9 +355,7 @@ def main():
         "schema": "rok.unity_world_entity_population_verify.v1",
         "passed": not failures,
         "manifest": {
-            "path": str(
-                MANIFEST_PATH.relative_to(PROJECT_ROOT)
-            ).replace("\\", "/"),
+            "path": label(MANIFEST_PATH),
             "sha256": sha256(MANIFEST_PATH),
         },
         "checks": checks,

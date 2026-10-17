@@ -2,14 +2,17 @@
 import hashlib
 import json
 import math
+import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from rok_data_paths import DATA_ROOT, label, resolve
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "Saved/RokUnityMigration/TrainArmy"
 
 def source(path):
-    return {"path":path.relative_to(ROOT).as_posix(), "sha256":hashlib.sha256(path.read_bytes()).hexdigest()}
+    return {"path":label(path), "sha256":hashlib.sha256(path.read_bytes()).hexdigest()}
 
 def sample(image, u, v):
     # PNG/PIL origin is top-left; texture bilinear coordinates address centers.
@@ -31,7 +34,7 @@ def main():
     assert len(native["captures"]) == 4
     textures={}; reports=[]; evidence=[source(native_path)]
     for capture in native["captures"]:
-        path=OUT/f"arms_{capture['armsId']}_idle_mesh.json"
+        path=DATA_ROOT/f"TrainArmy/arms_{capture['armsId']}_idle_mesh.json"
         clip=json.loads(path.read_text(encoding="utf-8")); evidence.append(source(path))
         assert clip["arms_show"] == capture["model"]
         assert capture["canvasPPU"] == 100
@@ -61,7 +64,7 @@ def main():
         all_white=all(tuple(v[k] for k in "rgba")== (255,255,255,255) for v in capture["colors"])
         correct_errors=[]; extra_flip_errors=[]
         for draw,offset in ranges:
-            texture_path=ROOT/draw["texture"]
+            texture_path=resolve(draw["texture"])
             if texture_path not in textures:
                 textures[texture_path]=Image.open(texture_path).convert("RGBA");evidence.append(source(texture_path))
             texture=textures[texture_path]
@@ -85,7 +88,7 @@ def main():
             "uv_max_error_without_Unity_FlipV":uv_without_unity_flip_error,
             "pma_color_byte_max_error":color_error,"native_tints_all_white":all_white,
             "png_bilinear_max_error":max(correct_errors),"incorrect_extra_vflip_mean_error":sum(extra_flip_errors)/len(extra_flip_errors)})
-    evidence.extend(source(ROOT/p) for p in (
+    evidence.extend(source(resolve(p)) for p in (
         "ref/client-unity/Assets/Third/Spine/spine-unity/Asset Types/AtlasAsset.cs",
         "ref/client-unity/Assets/Third/Spine/spine-csharp/Atlas.cs",
         "ref/client-unity/Assets/Third/Spine/spine-unity/Modules/SkeletonGraphic/SkeletonGraphic.cs",

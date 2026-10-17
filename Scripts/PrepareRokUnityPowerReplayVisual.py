@@ -6,6 +6,7 @@ import shutil
 import hashlib
 import json
 import stat
+from rok_data_paths import DATA_ROOT, resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 PROBE = ROOT / "Saved/UnityBuiltinShaderProbe"
@@ -45,10 +46,10 @@ support.mkdir(parents=True, exist_ok=True)
 source = ROOT / "ref/client-unity/Assets/Scripts/Client/Compoment/UIComponent/AutoDestory.cs"
 for suffix in ("", ".meta"):
     copy_isolated(Path(str(source) + suffix), support / (source.name + suffix))
-export = json.loads((ROOT / "Saved/RokUnityMigration/PowerGain/source_geometry.json").read_text(encoding="utf-8-sig"))
+export = json.loads((DATA_ROOT / "PowerGain/source_geometry.json").read_text(encoding="utf-8-sig"))
 inputs = []
 for entry in export["sources"]:
-    original = (ROOT / entry["path"]).resolve()
+    original = resolve(entry["path"]).resolve()
     relative = original.relative_to((ROOT / "ref/client-unity/Assets").resolve())
     target = PROBE / "Assets/PowerGain" / relative
     target.parent.mkdir(parents=True, exist_ok=True)

@@ -6,6 +6,7 @@ import math
 import re
 import traceback
 from pathlib import Path
+from rok_data_paths import resolve
 
 import numpy as np
 from PIL import Image
@@ -60,7 +61,7 @@ def source_curves():
     assert set(curves) == {'m_LocalScale.x', 'm_LocalScale.y',
                            'm_LocalScale.z', 'm_Alpha'}
     for row in data['sourceFiles']:
-        assert sha(ROOT / row['path']) == row['sha256'], row['path']
+        assert sha(resolve(row['path'])) == row['sha256'], row['path']
     ui = (ROOT / 'ref/client-unity/Assets/Scripts/Hotfix/MVC/UI.cs').read_text(encoding='utf-8-sig')
     manager = (ROOT / 'ref/client-unity/Assets/Skyunion/RunTime/UIManager/UIManager.cs').read_text(encoding='utf-8-sig')
     mediator = (ROOT / 'ref/client-unity/Assets/Scripts/Hotfix/MVC/View_Mediator/Research/ResearchMainMediator.cs').read_text(encoding='utf-8-sig')
@@ -201,7 +202,7 @@ def verify(run):
     assert manifest['research_queue_synced'] is False
     assert manifest['expected_capture_count'] == len(NAMES)
     for relative, record in manifest['input_hashes'].items():
-        path = ROOT/relative
+        path = resolve(relative)
         assert path.is_file() and sha(path) == record['sha256'], relative
         assert path.stat().st_size == record['bytes']
     curves = source_curves()

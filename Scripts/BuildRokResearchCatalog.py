@@ -7,9 +7,10 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from BuildRokUnityEconomyCatalog import LANGUAGE_WORKBOOK, localized_text, read_language_lookup
+from rok_data_paths import DATA_ROOT, label
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "Saved/RokUnityMigration/research_catalog.json"
+OUT = DATA_ROOT / "research_catalog.json"
 CSV_ROOT = ROOT / "ref/config-tables/编译客户端配置/CSV"
 UI_ROOT = ROOT / "ref/client-unity/Assets/BundleAssets/UI/UITextureStatic/ui_res_research"
 PROXY = ROOT / "ref/client-unity/Assets/Scripts/Hotfix/MVC/Proxy/ResearchProxy.cs"
@@ -110,7 +111,7 @@ def build(write=True):
         "schema": "rok.research_catalog.v1",
         "source_behavior": "ResearchProxy.GetTechnologyByType groups level-one nodes by columns; GetTechnologyByLevel uses studyType+level; StudyData lookup uses civilizationID*1000000+Study.ID",
         "runtime_boundary": "Configuration only. Current player levels, queue, speed, resources and server state must be supplied by a caller.",
-        "sources": {path.relative_to(ROOT).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest() for path in SOURCES},
+        "sources": {label(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in SOURCES},
         "summary": {"rows": len(rows), "study_types": len(levels), "type_rows": {"1": 193, "2": 217},
                     "level_one_nodes": {"1": 28, "2": 43}, "civilization_overrides": len(overrides)},
         "rows": rows, "civilization_overrides": overrides,

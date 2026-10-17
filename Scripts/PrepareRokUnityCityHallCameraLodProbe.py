@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 from pathlib import Path
+from rok_data_paths import resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 PROBE = ROOT / "Saved/UnityCityHallCameraLodProbeV1"
@@ -94,7 +95,7 @@ def numeric_rows(path: Path) -> list[dict[str, str]]:
 
 
 def source_state() -> tuple[dict, dict]:
-    scene = (ROOT / SOURCES["scene"]).read_text(encoding="utf-8-sig")
+    scene = (resolve(SOURCES["scene"])).read_text(encoding="utf-8-sig")
     parent = block(scene, 4, "425647252")
     camera_transform = block(scene, 4, "105374290")
     camera_component = block(scene, 20, "105374294")
@@ -115,7 +116,7 @@ def source_state() -> tuple[dict, dict]:
     lod_camera = component_block(scene, "4bae9f026d873e04b88d09d48706b1a4")
     scene_thresholds = [int(v) for v in re.findall(r"(?m)^  - (\d+)\s*$", lod_camera.split("  m_map_piece_width_curve:")[0])]
     require(scene_thresholds == [1500, 3000, 8000, 20000, 42500, 999999], "GameApp camera LOD thresholds changed")
-    container = (ROOT / SOURCES["container"]).read_text(encoding="utf-8-sig")
+    container = (resolve(SOURCES["container"])).read_text(encoding="utf-8-sig")
     castle = component_block(container, "7c3728ec13555fb4d8d560e7ec13d2a7")
     curve_body = castle.split("  m_scale_curve:", 1)[1].split("  m_max_scale:", 1)[0]
     key_blocks = re.findall(r"(?m)^    - serializedVersion: 3\s*\n(.*?)(?=^    - serializedVersion: 3|^    m_PreInfinity:)", curve_body, re.S | re.M)
@@ -136,17 +137,17 @@ def source_state() -> tuple[dict, dict]:
     require(max_scale == 7.8, "City Hall LOD max scale changed")
     container_thresholds = [int(v) for v in re.findall(r"(?m)^  - (\d+)\s*$", castle.split("  m_scale_curve:")[0])]
     require(container_thresholds == [1500, 3000, 8000, 20000, 42500], "Container LOD thresholds changed")
-    camera_rows = numeric_rows(ROOT / SOURCES["camera_table"])
+    camera_rows = numeric_rows(resolve(SOURCES["camera_table"]))
     selected = [r for r in camera_rows if r["ID"] == "city_default"]
     require(len(selected) == 1, "CameraParamLod city_default not unique")
     city = selected[0]
     dist, fov, dxf = (float(city[k]) for k in ("dist", "fov", "dxf"))
     require((dist, fov, dxf) == (20, 7.5, 150) and dist * fov == dxf, "city_default config changed")
-    ages = numeric_rows(ROOT / SOURCES["age_table"])
+    ages = numeric_rows(resolve(SOURCES["age_table"]))
     age1 = [r for r in ages if r["age"] == "1"]
     require(len(age1) == 1 and age1[0]["townLevel"] == "1" and int(age1[0]["size"]) == 41 and
             max(int(r["size"]) for r in ages) == 57, "City age size source changed")
-    native = json.loads((ROOT / SOURCES["native3"]).read_text(encoding="utf-8-sig"))
+    native = json.loads((resolve(SOURCES["native3"])).read_text(encoding="utf-8-sig"))
     require(native["qualification"] == "transform_fixture_only" and native["lod_qualified"] is False and
             native["init_id"] == 5 and native["type_id"] == 1 and native["level"] == 1 and
             (native["grid_x"], native["grid_y"]) == (-5, 5), "Hall Native3 identity/qualification changed")
@@ -154,17 +155,17 @@ def source_state() -> tuple[dict, dict]:
              n["component_type"] == "SpriteRenderer" and n["source_file_id"] == "212751466141171401"]
     require(len(nodes) == 1 and nodes[0]["path"] == "build_1_101_1/sprite[0]" and
             nodes[0]["source_guid"] == "c825e8897df8e424e817e4ed05eef53e", "Hall Native3 renderer changed")
-    world_src = (ROOT / SOURCES["native3"]).parent / nodes[0]["matrix_path"]
+    world_src = (resolve(SOURCES["native3"])).parent / nodes[0]["matrix_path"]
     require(world_src.stat().st_size == 64 and sha(world_src) == nodes[0]["matrix_sha256"], "Hall matrix changed")
-    geometry = json.loads((ROOT / SOURCES["geometry"]).read_text(encoding="utf-8-sig"))
+    geometry = json.loads((resolve(SOURCES["geometry"])).read_text(encoding="utf-8-sig"))
     row = geometry["rows"][27]
     require(row["index"] == 27 and row["source_key"] == "initial:5" and
             row["positions"]["count"] == 240 and row["positions"]["stride_bytes"] == 12,
             "Hall geometry row27 changed")
-    positions_src = ROOT / row["positions"]["path"]
+    positions_src = resolve(row["positions"]["path"])
     require(sha(positions_src) == row["positions"]["sha256"] and positions_src.stat().st_size == 2880,
             "Hall geometry positions changed")
-    hall = (ROOT / SOURCES["hall"]).read_text(encoding="utf-8-sig")
+    hall = (resolve(SOURCES["hall"])).read_text(encoding="utf-8-sig")
     require("&212751466141171401" in hall and
             "m_Sprite: {fileID: 21300000, guid: 57ec7ddf0b743a140b2707fe14b536e2, type: 3}" in hall,
             "Hall renderer or sprite identity changed")
@@ -184,7 +185,7 @@ def source_state() -> tuple[dict, dict]:
 def main() -> None:
     require(EXPORTER.is_file() and VERIFY.is_file(), "New exporter/verifier missing")
     for name, relative in SOURCES.items():
-        require(sha(ROOT / relative) == PINNED[name], f"Pinned source drift: {relative}")
+        require(sha(resolve(relative)) == PINNED[name], f"Pinned source drift: {relative}")
     state, binary_sources = source_state()
     PROBE.mkdir(parents=True, exist_ok=True)
     copied = []
@@ -198,7 +199,7 @@ def main() -> None:
                            "sha256": sha(source)})
     source_copies = []
     for name, relative in SOURCES.items():
-        source = ROOT / relative
+        source = resolve(relative)
         dest = PROBE / "ProbeInputs/SourceCopies" / name / source.name
         create(dest, source.read_bytes())
         source_copies.append({"name": name, "source_path": relative,

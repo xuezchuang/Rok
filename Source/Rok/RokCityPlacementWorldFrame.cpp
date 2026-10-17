@@ -3,6 +3,7 @@
 #include "RokCityGridMath.h"
 #include "RokCityPlacementPreviewMath.h"
 #include "RokCitySpriteActor.h"
+#include "RokDataPaths.h"
 #include "RokLocalCitySimulationContext.h"
 #include "Dom/JsonObject.h"
 #include "Engine/GameViewportClient.h"
@@ -41,8 +42,7 @@ bool TryTagInt(const AActor& Actor, const TCHAR* Prefix, int32& OutValue)
 bool ReadSourceGridSize(int32& OutSize)
 {
 	FString Json;
-	const FString Path = FPaths::ProjectDir()
-		/ TEXT("Saved/RokUnityMigration/LocalCitySimulationContext/catalog.json");
+	const FString Path = RokDataPaths::Resolve(TEXT("LocalCitySimulationContext/catalog.json"));
 	TSharedPtr<FJsonObject> Root;
 	if (!FFileHelper::LoadFileToString(Json, *Path)
 		|| !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json), Root)

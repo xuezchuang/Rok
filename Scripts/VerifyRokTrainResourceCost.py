@@ -1,12 +1,13 @@
 """Verify source-derived cost presentation; runtime/visual acceptance stays separate."""
 import json
 from pathlib import Path
+from rok_data_paths import resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCES = []
 def read(path, encoding='utf-8'):
     SOURCES.append(path)
-    return (ROOT / path).read_text(encoding=encoding)
+    return resolve(path).read_text(encoding=encoding)
 
 def main():
     common = read('ref/client-unity/Assets/Scripts/Hotfix/Common/Utils/CommonTools.cs', 'latin1').split('public class ResCostModel', 1)[1]

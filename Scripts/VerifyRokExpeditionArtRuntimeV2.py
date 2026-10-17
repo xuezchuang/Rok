@@ -8,9 +8,10 @@ import json
 import math
 import pathlib
 import struct
+from rok_data_paths import DATA_ROOT, resolve
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-CATALOG = ROOT / "Saved/RokUnityMigration/expedition_stage_preview.json"
+CATALOG = DATA_ROOT / "expedition_stage_preview.json"
 ART_CATALOG = ROOT / "Saved/RokUnityMigration/ExpeditionVisualAssets/v1/atlas_manifest.json"
 RESULT_CATALOG = ROOT / "Saved/RokUnityMigration/ExpeditionVisualAssets/v2/result_visual_manifest.json"
 NATIVE_CURVES = ROOT / ("Saved/UnityExpeditionAnimationProbeV1/OutputRuns/"
@@ -517,18 +518,18 @@ def verify(run: pathlib.Path) -> dict:
          and manifest["source_stage_ids"] == [1, 2]
          and {1, 2}.issubset(stage_ids), "Source stage identity")
     for relative, expected in source["source_files_sha256"].items():
-        path = ROOT / relative
+        path = resolve(relative)
         need(path.is_file() and sha(path) == expected, f"Unity source drift: {relative}")
     art_source = json.loads(ART_CATALOG.read_text(encoding="utf-8-sig"))
     need(art_source["schema"] == "rok.expedition.visual_assets.v1"
          and len(art_source["atlases"]) == 4,
          "Source art manifest/schema")
     for relative, expected in art_source["sources_sha256"].items():
-        path = ROOT / relative
+        path = resolve(relative)
         need(path.is_file() and sha(path) == expected, f"Unity art source drift: {relative}")
     for atlas in art_source["atlases"]:
-        prepared = ROOT / atlas["prepared"]
-        original = ROOT / atlas["source"]
+        prepared = resolve(atlas["prepared"])
+        original = resolve(atlas["source"])
         need(prepared.is_file() and original.is_file()
              and sha(prepared) == atlas["sha256"] == sha(original)
              and list(png_size(prepared)) == atlas["size"],
@@ -538,12 +539,12 @@ def verify(run: pathlib.Path) -> dict:
          and result_source["v1_manifest"]["sha256"] == sha(ART_CATALOG),
          "Source result visual manifest/schema")
     for relative, expected in result_source["sources_sha256"].items():
-        path = ROOT / relative
+        path = resolve(relative)
         need(path.is_file() and sha(path) == expected,
              f"Source result art drift: {relative}")
     result_atlas = result_source["atlas"]
-    result_png = ROOT / result_atlas["prepared"]
-    original_png = ROOT / result_atlas["source"]
+    result_png = resolve(result_atlas["prepared"])
+    original_png = resolve(result_atlas["source"])
     need(result_png.is_file() and original_png.is_file()
          and sha(result_png) == result_atlas["prepared_sha256"]
          == result_atlas["sha256"] == sha(original_png)
@@ -593,7 +594,7 @@ def verify(run: pathlib.Path) -> dict:
         if relative in ("Source/Rok/RokUnityFeatureScreenWidget.cpp",
                         "Source/Rok/RokUnityFeatureScreenWidget.h"):
             continue  # The immutable revision2 report pins the final product source.
-        path = ROOT / relative
+        path = resolve(relative)
         need(path.is_file() and sha(path) == expected,
              f"UI source implementation drift: {relative}")
     ui_revision = json.loads(UI_REVISION.read_text(encoding="utf-8-sig"))
@@ -606,7 +607,7 @@ def verify(run: pathlib.Path) -> dict:
     for relative, expected in ui_revision["files_sha256"].items():
         if relative == "Source/Rok/RokUnityFeatureScreenWidget.cpp":
             continue  # Revision3 pins the final source input-state implementation.
-        path = ROOT / relative
+        path = resolve(relative)
         need(path.is_file() and sha(path) == expected,
              f"UI source hierarchy revision drift: {relative}")
     ui_revision3 = json.loads(UI_REVISION3.read_text(encoding="utf-8-sig"))
@@ -615,7 +616,7 @@ def verify(run: pathlib.Path) -> dict:
          and ui_revision3["source_oracle_sha256"] == sha(NATIVE_CURVES),
          "UI source input-state revision drift")
     for relative, expected in ui_revision3["files_sha256"].items():
-        path = ROOT / relative
+        path = resolve(relative)
         need(path.is_file() and sha(path) == expected,
              f"UI source input-state implementation drift: {relative}")
     source_review = json.loads(SOURCE_REVIEW.read_text(encoding="utf-8-sig"))
@@ -624,14 +625,14 @@ def verify(run: pathlib.Path) -> dict:
          and source_review["evidence"]["native_curves"]["sha256"] == sha(NATIVE_CURVES),
          "Source art/animation oracle drift")
     for item in source_review["source_pins"]:
-        path = ROOT / item["path"]
+        path = resolve(item["path"])
         need(path.is_file() and sha(path) == item["sha256"],
              f"Unity art/prefab/mediator source drift: {item['path']}")
     native = json.loads(NATIVE_CURVES.read_text(encoding="utf-8-sig"))
     need(native["schema"] == "rok.unity_expedition_animation_native.v2",
          "Native animation oracle schema")
     for row in native["sources"]:
-        path = ROOT / row["path"]
+        path = resolve(row["path"])
         need(path.is_file() and sha(path) == row["sha256"],
              f"Native animation source drift: {row['path']}")
     show_clips = [clip for clip in native["clips"] if clip["id"] == "center_show"]
@@ -700,7 +701,7 @@ def verify(run: pathlib.Path) -> dict:
                 "Source/Rok/RokExpeditionStagePreviewAuditSubsystem.cpp"}
     need(required.issubset(pins), "Missing runtime producer/input pin")
     for relative, expected in pins.items():
-        path = ROOT / relative
+        path = resolve(relative)
         need(path.is_file() and sha(path) == expected, f"Runtime input drift: {relative}")
     warm = manifest["texture_warmup"]
     need(warm["load_started"] is True and warm["ready_before_hud_click"] is True

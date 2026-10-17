@@ -2,10 +2,11 @@
 import json,re,hashlib
 from pathlib import Path
 from PIL import Image
+from rok_data_paths import DATA_ROOT, label, resolve
 ROOT=Path(__file__).resolve().parents[1]
-OUT=ROOT/'Saved/RokUnityMigration/unity_village_day_night.json'
+OUT=DATA_ROOT / 'unity_village_day_night.json'
 def source(path):
-    path=Path(path);return {'path':path.relative_to(ROOT).as_posix(),'sha256':hashlib.sha256(path.read_bytes()).hexdigest()}
+    path=Path(path);return {'path':label(path),'sha256':hashlib.sha256(path.read_bytes()).hexdigest()}
 def rgb(body,key):
     m=re.search(r'- '+re.escape(key)+r': \{r: ([^,]+), g: ([^,]+), b: ([^,]+), a: ([^}]+)\}',body)
     assert m,key
@@ -31,10 +32,10 @@ def build():
         path=ROOT/f'ref/client-unity/Assets/BundleAssets/Scene/City/city_function/{asset}.mat'
         text=path.read_text(encoding='utf-8-sig')
         materials[name]={'source':source(path),'color1':rgb(text,'_Color_1'),'color2':rgb(text,'_Color_2'),'color3':rgb(text,'_Color_3'),'render_queue_override':int(re.search(r'm_CustomRenderQueue: (-?\d+)',text)[1])}
-    village_path=ROOT/'Saved/RokUnityMigration/unity_village_presentation.json'
+    village_path=DATA_ROOT / 'unity_village_presentation.json'
     village=json.loads(village_path.read_text(encoding='utf-8')); masks=[]
     for item in village['items']:
-        mask=ROOT/item['sprites'][0]['mask']['path']
+        mask=resolve(item['sprites'][0]['mask']['path'])
         with Image.open(mask) as image: maximum=image.convert('RGBA').getchannel('B').getextrema()[1]
         assert maximum==0
         masks.append({'transform_id':item['source_transform_id'],'mask':source(mask),'blue_max':maximum})

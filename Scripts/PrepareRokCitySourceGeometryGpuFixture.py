@@ -10,6 +10,7 @@ import json
 import math
 import struct
 from pathlib import Path
+from rok_data_paths import resolve
 
 from PIL import Image
 
@@ -42,7 +43,7 @@ def read(path: Path) -> dict:
 
 
 def sealed_binary(record: dict) -> dict:
-    path = ROOT / record["path"]
+    path = resolve(record["path"])
     need(path.resolve().parent == SOURCE.parent.resolve(), "Input outside sealed geometry directory")
     need(path.stat().st_size == record["byte_count"] == record["count"] * record["stride_bytes"]
          and sha(path) == record["sha256"], f"Sealed binary changed: {path}")
@@ -103,7 +104,7 @@ def prepare(native_run: Path, revision: str = "v5") -> dict:
             need(normalized["path"] not in unique_inputs, "Duplicate sealed source binary")
             unique_inputs.add(normalized["path"])
             inputs.append({"kind": kind, **normalized})
-        indices = (ROOT / src["indices"]["binary"]["path"]).read_bytes()
+        indices = (resolve(src["indices"]["binary"]["path"])).read_bytes()
         need(len(indices) % 12 == 0 and all(v < src["positions"]["count"]
              for (v,) in struct.iter_unpack("<I", indices)), f"Source index out of range: {index}")
         matrix_record = contract_case["matrix"]

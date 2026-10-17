@@ -1,4 +1,5 @@
 #include "RokBuildingSourcePreviewData.h"
+#include "RokDataPaths.h"
 #include "RokTrainArmyMeshData.h"
 #include "Dom/JsonObject.h"
 #include "GameFramework/Actor.h"
@@ -11,7 +12,7 @@
 
 namespace RokBuildingSourcePreview
 {
-FString MetadataFile(){return FPaths::ProjectSavedDir()/TEXT("RokUnityMigration/BuildingSourcePreview/source_preview.json");}
+FString MetadataFile(){return RokDataPaths::Resolve(TEXT("BuildingSourcePreview/source_preview.json"));}
 bool ResolveDeclaredModel(const TArray<FName>& Tags,const FString& Json,FString& Model,FString& Error)
 {
     Model.Reset();Error.Reset();auto Fail=[&](const TCHAR* E){Error=E;return false;};
@@ -47,7 +48,7 @@ bool ResolveActorModel(AActor* Actor,FString& Model,FString& Error)
     for(FName Tag:Actor->Tags)if(Tag.ToString().StartsWith(TEXT("UnityInitId_")))Identity=Tag;
     for(TActorIterator<AActor> It(Actor->GetWorld());It;++It)if(It->ActorHasTag(Identity)&&It->ActorHasTag(TEXT("RokUnityConfigInitBuilding")))++Count;
     if(Count!=1){Error=TEXT("Source city actor identity is ambiguous");return false;}
-    FString Json;if(!FFileHelper::LoadFileToString(Json,*(FPaths::ProjectSavedDir()/TEXT("RokUnityMigration/unity_initial_city_state.json")))){Error=TEXT("Initial-state visual metadata missing");return false;}
+    FString Json;if(!FFileHelper::LoadFileToString(Json,*(RokDataPaths::Resolve(TEXT("unity_initial_city_state.json"))))){Error=TEXT("Initial-state visual metadata missing");return false;}
     if(!ResolveDeclaredModel(Actor->Tags,Json,Model,Error))return false;
     FLayout Layout;if(!LoadLayout(Model,MetadataFile(),Layout,Error)){Model.Reset();return false;}
     return true;
@@ -68,9 +69,9 @@ bool LoadLayout(const FString& ExplicitModel,const FString& MetadataPath,FLayout
         if(!V.IsValid()||V->Type!=EJson::Object)return Fail(TEXT("Invalid preview source entry"));
         FString Path,Hash;const auto S=V->AsObject();TArray<uint8> Bytes;
         if(!S->TryGetStringField(TEXT("path"),Path)||FPaths::IsRelative(Path)==false||Path.Contains(TEXT(".."))||!S->TryGetStringField(TEXT("sha256"),Hash)||Hash.Len()!=64)return Fail(TEXT("Unsafe source preview path/hash"));
-        if(!Path.StartsWith(TEXT("ref/"))&&!Path.StartsWith(TEXT("Scripts/"))&&Path!=TEXT("Saved/RokUnityMigration/unity_initial_city_state.json"))return Fail(TEXT("Unexpected preview provenance root"));
-        if(Verified.Contains(Path)||!FFileHelper::LoadFileToArray(Bytes,*(FPaths::ProjectDir()/Path))||RokTrainArmyMesh::Sha256(Bytes)!=Hash)return Fail(TEXT("Source preview provenance changed"));
-        Verified.Add(Path,Hash);if(Path==TEXT("Saved/RokUnityMigration/unity_initial_city_state.json"))InitialVerified=true;
+        if(!Path.StartsWith(TEXT("ref/"))&&!Path.StartsWith(TEXT("Scripts/"))&&Path!=TEXT("Saved/RokUnityMigration/unity_initial_city_state.json")&&Path!=TEXT("Content/RokData/unity_initial_city_state.json"))return Fail(TEXT("Unexpected preview provenance root"));
+        if(Verified.Contains(Path)||!FFileHelper::LoadFileToArray(Bytes,*(RokDataPaths::ResolveProjectPath(Path)))||RokTrainArmyMesh::Sha256(Bytes)!=Hash)return Fail(TEXT("Source preview provenance changed"));
+        Verified.Add(Path,Hash);if(Path==TEXT("Saved/RokUnityMigration/unity_initial_city_state.json")||Path==TEXT("Content/RokData/unity_initial_city_state.json"))InitialVerified=true;
     }
     if(!InitialVerified)return Fail(TEXT("Declared scene model has no validated initial-state provenance"));
     const TSharedPtr<FJsonObject>* Sprite=nullptr;const TSharedPtr<FJsonObject>* Image=nullptr;const TSharedPtr<FJsonObject>* Layout=nullptr;
@@ -84,11 +85,11 @@ bool LoadLayout(const FString& ExplicitModel,const FString& MetadataPath,FLayout
     if(Model!=TEXT("build_9_101_1")||Out.SpriteGuid!=TEXT("4bb871ef2938a6d48a9b46af5cd8f287")||!TextureSize.Equals(FVector2D(512,490),.001)||!ImageSize.Equals(TextureSize,.001)||!Scale.Equals(FVector2D(.7),.0001)||!Pivot.Equals(FVector2D(.5),.001)||!Anchored.IsNearlyZero(.001))return Fail(TEXT("Unsupported source preview image semantics"));
     if(!Vec(*Layout,TEXT("position"),Out.Position)||!Vec(*Layout,TEXT("size"),Out.Size)||!Vec(*Layout,TEXT("image_position"),Out.ImagePosition)||!Vec(*Layout,TEXT("image_size"),Out.ImageSize)||!Out.ImagePosition.IsNearlyZero(.001)||!Out.ImageSize.Equals(Out.Size,.001)||Out.Size.X<=0||Out.Size.Y<=0||Out.Size.X>1440||Out.Size.Y>900)return Fail(TEXT("Invalid native preview rectangle"));
     const TSharedPtr<FJsonObject>* Native=nullptr;FString NativePath,NativeHash,InputHash;TArray<uint8> NativeBytes;
-    if(!Root->TryGetObjectField(TEXT("native_evidence"),Native)||!(*Native)->TryGetStringField(TEXT("path"),NativePath)||!NativePath.StartsWith(TEXT("Saved/UnityBuildingSourcePreviewProbe/Artifacts/"))||NativePath.Contains(TEXT(".."))||!(*Native)->TryGetStringField(TEXT("sha256"),NativeHash)||!(*Native)->TryGetStringField(TEXT("input_sha256"),InputHash)||!FFileHelper::LoadFileToArray(NativeBytes,*(FPaths::ProjectDir()/NativePath))||RokTrainArmyMesh::Sha256(NativeBytes)!=NativeHash)return Fail(TEXT("Native source geometry evidence changed or missing"));
-    TArray<uint8> InputBytes;const FString InputPath=FPaths::GetPath(FPaths::ProjectDir()/NativePath)/TEXT("ReferenceInputs.json");
+    if(!Root->TryGetObjectField(TEXT("native_evidence"),Native)||!(*Native)->TryGetStringField(TEXT("path"),NativePath)||!NativePath.StartsWith(TEXT("Saved/UnityBuildingSourcePreviewProbe/Artifacts/"))||NativePath.Contains(TEXT(".."))||!(*Native)->TryGetStringField(TEXT("sha256"),NativeHash)||!(*Native)->TryGetStringField(TEXT("input_sha256"),InputHash)||!FFileHelper::LoadFileToArray(NativeBytes,*(RokDataPaths::ResolveProjectPath(NativePath)))||RokTrainArmyMesh::Sha256(NativeBytes)!=NativeHash)return Fail(TEXT("Native source geometry evidence changed or missing"));
+    TArray<uint8> InputBytes;const FString InputPath=FPaths::GetPath(RokDataPaths::ResolveProjectPath(NativePath))/TEXT("ReferenceInputs.json");
     if(!FFileHelper::LoadFileToArray(InputBytes,*InputPath)||RokTrainArmyMesh::Sha256(InputBytes)!=InputHash)return Fail(TEXT("Native preview input identity changed"));
     FString NativeJson;TSharedPtr<FJsonObject> NativeResult;bool Rendered=false;FString NativeModel,NativeGuid,NativeInput;
-    if(!FFileHelper::LoadFileToString(NativeJson,*(FPaths::ProjectDir()/NativePath))||!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(NativeJson),NativeResult)||!NativeResult.IsValid()||!NativeResult->TryGetBoolField(TEXT("nativeRendered"),Rendered)||!Rendered||!NativeResult->TryGetStringField(TEXT("modelId"),NativeModel)||NativeModel!=Model||!NativeResult->TryGetStringField(TEXT("spriteGuid"),NativeGuid)||NativeGuid!=Out.SpriteGuid||!NativeResult->TryGetStringField(TEXT("inputSha256"),NativeInput)||NativeInput!=InputHash)return Fail(TEXT("Native capture identity mismatch"));
+    if(!FFileHelper::LoadFileToString(NativeJson,*(RokDataPaths::ResolveProjectPath(NativePath)))||!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(NativeJson),NativeResult)||!NativeResult.IsValid()||!NativeResult->TryGetBoolField(TEXT("nativeRendered"),Rendered)||!Rendered||!NativeResult->TryGetStringField(TEXT("modelId"),NativeModel)||NativeModel!=Model||!NativeResult->TryGetStringField(TEXT("spriteGuid"),NativeGuid)||NativeGuid!=Out.SpriteGuid||!NativeResult->TryGetStringField(TEXT("inputSha256"),NativeInput)||NativeInput!=InputHash)return Fail(TEXT("Native capture identity mismatch"));
     const TArray<TSharedPtr<FJsonValue>>* Quad=nullptr;const TArray<TSharedPtr<FJsonValue>>* UV=nullptr;
     if(!NativeResult->TryGetArrayField(TEXT("screenVertices"),Quad)||Quad->Num()!=4||!NativeResult->TryGetArrayField(TEXT("uv"),UV)||UV->Num()!=4)return Fail(TEXT("Native image must be a simple four-vertex quad"));
     TSet<int32> Corners;

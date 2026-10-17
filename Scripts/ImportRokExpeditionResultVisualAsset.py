@@ -10,6 +10,7 @@ import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
+from rok_data_paths import resolve
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,8 +41,8 @@ def main() -> None:
     atlas = manifest["atlas"]
     if atlas.get("name") != "ui_result" or tuple(atlas["size"]) != (512, 512):
         raise RuntimeError("Unexpected source atlas identity")
-    source = ROOT / atlas["source"]
-    prepared = ROOT / atlas["prepared"]
+    source = resolve(atlas["source"])
+    prepared = resolve(atlas["prepared"])
     expected_hash = atlas["sha256"]
     if not source.is_file() or not prepared.is_file():
         raise RuntimeError("Source or prepared result atlas missing")

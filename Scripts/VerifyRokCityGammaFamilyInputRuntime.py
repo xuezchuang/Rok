@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from rok_data_paths import resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 PREPARED = ROOT / "Saved/RokUnityMigration/CityGammaFamilyRhiInputs/v1/manifest.json"
@@ -37,7 +38,7 @@ def repo_file(relative: str) -> Path:
     check(relative.startswith(("Saved/UnityCityGammaFamilyStateProbeV2/",
                                "Saved/RokUnityMigration/CityGammaFamilyRhiInputs/v1/",
                                "ref/client-unity/")), f"not an allowlisted input: {relative}")
-    path = (ROOT / relative).resolve()
+    path = (resolve(relative)).resolve()
     check(path.is_relative_to(ROOT), f"input escapes repo: {relative}")
     return path
 
@@ -64,7 +65,7 @@ def verify(run: Path) -> dict:
     for key, rel in (("audit_cpp_sha256", "Source/Rok/RokCityGammaFamilyInputAuditSubsystem.cpp"),
                      ("audit_h_sha256", "Source/Rok/RokCityGammaFamilyInputAuditSubsystem.h"),
                      ("verifier_sha256", "Scripts/VerifyRokCityGammaFamilyInputRuntime.py")):
-        check(runtime[key] == file_sha(ROOT / rel), f"producer/verifier changed after capture: {rel}")
+        check(runtime[key] == file_sha(resolve(rel)), f"producer/verifier changed after capture: {rel}")
     check(runtime["opt_in_flag"] is True and runtime["local_only"] is True
           and runtime["scene_mutated"] is False and runtime["family_raster_registered"] is False,
           "opt-in/local diagnostic boundary differs")

@@ -12,6 +12,7 @@ import math
 import os
 import struct
 from pathlib import Path
+from rok_data_paths import resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "Saved/RokUnityMigration/CityHallCameraMaterialGpuFixture/v5"
@@ -99,7 +100,7 @@ def prepare() -> dict:
     w, v, p = (matrix(path) for path in (WORLD, VIEW, PROJECTION))
     world_row = struct.pack("<16f", *transpose(w))
     vp_row = struct.pack("<16f", *transpose(multiply(p, v)))
-    code = [pin(ROOT / name) for name in CODE]
+    code = [pin(resolve(name)) for name in CODE]
     source_copy = OUT / "UnityShaderUtilities_2019_4_28f1c1.cginc"
     once(source_copy, include)
     world_path = OUT / "unity_object_to_world_row_f32le.bin"

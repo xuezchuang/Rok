@@ -1,12 +1,13 @@
 import json
 from pathlib import Path
+from rok_data_paths import DATA_ROOT, label
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 MIGRATION_ROOT = PROJECT_ROOT / "Saved" / "RokUnityMigration"
-CATALOG_PATH = MIGRATION_ROOT / "unity_gameplay_catalog.json"
-INITIAL_CITY_PATH = MIGRATION_ROOT / "unity_initial_city_state.json"
-OUTPUT_JSON = MIGRATION_ROOT / "unity_runtime_bootstrap_state.json"
+CATALOG_PATH = DATA_ROOT / "unity_gameplay_catalog.json"
+INITIAL_CITY_PATH = DATA_ROOT / "unity_initial_city_state.json"
+OUTPUT_JSON = DATA_ROOT / "unity_runtime_bootstrap_state.json"
 OUTPUT_MD = MIGRATION_ROOT / "unity_runtime_bootstrap_state.md"
 
 ACTIVE_MAIN_TASK_ID = 200900
@@ -215,8 +216,8 @@ def main():
     manifest = {
         "schema_version": 1,
         "source_manifests": {
-            "gameplay_catalog": str(CATALOG_PATH.relative_to(PROJECT_ROOT)).replace("\\", "/"),
-            "initial_city_state": str(INITIAL_CITY_PATH.relative_to(PROJECT_ROOT)).replace("\\", "/"),
+            "gameplay_catalog": label(CATALOG_PATH),
+            "initial_city_state": label(INITIAL_CITY_PATH),
         },
         "notes": [
             "This is a UE local-simulation bootstrap derived from migrated Unity config tables.",

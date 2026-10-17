@@ -8,6 +8,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
+from rok_data_paths import resolve
 import struct
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -56,7 +57,7 @@ def source_contract():
     assert source['schema'] == 'rok.grove_center_scale.v1' and source['prefab'] == 'Grove_co_tree_01_adorning'
     assert len(source['source_files']) == 6
     for item in source['source_files']:
-        path = (ROOT/item['path']).resolve()
+        path = (resolve(item['path'])).resolve()
         assert path.is_relative_to((ROOT/'ref').resolve()) and sha(path) == item['sha256']
     expected = {}
     for entry in source['instances']:

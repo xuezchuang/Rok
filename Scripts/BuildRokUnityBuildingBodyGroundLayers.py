@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from rok_data_paths import resolve
 
 from PIL import Image, ImageFilter
 
@@ -49,8 +50,8 @@ def estimate_ground_alpha(color, alpha):
 
 
 def write_layer_images(layer):
-    color_path = PROJECT_ROOT / layer["source_color"]
-    mask_path = PROJECT_ROOT / layer["source_mask"] if layer.get("source_mask") else None
+    color_path = resolve(layer["source_color"])
+    mask_path = resolve(layer["source_mask"]) if layer.get("source_mask") else None
     color = Image.open(color_path).convert("RGBA")
     alpha = mask_alpha(mask_path, color)
 

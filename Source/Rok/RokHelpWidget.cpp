@@ -1,4 +1,5 @@
 #include "RokHelpWidget.h"
+#include "RokDataPaths.h"
 #include "RokHelpSourceTextData.h"
 #include "RokHelpSourceTextWidget.h"
 #include "RokUnityFeatureScreenWidget.h"
@@ -31,7 +32,7 @@ bool URokHelpWidget::LoadCatalog()
 {
     Entries.Reset();Groups.Reset();Layouts.Reset();LoadError.Empty();
     FString Json;TSharedPtr<FJsonObject> Data;
-    if(!FFileHelper::LoadFileToString(Json,*(FPaths::ProjectSavedDir()/TEXT("RokUnityMigration/help_catalog.json"))) || !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json),Data) || !Data.IsValid())
+    if(!FFileHelper::LoadFileToString(Json,*(RokDataPaths::Resolve(TEXT("help_catalog.json")))) || !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json),Data) || !Data.IsValid())
     { LoadError=TEXT("帮助目录未加载，请重新生成源配置。");return false; }
     FString Schema;const TArray<TSharedPtr<FJsonValue>>* Rows=nullptr;const TSharedPtr<FJsonObject>* ParsedLayouts=nullptr;
     if(!Data->TryGetStringField(TEXT("schema"),Schema)||Schema!=TEXT("rok.help.v1")||!Data->TryGetArrayField(TEXT("entries"),Rows)||Rows->Num()!=70||!Data->TryGetObjectField(TEXT("layouts"),ParsedLayouts))

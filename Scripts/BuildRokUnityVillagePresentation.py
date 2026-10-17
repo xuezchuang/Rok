@@ -11,10 +11,11 @@ from BuildRokUnityWorldMapRuntimeData import (
     parse_unity_yaml_objects, parse_scalar, parse_vector, parse_reference,
     parse_transform_children,
 )
+from rok_data_paths import DATA_ROOT, label
 
 ROOT = Path(__file__).resolve().parents[1]
 PREFAB = ROOT / "ref/client-unity/Assets/BundleAssets/Scene/Map_building/map_building/build_RssVillage_Big.prefab"
-OUT = ROOT / "Saved/RokUnityMigration/unity_village_presentation.json"
+OUT = DATA_ROOT / "unity_village_presentation.json"
 
 
 def rotate(q, v):
@@ -25,7 +26,7 @@ def rotate(q, v):
 
 
 def source(path):
-    return {"path": path.relative_to(ROOT).as_posix(), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+    return {"path": label(path), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
 
 
 def curve(body):
@@ -44,7 +45,7 @@ def build():
         rows = list(csv.DictReader(stream))[1:]
     village_rows = [r for r in rows if r["ID"] == "70001"]
     assert village_rows and all(r["modelId"] == PREFAB.stem for r in village_rows)
-    population_path = ROOT / "Saved/RokUnityMigration/unity_world_entity_population.json"
+    population_path = DATA_ROOT / "unity_world_entity_population.json"
     population = json.loads(population_path.read_text(encoding="utf-8"))
     targets = [e for e in population["entities"] if e["kind"] == "village"]
     assert {e["source_id"] for e in targets} == {639, 599}
@@ -131,7 +132,7 @@ def build():
     assert len({i["source_transform_id"] for i in items}) == 13
     assert sum(i["priority"] == 103 for i in items) == 1
     items.sort(key=lambda i: -i["priority"])
-    native_path = OUT.with_name("unity_village_presentation_native_probe.json")
+    native_path = ROOT / "Saved/RokUnityMigration/unity_village_presentation_native_probe.json"  # Unity evidence stays in Saved
     if native_path.exists():
         native = json.loads(native_path.read_text(encoding="utf-8"))
         order = native["runs"][0]["samples"][0]["order"]

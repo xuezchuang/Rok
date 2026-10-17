@@ -1,15 +1,18 @@
 """Verify exact source identities and complete sampled geometry without an engine."""
 import hashlib,json,re
+import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from rok_data_paths import DATA_ROOT, resolve
 ROOT=Path(__file__).resolve().parents[2]
 OUT=ROOT/'Saved/RokUnityMigration/MailSpine'
 def main():
-    report=json.loads((OUT/'export_report.json').read_text())
-    raw=(ROOT/report['output']).read_bytes();assert hashlib.sha256(raw).hexdigest()==report['sha256']
+    report=json.loads((DATA_ROOT/'MailSpine/export_report.json').read_text())
+    raw=resolve(report['output']).read_bytes();assert hashlib.sha256(raw).hexdigest()==report['sha256']
     clip=json.loads(raw);assert clip['skin']=='gift5' and clip['animation']=='UE_TreasureBox_stay' and clip['loop']
     assert clip['duration']==1.6 and clip['frame_count']==96 and clip['unique_poses']==16
     assert clip['attachment_types']==['MeshAttachment','RegionAttachment'] and clip['slot_blends']==['Normal']
-    for src in clip['sources']:assert hashlib.sha256((ROOT/src['path']).read_bytes()).hexdigest()==src['sha256'],src
+    for src in clip['sources']:assert hashlib.sha256(resolve(src['path']).read_bytes()).hexdigest()==src['sha256'],src
     prefab=(ROOT/'ref/client-unity/Assets/BundleAssets/UI/UIPrefabs/ui_prefabs_mail/UIMail/UI_Item_MailBtn.prefab').read_text(encoding='utf-8-sig')
     for prop,val in [('startingAnimation','UE_TreasureBox_stay'),('initialSkinName','gift5'),('m_LocalScale.x','0.06'),('m_LocalScale.y','0.06'),('m_LocalScale.z','0.06'),('m_AnchoredPosition.y','-5.1')]:
         assert re.search(r'propertyPath: '+re.escape(prop)+r'\s+value: '+re.escape(val)+r'\s',prefab)

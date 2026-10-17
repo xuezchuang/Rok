@@ -1,6 +1,7 @@
 """Pin Unity GPU-decoded atlas as a distinct, reproducible RGB-only product input."""
 import hashlib,json
 from pathlib import Path
+from rok_data_paths import resolve
 from PIL import Image
 ROOT=Path(__file__).resolve().parents[1]
 OUT=ROOT/'Saved/RokUnityMigration/GroveGamma'
@@ -14,7 +15,7 @@ return float3(g.r <= 0.04045 ? g.r / 12.92 : pow((g.r + 0.055) / 1.055, 2.4),
 def main():
     native=json.loads((OUT/'native_render.json').read_text());source=json.loads((OUT/'manifest.json').read_text())
     for row in source['source_files']:
-        assert hashlib.sha256((ROOT/row['path']).read_bytes()).hexdigest()==row['sha256']
+        assert hashlib.sha256((resolve(row['path'])).read_bytes()).hexdigest()==row['sha256']
     texture=native['texture']
     assert native['colorSpace']=='Gamma' and texture['format']=='DXT5' and texture['graphicsFormat']=='RGBA_DXT5_UNorm'
     image=Image.open(OUT/'native_imported_texture.png');assert image.mode=='RGBA' and image.size==(1024,1024)

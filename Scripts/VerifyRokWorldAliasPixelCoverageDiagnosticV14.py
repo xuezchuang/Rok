@@ -12,6 +12,7 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+from rok_data_paths import resolve
 import sys
 
 ROOT = Path("D:/ueDemo/Rok")
@@ -88,7 +89,7 @@ def verify_stage(prior, *, runtime: bool) -> dict:
             and review["blocking_static_findings"] == [],
             "prior Product4/review identity changed")
     for row in previous["stage_files"] + previous["read_only_source_pins"]:
-        path = ROOT / row["path"]
+        path = resolve(row["path"])
         if runtime and row["path"] == "Source/Rok/RokWorldMapStreamingActor.cpp":
             continue
         require(path.is_file() and path.stat().st_size == row["bytes"]
@@ -155,7 +156,7 @@ def verify_stage(prior, *, runtime: bool) -> dict:
             "generation input source set changed")
     for row in (ready["stage_files"] + ready["read_only_source_pins"]
                 + ready["generation_source_pins"]):
-        path = ROOT / row["path"]
+        path = resolve(row["path"])
         if not runtime and row["path"] in {
                 "Source/Rok/RokWorldMapStreamingActor.cpp",
                 "Source/Rok/RokWorldMapRuntimeDataAsset.cpp",
@@ -165,24 +166,24 @@ def verify_stage(prior, *, runtime: bool) -> dict:
                 and sha(path) == row["sha256"], "Product6 byte pin drift: " + row["path"])
     if not runtime:
         row = ready["pre_integration_compiler_pin"]
-        path = ROOT / row["path"]
+        path = resolve(row["path"])
         require(path.is_file() and path.stat().st_size == row["bytes"]
                 and sha(path) == row["sha256"], "preintegration compiler drift")
         row = ready["pre_integration_streaming_cpp_pin"]
-        path = ROOT / row["path"]
+        path = resolve(row["path"])
         require(path.is_file() and path.stat().st_size == row["bytes"]
                 and sha(path) == row["sha256"], "preintegration streaming actor drift")
         for field in ("pre_integration_runtime_data_cpp_pin",
                       "pre_integration_source_mirror_test_cpp_pin"):
             row = ready[field]
-            path = ROOT / row["path"]
+            path = resolve(row["path"])
             require(path.is_file() and path.stat().st_size == row["bytes"]
                     and sha(path) == row["sha256"], field + " drift")
     require(ready["derived_payload_sha256"] == NEW_DATA_SHA
             and ready["old_v13_failed_manifest_sha256"] ==
                 "50349fef2643b4c0ad2c2b498b3d2f3be09775ed52c95b5566f40d5cb488c4cd",
             "derived payload or historical failure pin drift")
-    failed = ROOT / ready["old_v13_failed_manifest_path"]
+    failed = resolve(ready["old_v13_failed_manifest_path"])
     require(sha(failed) == ready["old_v13_failed_manifest_sha256"],
             "historical zero-pixel native manifest changed")
     if runtime:
@@ -203,7 +204,7 @@ def verify_stage(prior, *, runtime: bool) -> dict:
                  ("VerifyRokWorldAliasPixelCoverageDiagnosticV14.py",
                   "Scripts/VerifyRokWorldAliasPixelCoverageDiagnosticV14.py"))
         for staged, live in pairs:
-            require(sha(HERE / staged) == sha(ROOT / live),
+            require(sha(HERE / staged) == sha(resolve(live)),
                     "live implementation differs from staged Product6: " + live)
     return ready
 
@@ -410,7 +411,7 @@ def main() -> None:
     if args.self_test:
         result["v13_negative_cases_rejected"] = prior.negative_cases()
         result["ground_sort_negative_cases_rejected"] = negative_cases(prior, ground_sources)
-        old_failure = ROOT / ready["old_v13_failed_manifest_path"]
+        old_failure = resolve(ready["old_v13_failed_manifest_path"])
         try:
             prior.verify_runtime(old_failure, new_source, alias, by_source, ready)
         except AssertionError:

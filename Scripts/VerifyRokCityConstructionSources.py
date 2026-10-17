@@ -5,8 +5,9 @@ import json
 from collections import Counter
 
 from BuildRokCityConstructionSources import ROOT, OUT, TABLES, GAMEPLAY, PROXY, build
+from rok_data_paths import label, resolve
 
-REPORT = OUT.with_name("verify.json")
+REPORT = ROOT / "Saved/RokUnityMigration/CityConstructionSources/verify.json"
 
 
 def rows(name):
@@ -35,10 +36,10 @@ def verify():
         assert row["has_building_type_config"] == (row["type"] in building_type_ids)
         for key in ("scene_prefab", "ui_prefab"):
             if row[key]:
-                asset = ROOT / row[key]
+                asset = resolve(row[key])
                 assert asset.is_file() and asset.stem == (row["model_id"] if key == "scene_prefab" else row["image_resource"])
                 assert package["source_assets"][row[key]] == hashlib.sha256(asset.read_bytes()).hexdigest()
-    expected_inputs = {path.relative_to(ROOT).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+    expected_inputs = {label(path): hashlib.sha256(path.read_bytes()).hexdigest()
                        for path in (*TABLES.values(), GAMEPLAY, PROXY)}
     assert package["sources"] == expected_inputs
     gameplay = json.loads(GAMEPLAY.read_text(encoding="utf-8"))

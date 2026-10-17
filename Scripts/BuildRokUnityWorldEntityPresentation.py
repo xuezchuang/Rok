@@ -17,8 +17,8 @@ Source chains (all under ref/client-unity):
 - City nameplate: UI_Tip_WorldObjectPlayerLevel.prefab (bg0 name +
   pl_map_levelBg level plate + img_map_state_back icon).
 
-Outputs under Saved/RokUnityMigration/WorldEntityPresentation/ plus
-unity_world_entity_presentation.json/.md and a matching Verify script.
+Outputs under Content/RokData/WorldEntityPresentation/ plus
+unity_world_entity_presentation.json (Content/RokData) and .md (Saved/RokUnityMigration) and a matching Verify script.
 Idle animation and MatrixRow close-LOD expansion are applied by UE.
 Pending: UIZoomCurve nameplate offset/scale curves.
 """
@@ -43,11 +43,12 @@ from PrepareRokUnityWorldMapAssets import (  # noqa: E402
 from PrepareRokUnityWorldMapStreamingAssets import (  # noqa: E402
     parse_sprite_sheet,
 )
+from rok_data_paths import DATA_ROOT, label, resolve  # noqa: E402
 
 MIGRATION_DIR = PROJECT_ROOT / "Saved" / "RokUnityMigration"
-OUTPUT_DIR = MIGRATION_DIR / "WorldEntityPresentation"
-POPULATION_PATH = MIGRATION_DIR / "unity_world_entity_population.json"
-OUTPUT_PATH = MIGRATION_DIR / "unity_world_entity_presentation.json"
+OUTPUT_DIR = DATA_ROOT / "WorldEntityPresentation"
+POPULATION_PATH = DATA_ROOT / "unity_world_entity_population.json"
+OUTPUT_PATH = DATA_ROOT / "unity_world_entity_presentation.json"
 MARKDOWN_PATH = MIGRATION_DIR / "unity_world_entity_presentation.md"
 
 FORMATION_DIR = (
@@ -80,7 +81,7 @@ LEVEL_LABEL_COLOR = (0.184, 0.176, 0.153)
 
 
 def rel(path):
-    return str(Path(path).relative_to(PROJECT_ROOT)).replace("\\", "/")
+    return label(path)
 
 
 def source_record(path):
@@ -150,7 +151,7 @@ def parse_game_objects(objects):
 
 
 def parse_formation(prefab_id):
-    prefab_path = PROJECT_ROOT / FORMATION_DIR / f"{prefab_id}.prefab"
+    prefab_path = resolve(FORMATION_DIR) / f"{prefab_id}.prefab"
     objects = parse_unity_yaml_objects(prefab_path)
     names = parse_game_objects(objects)
     transforms, go_transform = parse_transforms(objects)
@@ -260,7 +261,7 @@ def parse_formation(prefab_id):
 
 def parse_unit_prefab(prefab_name, guid_index):
     for folder in (UNIT_PREFAB_DIR, TROOP_UNIT_DIR):
-        candidate = PROJECT_ROOT / folder / f"{prefab_name}.prefab"
+        candidate = resolve(folder) / f"{prefab_name}.prefab"
         if candidate.exists():
             prefab_path = candidate
             break
@@ -431,7 +432,7 @@ def decode_unit_sprite(crop, geometry, fade=False):
 
 
 def crop_idle_frames(unit):
-    sheet_path = PROJECT_ROOT / unit["sprite_sheet"]["path"]
+    sheet_path = resolve(unit["sprite_sheet"]["path"])
     image = Image.open(sheet_path).convert("RGBA")
     packed_geometry = parse_packed_sprite_geometry(sheet_path)
     unit["sprite_geometry_source"] = source_record(sheet_path.with_suffix(".tpsheet"))
@@ -514,7 +515,7 @@ def crop_idle_frames(unit):
 
 
 def crop_badge_sprites(guid_index):
-    atlas_path = PROJECT_ROOT / UI_MAP_ATLAS
+    atlas_path = resolve(UI_MAP_ATLAS)
     meta_path = Path(str(atlas_path) + ".meta")
     _, records = parse_sprite_sheet(meta_path, atlas_path)
     by_name = {
@@ -560,7 +561,7 @@ def parse_nameplate_specs():
         "UI_Tip_WorldObjectPlayerLevel",
     ):
         prefab_path = (
-            PROJECT_ROOT / NAMEPLATE_PREFAB_DIR / f"{prefab_name}.prefab"
+            resolve(NAMEPLATE_PREFAB_DIR) / f"{prefab_name}.prefab"
         )
         text = prefab_path.read_text(encoding="utf-8", errors="ignore")
         elements = []
@@ -598,7 +599,7 @@ def resolve_monsters(population):
             if entity["kind"] == "barbarian"
         }
     )
-    with open(PROJECT_ROOT / MONSTER_TABLE, encoding="utf-8-sig") as handle:
+    with open(resolve(MONSTER_TABLE), encoding="utf-8-sig") as handle:
         rows = list(csv.reader(handle))
     header = {name: index for index, name in enumerate(rows[0])}
     monsters = {}
@@ -644,7 +645,7 @@ def formation_lod_contract(formations):
         raise RuntimeError("Reinspect source formation LOD comparison before regenerating")
     thresholds = {}
     for level, formation in formations.items():
-        text = (PROJECT_ROOT / formation["source_prefab"]["path"]).read_text(encoding="utf-8")
+        text = resolve(formation["source_prefab"]["path"]).read_text(encoding="utf-8")
         matches = re.findall(r"  m_lod_array:\s*\n((?:  - [^\n]+\n)+)", text)
         if len(matches) != 1:
             raise RuntimeError(f"Ambiguous formation {level} LOD array")

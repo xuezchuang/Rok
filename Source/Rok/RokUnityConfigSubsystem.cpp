@@ -1,5 +1,7 @@
 #include "RokUnityConfigSubsystem.h"
 
+#include "RokDataPaths.h"
+
 #include "Dom/JsonObject.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
@@ -8,7 +10,7 @@
 
 namespace
 {
-const TCHAR* ManifestRelativePath = TEXT("Saved/RokUnityMigration/ConfigTables/config_tables_manifest.json");
+const TCHAR* ManifestRelativePath = TEXT("ConfigTables/config_tables_manifest.json");
 
 FName JsonNameField(const TSharedPtr<FJsonObject>& Object, const TCHAR* FieldName)
 {
@@ -57,7 +59,7 @@ bool URokUnityConfigSubsystem::LoadManifest()
 	TotalRowCount = 0;
 	bManifestLoaded = false;
 
-	const FString ManifestPath = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir(), ManifestRelativePath);
+	const FString ManifestPath = FPaths::ConvertRelativePathToFull(RokDataPaths::Resolve(ManifestRelativePath));
 	FString JsonText;
 	if (!FFileHelper::LoadFileToString(JsonText, *ManifestPath))
 	{
@@ -255,7 +257,7 @@ FString URokUnityConfigSubsystem::ResolveProjectRelativePath(const FString& Rela
 {
 	if (FPaths::IsRelative(RelativePath))
 	{
-		return FPaths::ConvertRelativePathToFull(FPaths::ProjectDir(), RelativePath);
+		return FPaths::ConvertRelativePathToFull(RokDataPaths::ResolveProjectPath(RelativePath));
 	}
 	return RelativePath;
 }

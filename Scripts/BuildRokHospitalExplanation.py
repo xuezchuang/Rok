@@ -3,6 +3,7 @@ import json,re,hashlib,struct
 from pathlib import Path
 from BuildRokTrainParameterLayout import documents,vector
 from BuildRokUnityEconomyCatalog import read_language_lookup,localized_text,LANGUAGE_WORKBOOK
+from rok_data_paths import DATA_ROOT, label
 ROOT=Path(__file__).resolve().parents[1]
 PREFAB=ROOT/'ref/client-unity/Assets/BundleAssets/UI/UIPrefabs/ui_prefabs_build/UIHospital/UI_Win_Hospital.prefab'
 MEDIATOR=ROOT/'ref/client-unity/Assets/Scripts/Hotfix/MVC/View_Mediator/Hospital/HospitalMediator.cs'
@@ -53,8 +54,8 @@ def build():
     assert len(re.findall(r'(?m)^[1-7]\.',text))==7 and len(yellow)==13
     med=MEDIATOR.read_text(encoding='utf-8-sig');assert 'preferredHeight- view.m_lbl_explain' in med and 'm_isShowedExplain' in med
     selected={k:v for k,v in nodes.items() if k.startswith('Rect/Right/pl_explain') or k in ['Rect','Rect/Right','Rect/Left','Rect/Left/pl_count']}
-    out={'schema':'rok.hospital.explanation.v1','language_id':181001,'source_text':text,'rich_text':text.replace('<color=yellow>','<yellow>').replace('</color>','</>'),'yellow_segments':yellow,'text_source_comparison':{'workbook_matches_runtime_bin':workbook_text==text,'authoritative':'Language.bin','workbook_text':workbook_text if workbook_text!=text else None},'nodes':selected,'sources':[{'path':p.relative_to(ROOT).as_posix(),'sha256':hashlib.sha256(p.read_bytes()).hexdigest()} for p in REQUIRED_SOURCES],'lifecycle':'One existing page; first open sets text/content height, back only toggles visibility, same-instance scroll preserved; new window resets.'}
-    target=ROOT/'Saved/RokUnityMigration/hospital_explanation.json';target.write_text(json.dumps(out,ensure_ascii=False,indent=2),encoding='utf-8');print(target);print('181001 workbook/runtime identical:',workbook_text==text);return out
+    out={'schema':'rok.hospital.explanation.v1','language_id':181001,'source_text':text,'rich_text':text.replace('<color=yellow>','<yellow>').replace('</color>','</>'),'yellow_segments':yellow,'text_source_comparison':{'workbook_matches_runtime_bin':workbook_text==text,'authoritative':'Language.bin','workbook_text':workbook_text if workbook_text!=text else None},'nodes':selected,'sources':[{'path':label(p),'sha256':hashlib.sha256(p.read_bytes()).hexdigest()} for p in REQUIRED_SOURCES],'lifecycle':'One existing page; first open sets text/content height, back only toggles visibility, same-instance scroll preserved; new window resets.'}
+    target=DATA_ROOT / 'hospital_explanation.json';target.write_text(json.dumps(out,ensure_ascii=False,indent=2),encoding='utf-8');print(target);print('181001 workbook/runtime identical:',workbook_text==text);return out
 if __name__=='__main__':build()
 
 

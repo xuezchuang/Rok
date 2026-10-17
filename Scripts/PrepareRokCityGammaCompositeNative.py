@@ -9,6 +9,7 @@ import hashlib
 import json
 import shutil
 from pathlib import Path
+from rok_data_paths import resolve
 
 from BuildRokAcademyVisualSource import ROOT, OUT as ACADEMY_CATALOG, build as academy_build
 from BuildRokCityResourceBuildingVisualSources import OUT as RESOURCE_CATALOG, build as resource_build
@@ -56,9 +57,9 @@ def prepare():
         raise RuntimeError("Source materials differ; one shared-shader fixture is invalid")
     for catalog in (academy, resources):
         for relative, expected in catalog["sources"].items():
-            if sha(ROOT / relative) != expected:
+            if sha(resolve(relative)) != expected:
                 raise RuntimeError(f"Source changed: {relative}")
-    shader = (ROOT / academy["material"]["shader_path"]).read_text(encoding="utf-8-sig")
+    shader = (resolve(academy["material"]["shader_path"])).read_text(encoding="utf-8-sig")
     if "_CityTransparency" in shader.split("SubShader", 1)[0] or "float _CityTransparency;" not in shader:
         raise RuntimeError("Source shader transparency-global contract changed")
     with CAMERA_CSV.open(encoding="utf-8-sig", newline="") as stream:
@@ -114,7 +115,7 @@ def prepare():
     copies = {}
     seen_names = {}
     for relative in sorted(selected):
-        source = ROOT / relative
+        source = resolve(relative)
         previous = seen_names.setdefault(source.name, relative)
         if previous != relative:
             raise RuntimeError(f"Probe basename collision: {previous} / {relative}")

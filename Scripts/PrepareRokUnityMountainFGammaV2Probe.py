@@ -4,6 +4,7 @@ import json
 import shutil
 import subprocess
 from pathlib import Path
+from rok_data_paths import resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 OLD = ROOT / 'Saved/UnityMountainFGammaProbe'
@@ -41,7 +42,7 @@ def main():
     for entry in source['source_files']:
         if entry.get('stub'):
             continue
-        current = ROOT / entry['path']
+        current = resolve(entry['path'])
         assert digest(current) == entry['sha256'], f'Changed source input: {current}'
     assert (OLD / 'Assets').exists() and (OLD / 'ProjectSettings').exists()
     OUT.mkdir(parents=True, exist_ok=True)

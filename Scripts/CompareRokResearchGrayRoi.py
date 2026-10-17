@@ -11,11 +11,12 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
+from rok_data_paths import DATA_ROOT, label
 
 ROOT = Path(__file__).resolve().parents[1]
 NATIVE = ROOT / 'Saved/UnityResearchNativeProbe/Artifacts/native_20261008_131955_853'
 UE = ROOT / 'Saved/RokUnityMigration/ResearchAudit/20261008_132329_43244'
-ATLAS = ROOT / 'Saved/RokUnityMigration/ResearchNative/atlas_manifest.json'
+ATLAS = DATA_ROOT / 'ResearchNative/atlas_manifest.json'
 OUT = ROOT / 'Saved/RokUnityMigration/ResearchNative/gray_roi_comparison.json'
 PAIRS = [('economy_start', '01_economy_start.png', 0),
          ('economy_end', '06_economy_end.png', 5),
@@ -148,11 +149,11 @@ def main():
     report = {'schema': 'rok.research.gray_roi_comparison.v1',
               'scope': 'Locked icons with actual native UI_GrayWithMask and UE MID_M_RokResearchGrayUI; exact icon rect intersection, fully inside both source scroll viewports. No text, inferred masks, or selected best pixels.',
               'acceptance': 'Raw observation only. No unapproved absolute pixel-error threshold or full-screen visual acceptance.',
-              'sources': {p.relative_to(ROOT).as_posix(): sha(p) for p in
+              'sources': {label(p): sha(p) for p in
                           (NATIVE/'render_evidence.json', UE/'manifest.json', ATLAS,
                            ROOT/'Content/RokPrototype/UI/Research/M_RokResearchGrayUI.uasset')},
               'pairs': pairs,
-              'producer': {'path': Path(__file__).relative_to(ROOT).as_posix(), 'sha256': sha(Path(__file__))}}
+              'producer': {'path': label(Path(__file__)), 'sha256': sha(Path(__file__))}}
     OUT.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     print(json.dumps({'report': str(OUT), 'sha256': sha(OUT),
                       'pairs': [{'key': p['nativeKey'], 'icons': p['iconCount'],

@@ -3,6 +3,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "../RokCityAudioCatalog.h"
+#include "../RokDataPaths.h"
 #include <limits>
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRokCityAudioRouterSourceTest,
@@ -57,7 +58,7 @@ bool FRokCityAudioRouterSourceTest::RunTest(const FString&)
 		Sequence.Start(*Day, std::numeric_limits<float>::quiet_NaN(), Clip));
 
 	TArray<uint8> SourceBytes;
-	const FString Path = FPaths::ProjectSavedDir() / TEXT("RokUnityMigration/CityAudio/catalog.json");
+	const FString Path = RokDataPaths::Resolve(TEXT("CityAudio/catalog.json"));
 	if (!TestTrue(TEXT("Read generated source bytes"), FFileHelper::LoadFileToArray(SourceBytes, *Path))) return false;
 	if (!TestTrue(TEXT("Exact source bytes accepted"),
 		RokCityAudioCatalog::LoadBytesForTesting(SourceBytes, Events, Error))) return false;

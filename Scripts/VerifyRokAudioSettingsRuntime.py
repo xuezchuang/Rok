@@ -11,6 +11,7 @@ import struct
 import tempfile
 import wave
 from pathlib import Path
+from rok_data_paths import resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = "rok.audio_settings.runtime_audit.v1"
@@ -159,33 +160,33 @@ def check_inputs(manifest: dict) -> None:
     }
     need(set(pins) == required, "source input pin set differs")
     for relative, expected in pins.items():
-        path = ROOT / relative
+        path = resolve(relative)
         need(path.is_file() and sha(path) == expected, f"source input hash drift: {relative}")
         if relative in APPROVED_PINS:
             need(expected == APPROVED_PINS[relative], f"approved source pin differs: {relative}")
 
 
 def check_imported_pcm(manifest: dict, directory: Path) -> None:
-    native = json.loads((ROOT / NATIVE).read_text(encoding="utf-8"))
-    report = json.loads((ROOT / NATIVE_REPORT).read_text(encoding="utf-8"))
-    prepare = json.loads((ROOT / IMPORT_PREPARE).read_text(encoding="utf-8"))
-    journal = json.loads((ROOT / IMPORT_JOURNAL).read_text(encoding="utf-8"))
-    acceptance = json.loads((ROOT / IMPORT_ACCEPTANCE).read_text(encoding="utf-8"))
+    native = json.loads(resolve(NATIVE).read_text(encoding="utf-8"))
+    report = json.loads(resolve(NATIVE_REPORT).read_text(encoding="utf-8"))
+    prepare = json.loads(resolve(IMPORT_PREPARE).read_text(encoding="utf-8"))
+    journal = json.loads(resolve(IMPORT_JOURNAL).read_text(encoding="utf-8"))
+    acceptance = json.loads(resolve(IMPORT_ACCEPTANCE).read_text(encoding="utf-8"))
     need(native["schema"] == "rok.unity_city_audio_probe.native.v2"
          and report["status"] == "passed"
-         and report["native_manifest_sha256"] == sha(ROOT / NATIVE)
+         and report["native_manifest_sha256"] == sha(resolve(NATIVE))
          and report["contract_sha256"] == native["contract_sha256"],
          "Native1 Unity PCM source chain invalid")
     need(prepare["schema"] == "rok.city_bgm_import.prepare.v2"
-         and prepare["native_inputs"]["manifest_sha256"] == sha(ROOT / NATIVE)
-         and prepare["native_inputs"]["strict_verify_sha256"] == sha(ROOT / NATIVE_REPORT)
+         and prepare["native_inputs"]["manifest_sha256"] == sha(resolve(NATIVE))
+         and prepare["native_inputs"]["strict_verify_sha256"] == sha(resolve(NATIVE_REPORT))
          and journal["schema"] == "rok.city_bgm_import.v1"
          and journal["status"] == "imported_and_readback_passed"
-         and journal["input_pins"]["native_manifest_sha256"] == sha(ROOT / NATIVE)
-         and journal["input_pins"]["strict_verify_sha256"] == sha(ROOT / NATIVE_REPORT)
+         and journal["input_pins"]["native_manifest_sha256"] == sha(resolve(NATIVE))
+         and journal["input_pins"]["strict_verify_sha256"] == sha(resolve(NATIVE_REPORT))
          and acceptance["schema"] == "rok.city_bgm.root_asset_import_acceptance.v1"
          and acceptance["passed"]
-         and acceptance["import_manifest"]["sha256"] == sha(ROOT / IMPORT_JOURNAL)
+         and acceptance["import_manifest"]["sha256"] == sha(resolve(IMPORT_JOURNAL))
          and acceptance["asset_verification"]["status"] == "passed"
          and sha(ROOT / "Saved/UnityCityAudioProbeV1/probe_contract.json") == native["contract_sha256"]
          and sha(ROOT / "Saved/UnityCityAudioProbeV1/Assets/Editor/ExportRokUnityCityAudioProbe.cs") == native["exporter_sha256"],
@@ -207,7 +208,7 @@ def check_imported_pcm(manifest: dict, directory: Path) -> None:
         package_records = accepted["package_files"]
         need(len(package_records) == 1 and package_records[0]["path"] == package_path,
              f"accepted package path/count differs: {name}")
-        package = ROOT / package_path
+        package = resolve(package_path)
         need(manifest["inputs_sha256"][package_path] == package_records[0]["sha256"]
              and package.is_file() and sha(package) == package_records[0]["sha256"]
              and package.stat().st_size == package_records[0]["bytes"]
@@ -218,8 +219,8 @@ def check_imported_pcm(manifest: dict, directory: Path) -> None:
              and accepted["properties"]["pitch"] == 1.0
              and accepted["properties"]["looping"] is False,
              f"current BGM package differs from pinned imported package: {name}")
-        need(sha(ROOT / clip["source_path"]) == clip["source_sha256"]
-             and sha(ROOT / clip["meta_path"]) == clip["meta_sha256"],
+        need(sha(resolve(clip["source_path"])) == clip["source_sha256"]
+             and sha(resolve(clip["meta_path"])) == clip["meta_sha256"],
              f"Unity source MP3/meta drift: {name}")
         need(clip["wav_sha256"] == review["wav_sha256"]
              and clip["pcm_f32le_sha256"] == review["pcm_f32le_sha256"]
@@ -231,7 +232,7 @@ def check_imported_pcm(manifest: dict, directory: Path) -> None:
              and imported_source["sample_rate"] == clip["frequency"]
              and imported_source["channels"] == clip["channels"],
              f"actual UE import journal source identity differs: {name}")
-        wav_path = (ROOT / NATIVE).parent / clip["wav_path"]
+        wav_path = resolve(NATIVE).parent / clip["wav_path"]
         need(sha(wav_path) == clip["wav_sha256"], f"Native1 WAV hash differs: {name}")
         with wave.open(str(wav_path), "rb") as wav:
             need(wav.getcomptype() == "NONE" and wav.getsampwidth() == 2

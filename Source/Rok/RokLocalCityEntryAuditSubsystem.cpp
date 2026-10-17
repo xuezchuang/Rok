@@ -1,6 +1,7 @@
 #include "RokLocalCityEntryAuditSubsystem.h"
 
 #include "RokBuildingUpgradeSubsystem.h"
+#include "RokDataPaths.h"
 #include "RokMainHudWidget.h"
 #include "RokTrainArmyMeshData.h"
 #include "RokUnityFeatureScreenWidget.h"
@@ -53,7 +54,7 @@ bool TargetWorld(const UWorld* World)
 bool ReadJson(const TCHAR* Relative, TSharedPtr<FJsonObject>& Out)
 {
 	FString Text;
-	return FFileHelper::LoadFileToString(Text, *(FPaths::ProjectDir() / Relative))
+	return FFileHelper::LoadFileToString(Text, *(RokDataPaths::ResolveProjectPath(Relative)))
 		&& FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Out)
 		&& Out.IsValid();
 }
@@ -272,7 +273,7 @@ bool URokLocalCityEntryAuditSubsystem::Begin()
 	for (const TCHAR* Relative : Required)
 	{
 		TArray<uint8> Bytes;
-		if (!Expect(FFileHelper::LoadFileToArray(Bytes, *(FPaths::ProjectDir() / Relative))
+		if (!Expect(FFileHelper::LoadFileToArray(Bytes, *(RokDataPaths::ResolveProjectPath(Relative)))
 			&& !Bytes.IsEmpty(), TEXT("Required BuildCity source unavailable"))) return false;
 		auto File = MakeShared<FJsonObject>();
 		File->SetStringField(TEXT("sha256"), RokTrainArmyMesh::Sha256(Bytes));

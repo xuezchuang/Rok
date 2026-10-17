@@ -1,5 +1,6 @@
 #include "RokUnityRuntimeStateSubsystem.h"
 #include "RokBuildingUpgradeSubsystem.h"
+#include "RokDataPaths.h"
 #include "Engine/World.h"
 
 #include "Dom/JsonObject.h"
@@ -11,7 +12,7 @@
 
 namespace
 {
-const TCHAR* RuntimeBootstrapRelativePath = TEXT("Saved/RokUnityMigration/unity_runtime_bootstrap_state.json");
+const TCHAR* RuntimeBootstrapRelativePath = TEXT("unity_runtime_bootstrap_state.json");
 
 TSharedPtr<FJsonObject> JsonObjectField(const TSharedPtr<FJsonObject>& Object, const TCHAR* FieldName)
 {
@@ -213,7 +214,7 @@ bool URokUnityRuntimeStateSubsystem::LoadRuntimeState()
 	TrainableTroopIds.Reset();
 	bRuntimeStateLoaded = false;
 
-	const FString RuntimeStatePath = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir(), RuntimeBootstrapRelativePath);
+	const FString RuntimeStatePath = FPaths::ConvertRelativePathToFull(RokDataPaths::Resolve(RuntimeBootstrapRelativePath));
 	FString JsonText;
 	if (!FFileHelper::LoadFileToString(JsonText, *RuntimeStatePath))
 	{

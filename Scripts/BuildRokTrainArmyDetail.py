@@ -5,9 +5,10 @@ import json
 import re
 from pathlib import Path
 from BuildRokUnityEconomyCatalog import read_language_lookup, localized_text, LANGUAGE_WORKBOOK
+from rok_data_paths import DATA_ROOT, label as data_label
 
 ROOT = Path(__file__).resolve().parents[1]
-OUTPUT = ROOT / 'Saved/RokUnityMigration/train_army_detail.json'
+OUTPUT = DATA_ROOT / 'train_army_detail.json'
 UI = ROOT / 'ref/client-unity/Assets/BundleAssets/UI'
 PREFAB = UI / 'UIPrefabs/ui_prefabs_troops/UIArmyTrain/UI_Item_TrainSoldierDetail.prefab'
 
@@ -51,7 +52,7 @@ def build(write=True):
             lines = sheet.read_text(encoding='utf-8-sig').splitlines()
             size = list(map(int, next(l[6:] for l in lines if l.startswith(':size=')).split('x')))
             sprites = {p[0]: list(map(int, p[1:5])) for l in lines if l and not l.startswith(('#', ':')) for p in [l.split(';')]}
-            atlases[atlas] = {'source': texture.relative_to(ROOT).as_posix(), 'target': '/Game/RokPrototype/UI/TrainArmyDetail/' + atlas, 'size': size, 'sprites': sprites}
+            atlases[atlas] = {'source': data_label(texture), 'target': '/Game/RokPrototype/UI/TrainArmyDetail/' + atlas, 'size': size, 'sprites': sprites}
         info = atlases[atlas]
         return {'texture': info['target'], 'size': info['size'], 'rect': info['sprites'][sprite], 'source_icon': value}
     entries = []
@@ -71,7 +72,7 @@ def build(write=True):
                         'name': plain(loc(row['l_armsID'])), 'description': plain(loc(row['l_desID'])),
                         'attributes': attrs, 'skills': detail_skills})
     result = {'entries': entries, 'atlases': atlases,
-              'sources': {p.relative_to(ROOT).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest() for p in sources},
+              'sources': {data_label(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in sources},
               'player_modifiers_available': False, 'visual_verified': False}
     if write:
         OUTPUT.parent.mkdir(parents=True, exist_ok=True)

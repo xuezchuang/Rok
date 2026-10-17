@@ -5,6 +5,7 @@ import math
 import re
 from collections import Counter
 from pathlib import Path
+from rok_data_paths import resolve
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -705,7 +706,7 @@ def build_prefab_recipe(
             f"Address {address_entry['address']} GUID "
             f"{address_entry['guid']} has no asset path"
         )
-    source_path = PROJECT_ROOT / source_path_text
+    source_path = resolve(source_path_text)
     if source_path.suffix.lower() != ".prefab":
         raise ValueError(
             f"Address {address_entry['address']} does not resolve to a prefab: "
@@ -1148,7 +1149,7 @@ def load_world_manifest():
             f"Unexpected source world-map schema: {manifest.get('schema')}"
         )
     for role, record in manifest.get("sources", {}).items():
-        source_path = PROJECT_ROOT / record.get("path", "")
+        source_path = resolve(record.get("path", ""))
         if not source_path.exists():
             raise ValueError(
                 f"World-map source {role} is missing: {record.get('path')}"

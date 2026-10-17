@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from rok_data_paths import resolve
 from datetime import datetime, timezone
 
 
@@ -43,8 +44,8 @@ def main() -> None:
 
     selected = {}
     for row in manifest.get("atlases", []):
-        source = ROOT / row["source"]
-        prepared = ROOT / row["prepared"]
+        source = resolve(row["source"])
+        prepared = resolve(row["prepared"])
         if not source.is_file() or not prepared.is_file():
             raise RuntimeError(f"Source or prepared PNG missing: {row['source']}")
         if digest(source) != row["sha256"] or digest(prepared) != row["sha256"]:

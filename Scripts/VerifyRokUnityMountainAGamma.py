@@ -3,6 +3,7 @@ import ast
 import hashlib
 import json
 from pathlib import Path
+from rok_data_paths import resolve
 import numpy as np
 from PIL import Image
 
@@ -14,7 +15,7 @@ def main():
     manifest = json.loads((OUT/'manifest.json').read_text(encoding='utf-8'))
     failures = []
     for record in manifest['source_files'] + [manifest['lighting_manifest']]:
-        path = ROOT/record['path']
+        path = resolve(record['path'])
         if hashlib.sha256(path.read_bytes()).hexdigest() != record['sha256']:
             failures.append('Source changed: '+str(path))
     for name in ('CreateRokUnityMountainAGammaMaterial.py', 'PrepareRokUnityMountainAGammaProbe.py', 'VerifyRokUnityMountainAGamma.py', 'AuditRokUnityMountainAGamma.py', 'CreateRokUnityWorldMapPrototype.py'):

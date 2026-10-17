@@ -7,6 +7,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
+from rok_data_paths import resolve
 
 from PIL import Image
 
@@ -86,7 +87,7 @@ def verify(artifact: Path) -> dict:
     sources = {row["path"]: row for row in contract["sourceFiles"]}
     assert len(sources) == 11
     for row in sources.values():
-        original = ROOT / row["path"]
+        original = resolve(row["path"])
         isolated = PROBE / row["probeAsset"]
         assert original.is_file() and isolated.is_file()
         assert sha(original) == sha(isolated) == row["sha256"]

@@ -8,6 +8,7 @@ import json
 import pathlib
 import subprocess
 import sys
+from rok_data_paths import DATA_ROOT, resolve
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 BASE_VERIFIER = ROOT / "Scripts/VerifyRokTaskDetailProjectionRuntime.py"
@@ -51,7 +52,7 @@ def check_catalog(path: pathlib.Path) -> dict:
         need(entry["icon_rect"] == expected["rect"] and entry["icon_atlas_size"] == [2048, 1024],
              "Source icon rectangle/atlas extent")
     for source in catalog["sources"]:
-        source_path = ROOT / source["path"]
+        source_path = resolve(source["path"])
         need(source_path.is_file() and sha(source_path) == source["sha256"],
              f"Catalog source changed: {source['path']}")
     return catalog
@@ -113,10 +114,10 @@ def main() -> None:
          "Reward scope statement missing")
     need(manifest["world_time_advanced_by_audit"] is False, "Audit advanced the world clock")
     for relative, expected_hash in manifest["inputs_sha256"].items():
-        path = ROOT / relative
+        path = resolve(relative)
         need(path.is_file() and sha(path) == expected_hash, f"Runtime input hash mismatch: {relative}")
 
-    catalog_path = ROOT / "Saved/RokUnityMigration/task_reward_preview.json"
+    catalog_path = DATA_ROOT / "task_reward_preview.json"
     catalog = check_catalog(catalog_path)
     need(manifest["inputs_sha256"].get("Saved/RokUnityMigration/task_reward_preview.json") == sha(catalog_path),
          "Runtime did not pin the actual reward catalog")

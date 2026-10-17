@@ -1,4 +1,5 @@
 #include "RokHospitalExplanationAuditSubsystem.h"
+#include "RokDataPaths.h"
 #include "RokMainHudWidget.h"
 #include "RokUnityFeatureScreenWidget.h"
 #include "RokUnityModalWidget.h"
@@ -119,7 +120,7 @@ bool URokHospitalExplanationAuditSubsystem::Begin()
     if (!Expect(InitialQueueCount == 0, TEXT("Read-only hospital audit requires idle building queues"))) return false;
     ProfileSnapshot = Snapshot(Runtime->GetPlayerProfileState()); ResourceSnapshot = Snapshot(Economy->GetCurrentResources()); bBaseline = true;
     FString Text; TSharedPtr<FJsonObject> Catalog;
-    if (!FFileHelper::LoadFileToString(Text, *(FPaths::ProjectSavedDir() / TEXT("RokUnityMigration/hospital_explanation.json"))) || !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Catalog) || !Catalog.IsValid())
+    if (!FFileHelper::LoadFileToString(Text, *(RokDataPaths::Resolve(TEXT("hospital_explanation.json")))) || !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Catalog) || !Catalog.IsValid())
     { Finish(TEXT("Source explanation catalog unavailable")); return false; }
     const TArray<TSharedPtr<FJsonValue>>* Yellows = nullptr;
     if (!Expect(Catalog->TryGetStringField(TEXT("rich_text"), ExpectedRichText) && Catalog->TryGetArrayField(TEXT("yellow_segments"), Yellows) && Yellows->Num() == 13, TEXT("Expected exact source explanation and 13 yellow spans"))) return false;

@@ -1,5 +1,7 @@
 #include "RokUnityUiCatalogSubsystem.h"
 
+#include "RokDataPaths.h"
+
 #include "Dom/JsonObject.h"
 #include "Internationalization/Text.h"
 #include "Misc/FileHelper.h"
@@ -9,7 +11,7 @@
 
 namespace
 {
-const TCHAR* UiCatalogRelativePath = TEXT("Saved/RokUnityMigration/unity_ui_catalog.json");
+const TCHAR* UiCatalogRelativePath = TEXT("unity_ui_catalog.json");
 
 TSharedPtr<FJsonObject> JsonObjectField(const TSharedPtr<FJsonObject>& Object, const TCHAR* FieldName)
 {
@@ -140,7 +142,7 @@ bool URokUnityUiCatalogSubsystem::LoadUiCatalog()
 	AcceptedRuntimeTargets.Reset();
 	bUiCatalogLoaded = false;
 
-	const FString UiCatalogPath = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir(), UiCatalogRelativePath);
+	const FString UiCatalogPath = FPaths::ConvertRelativePathToFull(RokDataPaths::Resolve(UiCatalogRelativePath));
 	FString JsonText;
 	if (!FFileHelper::LoadFileToString(JsonText, *UiCatalogPath))
 	{

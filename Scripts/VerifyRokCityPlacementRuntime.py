@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+from rok_data_paths import resolve
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -81,7 +82,7 @@ def main() -> None:
     inputs = data["inputs_sha256"]
     require(len(inputs) >= 10, "Missing source and production input hashes")
     for relative, digest in inputs.items():
-        path = ROOT / relative
+        path = resolve(relative)
         require(path.is_file(), f"Missing hashed input: {relative}")
         require(sha256(path) == digest.lower(), f"Input changed since runtime: {relative}")
 

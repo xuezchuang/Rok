@@ -5,6 +5,7 @@
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
+#include "../RokDataPaths.h"
 #include "../RokPowerGainWidget.h"
 #include "../RokMainHudWidget.h"
 #include "../RokWorldMapHudWidget.h"
@@ -44,7 +45,7 @@ bool FRokPowerGainSourceTest::RunTest(const FString&)
 {
 	FString Json;
 	if (!TestTrue(TEXT("Native Unity export exists"), FFileHelper::LoadFileToString(Json,
-		*(FPaths::ProjectSavedDir() / TEXT("RokUnityMigration/PowerGain/source_geometry.json"))))) return false;
+		*(RokDataPaths::Resolve(TEXT("PowerGain/source_geometry.json")))))) return false;
 	TSharedPtr<FJsonObject> Root;
 	if (!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json), Root)) return false;
 	for (const auto& Value : Root->GetArrayField(TEXT("samples")))

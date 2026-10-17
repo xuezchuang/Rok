@@ -1,5 +1,6 @@
 #include "RokCityGammaLayerCensusSubsystem.h"
 
+#include "RokDataPaths.h"
 #include "RokTrainArmyMeshData.h"
 #include "Components/PrimitiveComponent.h"
 #include "Components/SceneComponent.h"
@@ -395,7 +396,7 @@ bool URokCityGammaLayerCensusSubsystem::CaptureNow(const FString& Reason, FStrin
 		TEXT("Source/Rok/RokCityGammaLayerCensusSubsystem.cpp"),
 		TEXT("Content/Maps/L_RokUnityGameAppCity.umap") })
 	{
-		const FString Hash = Sha256File(FPaths::ProjectDir() / Relative);
+		const FString Hash = Sha256File(RokDataPaths::ResolveProjectPath(Relative));
 		bInputsPresent &= !Hash.IsEmpty();
 		Inputs->SetStringField(Relative, Hash);
 	}
@@ -408,7 +409,7 @@ bool URokCityGammaLayerCensusSubsystem::CaptureNow(const FString& Reason, FStrin
 		TEXT("Scripts/VerifyRokUnityRuntimeCityAllBuildingsScene.py"),
 		TEXT("Saved/RokUnityMigration/unity_runtime_city_all_buildings_verify.json"),
 		TEXT("Saved/RokUnityMigration/unity_runtime_city_all_buildings_verify_GameAppRuntimeV6Color.json") })
-		ReferenceLinks->SetStringField(Relative, Sha256File(FPaths::ProjectDir() / Relative));
+		ReferenceLinks->SetStringField(Relative, Sha256File(RokDataPaths::ResolveProjectPath(Relative)));
 	Manifest->SetObjectField(TEXT("candidate_source_reference_sha256"), ReferenceLinks);
 	Manifest->SetStringField(TEXT("source_reference_limit"), TEXT("Path/hash links only; captured UE materials and textures are not declared semantically identical to Unity source"));
 	Manifest->SetStringField(TEXT("component_set_sha256"), StableSignature(World));

@@ -3,6 +3,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
+from rok_data_paths import resolve
 
 from PIL import Image
 
@@ -41,10 +42,10 @@ def pixel_sha256(image):
 
 def verify_atlas_pixels(failures):
     paths = {
-        "color_source": PROJECT_ROOT / EXPECTED_SPRITE_PATH,
-        "mask_source": PROJECT_ROOT / EXPECTED_MASK_PATH,
-        "color_atlas": PROJECT_ROOT / EXPECTED_COLOR_ATLAS_PATH,
-        "mask_atlas": PROJECT_ROOT / EXPECTED_MASK_ATLAS_PATH,
+        "color_source": resolve(EXPECTED_SPRITE_PATH),
+        "mask_source": resolve(EXPECTED_MASK_PATH),
+        "color_atlas": resolve(EXPECTED_COLOR_ATLAS_PATH),
+        "mask_atlas": resolve(EXPECTED_MASK_ATLAS_PATH),
     }
     for label, path in paths.items():
         if not path.exists():

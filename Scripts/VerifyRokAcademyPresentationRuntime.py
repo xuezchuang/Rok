@@ -13,6 +13,7 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
+from rok_data_paths import DATA_ROOT, resolve
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -119,7 +120,7 @@ def analytic_source(native: dict, frame: dict, catalog: dict, native_pixels: np.
     xy = np.asarray([[v["x"], 720 - v["y"]] for v in g["screenVertices"]], dtype=np.float64)
     uv = np.asarray([[v["x"], v["y"]] for v in g["uvs"]], dtype=np.float64)
     indices = np.asarray(g["triangles"], dtype=np.int32).reshape(-1, 3)
-    with Image.open(ROOT / catalog["sprite"]["path"]) as im:
+    with Image.open(resolve(catalog["sprite"]["path"])) as im:
         sprite = np.asarray(im.convert("RGBA"), dtype=np.float64) / 255.0
     with Image.open(NATIVE_ROOT / native["maskExport"]["png"]) as im:
         mask_texture = np.asarray(im.convert("RGBA"), dtype=np.float64) / 255.0
@@ -227,12 +228,12 @@ def verify(run: Path) -> dict:
     require(isinstance(hashes, dict) and set(hashes) == set(CAPTURE_INPUTS),
             "Capture did not lock the exact Academy audit, actor, verifier, and mesh scripts")
     for relative in CAPTURE_INPUTS:
-        require(hashes[relative] == sha(ROOT / relative), f"Captured source changed: {relative}")
+        require(hashes[relative] == sha(resolve(relative)), f"Captured source changed: {relative}")
     source_catalog = read(CATALOG)
     for relative, expected in source_catalog["sources"].items():
         require((relative.startswith("ref/") or relative == "Saved/RokUnityMigration/CityConstructionSources/catalog.json")
                 and ".." not in Path(relative).parts and
-                sha(ROOT / relative) == expected, f"Source changed: {relative}")
+                sha(resolve(relative)) == expected, f"Source changed: {relative}")
     native = read(NATIVE_REPORT)
     native_verified = read(NATIVE_VERIFY)
     source_mesh = read(MESH_MANIFEST)
@@ -364,8 +365,8 @@ def verify(run: Path) -> dict:
             pose["schema"] == "rok.current_city_anchor_source_grid_crosscheck.v1" and pose["passed"] and
             len(pose["actors"]) == 24 and max(a["error"] for a in pose["actors"]) < 1e-8,
             "Current GameApp source-pose/map evidence changed")
-    require(context["construction_models_sha256"] == sha(ROOT / "Saved/RokUnityMigration/CityConstructionSources/catalog.json") and
-            context["grid_catalog_sha256"] == sha(ROOT / "Saved/RokUnityMigration/CityConstructionGridSources/catalog.json") ==
+    require(context["construction_models_sha256"] == sha(DATA_ROOT / "CityConstructionSources/catalog.json") and
+            context["grid_catalog_sha256"] == sha(DATA_ROOT / "CityConstructionGridSources/catalog.json") ==
                 pose["source_grid_catalog_sha256"],
             "Context building model/grid source catalog changed")
     context_png = Path(context["png"])

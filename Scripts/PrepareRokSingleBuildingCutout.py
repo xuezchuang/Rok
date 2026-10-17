@@ -2,6 +2,7 @@ from collections import deque
 import json
 import os
 from pathlib import Path
+from rok_data_paths import resolve
 
 from PIL import Image, ImageFilter, ImageOps
 
@@ -9,7 +10,7 @@ from PIL import Image, ImageFilter, ImageOps
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 UNITY_REFERENCE_ROOT = Path(os.environ.get("ROK_UNITY_REFERENCE_ROOT", PROJECT_ROOT / "ref"))
 if not UNITY_REFERENCE_ROOT.is_absolute():
-    UNITY_REFERENCE_ROOT = PROJECT_ROOT / UNITY_REFERENCE_ROOT
+    UNITY_REFERENCE_ROOT = resolve(UNITY_REFERENCE_ROOT)
 UNITY_CLIENT_ROOT = UNITY_REFERENCE_ROOT / "client-unity"
 UNITY_RESOURCE_ROOT = UNITY_REFERENCE_ROOT / "resources"
 SOURCE_DIR = UNITY_RESOURCE_ROOT / "Sprite"
@@ -47,7 +48,7 @@ def display_path(path):
 
 def project_path(path):
     candidate = Path(path)
-    return candidate if candidate.is_absolute() else PROJECT_ROOT / candidate
+    return candidate if candidate.is_absolute() else resolve(candidate)
 
 
 def load_runtime_atlas_evidence(sprite_base):

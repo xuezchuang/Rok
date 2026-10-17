@@ -10,11 +10,12 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
+from rok_data_paths import DATA_ROOT, label, resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNS = ROOT / 'Saved/RokUnityMigration/ResearchAudit'
-CATALOG = ROOT / 'Saved/RokUnityMigration/research_catalog.json'
-ATLAS = ROOT / 'Saved/RokUnityMigration/ResearchNative/atlas_manifest.json'
+CATALOG = DATA_ROOT / 'research_catalog.json'
+ATLAS = DATA_ROOT / 'ResearchNative/atlas_manifest.json'
 FIXTURE = ROOT / 'Saved/RokUnityMigration/ResearchNative/research_fixture.json'
 NATIVE_DIR = ROOT / 'Saved/UnityResearchNativeProbe/Artifacts/native_20261008_124117_758'
 NATIVE = NATIVE_DIR / 'render_evidence.json'
@@ -131,7 +132,7 @@ def catalog_source():
     }
     assert len(catalog['rows']) == 410 and len(catalog['civilization_overrides']) == 8
     for relative, digest in catalog['sources'].items():
-        path = (ROOT / relative).resolve()
+        path = resolve(relative).resolve()
         assert path.is_relative_to(ROOT.resolve()) and sha(path) == digest, relative
     nodes = {row['study_type']: row for row in catalog['rows'] if row['level'] == 1}
     assert len(nodes) == 71
@@ -270,7 +271,7 @@ def gray_material_source():
     baseline_inputs = json.loads((NATIVE_DIR / 'ReferenceInputs.json').read_text(encoding='utf-8-sig'))
     power_inputs = json.loads((POWER_NATIVE_DIR / 'ReferenceInputs.json').read_text(encoding='utf-8-sig'))
     for item in source['sources']:
-        path = (ROOT / item['path']).resolve()
+        path = resolve(item['path']).resolve()
         assert path.is_relative_to(ROOT.resolve())
         if item['path'] == 'Scripts/RenderRokResearchNative.cs':
             # The five-frame gray proof pins the earlier probe version.
@@ -443,10 +444,10 @@ def verify(run):
     assert Path(data['project']).resolve() == ROOT.resolve()
     assert data['world'] == '/Game/Maps/L_RokUnityGameAppCity'
     assert data['entry_kind'].startswith('HUD command_line_reference research_reference')
-    assert data['native_baseline_evidence'] == NATIVE.relative_to(ROOT).as_posix()
-    assert data['native_power_supplement_evidence'] == POWER_NATIVE.relative_to(ROOT).as_posix()
-    assert data['native_power_fixture'] == POWER_FIXTURE.relative_to(ROOT).as_posix()
-    assert data['native_power_verified'] == POWER_NATIVE_VERIFY.relative_to(ROOT).as_posix()
+    assert data['native_baseline_evidence'] == label(NATIVE)
+    assert data['native_power_supplement_evidence'] == label(POWER_NATIVE)
+    assert data['native_power_fixture'] == label(POWER_FIXTURE)
+    assert data['native_power_verified'] == label(POWER_NATIVE_VERIFY)
     assert not data['real_academy_entry_verified']
     assert not data['account_research_state_synced'] and not data['research_queue_synced']
     assert data['capture_includes_slate_ui'] and data['expected_capture_count'] == len(STEMS)
@@ -465,7 +466,7 @@ def verify(run):
     gray_evidence = gray_material_source()
     capture_verifier_sha256 = None
     for relative, info in data['input_hashes'].items():
-        path = (ROOT / relative).resolve()
+        path = resolve(relative).resolve()
         if relative == 'Scripts/VerifyRokResearchRuntime.py':
             # This script is an offline verifier, not a runtime render input.
             # Preserve the audit-captured identity and report this revision.

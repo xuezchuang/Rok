@@ -1,5 +1,7 @@
 #include "RokCommanderSyntheticSlateAuditSubsystem.h"
 
+
+#include "../RokDataPaths.h"
 #include "../RokMainHudWidget.h"
 #include "../RokPlayerController.h"
 #include "../RokServerSubsystem.h"
@@ -224,7 +226,7 @@ bool URokCommanderSyntheticSlateAuditSubsystem::Begin()
     Inputs = MakeShared<FJsonObject>();
     for (const RokCommanderSyntheticAudit::FInputPin& Pin : RokCommanderSyntheticAudit::Pinned)
     {
-        const FString Actual = RokCommanderSyntheticAudit::FileSha(FPaths::ProjectDir() / Pin.Path);
+        const FString Actual = RokCommanderSyntheticAudit::FileSha(RokDataPaths::ResolveProjectPath(Pin.Path));
         if (!Expect(Actual == Pin.Sha, TEXT("Pinned Run14 product/map/local-data input differs"))) return false;
         Inputs->SetStringField(Pin.Path, Actual);
     }

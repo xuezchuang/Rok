@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 
 from PIL import Image
+from rok_data_paths import DATA_ROOT, label
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "ref/client-unity/Assets"
@@ -17,7 +18,7 @@ MATERIAL = ASSETS / "BundleAssets/Scene/City/city_function/map_building.mat"
 SHADER = ASSETS / "BundleAssets/Map/Building/map_building_with_mask-5.shader"
 MASK_SCRIPT = ASSETS / "Scripts/Client/Compoment/MaskSprite.cs"
 MODEL_CSV = ROOT / "ref/config-tables/编译客户端配置/CSV/BuildingModelData.csv"
-MODEL_CATALOG = ROOT / "Saved/RokUnityMigration/CityConstructionSources/catalog.json"
+MODEL_CATALOG = DATA_ROOT / "CityConstructionSources/catalog.json"
 OUT = ROOT / "Saved/RokUnityMigration/AcademyVisualSource/catalog.json"
 
 
@@ -26,7 +27,7 @@ def sha(path):
 
 
 def rel(path):
-    return path.relative_to(ROOT).as_posix()
+    return label(path)
 
 
 def guid(path):

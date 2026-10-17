@@ -9,6 +9,7 @@ import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
+from rok_data_paths import DATA_ROOT, label, resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT = ROOT / "Saved/UnityExpeditionAnimationProbeV1"
@@ -154,7 +155,7 @@ def sha(path: Path) -> str:
 
 def read_expected_clip(clip_row: tuple[str, str, str, str, str]) -> dict[str, object]:
     clip_id, source_rel, guid, controller_name, state_name = clip_row
-    source = ROOT / source_rel
+    source = resolve(source_rel)
     text = source.read_text(encoding="utf-8-sig")
     curves = yaml_sections(text)
     sample_rate_match = re.search(r"^  m_SampleRate: ([0-9.]+)$", text, re.M)
@@ -166,7 +167,7 @@ def read_expected_clip(clip_row: tuple[str, str, str, str, str]) -> dict[str, ob
 
 
 def read_controller_graph(name: str, source_rel: str) -> dict[str, object]:
-    text = (ROOT / source_rel).read_text(encoding="utf-8-sig")
+    text = resolve(source_rel).read_text(encoding="utf-8-sig")
     states = []
     for block in re.findall(r"(?ms)^--- !u!1102 .*?\nAnimatorState:\n(.*?)(?=^--- !u!|\Z)", text):
         state_name = re.search(r"^  m_Name: (.+)$", block, re.M)
@@ -175,7 +176,7 @@ def read_controller_graph(name: str, source_rel: str) -> dict[str, object]:
             states.append({"name": state_name.group(1), "motion_guid": motion_guid.group(1) if motion_guid else ""})
     if not {"Show", "Hide"}.issubset({s["name"] for s in states}):
         raise RuntimeError(f"controller state graph missing Show/Hide in {source_rel}")
-    source = ROOT / source_rel
+    source = resolve(source_rel)
     return {"name": name, "source_path": source_rel, "sha256": sha(source), "asset_path": "Assets/Source/" + Path(source_rel).name, "states": states}
 
 
@@ -186,7 +187,7 @@ def revise_native_report() -> int:
         raise SystemExit(f"refusing to overwrite revision report: {REPORT_REVISION2}")
     original = json.loads(REPORT.read_text(encoding="utf-8"))
     for row in original["source_files"]:
-        if sha(ROOT / row["path"]) != row["sha256"]:
+        if sha(resolve(row["path"])) != row["sha256"]:
             raise RuntimeError(f"pinned Unity source changed: {row['path']}")
     if len(original.get("project_settings_files", [])) != 19:
         raise RuntimeError("original report does not pin all 19 ProjectSettings files")
@@ -200,12 +201,12 @@ def revise_native_report() -> int:
         "schema": "rok.expedition_animation_probe_prepare.v2",
         "revision": 2,
         "status": "READY_FOR_ROOT_NATIVE2_RUN",
-        "supersedes_prepare_report": REPORT.relative_to(ROOT).as_posix(),
+        "supersedes_prepare_report": label(REPORT),
         "expected_clip_curves": [read_expected_clip(row) for row in CLIPS],
         "controller_state_graphs": [read_controller_graph(name, path) for name, path in CONTROLLERS.items()],
         "exporter_sha256": sha(exporter),
         "exporter_meta_sha256": sha(exporter_meta),
-        "scripts": [{"path": prep_script.relative_to(ROOT).as_posix(), "sha256": sha(prep_script)}, {"path": verify_script.relative_to(ROOT).as_posix(), "sha256": sha(verify_script)}],
+        "scripts": [{"path": label(prep_script), "sha256": sha(prep_script)}, {"path": label(verify_script), "sha256": sha(verify_script)}],
         "native1_diagnostic": {
             "path": "Saved/UnityExpeditionAnimationProbeV1/OutputRuns/20261009_012300_251_46884/native_animation_curves.json",
             "sha256": sha(ROOT / "Saved/UnityExpeditionAnimationProbeV1/OutputRuns/20261009_012300_251_46884/native_animation_curves.json"),
@@ -221,7 +222,7 @@ def revise_native_report() -> int:
     updated["root_command"] = updated["root_commands"]
     REPORT_REVISION2.parent.mkdir(parents=True, exist_ok=True)
     REPORT_REVISION2.write_text(json.dumps(updated, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps({"status": updated["status"], "report": REPORT_REVISION2.relative_to(ROOT).as_posix(), "report_sha256": sha(REPORT_REVISION2), "clip_curve_total": sum(c["float_curve_count"] for c in updated["expected_clip_curves"])}))
+    print(json.dumps({"status": updated["status"], "report": label(REPORT_REVISION2), "report_sha256": sha(REPORT_REVISION2), "clip_curve_total": sum(c["float_curve_count"] for c in updated["expected_clip_curves"])}))
     return 0
 
 
@@ -337,7 +338,7 @@ def revise_editor_bindings_report() -> int:
         raise SystemExit(f"refusing to overwrite revision3 report: {REPORT_REVISION3}")
     previous = json.loads(REPORT_REVISION2.read_text(encoding="utf-8"))
     for row in previous["source_files"]:
-        if sha(ROOT / row["path"]) != row["sha256"]:
+        if sha(resolve(row["path"])) != row["sha256"]:
             raise RuntimeError(f"pinned Unity source changed: {row['path']}")
     native2 = PROJECT / "OutputRuns/20261009_013025_916_42504/native_animation_curves.json"
     if not native2.is_file():
@@ -347,18 +348,18 @@ def revise_editor_bindings_report() -> int:
         "schema": "rok.expedition_animation_probe_prepare.v3",
         "revision": 3,
         "status": "SOURCE_EDITOR_BINDINGS_NATIVE2_READY_FOR_VERIFICATION",
-        "supersedes_prepare_report": REPORT_REVISION2.relative_to(ROOT).as_posix(),
+        "supersedes_prepare_report": label(REPORT_REVISION2),
         "supersedes_prepare_sha256": sha(REPORT_REVISION2),
         "expected_clip_curves": [read_expected_clip(row) for row in CLIPS],
         "binding_source_rule": "m_EditorCurves defines the float binding set returned by AnimationUtility.GetCurveBindings; each editor keyframe is checked against m_FloatCurves/m_ScaleCurves. centerHide's serialized constant z=1 is not an editor binding.",
         "native2_diagnostic": {
-            "path": native2.relative_to(ROOT).as_posix(),
+            "path": label(native2),
             "sha256": sha(native2),
             "status": "root Unity export exit 0; retained raw, now verifiable with source editor bindings",
         },
         "source_preview_package": {
             "path": "Saved/RokUnityMigration/expedition_stage_preview.json",
-            "sha256": sha(ROOT / "Saved/RokUnityMigration/expedition_stage_preview.json"),
+            "sha256": sha(DATA_ROOT / "expedition_stage_preview.json"),
         },
         "scripts": [
             {"path": "Scripts/PrepareRokUnityExpeditionAnimationProbe.py", "sha256": sha(ROOT / "Scripts/PrepareRokUnityExpeditionAnimationProbe.py")},
@@ -367,7 +368,7 @@ def revise_editor_bindings_report() -> int:
         "acceptance_limit": "source curve oracle and sampled AnimationCurve.Evaluate only; no Animator execution timing or full Unity UI visual proof",
     })
     REPORT_REVISION3.write_text(json.dumps(updated, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps({"status": updated["status"], "report": REPORT_REVISION3.relative_to(ROOT).as_posix(),
+    print(json.dumps({"status": updated["status"], "report": label(REPORT_REVISION3),
                       "report_sha256": sha(REPORT_REVISION3),
                       "source_editor_binding_total": sum(c["float_curve_count"] for c in updated["expected_clip_curves"])}))
     return 0
@@ -400,7 +401,7 @@ def main() -> int:
     clips_contract = []
     expected_clips = []
     for clip_id, source_rel, guid, controller_name, state_name in CLIPS:
-        source = ROOT / source_rel
+        source = resolve(source_rel)
         meta = ROOT / f"{source_rel}.meta"
         if not source.is_file() or not meta.is_file():
             raise FileNotFoundError(f"missing pinned Unity clip or meta: {source_rel}")
@@ -408,7 +409,7 @@ def main() -> int:
         if not found or found.group(1) != guid:
             raise RuntimeError(f"source GUID mismatch: {source_rel}")
         for p in (source, meta):
-            sources[p.relative_to(ROOT).as_posix()] = {"path": p.relative_to(ROOT).as_posix(), "sha256": sha(p)}
+            sources[label(p)] = {"path": label(p), "sha256": sha(p)}
         asset_path = "Assets/Source/" + Path(source_rel).name
         text = source.read_text(encoding="utf-8-sig")
         curves = yaml_sections(text)
@@ -422,12 +423,12 @@ def main() -> int:
 
     controller_rows = []
     for name, source_rel in CONTROLLERS.items():
-        source = ROOT / source_rel
+        source = resolve(source_rel)
         meta = ROOT / f"{source_rel}.meta"
         if not source.is_file() or not meta.is_file():
             raise FileNotFoundError(f"missing controller or meta: {source_rel}")
         for p in (source, meta):
-            sources[p.relative_to(ROOT).as_posix()] = {"path": p.relative_to(ROOT).as_posix(), "sha256": sha(p)}
+            sources[label(p)] = {"path": label(p), "sha256": sha(p)}
         text = source.read_text(encoding="utf-8-sig")
         states = []
         for block in re.findall(r"(?ms)^--- !u!1102 .*?\nAnimatorState:\n(.*?)(?=^--- !u!|\Z)", text):
@@ -440,7 +441,7 @@ def main() -> int:
             raise RuntimeError(f"controller state graph missing Show/Hide in {source_rel}: {state_names}")
         controller_rows.append({"name": name, "source_path": source_rel, "sha256": sha(source), "asset_path": "Assets/Source/" + Path(source_rel).name, "states": states})
 
-    mediator = ROOT / MEDIATOR
+    mediator = resolve(MEDIATOR)
     if not mediator.is_file():
         raise FileNotFoundError(f"missing source view mediator: {MEDIATOR}")
     sources[MEDIATOR] = {"path": MEDIATOR, "sha256": sha(mediator)}
@@ -454,7 +455,7 @@ def main() -> int:
         shutil.copy2(package_src / name, PROJECT / "Packages" / name)
     copied = []
     for row in [*clips_contract, *[{"id": n, "source_path": p, "sha256": sources[p]["sha256"], "asset_path": "Assets/Source/" + Path(p).name} for n, p in CONTROLLERS.items()]]:
-        source = ROOT / row["source_path"]
+        source = resolve(row["source_path"])
         dest = PROJECT / row["asset_path"]
         shutil.copy2(source, dest)
         shutil.copy2(ROOT / f"{row['source_path']}.meta", Path(str(dest) + ".meta"))
@@ -474,9 +475,9 @@ def main() -> int:
     prep_script = ROOT / "Scripts/PrepareRokUnityExpeditionAnimationProbe.py"
     verify_script = ROOT / "Scripts/VerifyRokUnityExpeditionAnimationProbe.py"
     unity_editor = r"C:\Program Files\Unity\Hub\Editor\2019.4.28f1c1\Editor\Unity.exe"
-    prep = {"schema": "rok.expedition_animation_probe_prepare.v1", "status": "PREPARED_NO_UNITY_RUN", "prepared_utc": datetime.now(timezone.utc).isoformat(), "isolated_project": PROJECT.relative_to(ROOT).as_posix(), "base_project": BASE_PROJECT.relative_to(ROOT).as_posix(), "project_settings_files": project_files, "project_settings_count": len(project_files), "packages": package_files, "source_files": list(sources.values()), "source_trace": [{"path": MEDIATOR, "sha256": sources[MEDIATOR]["sha256"], "line_refs": [216, 229, 471, 477, 480, 483, 488, 491], "role": "view mode dispatch: Normal plays preview Hide and side/center Show; Preview plays preview Show and side/center Hide; Hide sends all three to Hide"}], "controller_state_graphs": controller_rows, "expected_clip_curves": expected_clips, "copied_assets": copied, "contract_path": contract_path.relative_to(ROOT).as_posix(), "contract_sha256": sha(contract_path), "exporter_path": exporter.relative_to(ROOT).as_posix(), "exporter_sha256": sha(exporter), "exporter_meta_sha256": sha(exporter_meta), "scripts": [{"path": prep_script.relative_to(ROOT).as_posix(), "sha256": sha(prep_script)}, {"path": verify_script.relative_to(ROOT).as_posix(), "sha256": sha(verify_script)}], "scope": "four pinned AnimationClips and two referenced AnimatorControllers only; no GameApp, UI prefab, login/account, network, or runtime visual scene", "unity_version_target": "2019.4.28f1c1", "root_command": f'& "{unity_editor}" -batchmode -projectPath "{PROJECT}" -executeMethod ExportRokUnityExpeditionAnimationProbe.Run -logFile "{ROOT / "Saved/Logs/UnityExpeditionAnimationProbe_<UTC>.log"}"', "verify_command_template": f'python -X utf8 "{verify_script}" --run "{PROJECT / "OutputRuns/<timestamp_pid>"}"', "acceptance_limit": "curve/source oracle only; does not establish Animator execution timing or full Unity UI screenshot fidelity"}
+    prep = {"schema": "rok.expedition_animation_probe_prepare.v1", "status": "PREPARED_NO_UNITY_RUN", "prepared_utc": datetime.now(timezone.utc).isoformat(), "isolated_project": label(PROJECT), "base_project": label(BASE_PROJECT), "project_settings_files": project_files, "project_settings_count": len(project_files), "packages": package_files, "source_files": list(sources.values()), "source_trace": [{"path": MEDIATOR, "sha256": sources[MEDIATOR]["sha256"], "line_refs": [216, 229, 471, 477, 480, 483, 488, 491], "role": "view mode dispatch: Normal plays preview Hide and side/center Show; Preview plays preview Show and side/center Hide; Hide sends all three to Hide"}], "controller_state_graphs": controller_rows, "expected_clip_curves": expected_clips, "copied_assets": copied, "contract_path": label(contract_path), "contract_sha256": sha(contract_path), "exporter_path": label(exporter), "exporter_sha256": sha(exporter), "exporter_meta_sha256": sha(exporter_meta), "scripts": [{"path": label(prep_script), "sha256": sha(prep_script)}, {"path": label(verify_script), "sha256": sha(verify_script)}], "scope": "four pinned AnimationClips and two referenced AnimatorControllers only; no GameApp, UI prefab, login/account, network, or runtime visual scene", "unity_version_target": "2019.4.28f1c1", "root_command": f'& "{unity_editor}" -batchmode -projectPath "{PROJECT}" -executeMethod ExportRokUnityExpeditionAnimationProbe.Run -logFile "{ROOT / "Saved/Logs/UnityExpeditionAnimationProbe_<UTC>.log"}"', "verify_command_template": f'python -X utf8 "{verify_script}" --run "{PROJECT / "OutputRuns/<timestamp_pid>"}"', "acceptance_limit": "curve/source oracle only; does not establish Animator execution timing or full Unity UI screenshot fidelity"}
     REPORT.write_text(json.dumps(prep, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps({"status": prep["status"], "project": prep["isolated_project"], "clips": len(clips_contract), "source_files": len(sources), "report": REPORT.relative_to(ROOT).as_posix(), "report_sha256": sha(REPORT)}, ensure_ascii=False))
+    print(json.dumps({"status": prep["status"], "project": prep["isolated_project"], "clips": len(clips_contract), "source_files": len(sources), "report": label(REPORT), "report_sha256": sha(REPORT)}, ensure_ascii=False))
     return 0
 
 

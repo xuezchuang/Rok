@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from rok_data_paths import resolve
 
 from PIL import Image
 
@@ -45,7 +46,7 @@ def sha(path: Path) -> str:
 
 
 def project_file(value: str) -> Path:
-    path = (ROOT / value).resolve()
+    path = (resolve(value)).resolve()
     need(path.is_relative_to(ROOT.resolve()), f"Path escapes project: {value}")
     return path
 

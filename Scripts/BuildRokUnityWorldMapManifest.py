@@ -6,6 +6,7 @@ import re
 import struct
 from collections import defaultdict
 from pathlib import Path
+from rok_data_paths import resolve
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -786,7 +787,7 @@ def resolved_prefab_record(
     )
     address_guid = address_index.get(prefab_id, "")
     address_path = guid_index.get(address_guid, "")
-    primary = PROJECT_ROOT / address_path if address_path else None
+    primary = resolve(address_path) if address_path else None
     dependencies = []
     if primary and primary.exists():
         text = primary.read_text(encoding="utf-8", errors="ignore")

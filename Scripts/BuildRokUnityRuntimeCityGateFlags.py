@@ -14,6 +14,7 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 import BuildRokUnityRuntimeCitySupportLayers as source
+from rok_data_paths import DATA_ROOT
 
 
 UNITY_ROOT = source.UNITY_ROOT
@@ -22,7 +23,7 @@ MIGRATION_ROOT = PROJECT_ROOT / "Saved" / "RokUnityMigration"
 OUTPUT_ROOT = MIGRATION_ROOT / "UnityRuntimeCityGateFlags"
 MANIFEST_PATH = MIGRATION_ROOT / "unity_runtime_city_gate_flags.json"
 VERIFY_PATH = MIGRATION_ROOT / "unity_runtime_city_gate_flags_verify.json"
-INITIAL_CITY_STATE_PATH = MIGRATION_ROOT / "unity_initial_city_state.json"
+INITIAL_CITY_STATE_PATH = DATA_ROOT / "unity_initial_city_state.json"
 
 PREFAB_PATH = (
     UNITY_ASSETS

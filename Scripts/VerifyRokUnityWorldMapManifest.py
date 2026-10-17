@@ -3,6 +3,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
+from rok_data_paths import resolve
 
 from BuildRokUnityWorldMapManifest import parse_world_environment
 
@@ -38,7 +39,7 @@ def check_source(role, record, failures):
     if not relative_path:
         failures.append(f"Source {role} has no path")
         return
-    path = PROJECT_ROOT / relative_path
+    path = resolve(relative_path)
     if not path.exists():
         failures.append(f"Source {role} is missing: {relative_path}")
         return
@@ -261,7 +262,7 @@ def main():
                 "MapTile Addressables"
             )
         source_path = record.get("source_prefab_path", "")
-        if not source_path or not (PROJECT_ROOT / source_path).exists():
+        if not source_path or not (resolve(source_path)).exists():
             failures.append(
                 f"Full-scene source prefab is missing for {prefab_id}"
             )
@@ -310,7 +311,7 @@ def main():
 
     camera = manifest.get("map_tactical_camera", {})
     camera_source_path = (
-        PROJECT_ROOT / sources.get("camera_parameters", {}).get("path", "")
+        resolve(sources.get("camera_parameters", {}).get("path", ""))
     )
     source_camera_keys = parse_camera_source(
         camera_source_path,
@@ -439,7 +440,7 @@ def main():
         if not record.get("address_guid"):
             failures.append(f"{prefab_id} has no MapTile Addressables GUID")
         source_path = record.get("source_prefab_path", "")
-        if not source_path or not (PROJECT_ROOT / source_path).exists():
+        if not source_path or not (resolve(source_path)).exists():
             failures.append(f"Missing resolved source prefab for {prefab_id}")
 
     for tile in selected_tiles.values():

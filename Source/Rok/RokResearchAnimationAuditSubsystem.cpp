@@ -1,5 +1,6 @@
 #include "RokResearchAnimationAuditSubsystem.h"
 #include "RokBuildingUpgradeSubsystem.h"
+#include "RokDataPaths.h"
 #include "RokMainHudWidget.h"
 #include "RokResearchScreenWidget.h"
 #include "RokTrainArmyMeshData.h"
@@ -207,7 +208,7 @@ bool URokResearchAnimationAuditSubsystem::Begin()
     for (const TCHAR* Relative:Required)
     {
         TArray<uint8> Bytes;
-        if (!Expect(FFileHelper::LoadFileToArray(Bytes,*(FPaths::ProjectDir()/Relative))
+        if (!Expect(FFileHelper::LoadFileToArray(Bytes,*(RokDataPaths::ResolveProjectPath(Relative)))
             && !Bytes.IsEmpty(),TEXT("Required animation source input unavailable"))) return false;
         auto File=MakeShared<FJsonObject>(); File->SetNumberField(TEXT("bytes"),Bytes.Num());
         const FString Hash=RokTrainArmyMesh::Sha256(Bytes);

@@ -9,6 +9,7 @@
 #include "Components/Button.h"
 #include "Components/Image.h"
 #include "Components/TextBlock.h"
+#include "../RokDataPaths.h"
 #include "../RokTaskRewardPreviewData.h"
 #include "../RokUnityFeatureScreenWidget.h"
 
@@ -44,7 +45,7 @@ bool FRokTaskRewardPreviewTest::RunTest(const FString&)
 		TestEqual(TEXT("Source icon height"), Rows[Index].IconRect.Height(), 80);
 	}
 	TArray<uint8> SourceBytes;
-	const FString CatalogPath = FPaths::ProjectSavedDir() / TEXT("RokUnityMigration/task_reward_preview.json");
+	const FString CatalogPath = RokDataPaths::Resolve(TEXT("task_reward_preview.json"));
 	if (!TestTrue(TEXT("Read generated catalog without modifying it"),
 		FFileHelper::LoadFileToArray(SourceBytes, *CatalogPath))) return false;
 	if (!TestTrue(TEXT("Exact source bytes pass pinned validation"),

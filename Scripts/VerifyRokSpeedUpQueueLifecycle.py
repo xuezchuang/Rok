@@ -6,6 +6,7 @@ import json
 import re
 import struct
 from pathlib import Path
+from rok_data_paths import resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -27,7 +28,7 @@ def main() -> None:
     checks, failures, sources = [], [], []
 
     def read(relative: str) -> str:
-        raw = (ROOT / relative).read_bytes()
+        raw = resolve(relative).read_bytes()
         sources.append({'path': relative, 'sha256': hashlib.sha256(raw).hexdigest()})
         return raw.decode('utf-8-sig', errors='replace')
 

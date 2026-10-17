@@ -1,4 +1,6 @@
 #include "RokAllianceRankingReadonlyCatalog.h"
+
+#include "RokDataPaths.h"
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonSerializer.h"
 #include "Misc/FileHelper.h"
@@ -47,7 +49,7 @@ bool RokAllianceRankingReadonlyCatalog::Load(TArray<FRokLeaderboardRow>& Rows, F
 {
 	Rows.Reset();
 	Error.Reset();
-	const FString Path = FPaths::ProjectSavedDir() / TEXT("RokUnityMigration/alliance_ranking_readonly_catalog.json");
+	const FString Path = RokDataPaths::Resolve(TEXT("alliance_ranking_readonly_catalog.json"));
 	FString Json;
 	TSharedPtr<FJsonObject> Root;
 	const TArray<TSharedPtr<FJsonValue>>* Entries = nullptr;

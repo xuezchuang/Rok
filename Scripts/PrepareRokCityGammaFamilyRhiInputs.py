@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from rok_data_paths import resolve
 
 from PIL import Image
 
@@ -99,7 +100,7 @@ def main() -> None:
             "Unexpected family order")
     source_by_probe = {}
     for item in contract["source_files"]:
-        source = ROOT / item["source_path"]
+        source = resolve(item["source_path"])
         fail_if(not source.is_file() or sha(source) != item["source_sha256"],
                 f"Source file hash differs: {item['source_path']}")
         source_by_probe[item["probe_path"]] = item

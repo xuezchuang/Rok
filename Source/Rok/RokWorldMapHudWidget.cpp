@@ -1,4 +1,5 @@
 #include "RokWorldMapHudWidget.h"
+#include "RokDataPaths.h"
 #include "RokPowerGainWidget.h"
 #include "RokMainInterfaceModuleAnimation.h"
 #include "RokWorldMapHomeIndicator.h"
@@ -2802,7 +2803,7 @@ void URokWorldMapHudWidget::ShowWorldObjectInfo(AActor* Actor)
 		const TSharedPtr<FJsonObject>* Descriptions = nullptr;
 		const TSharedPtr<FJsonObject>* Description = nullptr;
 		FString Text;
-		if (FFileHelper::LoadFileToString(Json, *(FPaths::ProjectSavedDir() / TEXT("RokUnityMigration/world_resource_descriptions.json")))
+		if (FFileHelper::LoadFileToString(Json, *(RokDataPaths::Resolve(TEXT("world_resource_descriptions.json"))))
 			&& FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json), Root) && Root.IsValid()
 			&& Root->TryGetObjectField(TEXT("descriptions"), Descriptions)
 			&& (*Descriptions)->TryGetObjectField(EntityActor->GetEntityKind(), Description)
@@ -3857,8 +3858,7 @@ int32 URokWorldMapHudWidget::ReadInitialCityHallLevel()
 	// The world-map city nameplate shows the city-hall level from the
 	// initial city state manifest (building type 1 / 市政厅).
 	const FString ManifestPath = FPaths::ConvertRelativePathToFull(
-		FPaths::ProjectDir(),
-		TEXT("Saved/RokUnityMigration/unity_initial_city_state.json"));
+		RokDataPaths::Resolve(TEXT("unity_initial_city_state.json")));
 	FString JsonText;
 	if (!FFileHelper::LoadFileToString(JsonText, *ManifestPath))
 	{

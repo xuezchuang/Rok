@@ -12,6 +12,7 @@ import math
 import re
 import struct
 from pathlib import Path
+from rok_data_paths import DATA_ROOT, resolve
 
 ROOT = Path(__file__).resolve().parents[1]
 NATIVE = ROOT / "Saved/UnityConstructionScaffoldProbe/OutputRuns/20261008_223208_818_37556/native_scaffold_render.json"
@@ -19,6 +20,8 @@ CONTRACT = ROOT / "Saved/UnityConstructionScaffoldProbe/source_contract.json"
 PLAN = ROOT / "Saved/RokUnityMigration/BatchReview20261009ConstructionVisual/scaffold_ue_next_slice_plan.json"
 OUT = ROOT / "Saved/RokUnityMigration/ConstructionScaffoldAssets"
 PREPARED = OUT / "PreparedV1"
+# JSON loaded at runtime by URokLocalConstructionScaffoldComponent; prepared sources stay under OUT.
+DATA = DATA_ROOT / "ConstructionScaffoldAssets"
 NATIVE_SHA = "b0855cba2b8f68fd620fa6c00e9417672af3faa7e5de25d35a75a3955d7c9e0b"
 CONTRACT_SHA = "04e3d29acfef05aa791d262b62ff4193954a5edf2629c823aa53907a31b17013"
 PACKAGE = "/Game/RokUnity/City/ConstructionScaffold/V1"
@@ -50,7 +53,7 @@ def identity():
     # eight sprites/masks and four clips. Pin the current read-only ref tree,
     # not merely the historical native JSON's recorded paths.
     for item in contract["source_files"]:
-        path = (ROOT / item["source_path"]).resolve()
+        path = resolve(item["source_path"]).resolve()
         meta = Path(str(path) + ".meta")
         if (not path.is_relative_to((ROOT / "ref/client-unity").resolve())
                 or not path.is_file() or not meta.is_file()
@@ -62,7 +65,7 @@ def identity():
 
 def checked_source(item: dict, expected_file_id: int):
     relative = item["source_path"]
-    path = (ROOT / relative).resolve()
+    path = resolve(relative).resolve()
     if not path.is_relative_to((ROOT / "ref/client-unity").resolve()):
         raise RuntimeError("Scaffold source escaped Unity reference tree")
     meta = Path(str(path) + ".meta")
@@ -199,7 +202,7 @@ def prepare():
                 "coordinate_mapping": "Unity local Sprite (x,y) -> UE local (-x,0,y)*100; OBJ faces (c,b,a); prefab transform separate",
                 "rendering_limit": "Raw input textures/meshes are not source Gamma map_building_with_mask-5 compositing; no main-view or particle acceptance",
                 "layers": rows}
-    target = OUT / "prepared_manifest.json"
+    target = DATA / "prepared_manifest.json"
     write_once(target, (json.dumps(manifest,ensure_ascii=False,indent=2)+"\n").encode())
     return target
 

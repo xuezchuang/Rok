@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from BuildRokUnityEconomyCatalog import localized_text, read_language_lookup
+from rok_data_paths import DATA_ROOT, label
 
 ROOT = Path(__file__).resolve().parents[1]
 CSV = ROOT / "ref/config-tables/编译客户端配置/CSV/Expedition.csv"
@@ -19,7 +20,7 @@ CLIPS = [
     UI / "UIAnimation/UA_ExpeditionTask_centerShow.anim",
     UI / "UIAnimation/UA_ExpeditionTask_centerHide.anim",
 ]
-OUTPUT = ROOT / "Saved/RokUnityMigration/expedition_stage_preview.json"
+OUTPUT = DATA_ROOT / "expedition_stage_preview.json"
 
 
 def digest(path: Path) -> str:
@@ -94,8 +95,8 @@ def build() -> dict:
         "source_stage_count": len(rows),
         "account_state": "unsynced",
         "preview_only": True,
-        "source_files_sha256": {str(path.relative_to(ROOT)).replace("\\", "/"): digest(path) for path in sources},
-        "flag_prefab": str(FLAG_PREFAB.relative_to(ROOT)).replace("\\", "/"),
+        "source_files_sha256": {label(path): digest(path) for path in sources},
+        "flag_prefab": label(FLAG_PREFAB),
         "flag_visual_asset_status": "source_guid_only_ue_texture_not_imported",
         "animation_clips_sha256": clips,
         "animation_zero_tangent_hermite_curves": curves,

@@ -1,5 +1,7 @@
 #include "RokStoneDepositData.h"
 
+#include "RokDataPaths.h"
+
 #include "Dom/JsonObject.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
@@ -137,7 +139,7 @@ bool FRokStoneDepositData::Load()
 {
 	*this = FRokStoneDepositData();
 	FString Text;
-	return FFileHelper::LoadFileToString(Text, *(FPaths::ProjectSavedDir() / TEXT("RokUnityMigration/unity_stone_deposit.json"))) && LoadJson(Text);
+	return FFileHelper::LoadFileToString(Text, *(RokDataPaths::Resolve(TEXT("unity_stone_deposit.json")))) && LoadJson(Text);
 }
 
 bool FRokStoneDepositData::LoadJson(const FString& Text)
@@ -180,8 +182,8 @@ bool FRokStoneDepositData::LoadJson(const FString& Text)
 		Item.Position = Vector3(Object, TEXT("position"));
 		Item.Size = Vector2(Object, TEXT("size"));
 		Item.Priority = Object->GetNumberField(TEXT("priority"));
-		Item.TexturePath = FPaths::ProjectDir() / Sprite->GetObjectField(TEXT("texture"))->GetStringField(TEXT("path"));
-		Item.MaskPath = FPaths::ProjectDir() / Sprite->GetObjectField(TEXT("mask"))->GetStringField(TEXT("path"));
+		Item.TexturePath = RokDataPaths::ResolveProjectPath(Sprite->GetObjectField(TEXT("texture"))->GetStringField(TEXT("path")));
+		Item.MaskPath = RokDataPaths::ResolveProjectPath(Sprite->GetObjectField(TEXT("mask"))->GetStringField(TEXT("path")));
 		Item.SpritePosition = Vector3(Sprite, TEXT("position"));
 		Item.SpriteRight = Vector3(Sprite, TEXT("right"));
 		Item.SpriteUp = Vector3(Sprite, TEXT("up"));

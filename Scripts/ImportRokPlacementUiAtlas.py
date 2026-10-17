@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from rok_data_paths import resolve
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -67,8 +68,8 @@ def main() -> None:
 
     png_copy = None
     for source in manifest.get("sources", []):
-        original = ROOT / source["source_path"]
-        copy = ROOT / source["copy_path"]
+        original = resolve(source["source_path"])
+        copy = resolve(source["copy_path"])
         if not original.is_file() or not copy.is_file():
             raise RuntimeError(f"Source/copy missing: {source.get('role')}")
         if sha256(original) != source["source_sha256"] or sha256(copy) != source["copy_sha256"]:

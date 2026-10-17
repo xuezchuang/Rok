@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageDraw
+from rok_data_paths import DATA_ROOT
 
 ROOT = Path(__file__).resolve().parents[1]
 AUDITS = ROOT / "Saved/RokUnityMigration/BuildingPreviewGlowAudit"
@@ -110,7 +111,7 @@ def verify(directory):
     assert [a["button"] for a in data["actions"]] == [
         "BuildingUpgradeButton", "Type2CloseButton", "BuildingUpgradeButton", "Type2CloseButton"
     ]
-    source_path = ROOT / "Saved/RokUnityMigration/BuildingPreviewGlow/glow_data.json"
+    source_path = DATA_ROOT / "BuildingPreviewGlow/glow_data.json"
     source = json.loads(source_path.read_text(encoding="utf-8-sig"))
     assert source["schema"] == "rok.building.preview_glow.data.v1" and source["duration"] == 2
     assert [layer["name"] for layer in source["layers"]] == ["img_star003_2", "img_star003_1"]

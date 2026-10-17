@@ -1,5 +1,7 @@
 #include "RokPowerGainWidget.h"
 
+#include "RokDataPaths.h"
+
 #include "Dom/JsonObject.h"
 #include "Components/PanelWidget.h"
 #include "Engine/Texture2D.h"
@@ -113,7 +115,7 @@ bool URokPowerGainWidget::LoadSource()
 	if (Materials.Num() == 2) return true;
 	Mesh = FDraw(); ParticleFrames.Reset(); Textures.Reset(); Materials.Reset(); Brushes.Reset();
 	FString Json;
-	if (!FFileHelper::LoadFileToString(Json, *(FPaths::ProjectSavedDir() / TEXT("RokUnityMigration/PowerGain/source_geometry.json")))) return false;
+	if (!FFileHelper::LoadFileToString(Json, *(RokDataPaths::Resolve(TEXT("PowerGain/source_geometry.json"))))) return false;
 	TSharedPtr<FJsonObject> Root;
 	if (!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json), Root) || !Root.IsValid()) return false;
 	if (Root->GetStringField(TEXT("unityVersion")) != TEXT("2019.4.28f1c1") || Root->GetNumberField(TEXT("lifetime")) != 1) return false;

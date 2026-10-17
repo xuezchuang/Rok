@@ -1,4 +1,5 @@
 #include "RokHelpAuditSubsystem.h"
+#include "RokDataPaths.h"
 #include "RokHelpSourceTextWidget.h"
 #include "RokHelpWidget.h"
 #include "RokMainHudWidget.h"
@@ -74,7 +75,7 @@ bool URokHelpAuditSubsystem::Begin()
     auto* Runtime=GetWorld()->GetGameInstance()->GetSubsystem<URokUnityRuntimeStateSubsystem>();auto* Economy=GetWorld()->GetSubsystem<URokBuildingUpgradeSubsystem>();
     if(!Expect(Hud.IsValid()&&Hud->IsVisible()&&Modal.IsValid()&&Feature.IsValid()&&!Modal->IsModalOpen()&&!Feature->IsScreenOpen()&&Runtime&&Economy,TEXT("City runtime hosts or source-state subsystems unavailable")))return false;
     FString CatalogText;TSharedPtr<FJsonObject> Catalog;
-    if(!FFileHelper::LoadFileToString(CatalogText,*(FPaths::ProjectSavedDir()/TEXT("RokUnityMigration/help_catalog.json")))||!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(CatalogText),Catalog)||!Catalog.IsValid())
+    if(!FFileHelper::LoadFileToString(CatalogText,*(RokDataPaths::Resolve(TEXT("help_catalog.json"))))||!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(CatalogText),Catalog)||!Catalog.IsValid())
     {Finish(TEXT("Cannot independently read source FAQ text expectations"));return false;}
     const TArray<TSharedPtr<FJsonValue>>* Rows=nullptr;
     if(!Catalog->TryGetArrayField(TEXT("entries"),Rows)||Rows->Num()!=70){Finish(TEXT("Expected exactly 70 source FAQ texts"));return false;}

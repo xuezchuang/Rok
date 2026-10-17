@@ -2,6 +2,7 @@ import json
 import re
 from collections import Counter
 from pathlib import Path
+from rok_data_paths import resolve
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -78,7 +79,7 @@ def load_json(path, failures):
 
 
 def read_source(repo_path, failures):
-    path = PROJECT_ROOT / repo_path
+    path = resolve(repo_path)
     if not path.is_file():
         failures.append(f"Missing declared UE source: {repo_path}")
         return ""

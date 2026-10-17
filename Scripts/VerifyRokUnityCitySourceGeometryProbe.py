@@ -10,6 +10,7 @@ import os
 import struct
 import subprocess
 from pathlib import Path
+from rok_data_paths import resolve
 
 from PIL import Image
 
@@ -34,7 +35,7 @@ def sha(path: Path) -> str:
 
 
 def source_path(value: str) -> Path:
-    path = (ROOT / value).resolve()
+    path = (resolve(value)).resolve()
     need(path.is_relative_to(ROOT), f"Path escapes repository: {value}")
     return path
 

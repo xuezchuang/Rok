@@ -3,6 +3,7 @@
 from __future__ import annotations
 import argparse, copy, hashlib, io, json, re
 from pathlib import Path
+from rok_data_paths import resolve
 from PIL import Image
 
 SELF = Path(__file__).resolve()
@@ -39,7 +40,7 @@ def need(ok, message):
 def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 def checked(relative):
     need(relative and not Path(relative).is_absolute() and ".." not in Path(relative).parts, "path escape")
-    p=(ROOT/relative).resolve(strict=True)
+    p=resolve(relative).resolve(strict=True)
     need(ROOT.resolve() in p.parents and p.is_file(), "input outside project")
     return p
 def point(v): return float(v["x"]),float(v["y"])

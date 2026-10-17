@@ -6,6 +6,7 @@ import shutil
 import struct
 import subprocess
 from pathlib import Path
+from rok_data_paths import resolve
 from BuildRokUnityEconomyCatalog import read_language_lookup, localized_text, LANGUAGE_WORKBOOK
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -222,7 +223,7 @@ def verify_native(evidence_path):
     assert report['nativeRendered'] and not report.get('failure') and not report['fullMediator'] and not report['sourcePrefabModified']
     assert report['unityVersion'] == '2019.4.28f1c1' and report['inputSha256'] == digest(inputs_path)
     for source in inputs['sources']:
-        assert digest(ROOT / source['path']) == source['sha256'], source['path']
+        assert digest(resolve(source['path'])) == source['sha256'], source['path']
     expected_text = next(t['text'] for t in inputs['texts'] if t['id'] == 181001)
     assert expected_text.count('<color=yellow>') == 13
     frames = report['frames']

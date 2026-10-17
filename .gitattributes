@@ -1,0 +1,12 @@
+# Runtime loaders SHA-256 check these generator sources against hashes recorded in
+# Content/RokData (RokBarracksUpgradeAttributes.cpp, RokBarracksSourceTextData.cpp,
+# RokBuildingPreviewGlowData.cpp, RokBuildingSourcePreviewData.cpp,
+# RokLocalCitySimulationContext.cpp). Keep the line endings those hashes were taken with.
+Scripts/BuildRokBarracksUpgradeAttribute.py text eol=crlf
+Scripts/BuildRokBuildingSourcePreview.py text eol=crlf
+Scripts/BuildRokBuildingPreviewGlowData.py text eol=lf
+Scripts/BuildRokLocalCitySimulationContext.py text eol=lf
+Scripts/PrepareRokBarracksLevelHeaderText.py text eol=lf
+Scripts/PrepareRokBarracksSourceText.py text eol=lf
+Scripts/RenderRokBarracksLevelHeaderText.cs text eol=lf
+Scripts/RenderRokBarracksSourceText.cs text eol=lf
