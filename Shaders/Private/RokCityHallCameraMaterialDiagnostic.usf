@@ -1,0 +1,27 @@
+#include "/Rok/Private/RokCityHallCameraMaterial.usf"
+
+uint DiagnosticMode;
+
+// Instrumented source-material witness. Never used for product rendering or RGBA acceptance.
+float4 HallMaterialDiagnosticPS(FHallVaryings Input) : SV_Target0
+{
+    if (DiagnosticMode == 5u) return float4(0.75f, 0.25f, 0.5f, 1.0f);
+    if (DiagnosticMode == 1u) return float4(Input.UV, 0.25f, 1.0f);
+    if (DiagnosticMode == 6u) return HallMaterialPS(Input);
+    const float4 Main = SpriteTexture.Sample(SpriteSampler, Input.UV) * RendererTint;
+    if (DiagnosticMode == 2u) return Main;
+    const float4 Mask = MaskTexture.Sample(MaskSampler, Input.UV);
+    if (DiagnosticMode == 3u) return Mask;
+    const float Red2 = Mask.r * 2.0f;
+    const float Team = saturate(Red2 - 1.0f);
+    float3 RGB = Main.rgb * ((1.0f - Team - Mask.g) +
+        (2.0f * Team1.rgb * Team) + (2.0f * Team2.rgb * Mask.g));
+    RGB *= SpriteColor.rgb;
+    if (bNight != 0u)
+    {
+        const float Light = saturate(abs(sin(ControlledTimeY * 0.5f)) + 0.5f);
+        RGB += NightColor3.rgb * Light * Mask.b;
+    }
+    const float Alpha = Main.a * saturate(Red2) * CityTransparency;
+    return float4(RGB, Alpha);
+}

@@ -1,0 +1,167 @@
+// Only explicitly registered city-source meshes use this pass. The ordinary SceneColor
+// remains linear and pre-exposed before and after the single PostOpaque callback.
+#include "/Engine/Private/Common.ush"
+
+Texture2D<float4> InputTexture;
+RWTexture2D<float4> OutputTexture;
+int2 RectMin;
+int2 RectSize;
+uint bEncode;
+
+float3 RokOETF(float3 C)
+{
+	return float3(
+		C.r <= 0.0031308 ? C.r * 12.92 : 1.055 * pow(C.r, 1.0 / 2.4) - 0.055,
+		C.g <= 0.0031308 ? C.g * 12.92 : 1.055 * pow(C.g, 1.0 / 2.4) - 0.055,
+		C.b <= 0.0031308 ? C.b * 12.92 : 1.055 * pow(C.b, 1.0 / 2.4) - 0.055);
+}
+
+float3 RokEOTF(float3 C)
+{
+	return float3(
+		C.r <= 0.04045 ? C.r / 12.92 : pow((C.r + 0.055) / 1.055, 2.4),
+		C.g <= 0.04045 ? C.g / 12.92 : pow((C.g + 0.055) / 1.055, 2.4),
+		C.b <= 0.04045 ? C.b / 12.92 : pow((C.b + 0.055) / 1.055, 2.4));
+}
+
+[numthreads(8, 8, 1)]
+void TransferCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+	if (DispatchThreadId.x >= uint(RectSize.x) || DispatchThreadId.y >= uint(RectSize.y)) return;
+	const int2 Pixel = RectMin + int2(DispatchThreadId.xy);
+	const float4 Input = InputTexture.Load(int3(Pixel, 0));
+	const float P = View.PreExposure;
+	if (!isfinite(P) || P <= 0.0)
+	{
+		OutputTexture[Pixel] = Input;
+		return;
+	}
+	const float3 Unexposed = Input.rgb / P;
+	OutputTexture[Pixel] = float4((bEncode != 0 ? RokOETF(Unexposed) : RokEOTF(Unexposed)) * P, Input.a);
+}
+
+StructuredBuffer<float4> VertexData;
+StructuredBuffer<uint> IndexData;
+float4x4 LocalToClip;
+
+struct FRokSpriteVSOut
+{
+	float4 Position : SV_POSITION;
+	float2 UV : TEXCOORD0;
+	float Alpha : TEXCOORD1;
+};
+
+FRokSpriteVSOut SpriteVS(uint VertexId : SV_VertexID)
+{
+	const uint Index = IndexData[VertexId];
+	const float4 A = VertexData[Index * 2];
+	const float4 B = VertexData[Index * 2 + 1];
+	FRokSpriteVSOut Out;
+	Out.Position = mul(float4(A.xyz, 1.0), LocalToClip);
+	Out.UV = float2(A.w, B.x);
+	Out.Alpha = B.y;
+	return Out;
+}
+
+Texture2D SpriteTexture;
+Texture2D MaskTexture;
+SamplerState SpriteSampler;
+SamplerState MaskSampler;
+float4 RendererTint;
+float4 Team1;
+float4 Team2;
+float4 Lighting;
+float Transparency;
+
+float4 SpritePS(FRokSpriteVSOut Input) : SV_Target0
+{
+	const float P = View.PreExposure;
+	if (!isfinite(P) || P <= 0.0) discard;
+	const float4 MainSample = SpriteTexture.Sample(SpriteSampler, Input.UV);
+	const float4 MaskSample = MaskTexture.Sample(MaskSampler, Input.UV);
+	const float4 Col = MainSample * RendererTint;
+	const float Red2 = MaskSample.r * 2.0;
+	const float Team = saturate(Red2 - 1.0);
+	float3 GammaColor = Col.rgb * ((1.0 - Team - MaskSample.g)
+		+ 2.0 * Team1.rgb * Team + 2.0 * Team2.rgb * MaskSample.g);
+	GammaColor *= Lighting.rgb;
+	const float Alpha = Col.a * saturate(Red2) * Transparency;
+	return float4(GammaColor * P, Alpha);
+}
+
+// Dedicated controlled Unity2019 family fixture path. No product GameApp packet uses it.
+Texture2D MainTexture;
+Texture2D ControlledMaskTexture;
+Texture2D Tex0Texture;
+Texture2D Tex1Texture;
+Texture2D Tex2Texture;
+Texture2D Tex3Texture;
+Texture2D SplatTexture;
+SamplerState MainSampler;
+SamplerState ControlledMaskSampler;
+SamplerState Tex0Sampler;
+SamplerState Tex1Sampler;
+SamplerState Tex2Sampler;
+SamplerState Tex3Sampler;
+SamplerState SplatSampler;
+uint FamilyMode;
+float4 ControlledRendererTint;
+float4 GlobalSpriteColor;
+float4 MaterialColor;
+float4 ControlledTeam1;
+float4 ControlledTeam2;
+float4 NightColor3;
+float4 Tex0ST;
+float4 Tex1ST;
+float4 Tex2ST;
+float4 Tex3ST;
+float ControlledTransparency;
+float ControlledTimeY;
+
+float4 EvaluateControlled(FRokSpriteVSOut Input)
+{
+	float4 Result = 0.0;
+	if (FamilyMode == 1 || FamilyMode == 2) // source ground_1 / ground_2
+	{
+		const float2 U = 1.0 - Input.UV;
+		const float2 U0 = (U * Tex0ST.xy + Tex0ST.zw) * 60.0;
+		const float2 U1 = (U * Tex1ST.xy + Tex1ST.zw) * 60.0;
+		const float2 U2 = (U * Tex2ST.xy + Tex2ST.zw) * 60.0;
+		const float2 U3 = (U * Tex3ST.xy + Tex3ST.zw) * 60.0;
+		const float4 Splat = SplatTexture.Sample(SplatSampler, U);
+		Result = (Splat.r * Tex0Texture.Sample(Tex0Sampler, U0)
+			+ Splat.g * Tex1Texture.Sample(Tex1Sampler, U1)
+			+ Splat.b * Tex2Texture.Sample(Tex2Sampler, U2)
+			+ (1.0 - Splat.r - Splat.g - Splat.b) * Tex3Texture.Sample(Tex3Sampler, U3))
+			* GlobalSpriteColor * MaterialColor;
+		if (FamilyMode == 2) Result.a = Input.Alpha;
+	}
+	else if (FamilyMode == 4) // isolated Unlit/Transparent wall-shadow control
+	{
+		Result = MainTexture.Sample(MainSampler, Input.UV) * MaterialColor;
+	}
+	else // night or road source RG mask. Road _Mask is the proven white default.
+	{
+		const float4 Col = MainTexture.Sample(MainSampler, Input.UV) * ControlledRendererTint;
+		const float4 Mask = FamilyMode == 3 ? 1.0 :
+			ControlledMaskTexture.Sample(ControlledMaskSampler, Input.UV);
+		const float Red2 = Mask.r * 2.0;
+		const float Team = saturate(Red2 - 1.0);
+		Result.rgb = Col.rgb * ((1.0 - Team - Mask.g)
+			+ 2.0 * ControlledTeam1.rgb * Team + 2.0 * ControlledTeam2.rgb * Mask.g);
+		Result.rgb *= GlobalSpriteColor.rgb;
+		Result.a = Col.a * saturate(Red2) * ControlledTransparency;
+		if (FamilyMode == 0)
+		{
+			const float L = saturate(abs(sin(ControlledTimeY * 0.5)) + 0.5);
+			Result.rgb += NightColor3.rgb * L * Mask.b;
+		}
+	}
+	return Result;
+}
+
+float4 ControlledFixturePS(FRokSpriteVSOut Input) : SV_Target0
+{
+	// Isolated Gamma target has pre-exposure one; no SceneColor transfer is involved.
+	return EvaluateControlled(Input);
+}

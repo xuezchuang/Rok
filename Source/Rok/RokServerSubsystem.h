@@ -17,6 +17,9 @@ class ROK_API URokServerSubsystem : public UGameInstanceSubsystem
 
 public:
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
+	bool IsLocalOnlyRun() const { return bLocalOnlyRun; }
+	uint64 GetHttpDispatchAttemptCount() const { return HttpDispatchAttemptCount; }
+	uint64 GetSuppressedLocalRequestCount() const { return SuppressedLocalRequestCount; }
 
 	UFUNCTION(BlueprintCallable, Category="Rok Server")
 	void PingHealth();
@@ -61,6 +64,9 @@ public:
 	FRokServerErrorEvent OnServerError;
 
 private:
+	bool bLocalOnlyRun = false;
+	uint64 HttpDispatchAttemptCount = 0;
+	uint64 SuppressedLocalRequestCount = 0;
 	FString BuildUrl(const FString& Path) const;
 	void SendJsonRequest(
 		const FString& Verb,

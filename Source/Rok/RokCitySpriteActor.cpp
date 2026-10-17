@@ -25,7 +25,8 @@ ARokCitySpriteActor::ARokCitySpriteActor()
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> PlaneMesh(TEXT("/Engine/BasicShapes/Plane.Plane"));
 	if (PlaneMesh.Succeeded())
 	{
-		SpriteMeshComponent->SetStaticMesh(PlaneMesh.Object);
+		LegacyPlaneMesh = PlaneMesh.Object;
+		SpriteMeshComponent->SetStaticMesh(LegacyPlaneMesh);
 	}
 
 	SpriteMeshComponent->SetHiddenInGame(false);
@@ -71,13 +72,35 @@ void ARokCitySpriteActor::ConfigureSprite(UMaterialInterface* Material, float Wi
 	{
 		return;
 	}
+	const bool bSwitchingFromSourceMesh = bUseSourceMesh;
+	if (bSwitchingFromSourceMesh)
+	{
+		if (!SpriteMeshComponent || !LegacyPlaneMesh)
+		{
+			return;
+		}
+		SpriteMeshComponent->SetStaticMesh(LegacyPlaneMesh);
+		SpriteMeshComponent->SetRelativeTransform(FTransform::Identity);
+		bUseSourceMesh = false;
+		bUseUnityCameraLod = false;
+		CurrentUnityLodScale = 1.0f;
+		UnityBaseVisualCenterOffset = FVector::ZeroVector;
+		UnityBaseSourceMeshRelativeLocation = FVector::ZeroVector;
+	}
 
 	ViewSortPriority = SortPriority;
 	if (SpriteMeshComponent)
 	{
+		const FVector LegacyScale(Width / 100.0f, FMath::Abs(Height / 100.0f), 1.0f);
 		SpriteMeshComponent->SetMaterial(0, Material);
-		SpriteMeshComponent->SetRelativeScale3D(FVector(Width / 100.0f, FMath::Abs(Height / 100.0f), 1.0f));
+		SpriteMeshComponent->SetRelativeScale3D(
+			LegacyScale * ((bSwitchingFromSourceMesh && bSelectionHighlighted) ? 1.035f : 1.0f));
 		SpriteMeshComponent->TranslucencySortPriority = SortPriority;
+		if (bSwitchingFromSourceMesh)
+		{
+			UnityBaseSpriteScale = LegacyScale;
+			SelectionOriginalSpriteScale = LegacyScale;
+		}
 	}
 
 	if (SpriteComponent)
@@ -87,6 +110,32 @@ void ARokCitySpriteActor::ConfigureSprite(UMaterialInterface* Material, float Wi
 		SpriteComponent->SetHiddenInGame(true);
 		SpriteComponent->SetVisibility(false);
 		SpriteComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	}
+}
+
+void ARokCitySpriteActor::ConfigureSourceMesh(UStaticMesh* Mesh, UMaterialInterface* Material, const FTransform& RelativeTransform, int32 SortPriority)
+{
+	if (!SpriteMeshComponent || !Mesh || !Material)
+	{
+		return;
+	}
+
+	ViewSortPriority = SortPriority;
+	SpriteMeshComponent->SetStaticMesh(Mesh);
+	SpriteMeshComponent->SetMaterial(0, Material);
+	SpriteMeshComponent->SetRelativeTransform(RelativeTransform);
+	SpriteMeshComponent->TranslucencySortPriority = SortPriority;
+	bUseSourceMesh = true;
+	UnityBaseSourceMeshRelativeLocation = RelativeTransform.GetLocation();
+	UnityBaseSpriteScale = RelativeTransform.GetScale3D();
+	if (bUseUnityCameraLod)
+	{
+		ApplyUnityLodScale(CurrentUnityLodScale);
+	}
+	else if (bSelectionHighlighted)
+	{
+		SelectionOriginalSpriteScale = UnityBaseSpriteScale;
+		SpriteMeshComponent->SetRelativeScale3D(UnityBaseSpriteScale * 1.035f);
 	}
 }
 
@@ -116,7 +165,12 @@ void ARokCitySpriteActor::ConfigureUnityCameraLod(FVector InBaseVisualCenterOffs
 	}
 
 	UnityBaseVisualCenterOffset = InBaseVisualCenterOffset;
-	UnityBaseSpriteScale = SpriteMeshComponent->GetRelativeScale3D();
+	if (!bUseSourceMesh)
+	{
+		UnityBaseSpriteScale = SpriteMeshComponent->GetRelativeScale3D();
+	}
+	// A source mesh's unscaled child transform is fixed by ConfigureSourceMesh.
+	// Reading the component here after a previous LOD would compound the scale.
 	bUseUnityCameraLod = true;
 	SetActorTickEnabled(true);
 	ApplyUnityLodScale(EvaluateUnityCityLodScale(InitialDxf));
@@ -234,7 +288,16 @@ void ARokCitySpriteActor::ApplyUnityLodScale(float LodScale)
 	CurrentUnityLodScale = LodScale;
 	const float SelectionScale = bSelectionHighlighted ? 1.035f : 1.0f;
 	SpriteMeshComponent->SetRelativeScale3D(UnityBaseSpriteScale * LodScale * SelectionScale);
-	SpriteMeshComponent->SetWorldLocation(GetVisualAnchorWorldPosition() + UnityBaseVisualCenterOffset * LodScale);
+	if (bUseSourceMesh)
+	{
+		// Scale the child offset about the actor's Unity root pivot. The tight
+		// mesh origin is its imported Sprite pivot, not its bounds center.
+		SpriteMeshComponent->SetRelativeLocation(UnityBaseSourceMeshRelativeLocation * LodScale);
+	}
+	else
+	{
+		SpriteMeshComponent->SetWorldLocation(GetVisualAnchorWorldPosition() + UnityBaseVisualCenterOffset * LodScale);
+	}
 }
 
 int32 ARokCitySpriteActor::GetUnityBuildingType() const
@@ -254,12 +317,14 @@ int32 ARokCitySpriteActor::GetUnityBuildingType() const
 bool ARokCitySpriteActor::CanShowMoveArrows() const
 {
 	const int32 UnityBuildingType = GetUnityBuildingType();
+	// Source city roots carry the fixed 500 UU conversion; only their visual LOD
+	// scale represents Unity's enlarged selected-building condition.
+	const float MoveScale = bUseSourceMesh && bUseUnityCameraLod
+		? CurrentUnityLodScale : GetActorScale3D().X;
 	return UnityBuildingType != INDEX_NONE
 		&& UnityBuildingType != 6 // CityWall
 		&& UnityBuildingType != 8 // GuardTower
-		// Unity IsSelectBuildCanMove also rejects a selected building whose
-		// transform has been enlarged beyond its normal root scale.
-		&& GetActorScale3D().X <= 1.0f + KINDA_SMALL_NUMBER;
+		&& MoveScale <= 1.0f + KINDA_SMALL_NUMBER;
 }
 
 bool ARokCitySpriteActor::IsDecoration() const

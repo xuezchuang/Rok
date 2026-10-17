@@ -1,0 +1,72 @@
+#include "/Engine/Public/Platform.ush"
+
+// Only the approved Hall SpriteRenderer source row27. Index/position/UV stay original.
+ByteAddressBuffer Positions;
+ByteAddressBuffer UV0;
+ByteAddressBuffer Indices;
+float4x4 SourceLocalToClip;
+float4x4 SourceObjectToWorld;
+float4x4 SourceViewProjection;
+uint bObjectThenVP;
+
+struct FHallVaryings
+{
+	float4 Position : SV_POSITION;
+	float2 UV : TEXCOORD0;
+};
+
+FHallVaryings HallMaterialVS(uint VertexID : SV_VertexID)
+{
+	uint SourceVertex = Indices.Load(VertexID * 4u);
+	uint P = SourceVertex * 12u;
+	uint T = SourceVertex * 16u;
+	float3 Local = float3(asfloat(Positions.Load(P)), asfloat(Positions.Load(P + 4u)),
+		asfloat(Positions.Load(P + 8u)));
+	FHallVaryings Out;
+	if (bObjectThenVP != 0u)
+	{
+		// Unity 2019 UnityShaderUtilities.cginc:50 nests ObjectToWorld inside VP.
+		precise float4 World = mul(float4(Local, 1.0f), SourceObjectToWorld);
+		Out.Position = mul(World, SourceViewProjection);
+	}
+	else
+	{
+		Out.Position = mul(float4(Local, 1.0f), SourceLocalToClip);
+	}
+	// Unity's GL.GetGPUProjectionMatrix(projection,true) is already RT-specific;
+	// this adapter is the same one proven by the sealed Hall source-geometry private RT.
+	Out.Position.y = -Out.Position.y;
+	Out.UV = float2(asfloat(UV0.Load(T)), asfloat(UV0.Load(T + 4u)));
+	return Out;
+}
+
+Texture2D SpriteTexture;
+Texture2D MaskTexture;
+SamplerState SpriteSampler;
+SamplerState MaskSampler;
+float4 RendererTint;
+float4 Team1;
+float4 Team2;
+float4 NightColor3;
+float4 SpriteColor;
+float CityTransparency;
+float ControlledTimeY;
+uint bNight;
+
+float4 HallMaterialPS(FHallVaryings Input) : SV_Target0
+{
+	const float4 Main = SpriteTexture.Sample(SpriteSampler, Input.UV) * RendererTint;
+	const float4 Mask = MaskTexture.Sample(MaskSampler, Input.UV);
+	const float Red2 = Mask.r * 2.0f;
+	const float Team = saturate(Red2 - 1.0f);
+	float3 RGB = Main.rgb * ((1.0f - Team - Mask.g) +
+		(2.0f * Team1.rgb * Team) + (2.0f * Team2.rgb * Mask.g));
+	RGB *= SpriteColor.rgb;
+	if (bNight != 0u)
+	{
+		const float Light = saturate(abs(sin(ControlledTimeY * 0.5f)) + 0.5f);
+		RGB += NightColor3.rgb * Light * Mask.b;
+	}
+	const float Alpha = Main.a * saturate(Red2) * CityTransparency;
+	return float4(RGB, Alpha);
+}

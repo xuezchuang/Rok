@@ -31,6 +31,15 @@ const TCHAR* UiBuildingMenuInfoPath = TEXT("/Game/RokPrototype/UI/BuildingMenu/r
 const TCHAR* UiBuildingMenuUpgradePath = TEXT("/Game/RokPrototype/UI/BuildingMenu/rok_building_menu_upgrade.rok_building_menu_upgrade");
 const TCHAR* UiBuildingMenuFeaturePath = TEXT("/Game/RokPrototype/UI/BuildingMenu/rok_building_menu_feature.rok_building_menu_feature");
 const TCHAR* UiBuildingMenuRemovePath = TEXT("/Game/RokPrototype/UI/BuildingMenu/rok_building_menu_remove.rok_building_menu_remove");
+const TCHAR* UiBuildingMenuSpeedUpPath = TEXT("/Game/RokPrototype/UI/BuildingMenu/rok_building_menu_speedup.rok_building_menu_speedup");
+const TCHAR* UiBuildingMenuWorkerPath = TEXT("/Game/RokPrototype/UI/BuildingMenu/rok_building_menu_worker.rok_building_menu_worker");
+const TCHAR* UiBuildingMenuInfantryPath = TEXT("/Game/RokPrototype/UI/BuildingMenu/rok_building_menu_train_infantry.rok_building_menu_train_infantry");
+const TCHAR* UiBuildingMenuCavalryPath = TEXT("/Game/RokPrototype/UI/BuildingMenu/rok_building_menu_train_cavalry.rok_building_menu_train_cavalry");
+const TCHAR* UiBuildingMenuArcherPath = TEXT("/Game/RokPrototype/UI/BuildingMenu/rok_building_menu_train_archer.rok_building_menu_train_archer");
+const TCHAR* UiBuildingMenuSiegePath = TEXT("/Game/RokPrototype/UI/BuildingMenu/rok_building_menu_train_siege.rok_building_menu_train_siege");
+const TCHAR* UiBuildingMenuHospitalPath = TEXT("/Game/RokPrototype/UI/BuildingMenu/rok_building_menu_hospital.rok_building_menu_hospital");
+const TCHAR* UiBuildingMenuScoutPath = TEXT("/Game/RokPrototype/UI/BuildingMenu/rok_building_menu_scout.rok_building_menu_scout");
+const TCHAR* UiBuildingMenuResearchPath = TEXT("/Game/RokPrototype/UI/BuildingMenu/rok_building_menu_research.rok_building_menu_research");
 const FVector2D BuildingMenuSize(472.7f, 340.0f);
 constexpr float BuildingTitleHeight = 53.0f;
 constexpr float BuildingButtonBoundsGap = 6.0f;
@@ -42,12 +51,39 @@ constexpr float BuildingUpgradeButtonY = 230.0f;
 
 void URokBuildingPanelWidget::SetSelectedBuilding(AActor* InBuildingActor)
 {
+	if (!IsValid(InBuildingActor))
+	{
+		SelectedBuildingActor.Reset();
+		if (!bMenuOpen) return;
+		bMenuOpen = false;
+		MenuAnimation.Close();
+		// Keep the outgoing content at its last anchor, but stop accepting commands.
+		SetVisibility(ESlateVisibility::HitTestInvisible);
+		AdvanceMenuAnimation(0);
+		return;
+	}
+	const bool bNewSelection = !bMenuOpen || SelectedBuildingActor.Get() != InBuildingActor;
 	SelectedBuildingActor = InBuildingActor;
-	LastActionMessage.Reset();
+	if (bNewSelection)
+	{
+		LastActionMessage.Reset();
+		MenuAnimation.Open(ERokUiWindowAnimationStyle::BuildingMenu);
+	}
+	bMenuOpen = true;
 	// This user widget also spans the full viewport. Only its child UButtons
 	// should consume pointer input; the transparent area must pass world clicks.
-	SetVisibility(InBuildingActor ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+	SetVisibility(ESlateVisibility::SelfHitTestInvisible);
 	Refresh();
+	AdvanceMenuAnimation(0);
+}
+
+void URokBuildingPanelWidget::AdvanceMenuAnimation(float DeltaSeconds)
+{
+	const bool bClosed = MenuAnimation.Advance(DeltaSeconds);
+	const FRokUiWindowAnimationSample& Sample = MenuAnimation.GetSample();
+	if (BuildingTitleRoot) BuildingTitleRoot->SetRenderScale(FVector2D(Sample.Scale));
+	if (BuildingMenuRoot) BuildingMenuRoot->SetRenderOpacity(Sample.Opacity);
+	if (bClosed) SetVisibility(ESlateVisibility::Collapsed);
 }
 
 TSharedRef<SWidget> URokBuildingPanelWidget::RebuildWidget()
@@ -59,12 +95,15 @@ TSharedRef<SWidget> URokBuildingPanelWidget::RebuildWidget()
 void URokBuildingPanelWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
-	SetVisibility(ESlateVisibility::Collapsed);
+	SetVisibility(bMenuOpen ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+	AdvanceMenuAnimation(0);
 }
 
 void URokBuildingPanelWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 {
 	Super::NativeTick(MyGeometry, InDeltaTime);
+	if (bMenuOpen && !SelectedBuildingActor.IsValid()) SetSelectedBuilding(nullptr);
+	AdvanceMenuAnimation(InDeltaTime);
 	if (SelectedBuildingActor.IsValid())
 	{
 		UpdateMenuPosition();
@@ -74,6 +113,12 @@ void URokBuildingPanelWidget::NativeTick(const FGeometry& MyGeometry, float InDe
 
 void URokBuildingPanelWidget::HandleUpgradeClicked()
 {
+	if (SelectedBuildingActor.IsValid() && OnUpgradeRequested.IsBound())
+	{
+		OnUpgradeRequested.Broadcast(SelectedBuildingActor.Get());
+		return;
+	}
+
 	URokBuildingUpgradeSubsystem* UpgradeSubsystem = GetUpgradeSubsystem();
 	if (!UpgradeSubsystem || !SelectedBuildingActor.IsValid())
 	{
@@ -90,6 +135,22 @@ void URokBuildingPanelWidget::HandleUpgradeClicked()
 		LastActionMessage = FailureReason;
 	}
 	Refresh();
+}
+
+void URokBuildingPanelWidget::HandleInfoClicked()
+{
+	if (SelectedBuildingActor.IsValid())
+	{
+		OnInfoRequested.Broadcast(SelectedBuildingActor.Get());
+	}
+}
+
+void URokBuildingPanelWidget::HandleFeatureClicked()
+{
+	if (SelectedBuildingActor.IsValid())
+	{
+		OnFeatureRequested.Broadcast(SelectedBuildingActor.Get());
+	}
 }
 
 void URokBuildingPanelWidget::BuildWidgetTree()
@@ -151,6 +212,29 @@ void URokBuildingPanelWidget::BuildWidgetTree()
 	LevelSlot->SetSize(FVector2D(133.0f, 26.0f));
 	LevelSlot->SetZOrder(3);
 
+	// UA_BuildingMenu scales pl_Title only. Keep the action buttons outside
+	// this group; Unity's (.5,1) top pivot maps to UMG (.5,0).
+	BuildingTitleRoot = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("BuildingTitleRoot"));
+	BuildingTitleRoot->SetVisibility(ESlateVisibility::HitTestInvisible);
+	BuildingTitleRoot->SetRenderTransformPivot(FVector2D(0.5f, 0));
+	UCanvasPanelSlot* TitleRootSlot = BuildingMenuRoot->AddChildToCanvas(BuildingTitleRoot);
+	TitleRootSlot->SetSize(FVector2D(BuildingMenuSize.X, 74));
+	TitleRootSlot->SetZOrder(3);
+	for (const FName Name : {FName(TEXT("TitleFrame")), FName(TEXT("LevelFrame")),
+		FName(TEXT("BuildingTitleText")), FName(TEXT("BuildingLevelText"))})
+	{
+		UWidget* Child = WidgetTree->FindWidget(Name);
+		const auto* OldSlot = CastChecked<UCanvasPanelSlot>(Child->Slot);
+		const FVector2D Position = OldSlot->GetPosition();
+		const FVector2D Size = OldSlot->GetSize();
+		const int32 ZOrder = OldSlot->GetZOrder();
+		Child->RemoveFromParent();
+		auto* NewSlot = BuildingTitleRoot->AddChildToCanvas(Child);
+		NewSlot->SetPosition(Position);
+		NewSlot->SetSize(Size);
+		NewSlot->SetZOrder(ZOrder);
+	}
+
 	auto AddCommandButton = [this](
 		const FName ButtonName,
 		const FName ImageName,
@@ -191,7 +275,18 @@ void URokBuildingPanelWidget::BuildWidgetTree()
 	FeatureButton = AddCommandButton(TEXT("BuildingFeatureButton"), TEXT("BuildingFeatureButtonImage"), UiBuildingMenuFeaturePath, FVector2D(292.35f, BuildingInfoButtonY), FeatureButtonImage, FeatureButtonSlot);
 	FeatureButtonTexture = LoadUiTexture(UiBuildingMenuFeaturePath);
 	RemoveButtonTexture = LoadUiTexture(UiBuildingMenuRemovePath);
+	SpeedUpButtonTexture = LoadUiTexture(UiBuildingMenuSpeedUpPath);
+	WorkerButtonTexture = LoadUiTexture(UiBuildingMenuWorkerPath);
+	InfantryButtonTexture = LoadUiTexture(UiBuildingMenuInfantryPath);
+	CavalryButtonTexture = LoadUiTexture(UiBuildingMenuCavalryPath);
+	ArcherButtonTexture = LoadUiTexture(UiBuildingMenuArcherPath);
+	SiegeButtonTexture = LoadUiTexture(UiBuildingMenuSiegePath);
+	HospitalButtonTexture = LoadUiTexture(UiBuildingMenuHospitalPath);
+	ScoutButtonTexture = LoadUiTexture(UiBuildingMenuScoutPath);
+	ResearchButtonTexture = LoadUiTexture(UiBuildingMenuResearchPath);
+	InfoButton->OnClicked.AddDynamic(this, &URokBuildingPanelWidget::HandleInfoClicked);
 	UpgradeButton->OnClicked.AddDynamic(this, &URokBuildingPanelWidget::HandleUpgradeClicked);
+	FeatureButton->OnClicked.AddDynamic(this, &URokBuildingPanelWidget::HandleFeatureClicked);
 }
 
 void URokBuildingPanelWidget::Refresh()
@@ -203,10 +298,17 @@ void URokBuildingPanelWidget::Refresh()
 	}
 
 	const FRokBuildingState State = UpgradeSubsystem->GetBuildingStateForActor(SelectedBuildingActor.Get());
-	const bool bIsDecoration = State.UnityBuildingTypeId >= 51 && State.UnityBuildingTypeId <= 54;
-	ApplyMenuLayout(bIsDecoration);
-	FString CannotUpgradeReason;
-	const bool bCanStartUpgrade = UpgradeSubsystem->CanStartUpgrade(SelectedBuildingActor.Get(), CannotUpgradeReason);
+	const bool bIsDecoration = State.UnityBuildingTypeId >= 51 && State.UnityBuildingTypeId <= 55;
+	const bool bHasFeatureAction = State.bUpgradeInProgress
+		|| State.UnityBuildingTypeId == 7
+		|| (State.UnityBuildingTypeId >= 9 && State.UnityBuildingTypeId <= 12)
+		// BuildingTypeConfig[13] -> BuildingMenuData[110], levels 1..25.
+		|| (State.UnityBuildingTypeId == 13 && State.Level >= 1 && State.Level <= 25)
+		|| State.UnityBuildingTypeId == 14
+		// BuildingTypeConfig[28] -> BuildingMenuData[137], levels 1..25.
+		|| (State.UnityBuildingTypeId == 28 && State.Level >= 1 && State.Level <= 25);
+	ApplyMenuLayout(bIsDecoration, bHasFeatureAction);
+	ApplyFeatureButtonVisual(State.UnityBuildingTypeId, State.bUpgradeInProgress);
 	if (LastActionMessage.Equals(TEXT("开始升级。")) && !State.bUpgradeInProgress)
 	{
 		LastActionMessage = TEXT("升级完成。");
@@ -218,19 +320,27 @@ void URokBuildingPanelWidget::Refresh()
 		LevelText->SetText(FText::Format(
 			NSLOCTEXT("RokBuildings", "UnityBuildingMenuLevel", "等级{0}"),
 			FText::AsNumber(State.Level)));
-		UpgradeButton->SetIsEnabled(bCanStartUpgrade && !State.bUpgradeInProgress);
+		// Unity openBuildingUpdata opens its requirement details even when the upgrade cannot start.
+		// Actual resource/queue/prerequisite validation stays on the dialog's timed command.
+		UpgradeButton->SetIsEnabled(State.Type != ERokBuildingType::Unknown && !State.bUpgradeInProgress
+			&& State.Level < UpgradeSubsystem->GetMaxBuildingLevelForActor(SelectedBuildingActor.Get()));
 	}
 }
 
-void URokBuildingPanelWidget::ApplyMenuLayout(bool bIsDecoration)
+void URokBuildingPanelWidget::ApplyMenuLayout(
+	bool bIsDecoration,
+	bool bHasFeatureAction)
 {
-	if (bMenuLayoutInitialized && bShowingDecorationLayout == bIsDecoration)
+	if (bMenuLayoutInitialized
+		&& bShowingDecorationLayout == bIsDecoration
+		&& bShowingFeatureAction == bHasFeatureAction)
 	{
 		return;
 	}
 
 	bMenuLayoutInitialized = true;
 	bShowingDecorationLayout = bIsDecoration;
+	bShowingFeatureAction = bHasFeatureAction;
 	const ESlateVisibility LevelVisibility = bIsDecoration
 		? ESlateVisibility::Collapsed
 		: ESlateVisibility::HitTestInvisible;
@@ -246,21 +356,29 @@ void URokBuildingPanelWidget::ApplyMenuLayout(bool bIsDecoration)
 	{
 		UpgradeButton->SetVisibility(bIsDecoration ? ESlateVisibility::Collapsed : ESlateVisibility::Visible);
 	}
+	if (FeatureButton)
+	{
+		FeatureButton->SetVisibility(bHasFeatureAction ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+		FeatureButton->SetIsEnabled(bHasFeatureAction);
+	}
 	if (InfoButtonSlot)
 	{
-		InfoButtonSlot->SetPosition(bIsDecoration
-			? FVector2D(142.35f, BuildingInfoButtonY)
-			: FVector2D(92.35f, BuildingInfoButtonY));
+		InfoButtonSlot->SetPosition(
+			bIsDecoration
+				? FVector2D(192.35f, BuildingInfoButtonY)
+				: (bHasFeatureAction
+					? FVector2D(92.35f, BuildingInfoButtonY)
+					: FVector2D(142.35f, BuildingInfoButtonY)));
 	}
 	if (UpgradeButtonSlot)
 	{
-		UpgradeButtonSlot->SetPosition(FVector2D(192.35f, BuildingUpgradeButtonY));
+		UpgradeButtonSlot->SetPosition(bHasFeatureAction
+			? FVector2D(192.35f, BuildingUpgradeButtonY)
+			: FVector2D(242.35f, BuildingUpgradeButtonY));
 	}
 	if (FeatureButtonSlot)
 	{
-		FeatureButtonSlot->SetPosition(bIsDecoration
-			? FVector2D(242.35f, BuildingInfoButtonY)
-			: FVector2D(292.35f, BuildingInfoButtonY));
+		FeatureButtonSlot->SetPosition(FVector2D(292.35f, BuildingInfoButtonY));
 	}
 	if (UWidget* ButtonShadow = WidgetTree->FindWidget(TEXT("ButtonShadow")))
 	{
@@ -269,13 +387,76 @@ void URokBuildingPanelWidget::ApplyMenuLayout(bool bIsDecoration)
 			ButtonShadowSlot->SetPosition(FVector2D(50.85f, BuildingShadowY));
 		}
 	}
-	if (FeatureButtonImage)
+	if (FeatureButtonImage && bIsDecoration && bHasFeatureAction)
 	{
-		UTexture2D* Texture = bIsDecoration ? RemoveButtonTexture.Get() : FeatureButtonTexture.Get();
+		UTexture2D* Texture = RemoveButtonTexture.Get();
 		if (Texture)
 		{
 			FeatureButtonImage->SetBrush(MakeImageBrush(Texture, FVector2D(88.0f)));
 		}
+	}
+}
+
+void URokBuildingPanelWidget::ApplyFeatureButtonVisual(
+	int32 UnityBuildingTypeId,
+	bool bUpgradeInProgress)
+{
+	if (!FeatureButtonImage)
+	{
+		return;
+	}
+	FeatureButtonImage->SetVisibility(ESlateVisibility::HitTestInvisible);
+	if (UnityBuildingTypeId == 13 && !bUpgradeInProgress)
+	{
+		// Source btn_hud_1018; a missing import must not show another feature icon.
+		FeatureButtonImage->SetBrush(MakeImageBrush(ResearchButtonTexture.Get(), FVector2D(88.0f)));
+		if (!ResearchButtonTexture) FeatureButtonImage->SetVisibility(ESlateVisibility::Hidden);
+		return;
+	}
+	if (UnityBuildingTypeId == 28 && !bUpgradeInProgress)
+	{
+		// Source btn_hud_1041; do not display another building's action if its import is missing.
+		FeatureButtonImage->SetBrush(MakeImageBrush(ScoutButtonTexture.Get(), FVector2D(88.0f)));
+		if (!ScoutButtonTexture) FeatureButtonImage->SetVisibility(ESlateVisibility::Hidden);
+		return;
+	}
+
+	UTexture2D* Texture = bUpgradeInProgress
+		? SpeedUpButtonTexture.Get()
+		: nullptr;
+	if (!Texture)
+	{
+		switch (UnityBuildingTypeId)
+		{
+		case 7:
+			Texture = WorkerButtonTexture.Get();
+			break;
+		case 9:
+			Texture = InfantryButtonTexture.Get();
+			break;
+		case 10:
+			Texture = CavalryButtonTexture.Get();
+			break;
+		case 11:
+			Texture = ArcherButtonTexture.Get();
+			break;
+		case 12:
+			Texture = SiegeButtonTexture.Get();
+			break;
+		case 14:
+			Texture = HospitalButtonTexture.Get();
+			break;
+		default:
+			break;
+		}
+	}
+	if (!Texture)
+	{
+		Texture = FeatureButtonTexture.Get();
+	}
+	if (Texture)
+	{
+		FeatureButtonImage->SetBrush(MakeImageBrush(Texture, FVector2D(88.0f)));
 	}
 }
 

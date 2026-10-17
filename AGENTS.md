@@ -4,7 +4,9 @@
 
 This workstation often has multiple Unreal Editor instances open at the same time. Never assume an MCP tool name maps to the intended project.
 
-Known fixed MCP WebSocket listen ports:
+This project (`D:\ueDemo\Rok`) no longer uses the legacy McpAutomationBridge WebSocket transport (removed in git `7b2bfce4`). It uses UE 5.8's built-in `ModelContextProtocol` plugin over HTTP at `http://127.0.0.1:8010/mcp` (`Config/DefaultEditorPerProjectUserSettings.ini`). The shadow compile project `Saved/UIB1` sets `bAutoStartServer=False` so it never competes for port 8010.
+
+Known fixed legacy MCP WebSocket listen ports for the other workstation projects (not this repo):
 
 - `D:\ueDemo\MMOARPG`: `127.0.0.1:8090`
 - `D:\ueasset\RPG Metanoia Project v12.8`: `127.0.0.1:8092`
@@ -12,7 +14,7 @@ Known fixed MCP WebSocket listen ports:
 - `D:\ueasset\Easy Survival RPG v5\EasySurvivalRPGv5`: `127.0.0.1:8096`
 - `D:\ueasset\Easy Survival RPG v5\EasySurvivalRPGv5Cpp`: `127.0.0.1:8098`
 
-Project `DefaultGame.ini` files should keep `bMultiListen=False`, one `ListenPorts` value, matching `ClientPort`, and loopback-only `ListenHost=127.0.0.1`.
+Legacy-bridge projects' `DefaultGame.ini` files should keep `bMultiListen=False`, one `ListenPorts` value, matching `ClientPort`, and loopback-only `ListenHost=127.0.0.1`.
 
 Before any MCP write operation, first run a read-only identity check against the MCP target:
 
@@ -60,6 +62,14 @@ The extracted reference material lives under `ref/`. Treat it as reference input
 - When using MCP automation, keep generated Blueprint/content work reproducible through notes or scripts where practical.
 - Before changing reference-derived behavior, identify which `ref` folder/file informed the decision.
 - Avoid committing generated UE folders such as `Binaries/`, `Intermediate/`, `Saved/`, and `DerivedDataCache/`.
+
+## Version Control and Workspace State (verified 2026-10-17)
+
+- Git (`origin` `https://github.com/xuezchuang/Rok.git`, `main`) owns text: `Source/`, `Shaders/`, `Scripts/`, `Config/`, `Rok.uproject`, `AGENTS.md`, `CLAUDE.md`, `UnityLearning/` notes. Perforce (`home.snowsome.com:1666`, client `ueDemo`, root `D:\ueDemo`) owns binary content and the reference snapshot: `//depot/Rok/Content/...` and `//depot/Rok/ref/...`.
+- `//depot/Rok/Source`, `Scripts`, `Config`, and `AGENTS.md` in P4 are stale May 2026 snapshots (CL 46-49) that differ from the git copies. Never force-sync or reconcile those paths from P4; git is authoritative for text.
+- Snapshot on 2026-10-17: git HEAD `7b2bfce4` (2026-07-19), ~29 modified and ~1.9k untracked WIP files; last P4 submit CL 76 (2026-09-12), 142 Content files still opened in the P4 default changelist. Do not `git reset --hard`, `git clean`, `git checkout --`, or bulk revert/submit P4. Commit/submit only on explicit user request.
+- Shadow compile project `Saved/UIB1/Rok.uproject` (byte copy made 2026-10-10; Codex Run1-Run30 built there) has `Source/` and `Shaders/` strictly ahead of the live tree: 31 files only in UIB1 and 13 newer shared files. That code is in neither git nor P4. Promote it into the live tree only as an explicit, user-approved step, and never copy UIB1 `Config/` back (it intentionally disables MCP and trims ini files).
+- Current Codex -> Claude handoff: `Saved/RokUnityMigration/ClaudeHandoff_20261016T152648077944Z/HANDOFF.md` (+ `EVIDENCE.json` SHA pins). Run30 repair build of UIB1 compiled and passed independent review; post-repair runtime and visual acceptance were not executed. `CLAUDE.md` carries the resume order and evidence rules.
 
 ## Initial Technical Direction
 
@@ -129,7 +139,7 @@ The extracted reference material lives under `ref/`. Treat it as reference input
 
 ## Prototype Scene
 
-- First scene: `/Game/Maps/L_RokPrototype_Lit` as the current default map. `/Game/Maps/L_RokPrototype` remains a duplicate baseline for comparison.
+- First scene: `/Game/Maps/L_RokUnityGameAppCity` is the default startup map (`EditorStartupMap`/`GameDefaultMap` in `Config/DefaultEngine.ini`, changed 2026-08-14) because it hosts the migrated runtime city and all UI slices. `/Game/Maps/L_RokPrototype_Lit` remains the older prototype baseline, and `/Game/Maps/L_RokUnityWorldMapPrototype` is the world-map slice map.
 - Setup script: `Scripts/CreateRokPrototypeScene.py`.
 - Lighting adjustment script for the current lit map: `Scripts/CreateRokPrototypeLitMap.py`.
 - Verification script: `Scripts/VerifyRokPrototypeScene.py`.
@@ -227,6 +237,36 @@ The extracted reference material lives under `ref/`. Treat it as reference input
 - `unity_city_boundary.json` is the source of truth for city-wall and city-gate prefab GUIDs, source prefab paths, active state, transform overrides, material overrides, and Unity material main-texture chains.
 - Hand-authored wall ribbons or simple 2D border planes are diagnostic/demo-only. They must not be treated as accepted migrated city-wall content when `unity_city_boundary.json` is available.
 - The next accepted city-wall implementation must be driven by this manifest: import/use Unity CityWall and CityGate assets, preserve active/inactive state unless a documented runtime slice overrides it, and tag generated UE actors with source scene/name/prefab GUID/material path metadata.
+
+## Unity World Entity Presentation Slice
+
+- `Scripts/BuildRokUnityWorldEntityPresentation.py` (+`Verify*`) extracts the Unity world-entity presentation chain into `Saved/RokUnityMigration/unity_world_entity_presentation.json`: `BarbarianFormation_{modelId}` rows/dummies (level 14/16 -> 15 units each: 1 Monster_1000 leader + Arms2_1/Arms2_3/Monster_2004 soldiers), per-unit idle-frame crops (direction 1 frame 0, Color.gray baked into the crop because `Troops.InitFormationS` tints barbarian units), and the `ui_map.png` atlas nameplate sprites (`pl_map_levelBg`, `pl_map_buildingNameBg`, `img_map_state_back`).
+- `ARokWorldMapEntityActor` renders formation units as UPRIGHT world-plane `/Engine/BasicShapes/Plane` cards and composite/far cards as 45-degree tilted planes, all with `M_RokWorldEntitySprite` (unlit translucent two-sided, `Sprite` texture parameter). Do not use `UBillboardComponent` for gameplay entities: it is gated by the editor `BillboardSprites` show flag and never renders in `-game` runs.
+- Unit card world size comes from the unit prefab's serialized SpriteRenderer `m_Size` (1.28x1.28 Unity units = 640x640 cm for all four unit types), NOT the sprite's native pixel size — Unity stretches every idle frame into that fixed quad. Using pixels/PPU shrank the units ~2.5x and made the formation read as scattered confetti. Unity also multiplies units by `LevelDetailScalerManager.m_unit_scale_curve` (LOD-dependent, not yet extracted).
+- The HUD shows Unity-style nameplates: `pl_map_levelBg` + level number above every levelled entity, and `UI_Tip_WorldObjectPlayerLevel` layout (green own-city name + level badge) over the player city. The old green self-marker pin, hero head bubble, and 7-man composite cluster card are removed.
+- Idle animation is live: 8 cropped frames per unit (direction 1), 0.15s per frame from `AnimationBase m_state[0] m_update_rate`, random start frame per unit; frame textures are cached per path across entities.
+- Close-LOD clone expansion from `MatrixRow.UpdateUnitPositionBarabarianLod` is live: soldier rows expand by 2 diagonal clones each (`m_expansivity=0.18`, ±1.414 diagonals, even/odd z alternation) only when `dxf < 900` (Unity `Troops m_lod_array = [501, 900, 99999]`, lod<=1) — 15 base units become 43 at close zoom; the hero row never expands. Do NOT key expansion off the CloseDetail band (1500): Unity's lod:1537 strategic view still shows the tight base formation.
+- Formation-local offsets convert with a z negation (`formation_offset_to_ue`): the prefab puts the hero row at +z, and the Unity screenshots show the hero at screen-bottom (south), so an unflipped conversion renders the whole formation mirrored front-to-back.
+- World-object nameplates anchor at the entity's ground position (`MapElementUI.SetPosition(pos.x, 0, pos.z)`), not lifted above the formation.
+- Entity card sprites must negate both in-plane scale axes (`CardScale` in `RokWorldMapEntityActor.cpp`): the engine Plane's UVs are vertically opposite to Unity SpriteRenderer quads and the card's local +X faces world -X, so an unadjusted card renders every unit rotated 180 degrees on screen (same class of bug as the city slice's `ROK_SINGLE_BUILDING_ENGINE_PLANE_FLIP_Y`).
+- Unit card world size = NATIVE sprite size (frame pixels / spritePixelsToUnits) x `LevelDetailScalerManager.m_unit_scale_curve` (extracted from GameApp.unity; dxf 500->1.0, 900->1.75, 1500->2.1, 3000->2.5). The SpriteRenderer drawMode is Simple (0), so the serialized m_Size (1.28x1.28) is IGNORED at runtime - sizing cards to m_Size made units ~2.5x too wide, and native size without the curve made them scattered. Verified against the Unity lod:1537 reference: formation mass = 19.6% of UE screen width vs Unity 16.9-21.7%. (The per-prefab serialized m_Size 0.32x0.68948674 is identical across all four unit prefabs - a template default, not per-unit authored data.)
+- Formation unit cards must be UPRIGHT world-plane quads (`UnitCardRotation`/`UnitCardUp` in `RokWorldMapEntityActor.cpp`), NOT camera-facing 45-degree cards: the barbarian unit prefabs keep the body SpriteRenderer on an identity-rotation root (only the 0.29-scaled `shadow`/`shadow_lod1` children carry a 22.5-degree X tilt), so Unity's 45-degree world camera foreshortens the sprite by cos(45). Camera-facing cards removed that foreshortening and made every formation read too tall and too sparse. The upright basis reuses the tilted basis's U axis (rotation only about world X), so the verified horizontal mapping and face side are preserved.
+- Unit card lift pins the art BOTTOM to the entity anchor (`Lift = HeightCm * UnitFactor * 0.5`): Unity hangs PivotY (~12-15%) of the art below the anchor and its terrain depth-test clips that part; the visible Unity result is feet + baked shadow sitting on the ground line. The pivot-based lift left a hard clip line through the leader's feet.
+- `M_RokWorldEntitySprite` MUST stay `BLEND_TRANSLUCENT` with texture alpha as opacity (Unity SpriteRenderer semantics). The `monster_1000_idle` atlas is natively capped at 50% alpha in every direction strip - the ghostly translucent leader is source-faithful, not a bug - and soldier shield/head/leg pixels sit near 50% alpha (they blend to khaki over sand in Unity too). A masked clip 0.33 turned the leader into a moth-eaten silhouette. Note: the on-disk material asset predates the script's masked experiment and was always translucent (`REUSE_EXISTING_ASSETS` returns early without applying property changes); the script now creates translucent explicitly so regeneration agrees with the asset.
+- When pixel-measuring formations in captures, exclude the village/farm composite cards (they sit within a few display units of the barbarians and are hundreds of px wide); use a strict desaturated gray filter and a +-200px window around the focused entity.
+- Pending (recorded in the manifest): `UIZoomCurve` nameplate offset/scale curves.
+- Auto-captures can aim the camera with `-RokWorldMapFocusX=... -RokWorldMapFocusY=...` (display coordinates; applied after a 0.5s defer so the camera config is resolved) and `-RokWorldMapDxf=...` to force a zoom level.
+- The world-map wheel-zoom floor is the world tactical band: `ARokWorldMapCameraPawn::UserZoomMinimumCameraKeyId` clamps user zooming to `FTE_Tactics` (dxf 1110) unless the player city is in view (which keeps the hard `limit_min` floor so the zoom-into-city flow still triggers). Source chain: `CameraParamLod.csv` tactical states start at 1110 (`init` 1350, `map_tactical` 1509) and the `m_unit_scale_curve` X keys match the same dxf ladder; dxf 500-1100 is the city-exit transit band `WorldCameraImpl`/`GlobalViewLevelMediator` only passes through via its dynamic `setAdditionHeightForMinDxf` (raised toward `CityBoundDxf`=500). Wheel zooms that settle at 500-900 evaluate the curve at ~1.1-1.75 WITH clone expansion (43 ghost-blended units) - a sparse transient state the real game never presents as a resting view, which reads as "wrong" against Unity screenshots taken at the tactical band (curve ~2.1+, 15-unit dense mass).
+- Regenerating the map while a GUI editor has the project open can fail: memory-mapped `.uasset` file locks make `rename_asset` report "destination path already exists" even after `delete_asset`. `purge_package_from_disk` hardens the mountain importer, but close the GUI editor before full map regeneration.
+
+## Unity World Map Streaming Pipeline Notes
+
+- World-map pipeline order: `BuildRokUnityWorldMapManifest.py` → `PrepareRokUnityWorldMapAssets.py` → `CreateRokUnityWorldMapPrototype.py` (UE editor) → `PrepareRokUnityWorldMapStreamingAssets.py` → `CompileRokUnityWorldMapStreamingData.py` → `BuildRokUnityWorldMapRuntimeData.py`, each with a matching `Verify*` script.
+- UE mesh asset names must go through the same `safe_name()` in both `PrepareRokUnityWorldMapAssets.py` and `CreateRokUnityWorldMapPrototype.py` (dashes become underscores); a mismatch silently drops streaming bindings.
+- UE 5.8 material-graph Python pin names differ from older engines: `ComponentMask`/`Saturate` input is `""` (not `"Input"`), `TextureSample` UV input is `"UVs"` (not `"Coordinates"`), `Power` exponent is `"Exp"` (not `"Exponent"`), and `MaterialStatistics` has no `errors` property.
+- Binary FBX node truth comes from parsing `Model`/`Geometry` records in `parse_fbx_binary_nodes` (Prepare). Unity prefab child names are not guaranteed to exist as FBX nodes (Ocean_CO_A has no plain `_Collision` node; its geometry nodes have empty names, so UE imports them as `Mesh`/`Mesh_ncl_N` placeholders mapped back by `source_fbx_geometry_model_order`).
+- Unity mirrors some ground transition tiles (`I_TYPE_TEST_guodu*`) with negative-determinant transforms. The streaming compiler keeps them by folding the reflection into a negative X scale (proper rotation + mirrored scale); affected ground materials are two-sided unlit. Do not re-add a positive-determinant rejection gate.
+- `Rive_CO_H` (waterfall composite of Rive_CO_F + build_mountain_G + splash/ripple particle systems, exactly one instance in `Tile-map-pvp_2`) is migrated as representation `exact_source_fbx_composite_waterfall`: 6 static parts bind existing river/mountain meshes plus the dedicated `WaterfallLayers` meshes (`build_mountain_G_edge`/`_water`) and materials `M_WorldSource_build_mountain_T` / `M_WorldWaterfall_WaterLight` (the latter approximates Unity builtin shader fileID 10721, Particles additive family). Its 6 ParticleSystems (bowen/shuahua2/shuihua/xia-shui/shitou (1)) stay under the documented `particle_systems_pending_niagara_or_omission_policy`.
 
 ## Unity Runtime Visual Extraction Rule
 

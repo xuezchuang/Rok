@@ -1,0 +1,281 @@
+"""Strict source, repeatability, PNG/BGRA and particle-state checks for Unity V1 visual probe."""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import math
+import tempfile
+from pathlib import Path
+
+from PIL import Image
+
+ROOT = Path(__file__).resolve().parents[1]
+BASE = ROOT / "Saved/UnityWorldTileParticleProbeV2"
+PROJECT = ROOT / "Saved/UnityWorldTileParticleVisualProbeV1"
+NATIVE = BASE / "OutputRuns/20261009_065833_466_26596/particle_native.json"
+CONTRACT = PROJECT / "probe_contract.json"
+SOURCE = PROJECT / "Source/UnityRokWorldTileParticleVisualProbeV1.cs"
+REPORT = ROOT / "Saved/RokUnityMigration/BatchReview20261009WorldSearchAndTileEffects/NextBatch/TileParticleVisualSource/visual_probe_prepare_v1.json"
+NATIVE_SHA = "ce7d850f6dbb696a0d34e96df2d7f7ac0658eceadacd694d579a5f1ad3b6c75c"
+TIMES = (2.5, 4.9, 5.1, 7.5)
+NAMES = ("bowen", "bowen (1)")
+
+
+def require(condition: bool, message: str) -> None:
+    if not condition:
+        raise ValueError(message)
+
+
+def sha(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def load(path: Path) -> dict:
+    require(path.is_file(), f"missing file: {path}")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def near(a: float, b: float, tol: float = 2e-4) -> bool:
+    return math.isfinite(float(a)) and math.isfinite(float(b)) and abs(a - b) <= tol
+
+
+def vector_equal(a: dict, b: dict, tol: float = 2e-4) -> bool:
+    return all(near(a[k], b[k], tol) for k in ("x", "y", "z"))
+
+
+def quaternion_equal(a: dict, b: dict, tol: float = 2e-4) -> bool:
+    keys = ("x", "y", "z", "w")
+    return (all(near(a[k], b[k], tol) for k in keys)
+            or all(near(a[k], -b[k], tol) for k in keys))
+
+
+def check_prepared() -> tuple[dict, dict]:
+    require(sha(NATIVE) == NATIVE_SHA, "sealed V2 native particle witness SHA drift")
+    native = load(NATIVE)
+    require(native["schema"] == "rok.world_tile_particle_native_witness.v2"
+            and [row["name"] for row in native["systems"]] == list(NAMES),
+            "sealed native witness identity")
+    contract = load(CONTRACT)
+    report = load(REPORT)
+    require(contract["schema"] == "rok.world_tile_particle_visual_contract.v1"
+            and report["schema"] == "rok.world_tile_particle_visual_prepare.v1"
+            and report["status"] == "prepared_not_rendered", "prepare schema/status")
+    require(contract["source_native_sha256"] == NATIVE_SHA
+            and report["source_native"]["sha256"] == NATIVE_SHA,
+            "source witness pin")
+    require(contract["exporter_sha256"] == sha(SOURCE)
+            == sha(PROJECT / "Assets/Editor/UnityRokWorldTileParticleVisualProbeV1.cs")
+            == report["exporter"]["sha256"], "exporter pin")
+    require(contract["prepare_sha256"] == sha(ROOT / "Scripts/PrepareRokUnityWorldTileParticleVisualProbeV1.py")
+            == report["producer"]["sha256"], "prepare script pin")
+    require(contract["verifier_sha256"] == sha(Path(__file__))
+            == report["verifier"]["sha256"], "verifier script pin")
+    require(report["contract"]["sha256"] == sha(CONTRACT), "contract pin")
+    require(contract["times_seconds"] == list(TIMES)
+            and contract["fixed_random_seed"] == 424242
+            and contract["independent_resets_per_time"] == 2,
+            "time/reset/seed contract")
+    require("m_ActiveColorSpace: 0" in (PROJECT / "ProjectSettings/ProjectSettings.asset").read_text(),
+            "source Gamma ProjectSettings")
+    for kind, name in (("prefab", "Tile-JuDian-A2_lod2.prefab"),
+                       ("material", "Ring_06_light.mat"), ("texture", "Ring_07.png")):
+        actual = PROJECT / "Assets/ProbeInputs" / name
+        source = BASE / "Assets/ProbeInputs" / name
+        require(sha(actual) == sha(source) == contract[kind + "_sha256"],
+                f"{kind} source/copy pin")
+        require(sha(actual.with_name(name + ".meta")) == sha(source.with_name(name + ".meta")),
+                f"{kind} meta pin")
+    return contract, native
+
+
+def pixel_check(frame: dict, run_dir: Path, width: int, height: int) -> bytes:
+    png_name, raw_name = frame["png"], frame["raw_bgra"]
+    require(Path(png_name).name == png_name and Path(raw_name).name == raw_name,
+            "frame image path must be a local filename")
+    png, raw = run_dir / png_name, run_dir / raw_name
+    require(png.is_file() and raw.is_file(), "missing live-render frame files")
+    require(sha(png) == frame["png_sha256"] and sha(raw) == frame["raw_bgra_sha256"],
+            "recorded frame file SHA differs")
+    raw_bytes = raw.read_bytes()
+    require(len(raw_bytes) == width * height * 4, "BGRA dimensions")
+    with Image.open(png) as image:
+        require(image.format == "PNG" and image.mode == "RGBA" and image.size == (width, height),
+                "PNG RGBA format and dimensions")
+        rgba = image.tobytes()
+    expected_bgra = bytearray(len(rgba))
+    alpha = rgb = 0
+    for at in range(0, len(rgba), 4):
+        r, g, b, a = rgba[at:at + 4]
+        expected_bgra[at:at + 4] = bytes((b, g, r, a))
+        alpha += a > 0
+        rgb += r > 0 or g > 0 or b > 0
+    require(raw_bytes == expected_bgra, "raw BGRA and decoded PNG disagree")
+    require(alpha == frame["alpha_nonzero_pixels"] and rgb == frame["rgb_nonzero_pixels"]
+            and alpha > 0 and rgb > 0, "non-clear GPU image/pixel census")
+    return raw_bytes
+
+
+def particle_check(actual: dict, native: dict, time: float) -> None:
+    require(actual["particle_count"] == native["particle_count"] > 0,
+            f"source particle count at {time}")
+    require(len(actual["particles"]) == actual["particle_count"], "particle array length")
+    for record, source in zip(actual["particles"], native["particles"]):
+        for name in ("position", "velocity"):
+            require(vector_equal(record[name], source[name]), f"particle {name} at {time}")
+        for name in ("remaining_lifetime", "start_lifetime", "current_size", "rotation"):
+            require(near(record[name], source[name]), f"particle {name} at {time}")
+        require(record["random_seed"] == source["random_seed"]
+                and record["start_color"] == source["start_color"],
+                f"particle seed/color at {time}")
+
+
+def check_run(run_dir: Path, contract: dict, native: dict) -> dict:
+    require(run_dir.resolve().is_relative_to((PROJECT / "OutputRuns").resolve()),
+            "run directory escaped isolated project")
+    evidence = load(run_dir / "visual_native.json")
+    camera = evidence["camera"]
+    require(evidence["schema"] == "rok.world_tile_particle_visual.v1"
+            and evidence["complete"] is True
+            and evidence["contract_sha256"] == sha(CONTRACT)
+            and evidence["exporter_sha256"] == sha(SOURCE)
+            and evidence["source_native_sha256"] == NATIVE_SHA,
+            "native visual report identity/completion")
+    require(evidence["unity_version"] == "2019.4.28f1c1"
+            and Path(evidence["project_path"]).resolve() == PROJECT.resolve(),
+            "Unity/project identity")
+    require(evidence["prefab_sha256"] == contract["prefab_sha256"]
+            and evidence["material_sha256"] == contract["material_sha256"]
+            and evidence["texture_sha256"] == contract["texture_sha256"],
+            "source asset file pins")
+    require(evidence["source_material_shader"] == "Mobile/Particles/Alpha Blended"
+            and evidence["source_texture_path"] == "Assets/ProbeInputs/Ring_07.png"
+            and (evidence["source_texture_width"], evidence["source_texture_height"]) == (128, 128)
+            and evidence["material_has_tint_property"] is False
+            and evidence["material_has_inv_fade_property"] is False,
+            "actual source shader/property/texture binding")
+    require(evidence["fixed_random_seed"] == 424242
+            and "Stop(true,StopEmittingAndClear)" in evidence["reset_policy"],
+            "seed/reset method")
+    require(camera["purpose"] == "isolated top-down orthographic diagnostic of the two particle systems only"
+            and camera["width"] == camera["height"] == 1024
+            and near(camera["orthographic_size"], 8.0)
+            and near(camera["near_clip"], 0.1) and near(camera["far_clip"], 100.0)
+            and type(camera["render_texture_srgb"]) is bool
+            and camera["project_color_space"] == camera["active_color_space"] == "Gamma"
+            and camera["render_texture_format"] == "ARGB32"
+            and camera["capture_texture_format"] == "RGBA32"
+            and camera["raw_pixel_format"] == "BGRA8"
+            and camera["raw_row_order"] == "top-to-bottom",
+            "diagnostic camera/color/raw contract")
+    require(all(near(camera["clear_color"][key], 0.0) for key in ("r", "g", "b", "a")),
+            "transparent render target clear")
+    expected_camera = {
+        "x": (native["systems"][0]["world_position"]["x"] + native["systems"][1]["world_position"]["x"]) / 2,
+        "y": (native["systems"][0]["world_position"]["y"] + native["systems"][1]["world_position"]["y"]) / 2 + 20,
+        "z": (native["systems"][0]["world_position"]["z"] + native["systems"][1]["world_position"]["z"]) / 2,
+    }
+    require(vector_equal(camera["position"], expected_camera)
+            and quaternion_equal(camera["rotation"],
+                                 {"x": 0.70710678, "y": 0.0, "z": 0.0, "w": 0.70710678}),
+            "source-centered top-down diagnostic camera pose")
+    samples = evidence["samples"]
+    require(len(samples) == len(TIMES), "sample count")
+    checked_files: set[str] = set()
+    for sample, time in zip(samples, TIMES):
+        require(near(sample["time_seconds"], time, 1e-4), "fixed nonzero sample time")
+        repeats = sample["independent_resets"]
+        require(len(repeats) == 2, "two independent source resets")
+        raws = []
+        for index, frame in enumerate(repeats):
+            require(frame["reset_index"] == index and frame["fixed_seed"] == 424242,
+                    "independent reset index/seed")
+            require(len(frame["systems"]) == 2
+                    and [system["name"] for system in frame["systems"]] == list(NAMES),
+                    "two exact source particle systems")
+            for system, source in zip(frame["systems"], native["systems"]):
+                require(system["hierarchy_path"] == source["hierarchy_path"]
+                        and system["mesh_guid"] == "0000000000000000e000000000000000"
+                        and system["mesh_file_id"] == 10210
+                        and system["shader_name"] == "Mobile/Particles/Alpha Blended"
+                        and system["material_paths"] == ["Assets/ProbeInputs/Ring_06_light.mat"] * 2,
+                        "source hierarchy/quad/material binding")
+                require(vector_equal(system["world_position"], source["world_position"])
+                        and vector_equal(system["world_lossy_scale"], source["world_lossy_scale"])
+                        and quaternion_equal(system["world_rotation"], source["world_rotation"]),
+                        "source world TRS")
+                source_sample = next((row for row in source["samples"]
+                                      if near(row["time_seconds"], time, 1e-4)), None)
+                require(source_sample is not None, "native V2 time missing")
+                particle_check(system, source_sample["independent_resets"][0], time)
+            for name in (frame["png"], frame["raw_bgra"]):
+                require(name not in checked_files, "frame filename reused")
+                checked_files.add(name)
+            raws.append(pixel_check(frame, run_dir, 1024, 1024))
+        require(repeats[0]["png_sha256"] == repeats[1]["png_sha256"]
+                and repeats[0]["raw_bgra_sha256"] == repeats[1]["raw_bgra_sha256"]
+                and raws[0] == raws[1],
+                "independent reset GPU frames differ")
+        require(json.dumps(repeats[0]["systems"], sort_keys=True) ==
+                json.dumps(repeats[1]["systems"], sort_keys=True),
+                "independent reset particle data differ")
+    require(len(checked_files) == 16, "four times x two resets x two files")
+    return {"schema": "rok.world_tile_particle_visual_verify.v1", "passed": True,
+            "run": run_dir.relative_to(ROOT).as_posix(),
+            "evidence_sha256": sha(run_dir / "visual_native.json"),
+            "image_file_count": len(checked_files),
+            "nonzero_times": list(TIMES), "two_reset_frames_equal": True,
+            "pixel_contract": "decoded PNG RGBA equals top-down raw BGRA byte-for-byte"}
+
+
+def self_test() -> None:
+    with tempfile.TemporaryDirectory() as folder:
+        directory = Path(folder)
+        image = Image.new("RGBA", (2, 2), (0, 0, 0, 0))
+        image.putpixel((0, 0), (10, 20, 30, 40))
+        path, raw = directory / "good.png", directory / "good.bgra"
+        image.save(path)
+        raw.write_bytes(bytes((30, 20, 10, 40)) + bytes(12))
+        frame = {"png": "good.png", "raw_bgra": "good.bgra", "png_sha256": sha(path),
+                 "raw_bgra_sha256": sha(raw), "alpha_nonzero_pixels": 1,
+                 "rgb_nonzero_pixels": 1}
+        pixel_check(frame, directory, 2, 2)
+        negative = 0
+        for mutate in ("sha", "raw", "clear", "path"):
+            bad = dict(frame)
+            if mutate == "sha": bad["png_sha256"] = "0" * 64
+            if mutate == "raw": raw.write_bytes(bytes(16))
+            if mutate == "clear": bad["alpha_nonzero_pixels"] = 0
+            if mutate == "path": bad["png"] = "../good.png"
+            try:
+                pixel_check(bad, directory, 2, 2)
+            except ValueError:
+                negative += 1
+            else:
+                raise AssertionError(f"negative case accepted: {mutate}")
+            raw.write_bytes(bytes((30, 20, 10, 40)) + bytes(12))
+        require(negative == 4, "negative-case coverage")
+    print(json.dumps({"self_test_passed": True, "negative_cases_rejected": negative}))
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--prepare-only", action="store_true")
+    parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--run", type=Path)
+    args = parser.parse_args()
+    if args.self_test:
+        self_test()
+    if args.prepare_only or args.run:
+        contract, native = check_prepared()
+        if args.run:
+            result = check_run(args.run, contract, native)
+            print(json.dumps(result, indent=2))
+        else:
+            print(json.dumps({"prepare_verified": True, "contract_sha256": sha(CONTRACT)}))
+    if not args.self_test and not args.prepare_only and not args.run:
+        parser.error("pass --prepare-only, --self-test, or --run PATH")
+
+
+if __name__ == "__main__":
+    main()

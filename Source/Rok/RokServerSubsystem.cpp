@@ -4,6 +4,8 @@
 #include "Interfaces/IHttpRequest.h"
 #include "Interfaces/IHttpResponse.h"
 #include "RokServerSettings.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
@@ -11,6 +13,13 @@
 void URokServerSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
+	bLocalOnlyRun = FParse::Param(FCommandLine::Get(), TEXT("RokLocalOnly"));
+	if (bLocalOnlyRun)
+	{
+		bConnected = false;
+		SessionToken.Reset();
+		return;
+	}
 
 	const URokServerSettings* Settings = GetDefault<URokServerSettings>();
 	ServerBaseUrl = Settings->ServerBaseUrl;
@@ -119,6 +128,13 @@ void URokServerSubsystem::SendJsonRequest(
 	const FString& DebugName,
 	TFunction<void(const FString&)> OnSuccess)
 {
+	if (bLocalOnlyRun)
+	{
+		++SuppressedLocalRequestCount;
+		bConnected = false;
+		SessionToken.Reset();
+		return;
+	}
 	TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
 	Request->SetVerb(Verb);
 	Request->SetURL(BuildUrl(Path));
@@ -145,6 +161,7 @@ void URokServerSubsystem::SendJsonRequest(
 		OnSuccess(ResponseBody);
 	});
 
+	++HttpDispatchAttemptCount;
 	if (!Request->ProcessRequest())
 	{
 		HandleRequestFailure(DebugName, 0, TEXT("ProcessRequest returned false"));

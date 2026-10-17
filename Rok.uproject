@@ -5,6 +5,11 @@
 	"Description": "UE 5.8 strategy/MMO prototype inspired by Rise of Kingdoms, with bundled reference source under ref/ for system analysis.",
 	"Modules": [
 		{
+			"Name": "RokRendering",
+			"Type": "Runtime",
+			"LoadingPhase": "PostConfigInit"
+		},
+		{
 			"Name": "Rok",
 			"Type": "Runtime",
 			"LoadingPhase": "Default"
@@ -13,6 +18,10 @@
 	"Plugins": [
 		{
 			"Name": "EnhancedInput",
+			"Enabled": true
+		},
+		{
+			"Name": "ProceduralMeshComponent",
 			"Enabled": true
 		},
 		{

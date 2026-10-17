@@ -1,4 +1,6 @@
 #include "RokUnityRuntimeStateSubsystem.h"
+#include "RokBuildingUpgradeSubsystem.h"
+#include "Engine/World.h"
 
 #include "Dom/JsonObject.h"
 #include "Internationalization/Text.h"
@@ -39,6 +41,27 @@ int32 JsonIntField(const TSharedPtr<FJsonObject>& Object, const TCHAR* FieldName
 	if (Object->TryGetStringField(FieldName, StringValue))
 	{
 		return FCString::Atoi(*StringValue);
+	}
+	return 0;
+}
+
+int64 JsonInt64Field(const TSharedPtr<FJsonObject>& Object, const TCHAR* FieldName)
+{
+	if (!Object.IsValid())
+	{
+		return 0;
+	}
+
+	double NumberValue = 0.0;
+	if (Object->TryGetNumberField(FieldName, NumberValue))
+	{
+		return static_cast<int64>(NumberValue);
+	}
+
+	FString StringValue;
+	if (Object->TryGetStringField(FieldName, StringValue))
+	{
+		return FCString::Atoi64(*StringValue);
 	}
 	return 0;
 }
@@ -125,9 +148,64 @@ void URokUnityRuntimeStateSubsystem::Initialize(FSubsystemCollectionBase& Collec
 	LoadRuntimeState();
 }
 
+FRokUnityRuntimePlayerProfileState URokUnityRuntimeStateSubsystem::GetPlayerProfileState() const
+{
+	FRokUnityRuntimePlayerProfileState Result = PlayerProfileState;
+	if (bRuntimeStateLoaded)
+	{
+		if (const UWorld* World = GetWorld())
+		{
+			if (const URokBuildingUpgradeSubsystem* Buildings = World->GetSubsystem<URokBuildingUpgradeSubsystem>())
+			{
+				Result.LocalBuildingUpgradeScore = Buildings->GetLocalCompletedBuildingPowerDelta();
+				Result.LocalPreviewScore = int32(FMath::Clamp<int64>(int64(Result.LocalPreviewScore)
+					+ Result.LocalBuildingUpgradeScore, 0, MAX_int32));
+			}
+		}
+	}
+	// The bootstrap remains immutable in the GameInstance. Leaving this world
+	// resets its local building progress and this projection together.
+	return Result;
+}
+
+FRokUnityRuntimeTaskLocalProjection URokUnityRuntimeStateSubsystem::GetActiveTaskLocalProjection(
+	const FRokBuildingState* HallState) const
+{
+	return ProjectLocalBuildingLevelTask(ActiveTask, PlayerProfileState, bRuntimeStateLoaded, HallState);
+}
+
+FRokUnityRuntimeTaskLocalProjection URokUnityRuntimeStateSubsystem::ProjectLocalBuildingLevelTask(
+	const FRokUnityRuntimeTaskState& Task, const FRokUnityRuntimePlayerProfileState& Profile,
+	bool bRuntimeLoaded, const FRokBuildingState* HallState)
+{
+	FRokUnityRuntimeTaskLocalProjection Result;
+	Result.Task = Task;
+	// Unity TaskProxy.GetTaskStatisticsNum evaluates UpgradeBuilding from
+	// CityBuildingProxy.GetMaxLevelofType. The current local city has one source-owned
+	// Hall, InitBuilding id 5. This is only its completed-level display condition;
+	// TaskScriptGlobalMediator/TaskProxy still own account task/reward progression.
+	if (!bRuntimeLoaded || Profile.StateKind != TEXT("local_preview")
+		|| Profile.bHasRoleId || !Profile.RoleId.IsEmpty()
+		|| Profile.bHasCivilization || Profile.CivilizationId != 0 || !Profile.CivilizationName.IsEmpty()
+		|| Task.TaskId != 200900 || Task.Type != 8 || Task.Param1 != 1 || Task.Param2 != 2
+		|| Task.Target != 2 || Task.ProgressRule != TEXT("building_level") || Task.bComplete
+		|| !HallState || HallState->BuildingKey != FName(TEXT("UnityInitId_5"))
+		|| HallState->UnityInitId != 5 || HallState->UnityBuildingTypeId != 1
+		|| HallState->Type != ERokBuildingType::TownCenter || HallState->Level < 1)
+	{
+		return Result;
+	}
+	Result.bProjected = true;
+	Result.Task.Current = FMath::Min(HallState->Level, Task.Target);
+	Result.bConditionMet = Result.Task.Current >= Task.Target;
+	// Never mark Task.bComplete or advance NextId. That is server/account state.
+	return Result;
+}
+
 bool URokUnityRuntimeStateSubsystem::LoadRuntimeState()
 {
 	Summary = FRokUnityRuntimeSummary();
+	PlayerProfileState = FRokUnityRuntimePlayerProfileState();
 	ActiveTask = FRokUnityRuntimeTaskState();
 	ActiveTaskChain.Reset();
 	StarterHeroes.Reset();
@@ -152,6 +230,7 @@ bool URokUnityRuntimeStateSubsystem::LoadRuntimeState()
 	}
 
 	Summary = ParseSummary(JsonObjectField(RootObject, TEXT("summary")));
+	PlayerProfileState = ParsePlayerProfileState(JsonObjectField(RootObject, TEXT("player_runtime")));
 
 	const TSharedPtr<FJsonObject> MainTaskRuntimeObject = JsonObjectField(RootObject, TEXT("main_task_runtime"));
 	ActiveTask = ParseTaskState(JsonObjectField(MainTaskRuntimeObject, TEXT("active_task")));
@@ -182,14 +261,15 @@ bool URokUnityRuntimeStateSubsystem::LoadRuntimeState()
 		UE_LOG(
 			LogTemp,
 			Log,
-			TEXT("Loaded Rok Unity runtime bootstrap: active_task=%d progress=%d/%d heroes=%d troop_stacks=%d total_troops=%d trainable=%d"),
+			TEXT("Loaded Rok Unity runtime bootstrap: active_task=%d progress=%d/%d heroes=%d troop_stacks=%d total_troops=%d trainable=%d player_state=%s"),
 			Summary.ActiveTaskId,
 			Summary.ActiveTaskCurrent,
 			Summary.ActiveTaskTarget,
 			StarterHeroes.Num(),
 			StarterTroopStacks.Num(),
 			Summary.TotalTroopCount,
-			TrainableTroopIds.Num());
+			TrainableTroopIds.Num(),
+			*PlayerProfileState.StateKind);
 	}
 	else
 	{
@@ -231,6 +311,34 @@ FRokUnityRuntimeSummary URokUnityRuntimeStateSubsystem::ParseSummary(const TShar
 	Parsed.TotalTroopPower = JsonIntField(Object, TEXT("total_troop_power"));
 	Parsed.TotalHeroScore = JsonIntField(Object, TEXT("total_hero_score"));
 	Parsed.TrainableTroopCount = JsonIntField(Object, TEXT("trainable_troop_count"));
+	return Parsed;
+}
+
+FRokUnityRuntimePlayerProfileState URokUnityRuntimeStateSubsystem::ParsePlayerProfileState(const TSharedPtr<FJsonObject>& Object)
+{
+	FRokUnityRuntimePlayerProfileState Parsed;
+	Parsed.StateKind = JsonStringField(Object, TEXT("state_kind"));
+	Parsed.DefaultHeadId = JsonIntField(Object, TEXT("default_head_id"));
+	Parsed.DefaultFrameId = JsonIntField(Object, TEXT("default_frame_id"));
+	Parsed.bHasRoleId = JsonBoolField(Object, TEXT("has_role_id"));
+	Parsed.RoleId = JsonStringField(Object, TEXT("role_id"));
+	Parsed.bHasDisplayName = JsonBoolField(Object, TEXT("has_display_name"));
+	Parsed.DisplayName = JsonStringField(Object, TEXT("display_name"));
+	Parsed.bHasCivilization = JsonBoolField(Object, TEXT("has_civilization"));
+	Parsed.CivilizationId = JsonIntField(Object, TEXT("civilization_id"));
+	Parsed.CivilizationName = JsonStringField(Object, TEXT("civilization_name"));
+	Parsed.bHasAlliance = JsonBoolField(Object, TEXT("has_alliance"));
+	Parsed.AllianceName = JsonStringField(Object, TEXT("alliance_name"));
+	Parsed.bHasKillCount = JsonBoolField(Object, TEXT("has_kill_count"));
+	Parsed.KillCount = JsonInt64Field(Object, TEXT("kill_count"));
+	Parsed.bHasActionPoints = JsonBoolField(Object, TEXT("has_action_points"));
+	Parsed.ActionPointsCurrent = JsonIntField(Object, TEXT("action_points_current"));
+	Parsed.ActionPointsMax = JsonIntField(Object, TEXT("action_points_max"));
+	Parsed.bHasVipLevel = JsonBoolField(Object, TEXT("has_vip_level"));
+	Parsed.VipLevel = JsonIntField(Object, TEXT("vip_level"));
+	Parsed.LocalHeroScore = JsonIntField(Object, TEXT("local_hero_score"));
+	Parsed.LocalTroopPower = JsonIntField(Object, TEXT("local_troop_power"));
+	Parsed.LocalPreviewScore = JsonIntField(Object, TEXT("local_preview_score"));
 	return Parsed;
 }
 

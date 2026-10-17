@@ -23,8 +23,15 @@ public class Rok : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new[]
 		{
+			"ApplicationCore",
 			"Slate",
-			"SlateCore"
+			"SlateCore",
+			"RHI",
+			"RenderCore",
+			"ImageWrapper",
+			"ImageCore",
+			"RokRendering",
+			"ProceduralMeshComponent"
 		});
 	}
 }

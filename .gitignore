@@ -23,3 +23,6 @@ Scripts/__pycache__/
 *.log
 ref/
 source.rar
+*.slnx
+Scripts/*/bin/
+Scripts/*/obj/

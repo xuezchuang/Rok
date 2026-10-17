@@ -1,0 +1,38 @@
+#include "/Engine/Public/Platform.ush"
+
+// Isolated source-local mesh diagnostic. No Unity material, tint, texture, or vertex color.
+ByteAddressBuffer Positions;
+ByteAddressBuffer UV0;
+ByteAddressBuffer Indices;
+uint PositionStrideBytes;
+uint UVStrideBytes;
+float4x4 LocalToCanonicalClip;
+
+struct FSourceGeometryProbeVaryings
+{
+	float4 Position : SV_POSITION;
+	float2 UV : TEXCOORD0;
+};
+
+FSourceGeometryProbeVaryings SourceGeometryProbeVS(uint VertexID : SV_VertexID)
+{
+	const uint SourceVertex = Indices.Load(VertexID * 4u);
+	const uint PositionOffset = SourceVertex * PositionStrideBytes;
+	const uint UVOffset = SourceVertex * UVStrideBytes;
+	const float3 LocalPosition = float3(
+		asfloat(Positions.Load(PositionOffset)),
+		asfloat(Positions.Load(PositionOffset + 4u)),
+		PositionStrideBytes == 12u ? asfloat(Positions.Load(PositionOffset + 8u)) : 0.0f);
+	FSourceGeometryProbeVaryings Output;
+	Output.Position = mul(float4(LocalPosition, 1.0f), LocalToCanonicalClip);
+	// Isolated Unity 2019 D3D RenderTexture target clip-Y adapter only.
+	// The pinned source-local matrix, UVs, world transform, viewport and readback rows are unchanged.
+	Output.Position.y = -Output.Position.y;
+	Output.UV = float2(asfloat(UV0.Load(UVOffset)), asfloat(UV0.Load(UVOffset + 4u)));
+	return Output;
+}
+
+float4 SourceGeometryProbePS(FSourceGeometryProbeVaryings Input) : SV_Target0
+{
+	return float4(Input.UV.x, Input.UV.y, 0.25f, 1.0f);
+}

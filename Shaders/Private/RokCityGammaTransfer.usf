@@ -1,0 +1,55 @@
+// The SceneColor target stays pre-exposed and linear outside the two renderer callbacks.
+// Only RGB is transformed. Alpha (including SceneCapture opacity) is copied verbatim.
+
+#include "/Engine/Private/Common.ush"
+
+Texture2D<float4> InputTexture;
+RWTexture2D<float4> OutputTexture;
+RWBuffer<uint> ValidationStatus;
+int2 RectMin;
+int2 RectSize;
+uint bEncode;
+
+float3 RokLinearToSrgb(float3 Value)
+{
+	return float3(
+		Value.r <= 0.0031308 ? 12.92 * Value.r : 1.055 * pow(Value.r, 1.0 / 2.4) - 0.055,
+		Value.g <= 0.0031308 ? 12.92 * Value.g : 1.055 * pow(Value.g, 1.0 / 2.4) - 0.055,
+		Value.b <= 0.0031308 ? 12.92 * Value.b : 1.055 * pow(Value.b, 1.0 / 2.4) - 0.055);
+}
+
+float3 RokSrgbToLinear(float3 Value)
+{
+	return float3(
+		Value.r <= 0.04045 ? Value.r / 12.92 : pow((Value.r + 0.055) / 1.055, 2.4),
+		Value.g <= 0.04045 ? Value.g / 12.92 : pow((Value.g + 0.055) / 1.055, 2.4),
+		Value.b <= 0.04045 ? Value.b / 12.92 : pow((Value.b + 0.055) / 1.055, 2.4));
+}
+
+[numthreads(8, 8, 1)]
+void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+	if (DispatchThreadId.x >= uint(RectSize.x) || DispatchThreadId.y >= uint(RectSize.y))
+	{
+		return;
+	}
+
+	const int2 Pixel = RectMin + int2(DispatchThreadId.xy);
+	const float4 Input = InputTexture.Load(int3(Pixel, 0));
+	const float PreExposure = View.PreExposure;
+	const bool bValid = isfinite(PreExposure) && PreExposure > 0.0;
+	if (DispatchThreadId.x == 0 && DispatchThreadId.y == 0)
+	{
+		ValidationStatus[0] = bValid ? 1u : 2u;
+	}
+
+	if (!bValid)
+	{
+		OutputTexture[Pixel] = Input; // Both stages are no-ops for an invalid view exposure.
+		return;
+	}
+
+	const float3 Unexposed = Input.rgb / PreExposure;
+	const float3 Transferred = bEncode != 0 ? RokLinearToSrgb(Unexposed) : RokSrgbToLinear(Unexposed);
+	OutputTexture[Pixel] = float4(Transferred * PreExposure, Input.a);
+}
