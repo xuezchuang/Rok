@@ -7,6 +7,7 @@
 class AActor;
 class ARokPlayerController;
 class FJsonObject;
+class FSlateVirtualUserHandle;
 class FJsonValue;
 class UButton;
 class UEditableTextBox;
@@ -49,12 +50,12 @@ private:
 	TArray<FString> Failures;
 	TSharedPtr<FJsonObject> Inputs;
 	TSharedPtr<FJsonObject> Pending;
+	TSharedPtr<FSlateVirtualUserHandle> VirtualUser;
 	TSharedPtr<FJsonObject> BaselineBusinessJson;
 	FString Directory;
 	FString PendingPath;
 	FString BaselineBusiness;
 	FTransform BaselineCamera;
-	FVector2D OriginalPointer = FVector2D::ZeroVector;
 	FVector2D LastPointer = FVector2D::ZeroVector;
 	FVector2D StableTopLeft = FVector2D::ZeroVector;
 	FVector2D StableBottomRight = FVector2D::ZeroVector;
@@ -76,14 +77,13 @@ private:
 	int32 LastClickedId = INDEX_NONE;
 	bool bSecondPass = false;
 	bool bBegun = false;
-	bool bPointerSaved = false;
 	bool bBaselineSet = false;
 	bool bScreenshotDone = false;
 	bool bFinished = false;
 
 	bool Identity() const;
 	bool Begin();
-	bool PrepareOwnWindowFocus();
+	bool PrepareOwnOffscreenWindow();
 	bool Expect(bool Condition, const TCHAR* Reason);
 	bool Boundary() const;
 	bool Ready(int32 Phase) const;

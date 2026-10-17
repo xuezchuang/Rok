@@ -28,6 +28,8 @@
 #include "TextureResource.h"
 #include "EngineUtils.h"
 #include "Framework/Application/SlateApplication.h"
+#include "Framework/Application/SlateUser.h"
+#include "Null/NullPlatformApplicationMisc.h"
 #include "Widgets/Input/SEditableTextBox.h"
 #include "GameFramework/Pawn.h"
 #include "HAL/FileManager.h"
@@ -36,6 +38,7 @@
 #include "InputCoreTypes.h"
 #include "Layout/WidgetPath.h"
 #include "Misc/CommandLine.h"
+#include "Misc/App.h"
 #include "Misc/DateTime.h"
 #include "Misc/EngineVersion.h"
 #include "Misc/FileHelper.h"
@@ -105,19 +108,19 @@ FUiSample SampleUi(const URokUnityFeatureScreenWidget* Screen)
     return Result;
 }
 constexpr TCHAR CityMap[] = TEXT("/Game/Maps/L_RokUnityGameAppCity");
-constexpr TCHAR AuditFlag[] = TEXT("-RokAllianceFlagLocalPreviewAudit");
+constexpr TCHAR AuditFlag[] = TEXT("-RokAllianceFlagSyntheticSlateAuditV1");
 constexpr TCHAR CreateNameText[] = TEXT("FlagAuditCity");
 constexpr TCHAR CreateTagText[] = TEXT("FAG");
 constexpr TCHAR CreateNoticeText[] = TEXT("Local preview only");
 struct FInputPin { const TCHAR* Path; const TCHAR* Sha; };
 constexpr FInputPin Pinned[] = {
-    {TEXT("Source/Rok/RokUnityFeatureScreenWidget.cpp"), TEXT("55ede9000d689b2bcd23979f1db9081b0d06ae79881511a878623c2a95ce00a4")},
-    {TEXT("Source/Rok/RokUnityFeatureScreenWidget.h"), TEXT("7819bfe968c28308c2d88974b2bca9f742039ae38885d7603d20f0859f0a76cd")},
+    {TEXT("Source/Rok/RokUnityFeatureScreenWidget.cpp"), TEXT("a421b7c542f3f40bca8883960e0bea17c64b2fb956da46a1f70ad151f2923019")},
+    {TEXT("Source/Rok/RokUnityFeatureScreenWidget.h"), TEXT("e5e395a0801e77b13455c74b01976024d070d3f11b458be2ceec6d8da08111e3")},
     {TEXT("Source/Rok/RokAllianceFlagLocalPreviewData.cpp"), TEXT("488d145991bb1ccbbe8fc406f81ebd6bd12629ee9ed594824df7382ca7a419ba")},
     {TEXT("Source/Rok/RokAllianceFlagLocalPreviewData.h"), TEXT("face9b9d15a39faef0528c0eedd113b806e2ccf238ab3dd822d69c0c5ea8106d")},
     {TEXT("Source/Rok/RokUnityModalWidget.cpp"), TEXT("9dc34a7279c15f7cf153c8f063cb06d565be9f9792e50def35bac2195241f05c")},
     {TEXT("Source/Rok/RokUnityModalWidget.h"), TEXT("4c1059fefad4a983f1b666446c1a87e255aeaa37fec3a1c9e097df910ea6b7ef")},
-    {TEXT("Source/Rok/RokMainHudWidget.cpp"), TEXT("6cb5e93c80e60fc2a6663d584e6d531fadd0da2f9a4c7583b2477557640da0f1")},
+    {TEXT("Source/Rok/RokMainHudWidget.cpp"), TEXT("5b896308b0327f5e04c8f6434625a15703145f399893cd1306404b408724ae83")},
     {TEXT("Source/Rok/RokMainHudWidget.h"), TEXT("2740efb6b5c8a68222d5429f4d66e37e8e484302a215b6c46bbd8c783f67a2e8")},
     {TEXT("Source/Rok/RokServerSubsystem.cpp"), TEXT("3d73a28ff42b787c02a5c5a50ceba5bcac47056cc0945608bfea9ff9bd91bde4")},
     {TEXT("Source/Rok/RokServerSubsystem.h"), TEXT("4a07946d525ccb9eaedafcc30e68315e4ca5c52e94a88fc4c9b388833a07a5a9")},
@@ -137,10 +140,13 @@ bool TargetWorld(const UWorld* World)
 	FPaths::NormalizeDirectoryName(Engine);
 	return World && World->WorldType == EWorldType::Game
 		&& World->GetOutermost()->GetName() == CityMap
-		&& FPaths::IsSamePath(Project, TEXT("D:/ueDemo/Rok"))
+		&& FPaths::IsSamePath(Project, TEXT("D:/ueDemo/Rok/Saved/UIB1"))
 		&& FPaths::IsSamePath(Engine, TEXT("D:/ue/UE_5.8/Engine"))
 		&& FEngineVersion::Current().GetMajor() == 5
-		&& FEngineVersion::Current().GetMinor() == 8;
+		&& FEngineVersion::Current().GetMinor() == 8
+        && FApp::IsGame() && FSlateApplication::IsInitialized()
+        && FSlateApplication::Get().IsRenderingOffScreen()
+        && FNullPlatformApplicationMisc::IsUsingNullApplication();
 }
 FString FileSha(const FString& Path)
 {
@@ -245,7 +251,9 @@ bool URokAllianceFlagLocalPreviewAuditSubsystem::ShouldCreateSubsystem(UObject* 
     return false;
 #else
     return TargetWorld(Cast<UWorld>(Outer))
-        && FParse::Param(FCommandLine::Get(), TEXT("RokAllianceFlagLocalPreviewAudit"))
+        && FParse::Param(FCommandLine::Get(), TEXT("RokAllianceFlagSyntheticSlateAuditV1"))
+        && FParse::Param(FCommandLine::Get(), TEXT("RenderOffScreen"))
+        && FParse::Param(FCommandLine::Get(), TEXT("game"))
         && FParse::Param(FCommandLine::Get(), TEXT("RokLocalOnly"))
         && !IsRunningDedicatedServer() && Super::ShouldCreateSubsystem(Outer);
 #endif
@@ -257,18 +265,14 @@ TStatId URokAllianceFlagLocalPreviewAuditSubsystem::GetStatId() const
 void URokAllianceFlagLocalPreviewAuditSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
     Super::Initialize(Collection);
-    Directory = FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir()
-        / TEXT("PendingAllianceFlagLocalPreviewRuntimeAuditV2/RuntimeAudit")
-        / FString::Printf(TEXT("%lld_%u"), FDateTime::UtcNow().GetTicks(), FPlatformProcess::GetCurrentProcessId()));
-    IFileManager::Get().MakeDirectory(*Directory, true);
     ScreenshotHandle = FScreenshotRequest::OnScreenshotRequestProcessed().AddUObject(
         this, &URokAllianceFlagLocalPreviewAuditSubsystem::ScreenshotProcessed);
 }
 void URokAllianceFlagLocalPreviewAuditSubsystem::Deinitialize()
 {
     FScreenshotRequest::OnScreenshotRequestProcessed().Remove(ScreenshotHandle);
+    VirtualUser.Reset();
     if (Buildings.IsValid()) Buildings->OnLocalUpgradeCompleted.Remove(CompletionHandle);
-    if (bPointerSaved && FSlateApplication::IsInitialized()) FSlateApplication::Get().SetCursorPos(OriginalPointer);
     Super::Deinitialize();
 }
 bool URokAllianceFlagLocalPreviewAuditSubsystem::Identity() const { return TargetWorld(GetWorld()); }
@@ -279,60 +283,70 @@ bool URokAllianceFlagLocalPreviewAuditSubsystem::Expect(bool Condition, const TC
 }
 
 
-bool URokAllianceFlagLocalPreviewAuditSubsystem::PrepareOwnWindowFocus()
+bool URokAllianceFlagLocalPreviewAuditSubsystem::PrepareOwnOffscreenWindow()
 {
 #if PLATFORM_WINDOWS
-	const UGameViewportClient* Viewport = GetWorld() ? GetWorld()->GetGameViewport() : nullptr;
-	const TSharedPtr<SWindow> Window = Viewport ? Viewport->GetWindow() : nullptr;
-	const TSharedPtr<FGenericWindow> Native = Window.IsValid() ? Window->GetNativeWindow() : nullptr;
-	const HWND Handle = Native.IsValid() ? static_cast<HWND>(Native->GetOSWindowHandle()) : nullptr;
-	DWORD OwnerPid = 0;
-	if (Handle) ::GetWindowThreadProcessId(Handle, &OwnerPid);
-	RECT Client = {};
-	if (!Expect(Handle && ::IsWindow(Handle) && OwnerPid == ::GetCurrentProcessId()
-		&& ::GetClientRect(Handle, &Client) && Client.right - Client.left == 1440
-		&& Client.bottom - Client.top == 810, TEXT("Audit requires own 1440x810 GameApp window"))) return false;
-	if (::GetForegroundWindow() == Handle) return true;
-	if (::IsIconic(Handle)) ::ShowWindow(Handle, SW_RESTORE);
-	else if (!::IsWindowVisible(Handle)) ::ShowWindow(Handle, SW_SHOW);
-	const HWND Foreground = ::GetForegroundWindow();
-	const DWORD ForegroundThread = Foreground ? ::GetWindowThreadProcessId(Foreground, nullptr) : 0;
-	const DWORD CurrentThread = ::GetCurrentThreadId();
-	const bool bAttached = ForegroundThread && ForegroundThread != CurrentThread
-		&& ::AttachThreadInput(CurrentThread, ForegroundThread, 1) != 0;
-	::BringWindowToTop(Handle);
-	::SetForegroundWindow(Handle);
-	if (bAttached) ::AttachThreadInput(CurrentThread, ForegroundThread, 0);
-	return ::GetForegroundWindow() == Handle;
+    const UGameViewportClient* Viewport = GetWorld() ? GetWorld()->GetGameViewport() : nullptr;
+    const TSharedPtr<SWindow> Window = Viewport ? Viewport->GetWindow() : nullptr;
+    const TSharedPtr<FGenericWindow> Native = Window.IsValid() ? Window->GetNativeWindow() : nullptr;
+    if (!Expect(Window.IsValid() && Window->IsVisible() && Native.IsValid()
+        && Native->GetOSWindowHandle() == nullptr && Native->IsRenderingOffScreen()
+        && Window->GetViewportSize().Equals(FVector2D(1440, 810), .1f)
+        && FNullPlatformApplicationMisc::IsUsingNullApplication(),
+        TEXT("Expected own 1440x810 Null offscreen GameViewport SWindow"))) return false;
+    if (!VirtualUser.IsValid()) VirtualUser = FSlateApplication::Get().FindOrCreateVirtualUser(1);
+    return Expect(VirtualUser.IsValid() && VirtualUser->GetUserIndex() > 0,
+        TEXT("Dedicated non-hardware Slate virtual user unavailable"));
 #else
-	return Expect(false, TEXT("Audit requires Windows game window"));
+    return Expect(false, TEXT("Windows Null offscreen window identity required"));
 #endif
 }
-
 
 bool URokAllianceFlagLocalPreviewAuditSubsystem::Begin()
 {
     if (!Expect(Identity() && FSlateApplication::IsInitialized(), TEXT("Wrong world/project or Slate unavailable"))) return false;
     const TCHAR* Cursor = FCommandLine::Get();
     FString Token;
-    int32 AuditFlags = 0, LocalFlags = 0, FixtureFlags = 0;
+    int32 AuditFlags = 0, LocalFlags = 0, OutputFlags = 0;
+    int32 OffscreenFlags = 0, GameFlags = 0, FixtureFlags = 0;
     while (FParse::Token(Cursor, Token, false))
     {
-        if (Token.Equals(AuditFlag, ESearchCase::IgnoreCase)) { ++AuditFlags; continue; }
-        if (Token.Equals(TEXT("-RokLocalOnly"), ESearchCase::IgnoreCase)) { ++LocalFlags; continue; }
-        if (Token.Equals(TEXT("-RokAlliancePreviewFixture"), ESearchCase::IgnoreCase)) { ++FixtureFlags; continue; }
-        if (Token.StartsWith(TEXT("-Rok"), ESearchCase::IgnoreCase))
+        if (Token.Equals(AuditFlag, ESearchCase::IgnoreCase)) ++AuditFlags;
+        else if (Token.Equals(TEXT("-RokLocalOnly"), ESearchCase::IgnoreCase)) ++LocalFlags;
+        else if (Token.StartsWith(TEXT("-RokAllianceFlagAuditOutputV1="), ESearchCase::IgnoreCase)) ++OutputFlags;
+        else if (Token.Equals(TEXT("-RenderOffScreen"), ESearchCase::IgnoreCase)) ++OffscreenFlags;
+        else if (Token.Equals(TEXT("-game"), ESearchCase::IgnoreCase)) ++GameFlags;
+        else if (Token.Equals(TEXT("-RokAlliancePreviewFixture"), ESearchCase::IgnoreCase)) ++FixtureFlags;
+        else if (Token.StartsWith(TEXT("-Rok"), ESearchCase::IgnoreCase))
             return Expect(false, TEXT("Unexpected Rok fixture/diagnostic flag"));
     }
-    if (!Expect(AuditFlags == 1 && LocalFlags == 1 && FixtureFlags == 0,
-        TEXT("Exactly one audit/local flag and no search fixture flag required"))) return false;
+    if (!Expect(AuditFlags == 1 && LocalFlags == 1 && OutputFlags == 1
+        && OffscreenFlags == 1 && GameFlags == 1 && FixtureFlags == 0,
+        TEXT("Exactly one audit/local/output/offscreen/game flag and no fixture required"))) return false;
+    FString Output;
+    if (!Expect(FParse::Value(FCommandLine::Get(), TEXT("RokAllianceFlagAuditOutputV1="), Output),
+        TEXT("Root-specified fresh Shadow output directory required"))) return false;
+    Output = FPaths::ConvertRelativePathToFull(Output);
+    FPaths::NormalizeDirectoryName(Output);
+    if (!Expect(FPaths::CollapseRelativeDirectories(Output), TEXT("Output path normalization failed"))) return false;
+    const FString ResultRoot = FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir()
+        / TEXT("PendingAllianceFlagSyntheticSlateAuditV1/Results"));
+    if (!Expect(FPaths::IsSamePath(FPaths::GetPath(Output), ResultRoot)
+        && FPaths::GetCleanFilename(Output).Len() >= 8
+        && !IFileManager::Get().DirectoryExists(*Output)
+        && !IFileManager::Get().FileExists(*Output),
+        TEXT("Output must be fresh direct child of Shadow Saved Flag Results"))) return false;
+    Directory = Output;
+    if (!Expect(IFileManager::Get().MakeDirectory(*Directory, true),
+        TEXT("Fresh Shadow Flag output directory creation failed"))) return false;
+    if (!PrepareOwnOffscreenWindow()) return false;
     Controller = Cast<ARokPlayerController>(GetWorld()->GetFirstPlayerController());
     Buildings = GetWorld()->GetSubsystem<URokBuildingUpgradeSubsystem>();
     Runtime = GetWorld()->GetGameInstance() ? GetWorld()->GetGameInstance()->GetSubsystem<URokUnityRuntimeStateSubsystem>() : nullptr;
     Server = GetWorld()->GetGameInstance() ? GetWorld()->GetGameInstance()->GetSubsystem<URokServerSubsystem>() : nullptr;
     TArray<UUserWidget*> Widgets;
     UWidgetBlueprintLibrary::GetAllWidgetsOfClass(this, Widgets, URokMainHudWidget::StaticClass(), false);
-    for (UUserWidget* Widget : Widgets) if (Widget && Widget->GetWorld() == GetWorld())
+    for (UUserWidget* Widget : Widgets) if (Widget && Widget->GetWorld() == GetWorld() && Widget->IsInViewport())
     {
         if (Hud.IsValid()) return Expect(false, TEXT("More than one GameApp HUD"));
         Hud = Cast<URokMainHudWidget>(Widget);
@@ -342,7 +356,8 @@ bool URokAllianceFlagLocalPreviewAuditSubsystem::Begin()
     if (!Expect(Controller.IsValid() && Controller->GetPawn() && Buildings.IsValid()
         && Runtime.IsValid() && Runtime->IsRuntimeStateLoaded() && Server.IsValid() && Server->IsLocalOnlyRun()
         && Server->GetHttpDispatchAttemptCount() == 0 && Server->GetSuppressedLocalRequestCount() == 0
-        && Hud.IsValid() && Screen.IsValid() && Modal.IsValid() && !Screen->IsScreenOpen()
+        && Hud.IsValid() && Hud->GetOwningPlayer() == Controller.Get()
+        && Screen.IsValid() && Modal.IsValid() && !Screen->IsScreenOpen()
         && !Modal->IsModalOpen() && FVector2D(1440, 810).Equals(UWidgetLayoutLibrary::GetViewportSize(this), .1f),
         TEXT("Expected idle local-only 1440x810 GameApp HUD"))) return false;
     const auto Profile = Runtime->GetPlayerProfileState();
@@ -365,24 +380,28 @@ bool URokAllianceFlagLocalPreviewAuditSubsystem::Begin()
         TEXT("/Game/RokPrototype/UI/FullScreenAtlases/rok_fullscreen_alliance_flag.rok_fullscreen_alliance_flag")})
         if (!Expect(LoadObject<UTexture2D>(nullptr, Asset) != nullptr,
             TEXT("Required Alliance texture failed to load"))) return false;
-    OriginalPointer = FSlateApplication::Get().GetCursorPos();
-    LastPointer = OriginalPointer;
-    bPointerSaved = true;
+    LastPointer = FVector2D::ZeroVector;
     Inputs = MakeShared<FJsonObject>();
     for (const FInputPin& Pin : Pinned)
     {
-        const FString Actual = FileSha(FPaths::ProjectDir() / Pin.Path);
+        const FString Base = FString(Pin.Path).StartsWith(TEXT("Source/"))
+            ? FPaths::ProjectDir() : FString(TEXT("D:/ueDemo/Rok/"));
+        const FString Actual = FileSha(Base / Pin.Path);
         if (!Expect(Actual == Pin.Sha, TEXT("Pinned source/product SHA differs from reviewed input"))) return false;
         Inputs->SetStringField(Pin.Path, Actual);
     }
     for (const TCHAR* Path : {TEXT("Source/Rok/RokAllianceFlagLocalPreviewAuditSubsystem.h"),
-        TEXT("Source/Rok/RokAllianceFlagLocalPreviewAuditSubsystem.cpp"),
-        TEXT("Scripts/VerifyRokAllianceFlagLocalPreviewRuntime.py")})
+        TEXT("Source/Rok/RokAllianceFlagLocalPreviewAuditSubsystem.cpp")})
     {
         const FString Actual = FileSha(FPaths::ProjectDir() / Path);
-        if (!Expect(Actual.Len() == 64, TEXT("Integrated audit/verifier input missing"))) return false;
+        if (!Expect(Actual.Len() == 64, TEXT("Integrated Shadow audit source missing"))) return false;
         Inputs->SetStringField(Path, Actual);
     }
+    const FString OriginalVerifier = TEXT("D:/ueDemo/Rok/Scripts/VerifyRokAllianceFlagLocalPreviewRuntime.py");
+    const FString VerifierSha = FileSha(OriginalVerifier);
+    if (!Expect(VerifierSha == TEXT("1925cdb7f58c0e2260b6c36639bf211b99d55f7a706534a562931badb112bf2f"),
+        TEXT("Original read-only verifier pin differs"))) return false;
+    Inputs->SetStringField(TEXT("original_verifier_sha256"), VerifierSha);
     CompletionHandle = Buildings->OnLocalUpgradeCompleted.AddUObject(
         this, &URokAllianceFlagLocalPreviewAuditSubsystem::OnUpgradeCompleted);
     int32 Counts[4] = {0, 0, 0, 0};
@@ -576,22 +595,18 @@ TSharedRef<FJsonObject> URokAllianceFlagLocalPreviewAuditSubsystem::State() cons
     const UGameViewportClient* Viewport = GetWorld() ? GetWorld()->GetGameViewport() : nullptr;
     const TSharedPtr<SWindow> Window = Viewport ? Viewport->GetWindow() : nullptr;
     const TSharedPtr<FGenericWindow> Native = Window.IsValid() ? Window->GetNativeWindow() : nullptr;
-#if PLATFORM_WINDOWS
-    const HWND Handle = Native.IsValid() ? static_cast<HWND>(Native->GetOSWindowHandle()) : nullptr;
-    const HWND Foreground = ::GetForegroundWindow();
-    DWORD OwnerPid = 0, ForegroundPid = 0;
-    RECT Client = {};
-    if (Handle) ::GetWindowThreadProcessId(Handle, &OwnerPid);
-    if (Foreground) ::GetWindowThreadProcessId(Foreground, &ForegroundPid);
-    const bool bClient = Handle && ::GetClientRect(Handle, &Client);
-    Json->SetBoolField(TEXT("window_foreground"), Handle && Foreground == Handle);
-    Json->SetNumberField(TEXT("window_owner_pid"), OwnerPid);
-    Json->SetNumberField(TEXT("foreground_owner_pid"), ForegroundPid);
-    Json->SetNumberField(TEXT("client_width"), bClient ? Client.right - Client.left : 0);
-    Json->SetNumberField(TEXT("client_height"), bClient ? Client.bottom - Client.top : 0);
+    Json->SetBoolField(TEXT("slate_window_visible"), Window.IsValid() && Window->IsVisible());
+    Json->SetBoolField(TEXT("owned_null_offscreen_window"), Window.IsValid() && Native.IsValid()
+        && Native->GetOSWindowHandle() == nullptr && Native->IsRenderingOffScreen());
+    Json->SetObjectField(TEXT("slate_viewport_size"), Point(Window.IsValid()
+        ? Window->GetViewportSize() : FVector2D::ZeroVector));
     Json->SetObjectField(TEXT("viewport_origin"), Point(UWidgetLayoutLibrary::GetViewportWidgetGeometry(this).LocalToAbsolute(FVector2D::ZeroVector)));
-    Json->SetStringField(TEXT("own_window_identity"), FString::Printf(TEXT("0x%p"), static_cast<void*>(Handle)));
-    Json->SetStringField(TEXT("foreground_window_identity"), FString::Printf(TEXT("0x%p"), static_cast<void*>(Foreground)));
+    Json->SetNumberField(TEXT("virtual_user_index"), VirtualUser.IsValid()
+        ? VirtualUser->GetUserIndex() : INDEX_NONE);
+#if PLATFORM_WINDOWS
+    const HWND Foreground = ::GetForegroundWindow();
+    Json->SetStringField(TEXT("foreground_window_identity"), FString::Printf(TEXT("0x%p"),
+        static_cast<void*>(Foreground)));
 #endif
     Json->SetBoolField(TEXT("screen_open"), Screen.IsValid() && Screen->IsScreenOpen());
     Json->SetBoolField(TEXT("modal_open"), Modal.IsValid() && Modal->IsModalOpen());
@@ -672,7 +687,8 @@ Json->SetNumberField(TEXT("active_mode"), Screen.IsValid() ? static_cast<int32>(
         for (const TCHAR* Kind : {TEXT("Panel"), TEXT("Swatch"), TEXT("Sprite"), TEXT("Hit"), TEXT("Id")})
         {
             const FString Name = FString::Printf(TEXT("AllianceFlagItem%s_%d"), Kind, Entry->Id);
-            Item->SetObjectField(Kind, WidgetState(Screen.IsValid() ? Screen->GetWidgetFromName(*Name) : nullptr));
+            Item->SetObjectField(FCString::Strcmp(Kind, TEXT("Id")) == 0 ? TEXT("id_label") : Kind,
+                WidgetState(Screen.IsValid() ? Screen->GetWidgetFromName(*Name) : nullptr));
         }
         Items.Add(MakeShared<FJsonValueObject>(Item));
     }
@@ -814,14 +830,24 @@ bool URokAllianceFlagLocalPreviewAuditSubsystem::Click(UButton* Target, const TC
 	if (GFrameCounter <= StableFrame) return false;
 	StableFrame = GFrameCounter;
 	if (++ClickStableFrames < 2) return false;
+	if (!PrepareOwnOffscreenWindow()) return false;
 	FSlateApplication& App = FSlateApplication::Get();
+	const int32 UserIndex = VirtualUser->GetUserIndex();
+	const TSharedPtr<SWidget> UserZeroFocusBefore = App.GetUserFocusedWidget(0);
+#if PLATFORM_WINDOWS
+	const HWND ForegroundBefore = ::GetForegroundWindow();
+	POINT HardwareCursorBefore = {};
+	const bool bCursorReadBefore = ::GetCursorPos(&HardwareCursorBefore) != 0;
+#endif
 	const FVector2D Center = Geometry.LocalToAbsolute(Size * .5f);
 	const FVector2D Away = Geometry.LocalToAbsolute(FVector2D(-30, -30));
-	App.SetCursorPos(Center);
-	App.ProcessMouseMoveEvent(FPointerEvent(0, Away, LastPointer, TSet<FKey>(), EKeys::Invalid, 0, FModifierKeysState()));
-	App.ProcessMouseMoveEvent(FPointerEvent(0, Center, Away, TSet<FKey>(), EKeys::Invalid, 0, FModifierKeysState()));
+	App.ProcessMouseMoveEvent(FPointerEvent(UserIndex, 0, Away, LastPointer,
+		TSet<FKey>(), EKeys::Invalid, 0, FModifierKeysState()), true);
+	App.ProcessMouseMoveEvent(FPointerEvent(UserIndex, 0, Center, Away,
+		TSet<FKey>(), EKeys::Invalid, 0, FModifierKeysState()), true);
 	LastPointer = Center;
-	const FWidgetPath Path = App.LocateWindowUnderMouse(Center, App.GetInteractiveTopLevelWindows(), false, 0);
+	const FWidgetPath Path = App.LocateWindowUnderMouse(Center,
+		App.GetInteractiveTopLevelWindows(), false, UserIndex);
 	const TSharedRef<SWidget> ButtonSlate = Target->TakeWidget();
 	int32 ButtonIndex = INDEX_NONE;
 	TArray<TSharedPtr<FJsonValue>> PathTypes;
@@ -843,19 +869,9 @@ bool URokAllianceFlagLocalPreviewAuditSubsystem::Click(UButton* Target, const TC
 	const UGameViewportClient* Viewport = GetWorld()->GetGameViewport();
 	const TSharedPtr<SWindow> Window = Viewport ? Viewport->GetWindow() : nullptr;
 	const bool bOwnWindow = Window.IsValid() && Path.IsValid() && &Path.GetWindow().Get() == Window.Get();
-	bool bForeground = false;
-	uint32 OwnerPid = 0;
-	FString OwnWindowId;
-	FString ForegroundWindowId;
-#if PLATFORM_WINDOWS
 	const TSharedPtr<FGenericWindow> Native = Window.IsValid() ? Window->GetNativeWindow() : nullptr;
-	const HWND OwnHandle = Native.IsValid() ? static_cast<HWND>(Native->GetOSWindowHandle()) : nullptr;
-	if (OwnHandle) { DWORD NativePid = 0; ::GetWindowThreadProcessId(OwnHandle, &NativePid); OwnerPid = NativePid; }
-	OwnWindowId = FString::Printf(TEXT("0x%p"), static_cast<void*>(OwnHandle));
-	ForegroundWindowId = FString::Printf(TEXT("0x%p"), static_cast<void*>(::GetForegroundWindow()));
-	bForeground = OwnHandle && ::GetForegroundWindow() == OwnHandle
-		&& OwnerPid == FPlatformProcess::GetCurrentProcessId();
-#endif
+	const bool bOwnedOffscreen = bOwnWindow && Native.IsValid()
+		&& Native->GetOSWindowHandle() == nullptr && Native->IsRenderingOffScreen();
 	const bool bExactButton = ButtonIndex != INDEX_NONE
 		&& Path.Widgets[ButtonIndex].Widget->GetTypeAsString().Contains(TEXT("SButton"));
 	Attempt->SetStringField(TEXT("method"), TEXT("ProcessMouseMoveEvent+ProcessMouseButtonDownEvent+ProcessMouseButtonUpEvent"));
@@ -877,10 +893,14 @@ bool URokAllianceFlagLocalPreviewAuditSubsystem::Click(UButton* Target, const TC
 	Attempt->SetStringField(TEXT("target_slate_identity"), FString::Printf(TEXT("0x%p"), static_cast<const void*>(&ButtonSlate.Get())));
 	Attempt->SetBoolField(TEXT("target_hovered"), Target->IsHovered());
 	Attempt->SetBoolField(TEXT("own_game_window"), bOwnWindow);
-	Attempt->SetBoolField(TEXT("foreground"), bForeground);
-	Attempt->SetStringField(TEXT("own_window_identity"), OwnWindowId);
-	Attempt->SetStringField(TEXT("foreground_window_identity"), ForegroundWindowId);
-	Attempt->SetNumberField(TEXT("own_window_pid"), OwnerPid);
+	Attempt->SetBoolField(TEXT("owned_null_offscreen_window"), bOwnedOffscreen);
+	Attempt->SetNumberField(TEXT("virtual_user_index"), UserIndex);
+#if PLATFORM_WINDOWS
+	Attempt->SetStringField(TEXT("foreground_before"), FString::Printf(TEXT("0x%p"),
+		static_cast<void*>(ForegroundBefore)));
+#endif
+	Attempt->SetStringField(TEXT("user0_focus_before"), FString::Printf(TEXT("0x%p"),
+		static_cast<void*>(UserZeroFocusBefore.Get())));
 	Attempt->SetNumberField(TEXT("stable_frames"), ClickStableFrames);
 	const uint64 Before = Controller->GetCityPlacementPreviewSnapshot().PrimaryPressEventCount;
 	Attempt->SetNumberField(TEXT("primary_before"), static_cast<double>(Before));
@@ -888,11 +908,11 @@ bool URokAllianceFlagLocalPreviewAuditSubsystem::Click(UButton* Target, const TC
 	Attempt->SetObjectField(TEXT("before_state"), State());
 	Attempt->SetBoolField(TEXT("screen_open_before"), Screen.IsValid() && Screen->IsScreenOpen());
 	Attempt->SetBoolField(TEXT("modal_open_before"), Modal.IsValid() && Modal->IsModalOpen());
-	if (!Path.IsValid() || !bExactButton || !bUmgPath || !Target->IsHovered() || !bOwnWindow || !bForeground)
+	if (!Path.IsValid() || !bExactButton || !bUmgPath || !Target->IsHovered() || !bOwnedOffscreen)
 	{
 		Attempt->SetStringField(TEXT("failure"), TEXT("Slate path/hover/window did not prove exact UButton"));
 		Attempts.Add(MakeShared<FJsonValueObject>(Attempt));
-		return Expect(false, TEXT("Exact target button was not hit in foreground game window"));
+		return Expect(false, TEXT("Exact target button was not hit in owned offscreen window"));
 	}
 	if (Indexed && Indexed->ActionId == 623)
 	{
@@ -902,9 +922,26 @@ bool URokAllianceFlagLocalPreviewAuditSubsystem::Click(UButton* Target, const TC
 	}
 	TSet<FKey> Pressed; Pressed.Add(EKeys::LeftMouseButton);
 	const bool Down = App.ProcessMouseButtonDownEvent(TSharedPtr<FGenericWindow>(),
-		FPointerEvent(0, Center, Center, Pressed, EKeys::LeftMouseButton, 0, FModifierKeysState()));
-	const bool Up = App.ProcessMouseButtonUpEvent(FPointerEvent(0, Center, Center,
+		FPointerEvent(UserIndex, 0, Center, Center, Pressed, EKeys::LeftMouseButton, 0, FModifierKeysState()));
+	const bool Up = App.ProcessMouseButtonUpEvent(FPointerEvent(UserIndex, 0, Center, Center,
 		TSet<FKey>(), EKeys::LeftMouseButton, 0, FModifierKeysState()));
+	const TSharedPtr<SWidget> UserZeroFocusAfter = App.GetUserFocusedWidget(0);
+	bool bOsUnchanged = false;
+#if PLATFORM_WINDOWS
+	POINT HardwareCursorAfter = {};
+	const bool bCursorReadAfter = ::GetCursorPos(&HardwareCursorAfter) != 0;
+	bOsUnchanged = bCursorReadBefore && bCursorReadAfter
+		&& HardwareCursorBefore.x == HardwareCursorAfter.x
+		&& HardwareCursorBefore.y == HardwareCursorAfter.y
+		&& ::GetForegroundWindow() == ForegroundBefore;
+	Attempt->SetBoolField(TEXT("hardware_cursor_read_before"), bCursorReadBefore);
+	Attempt->SetBoolField(TEXT("hardware_cursor_read_after"), bCursorReadAfter);
+	Attempt->SetStringField(TEXT("foreground_after"), FString::Printf(TEXT("0x%p"),
+		static_cast<void*>(::GetForegroundWindow())));
+#endif
+	Attempt->SetBoolField(TEXT("os_foreground_and_cursor_unchanged"), bOsUnchanged);
+	Attempt->SetBoolField(TEXT("user0_focus_unchanged"), UserZeroFocusBefore == UserZeroFocusAfter);
+	Attempt->SetBoolField(TEXT("dispatch_return_proves_click"), false);
 	const uint64 After = Controller->GetCityPlacementPreviewSnapshot().PrimaryPressEventCount;
 	Attempt->SetBoolField(TEXT("down_handled"), Down);
 	Attempt->SetBoolField(TEXT("up_handled"), Up);
@@ -916,8 +953,10 @@ bool URokAllianceFlagLocalPreviewAuditSubsystem::Click(UButton* Target, const TC
 	Attempt->SetBoolField(TEXT("modal_open_after"), Modal.IsValid() && Modal->IsModalOpen());
 	const int32 PendingAfter = Screen.IsValid() ? Screen->GetPendingActionIdForAudit() : -2;
 	const bool bDeferredCorrect = Indexed ? PendingAfter == Indexed->ActionId : PendingAfter == INDEX_NONE;
-	const bool bRouteSafe = Down && Up && bDeferredCorrect && Before == After && (!bBaselineSet || Boundary());
-	Attempt->SetStringField(TEXT("failure"), bRouteSafe ? TEXT("") : TEXT("unhandled, wrong deferred action, world input, or business mutation"));
+	const bool bRouteSafe = Up && bDeferredCorrect && Before == After
+		&& bOsUnchanged && UserZeroFocusBefore == UserZeroFocusAfter
+		&& (!bBaselineSet || Boundary());
+	Attempt->SetStringField(TEXT("failure"), bRouteSafe ? TEXT("") : TEXT("unhandled, wrong deferred action, OS/user0 drift, world input, or business mutation"));
 	Actions.Add(MakeShared<FJsonValueObject>(Attempt));
 	StableTarget.Reset(); ClickStableFrames = 0;
 	return Expect(bRouteSafe, TEXT("Slate click missed deferred action or changed baseline state"));
@@ -969,15 +1008,22 @@ bool URokAllianceFlagLocalPreviewAuditSubsystem::EnterCreateText(const TCHAR* Wi
     if (++ClickStableFrames < 2) return false;
     const FVector2D Center = Geometry.LocalToAbsolute(Size * .5f);
     const FVector2D Away = Geometry.LocalToAbsolute(FVector2D(-30, -30));
-    if (!PrepareOwnWindowFocus()) return false;
+    if (!PrepareOwnOffscreenWindow()) return false;
     FSlateApplication& App = FSlateApplication::Get();
-    App.SetCursorPos(Center);
-    App.ProcessMouseMoveEvent(FPointerEvent(0, Away, LastPointer,
-        TSet<FKey>(), EKeys::Invalid, 0, FModifierKeysState()));
-    App.ProcessMouseMoveEvent(FPointerEvent(0, Center, Away,
-        TSet<FKey>(), EKeys::Invalid, 0, FModifierKeysState()));
+    const int32 UserIndex = VirtualUser->GetUserIndex();
+    const TSharedPtr<SWidget> UserZeroFocusBefore = App.GetUserFocusedWidget(0);
+#if PLATFORM_WINDOWS
+    const HWND ForegroundBefore = ::GetForegroundWindow();
+    POINT HardwareCursorBefore = {};
+    const bool bCursorReadBefore = ::GetCursorPos(&HardwareCursorBefore) != 0;
+#endif
+    App.ProcessMouseMoveEvent(FPointerEvent(UserIndex, 0, Away, LastPointer,
+        TSet<FKey>(), EKeys::Invalid, 0, FModifierKeysState()), true);
+    App.ProcessMouseMoveEvent(FPointerEvent(UserIndex, 0, Center, Away,
+        TSet<FKey>(), EKeys::Invalid, 0, FModifierKeysState()), true);
     LastPointer = Center;
-    const FWidgetPath Path = App.LocateWindowUnderMouse(Center, App.GetInteractiveTopLevelWindows(), false, 0);
+    const FWidgetPath Path = App.LocateWindowUnderMouse(Center,
+        App.GetInteractiveTopLevelWindows(), false, UserIndex);
     const TSharedRef<SWidget> InputSlate = Input->TakeWidget();
     bool bExactInput = false, bEditablePath = false, bUmgPath = false;
     TArray<TSharedPtr<FJsonValue>> PathNodes;
@@ -997,18 +1043,9 @@ bool URokAllianceFlagLocalPreviewAuditSubsystem::EnterCreateText(const TCHAR* Wi
     const UGameViewportClient* Viewport = GetWorld()->GetGameViewport();
     const TSharedPtr<SWindow> Window = Viewport ? Viewport->GetWindow() : nullptr;
     const bool bOwn = Window.IsValid() && Path.IsValid() && &Path.GetWindow().Get() == Window.Get();
-    bool bForeground = false;
-    uint32 OwnerPid = 0;
-    FString OwnWindowId, ForegroundWindowId;
-#if PLATFORM_WINDOWS
     const TSharedPtr<FGenericWindow> Native = Window.IsValid() ? Window->GetNativeWindow() : nullptr;
-    const HWND Handle = Native.IsValid() ? static_cast<HWND>(Native->GetOSWindowHandle()) : nullptr;
-    if (Handle) { DWORD Pid = 0; ::GetWindowThreadProcessId(Handle, &Pid); OwnerPid = Pid; }
-    OwnWindowId = FString::Printf(TEXT("0x%p"), static_cast<void*>(Handle));
-    ForegroundWindowId = FString::Printf(TEXT("0x%p"), static_cast<void*>(::GetForegroundWindow()));
-    bForeground = Handle && ::GetForegroundWindow() == Handle
-        && OwnerPid == FPlatformProcess::GetCurrentProcessId();
-#endif
+    const bool bOwnedOffscreen = bOwn && Native.IsValid()
+        && Native->GetOSWindowHandle() == nullptr && Native->IsRenderingOffScreen();
     auto Receipt = MakeShared<FJsonObject>();
     Receipt->SetStringField(TEXT("label"), Label);
     Receipt->SetStringField(TEXT("target"), Input->GetName());
@@ -1023,10 +1060,14 @@ bool URokAllianceFlagLocalPreviewAuditSubsystem::EnterCreateText(const TCHAR* Wi
     Receipt->SetBoolField(TEXT("umg_path_present"), bUmgPath);
     Receipt->SetBoolField(TEXT("target_hovered"), Input->IsHovered());
     Receipt->SetBoolField(TEXT("own_game_window"), bOwn);
-    Receipt->SetBoolField(TEXT("foreground"), bForeground);
-    Receipt->SetStringField(TEXT("own_window_identity"), OwnWindowId);
-    Receipt->SetStringField(TEXT("foreground_window_identity"), ForegroundWindowId);
-    Receipt->SetNumberField(TEXT("own_window_pid"), OwnerPid);
+    Receipt->SetBoolField(TEXT("owned_null_offscreen_window"), bOwnedOffscreen);
+    Receipt->SetNumberField(TEXT("virtual_user_index"), UserIndex);
+    Receipt->SetStringField(TEXT("user0_focus_before"), FString::Printf(TEXT("0x%p"),
+        static_cast<void*>(UserZeroFocusBefore.Get())));
+#if PLATFORM_WINDOWS
+    Receipt->SetStringField(TEXT("foreground_before"), FString::Printf(TEXT("0x%p"),
+        static_cast<void*>(ForegroundBefore)));
+#endif
     Receipt->SetNumberField(TEXT("stable_frames"), ClickStableFrames);
     Receipt->SetStringField(TEXT("text_before"), Input->GetText().ToString());
     Receipt->SetStringField(TEXT("requested_text"), Text);
@@ -1034,7 +1075,7 @@ bool URokAllianceFlagLocalPreviewAuditSubsystem::EnterCreateText(const TCHAR* Wi
     Receipt->SetObjectField(TEXT("business_before"), BusinessState());
     const uint64 PrimaryBefore = Controller->GetCityPlacementPreviewSnapshot().PrimaryPressEventCount;
     Receipt->SetNumberField(TEXT("primary_before"), static_cast<double>(PrimaryBefore));
-    if (!bExactInput || !bEditablePath || !bUmgPath || !Input->IsHovered() || !bOwn || !bForeground
+    if (!bExactInput || !bEditablePath || !bUmgPath || !Input->IsHovered() || !bOwnedOffscreen
         || !Input->GetText().IsEmpty())
     {
         Receipt->SetStringField(TEXT("failure"), TEXT("wrong target/window or nonempty input"));
@@ -1043,10 +1084,10 @@ bool URokAllianceFlagLocalPreviewAuditSubsystem::EnterCreateText(const TCHAR* Wi
     }
     TSet<FKey> Pressed; Pressed.Add(EKeys::LeftMouseButton);
     const bool Down = App.ProcessMouseButtonDownEvent(TSharedPtr<FGenericWindow>(),
-        FPointerEvent(0, Center, Center, Pressed, EKeys::LeftMouseButton, 0, FModifierKeysState()));
-    const bool Up = App.ProcessMouseButtonUpEvent(FPointerEvent(0, Center, Center,
+        FPointerEvent(UserIndex, 0, Center, Center, Pressed, EKeys::LeftMouseButton, 0, FModifierKeysState()));
+    const bool Up = App.ProcessMouseButtonUpEvent(FPointerEvent(UserIndex, 0, Center, Center,
         TSet<FKey>(), EKeys::LeftMouseButton, 0, FModifierKeysState()));
-    const TSharedPtr<SWidget> Focused = App.GetKeyboardFocusedWidget();
+    const TSharedPtr<SWidget> Focused = App.GetUserFocusedWidget(UserIndex);
     const bool bFocusOwned = Focused.IsValid() && Focused->GetTypeAsString().Contains(TEXT("EditableText"))
         && Path.ContainsWidget(Focused.Get());
     Receipt->SetBoolField(TEXT("focus_down_handled"), Down);
@@ -1054,7 +1095,7 @@ bool URokAllianceFlagLocalPreviewAuditSubsystem::EnterCreateText(const TCHAR* Wi
     Receipt->SetBoolField(TEXT("keyboard_focus_in_hit_path"), bFocusOwned);
     Receipt->SetStringField(TEXT("keyboard_focused_identity"), Focused.IsValid()
         ? FString::Printf(TEXT("0x%p"), static_cast<const void*>(Focused.Get())) : FString());
-    if (!Down || !Up || !bFocusOwned)
+    if (!Up || !bFocusOwned)
     {
         Receipt->SetStringField(TEXT("failure"), TEXT("actual Slate focus click failed"));
         Attempts.Add(MakeShared<FJsonValueObject>(Receipt));
@@ -1064,7 +1105,7 @@ bool URokAllianceFlagLocalPreviewAuditSubsystem::EnterCreateText(const TCHAR* Wi
     TArray<TSharedPtr<FJsonValue>> Characters;
     for (TCHAR Character : Text)
     {
-        const bool bHandled = App.ProcessKeyCharEvent(FCharacterEvent(Character, FModifierKeysState(), 0, false));
+        const bool bHandled = App.ProcessKeyCharEvent(FCharacterEvent(Character, FModifierKeysState(), static_cast<uint32>(UserIndex), false));
         bCharacters &= bHandled;
         auto Event = MakeShared<FJsonObject>();
         Event->SetStringField(TEXT("character"), FString(1, &Character));
@@ -1073,15 +1114,31 @@ bool URokAllianceFlagLocalPreviewAuditSubsystem::EnterCreateText(const TCHAR* Wi
     }
     Receipt->SetArrayField(TEXT("character_events"), Characters);
     Receipt->SetBoolField(TEXT("all_characters_handled"), bCharacters);
-    Receipt->SetBoolField(TEXT("focus_retained"), App.GetKeyboardFocusedWidget() == Focused);
+    Receipt->SetBoolField(TEXT("focus_retained"), App.GetUserFocusedWidget(UserIndex) == Focused);
     Receipt->SetStringField(TEXT("text_after"), Input->GetText().ToString());
     Receipt->SetNumberField(TEXT("primary_after"), static_cast<double>(Controller->GetCityPlacementPreviewSnapshot().PrimaryPressEventCount));
+    const TSharedPtr<SWidget> UserZeroFocusAfter = App.GetUserFocusedWidget(0);
+    bool bOsUnchanged = false;
+#if PLATFORM_WINDOWS
+    POINT HardwareCursorAfter = {};
+    const bool bCursorReadAfter = ::GetCursorPos(&HardwareCursorAfter) != 0;
+    bOsUnchanged = bCursorReadBefore && bCursorReadAfter
+        && HardwareCursorBefore.x == HardwareCursorAfter.x
+        && HardwareCursorBefore.y == HardwareCursorAfter.y
+        && ::GetForegroundWindow() == ForegroundBefore;
+    Receipt->SetBoolField(TEXT("hardware_cursor_read_before"), bCursorReadBefore);
+    Receipt->SetBoolField(TEXT("hardware_cursor_read_after"), bCursorReadAfter);
+    Receipt->SetStringField(TEXT("foreground_after"), FString::Printf(TEXT("0x%p"),
+        static_cast<void*>(::GetForegroundWindow())));
+#endif
+    Receipt->SetBoolField(TEXT("os_foreground_and_cursor_unchanged"), bOsUnchanged);
+    Receipt->SetBoolField(TEXT("user0_focus_unchanged"), UserZeroFocusBefore == UserZeroFocusAfter);
     Receipt->SetObjectField(TEXT("business_after"), BusinessState());
     Receipt->SetObjectField(TEXT("requested_state"), State());
     const bool bSafe = bCharacters && Input->GetText().ToString() == Text
-        && App.GetKeyboardFocusedWidget() == Focused
+        && App.GetUserFocusedWidget(UserIndex) == Focused
         && Controller->GetCityPlacementPreviewSnapshot().PrimaryPressEventCount == PrimaryBefore
-        && Boundary();
+        && bOsUnchanged && UserZeroFocusBefore == UserZeroFocusAfter && Boundary();
     Receipt->SetStringField(TEXT("failure"), bSafe ? TEXT("") : TEXT("Slate text not applied or business changed"));
     TextInputs.Add(MakeShared<FJsonValueObject>(Receipt));
     StableTarget.Reset(); ClickStableFrames = 0;
@@ -1157,11 +1214,14 @@ void URokAllianceFlagLocalPreviewAuditSubsystem::Enter(int32 NewStep)
 bool URokAllianceFlagLocalPreviewAuditSubsystem::Save(bool Complete) const
 {
     auto Json = MakeShared<FJsonObject>();
-    Json->SetStringField(TEXT("schema"), TEXT("rok.alliance_flag.local_preview.runtime_audit.v2"));
+    Json->SetStringField(TEXT("schema"), TEXT("rok.alliance_flag.synthetic_slate_runtime_audit.v1"));
     Json->SetBoolField(TEXT("complete"), Complete);
     Json->SetBoolField(TEXT("passed"), Complete && Failures.IsEmpty() && Captures.Num() == 16
         && Actions.Num() == 83 && TextInputs.Num() == 3 && Attempts.IsEmpty() && CompletionEvents == 0
         && bBaselineSet && Boundary());
+    Json->SetBoolField(TEXT("synthetic_slate_virtual_user"), VirtualUser.IsValid() && VirtualUser->GetUserIndex() > 0);
+    Json->SetNumberField(TEXT("virtual_user_index"), VirtualUser.IsValid() ? VirtualUser->GetUserIndex() : INDEX_NONE);
+    Json->SetBoolField(TEXT("os_input_or_focus_write_used"), false);
     Json->SetStringField(TEXT("project"), FPaths::ConvertRelativePathToFull(FPaths::ProjectDir()));
     Json->SetStringField(TEXT("engine_dir"), FPaths::ConvertRelativePathToFull(FPaths::EngineDir()));
     Json->SetNumberField(TEXT("engine_major"), FEngineVersion::Current().GetMajor());
@@ -1218,7 +1278,6 @@ void URokAllianceFlagLocalPreviewAuditSubsystem::Finish(const FString& Error)
     if (bFinished) return;
     if (!Error.IsEmpty()) Failures.Add(Error);
     bFinished = true;
-    if (bPointerSaved && FSlateApplication::IsInitialized()) FSlateApplication::Get().SetCursorPos(OriginalPointer);
     bool bFinalTick = false;
     if (Captures.Num() == 16)
     {
@@ -1229,7 +1288,7 @@ void URokAllianceFlagLocalPreviewAuditSubsystem::Finish(const FString& Error)
         && Actions.Num() == 83 && TextInputs.Num() == 3 && Attempts.IsEmpty() && CompletionEvents == 0
         && bFinalTick && Boundary();
     if (!Complete && Failures.IsEmpty()) Failures.Add(TEXT("Alliance flag local-preview audit incomplete"));
-    Save(Complete);
+    if (!Directory.IsEmpty()) Save(Complete);
     UE_LOG(LogTemp, Display, TEXT("Rok alliance flag local-preview audit %s: %s"),
         Complete ? TEXT("passed") : TEXT("failed"), *Directory);
     if (!Complete) UE_LOG(LogTemp, Error, TEXT("Rok alliance flag audit: %s"), *Failures.Last());
@@ -1237,7 +1296,8 @@ void URokAllianceFlagLocalPreviewAuditSubsystem::Finish(const FString& Error)
 }
 void URokAllianceFlagLocalPreviewAuditSubsystem::Tick(float DeltaTime)
 {
-    if (bFinished || !Identity()) return;
+    if (bFinished) return;
+    if (!Identity()) { Finish(TEXT("Shadow/offscreen city identity lost")); return; }
     Elapsed += FMath::Max(0.0f, DeltaTime);
     if (Elapsed < 2.0) return;
     if (Pending.IsValid())
@@ -1252,7 +1312,7 @@ void URokAllianceFlagLocalPreviewAuditSubsystem::Tick(float DeltaTime)
         StableFrames = Ready(Phase) ? StableFrames + 1 : 0;
         return StableFrames >= 2;
     };
-    if (Step == 0) { if (!bBegun) bBegun = Begin(); if (bBegun && PrepareOwnWindowFocus()) Enter(1); return; }
+    if (Step == 0) { if (!bBegun) bBegun = Begin(); if (bBegun && PrepareOwnOffscreenWindow()) Enter(1); return; }
     if (Actions.Num())
     {
         const auto Last = Actions.Last()->AsObject();

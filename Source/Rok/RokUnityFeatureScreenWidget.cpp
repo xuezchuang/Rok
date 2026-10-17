@@ -1,4 +1,6 @@
 #include "RokUnityFeatureScreenWidget.h"
+#include "RokAllianceTerritoryReadonlyData.h"
+#include "RokAllianceRankingReadonlyCatalog.h"
 #include "RokHospitalExplanationWidget.h"
 #include "RokResearchScreenWidget.h"
 #include "RokResearchCatalog.h"
@@ -1123,6 +1125,7 @@ void URokUnityFeatureScreenWidget::OpenMail(bool bUseReferenceCaptureState)
 	SelectedMailIndex = 0;
 	bReferenceMailCaptureState = bUseReferenceCaptureState;
 	bReadOnlyMailRewardFixtureState = false;
+	bLocalMailUnreadFixtureState = false;
 	MailRewardFixturePayloadByIndex.Reset();
 	MailRewardFixtureError.Reset();
 	RenderedMailRewardRows.Reset();
@@ -1155,11 +1158,30 @@ void URokUnityFeatureScreenWidget::OpenMailReadOnlyRewardFixture(
 	SelectedMailIndex = FMath::Clamp(InitialMailIndex, 0, 5);
 	bReferenceMailCaptureState = true;
 	bReadOnlyMailRewardFixtureState = true;
+	bLocalMailUnreadFixtureState = false;
 	MailRewardFixturePayloadByIndex = PayloadByMailIndex;
 	MailRewardFixtureError.Reset();
 	RenderedMailRewardRows.Reset();
 	ActiveMailRewardTooltipIndex = INDEX_NONE;
 	MailRewardTooltipAnchor = FVector2D::ZeroVector;
+	LastMailBoundaryActionId = INDEX_NONE;
+	RebuildModeContent(true);
+	SetVisibility(ESlateVisibility::Visible);
+}
+
+void URokUnityFeatureScreenWidget::OpenMailLocalUnreadFixture()
+{
+	PendingActionId = INDEX_NONE;
+	ActiveMode = ERokUnityFeatureScreenMode::Mail;
+	MailLocalUnreadState.SeedOnce();
+	bLocalMailUnreadFixtureState = true;
+	bReferenceMailCaptureState = false;
+	bReadOnlyMailRewardFixtureState = false;
+	SelectedMailTab = 0;
+	SelectedMailIndex = MailLocalUnreadState.SelectFirstAndMarkReadForTab(SelectedMailTab);
+	MailRewardFixturePayloadByIndex.Reset();
+	RenderedMailRewardRows.Reset();
+	ActiveMailRewardTooltipIndex = INDEX_NONE;
 	LastMailBoundaryActionId = INDEX_NONE;
 	RebuildModeContent(true);
 	SetVisibility(ESlateVisibility::Visible);
@@ -1287,7 +1309,6 @@ void URokUnityFeatureScreenWidget::OpenCommander()
 	SelectedCommanderSkillIndex = 0;
 	SelectedCommanderSkillDetailIndex = INDEX_NONE;
 	SelectedCommanderTalentIndex = INDEX_NONE;
-	SelectedCommanderSortType = 0;
 	bCommanderSortMenuOpen = false;
 	VisibleCommanderIds.Reset();
 	VisibleCommanderTalentIds.Reset();
@@ -1338,6 +1359,12 @@ void URokUnityFeatureScreenWidget::CaptureAllianceCreateFormDraft()
 
 void URokUnityFeatureScreenWidget::OpenAlliance(bool bOpenJoinedPreview)
 {
+	// A direct reopen replaces any prior close, including one awaiting a back action.
+	PendingAllianceRootCloseActionId = INDEX_NONE;
+	bDispatchingAllianceRootCloseAction = false;
+	AllianceAnimatedRoot = EAllianceAnimatedRoot::None;
+	AnimatedMode = ERokUnityFeatureScreenMode::None;
+	WindowAnimation.Reset();
 	PendingActionId = INDEX_NONE;
 	ResetAllianceCreateLocalDraft();
 	ActiveMode = ERokUnityFeatureScreenMode::Alliance;
@@ -1352,6 +1379,17 @@ void URokUnityFeatureScreenWidget::OpenAlliance(bool bOpenJoinedPreview)
 	VisibleAllianceFixtureIndices.Reset();
 	SelectedAlliancePage = 0;
 	SelectedAllianceOfficeIndex = 0;
+	bAllianceTerritoryReferenceOpen = false;
+	ExpandedAllianceTerritoryGroup = INDEX_NONE;
+	SelectedAllianceTerritoryType = 0;
+	bAllianceRankingReferenceOpen = false;
+	SelectedAllianceRankingCategoryId = INDEX_NONE;
+	bAllianceShopReferenceOpen = false;
+	SelectedAllianceShopGroup = 1;
+	SelectedAllianceShopItemType = 0;
+	bAllianceGiftReferenceOpen = false;
+	SelectedAllianceGiftConfiguredLevel = 1;
+	bAllianceGiftSpecialDefinitions = false;
 	bAllianceOfficeReferenceOpen = false;
 	bAllianceTechnologyReferenceOpen = false;
 	SelectedAllianceTechnologyCategory = 1;
@@ -1708,6 +1746,8 @@ void URokUnityFeatureScreenWidget::OpenArmyShow()
 void URokUnityFeatureScreenWidget::CloseScreen()
 {
 	ResetAllianceCreateLocalDraft();
+	bAllianceRankingReferenceOpen = false;
+	SelectedAllianceRankingCategoryId = INDEX_NONE;
 	ResetTaskCompletedRowAnimation();
 	if (ActiveMode == ERokUnityFeatureScreenMode::Hospital) { bHospitalExplanationVisible = false; HospitalExplanationWidget = nullptr; HospitalHiddenControls.Reset(); }
 	ResearchScreenWidget = nullptr;
@@ -1728,6 +1768,7 @@ void URokUnityFeatureScreenWidget::CloseScreen()
 	MailRewardTooltipAnchor = FVector2D::ZeroVector;
 	bReferenceMailCaptureState = false;
 	bReadOnlyMailRewardFixtureState = false;
+	bLocalMailUnreadFixtureState = false;
 	SpeedUpQueueLifecycle.Reset();
 	if (TrainArmyAnimatedModel) TrainArmyAnimatedModel->ResetModel();
 	TrainArmyAnimatedModel = nullptr;
@@ -1749,6 +1790,9 @@ void URokUnityFeatureScreenWidget::CloseScreen()
 	CommanderAnimatedPortrait = nullptr;
 	CommanderAnimatedPortraitHeroId = INDEX_NONE;
 	WindowAnimation.Reset();
+	AllianceAnimatedRoot = EAllianceAnimatedRoot::None;
+	PendingAllianceRootCloseActionId = INDEX_NONE;
+	bDispatchingAllianceRootCloseAction = false;
 	bResearchMainMaskClosing = false;
 	ChatDrawerAnimation.Reset();
 	ChatContactAnimation.Reset();
@@ -1792,6 +1836,13 @@ void URokUnityFeatureScreenWidget::RequestCloseScreen()
 	}
 	// ResearchMainMediator.CloseRes calls CloseUI(..., true, true).
 	if (ActiveMode == ERokUnityFeatureScreenMode::Research)
+	{
+		CloseScreen();
+		return;
+	}
+	// These alliance reference pages have no verified root Animator.
+	if (ActiveMode == ERokUnityFeatureScreenMode::Alliance
+		&& AllianceAnimatedRoot == EAllianceAnimatedRoot::None)
 	{
 		CloseScreen();
 		return;
@@ -2241,8 +2292,77 @@ void URokUnityFeatureScreenWidget::RebuildModeContent(bool bOpening)
 	UpdateWindowAnimationForMode(bOpening);
 }
 
+URokUnityFeatureScreenWidget::EAllianceAnimatedRoot
+URokUnityFeatureScreenWidget::ResolveAllianceAnimatedRoot() const
+{
+	if (ActiveMode != ERokUnityFeatureScreenMode::Alliance
+		|| bAllianceOfficeReferenceOpen || bAllianceTechnologyReferenceOpen
+		|| bAllianceTerritoryReferenceOpen || bAllianceRankingReferenceOpen)
+	{
+		return EAllianceAnimatedRoot::None;
+	}
+	if (bAllianceShopReferenceOpen) return EAllianceAnimatedRoot::Shop;
+	if (bAllianceGiftReferenceOpen) return EAllianceAnimatedRoot::Gift;
+	if (AlliancePreviewState == 1) return EAllianceAnimatedRoot::Join;
+	if (AlliancePreviewState == 3)
+	{
+		return bAllianceFlagEditorOpen ? EAllianceAnimatedRoot::Flag : EAllianceAnimatedRoot::None;
+	}
+	return AlliancePreviewState == 2
+		? EAllianceAnimatedRoot::Main : EAllianceAnimatedRoot::None;
+}
+
+bool URokUnityFeatureScreenWidget::TryStartAllianceRootClose(int32 ActionId)
+{
+	if (ActiveMode != ERokUnityFeatureScreenMode::Alliance
+		|| PendingAllianceRootCloseActionId != INDEX_NONE) return false;
+	const bool bBack = (AllianceAnimatedRoot == EAllianceAnimatedRoot::Join && ActionId == 621)
+		|| (AllianceAnimatedRoot == EAllianceAnimatedRoot::Gift && ActionId == 686)
+		|| (AllianceAnimatedRoot == EAllianceAnimatedRoot::Shop && ActionId == 690)
+		|| (AllianceAnimatedRoot == EAllianceAnimatedRoot::Flag
+			&& (ActionId == 19010 || ActionId == 19011));
+	if (!bBack || (ActionId == 19011
+		&& !RokAllianceFlagLocalPreview::IsValidDraft(AllianceFlagEditDraft))) return false;
+	PendingAllianceRootCloseActionId = ActionId;
+	WindowAnimation.Close();
+	ApplyWindowAnimation();
+	return true;
+}
+
 void URokUnityFeatureScreenWidget::UpdateWindowAnimationForMode(bool bOpening)
 {
+	if (ActiveMode != ERokUnityFeatureScreenMode::Alliance)
+	{
+		if (AllianceAnimatedRoot != EAllianceAnimatedRoot::None
+			|| PendingAllianceRootCloseActionId != INDEX_NONE)
+		{
+			WindowAnimation.Reset();
+			AnimatedMode = ERokUnityFeatureScreenMode::None;
+		}
+		AllianceAnimatedRoot = EAllianceAnimatedRoot::None;
+		PendingAllianceRootCloseActionId = INDEX_NONE;
+		bDispatchingAllianceRootCloseAction = false;
+	}
+	else
+	{
+		const EAllianceAnimatedRoot NextRoot = ResolveAllianceAnimatedRoot();
+		if (NextRoot == EAllianceAnimatedRoot::None)
+		{
+			WindowAnimation.Reset();
+			AllianceAnimatedRoot = EAllianceAnimatedRoot::None;
+			AnimatedMode = ActiveMode;
+			ApplyWindowAnimation();
+			return;
+		}
+		if (NextRoot != AllianceAnimatedRoot)
+		{
+			AllianceAnimatedRoot = NextRoot;
+			WindowAnimation.Open(ERokUiWindowAnimationStyle::Type1);
+			AnimatedMode = ActiveMode;
+			ApplyWindowAnimation();
+			return;
+		}
+	}
 	if (ActiveMode == ERokUnityFeatureScreenMode::BuildCity && AnimatedMode != ActiveMode)
 	{
 		BuildCityEntranceTime = 0;
@@ -2375,7 +2495,11 @@ void URokUnityFeatureScreenWidget::ApplyWindowAnimation()
 		// Animator.Play("Close", -1, 0) replaces an in-progress Open and uses
 		// the Close clip's first key (scale/alpha 1), rather than interpolating
 		// from the interrupted Open sample as the shared helper normally does.
-		const FRokUiWindowAnimationSample Sample = bResearchMainMaskClosing
+		const bool bExactSourceClose = bResearchMainMaskClosing
+			|| (ActiveMode == ERokUnityFeatureScreenMode::Alliance
+				&& AllianceAnimatedRoot != EAllianceAnimatedRoot::None
+				&& WindowAnimation.IsClosing());
+		const FRokUiWindowAnimationSample Sample = bExactSourceClose
 			? FRokUiWindowAnimation::Evaluate(ERokUiWindowAnimationStyle::Type1,
 				true, WindowAnimation.GetElapsedSeconds())
 			: WindowAnimation.GetSample();
@@ -2431,6 +2555,20 @@ void URokUnityFeatureScreenWidget::AdvanceWindowAnimation(float DeltaSeconds)
 	ApplyWindowAnimation();
 	if (bFinishedClose)
 	{
+		if (ActiveMode == ERokUnityFeatureScreenMode::Alliance
+			&& PendingAllianceRootCloseActionId != INDEX_NONE)
+		{
+			const int32 ActionId = PendingAllianceRootCloseActionId;
+			PendingAllianceRootCloseActionId = INDEX_NONE;
+			bDispatchingAllianceRootCloseAction = true;
+#if WITH_DEV_AUTOMATION_TESTS
+			++AllianceRootCloseDispatchCountForAudit;
+			AllianceRootCloseLastActionForAudit = ActionId;
+#endif
+			ExecuteIndexedAction(ActionId);
+			bDispatchingAllianceRootCloseAction = false;
+			return;
+		}
 		CloseScreen();
 	}
 }
@@ -5560,7 +5698,7 @@ void URokUnityFeatureScreenWidget::BuildWorkerQueue()
 		NSLOCTEXT(
 			"RokWorkerQueue",
 			"SecondaryTitle",
-			"第二建造队列  ·  尚未解锁"));
+			"第二建造队列  ·  账号状态未同步"));
 	PlaceOnCanvas(
 		ModeCanvas,
 		SecondaryTitle,
@@ -5575,7 +5713,7 @@ void URokUnityFeatureScreenWidget::BuildWorkerQueue()
 		NSLOCTEXT(
 			"RokWorkerQueue",
 			"SecondaryNote",
-			"签订工人合同后可开启第二条建造队列。\n合同费用与有效期等待服务器确认。"));
+			"队列状态由账号确认；此本地预览未同步是否已开通。"));
 	PlaceOnCanvas(
 		ModeCanvas,
 		SecondaryNote,
@@ -5594,7 +5732,7 @@ void URokUnityFeatureScreenWidget::BuildWorkerQueue()
 			NSLOCTEXT(
 				"RokWorkerQueue",
 				"UnlockOrExtend",
-				"签订2天合同"),
+				"账号状态说明"),
 			19,
 			FLinearColor(0.25f, 0.13f, 0.02f, 1.0f),
 			ESlateBrushDrawType::Box,
@@ -10050,6 +10188,19 @@ void URokUnityFeatureScreenWidget::BuildMail()
 		}
 		PlaceOnCanvas(ModeCanvas, TabButton,
 			FVector2D(TabX[Index], 77.95f), FVector2D(182.0f, 45.0f), 8);
+		if (bLocalMailUnreadFixtureState && MailLocalUnreadState.UnreadCount(Index) > 0)
+		{
+			PlaceOnCanvas(ModeCanvas, MakeAtlasImage(
+				*FString::Printf(TEXT("MailLocalTabRedPoint_%d"), Index), CommonAtlasPath,
+				RedPointRect, CommonAtlasSize, FVector2D(27.0f, 29.0f)),
+				FVector2D(TabX[Index] + 170.0f, 68.0f), FVector2D(27.0f, 29.0f), 10);
+			UTextBlock* Count = MakeScreenText(
+				*FString::Printf(TEXT("MailLocalTabUnreadCount_%d"), Index), 14,
+				FLinearColor::White, true, ETextJustify::Center);
+			Count->SetText(FText::AsNumber(MailLocalUnreadState.UnreadCount(Index)));
+			PlaceOnCanvas(ModeCanvas, Count,
+				FVector2D(TabX[Index] + 170.0f, 70.0f), FVector2D(27.0f, 22.0f), 11);
+		}
 		const FName TabLabelName(*FString::Printf(TEXT("MailTab_%dLabel"), Index));
 		if (UTextBlock* TabLabel = Cast<UTextBlock>(WidgetTree->FindWidget(TabLabelName)))
 		{
@@ -10125,7 +10276,33 @@ void URokUnityFeatureScreenWidget::BuildMail()
 	MailListScroll->SetAnimateWheelScrolling(true);
 	MailListScroll->SetWheelScrollMultiplier(12.0f);
 	PlaceOnCanvas(ModeCanvas, MailListScroll, FVector2D(56.0f, 128.0f), FVector2D(478.5f, 590.0f), 5);
-	if (bHasReferenceMail)
+	const bool bLocalTabHasMail = bLocalMailUnreadFixtureState
+		&& MailLocalUnreadState.FirstIndexForTab(SelectedMailTab) != INDEX_NONE;
+	if (bLocalTabHasMail)
+	{
+		for (int32 Index = 0; Index < MailLocalUnreadState.Rows.Num(); ++Index)
+		{
+			if (MailLocalUnreadState.Rows[Index].Tab != SelectedMailTab) continue;
+			UCanvasPanel* RowContainer = WidgetTree->ConstructWidget<UCanvasPanel>(
+				UCanvasPanel::StaticClass(), *FString::Printf(TEXT("MailRowContainer_%d"), Index));
+			PlaceOnCanvas(RowContainer, MakeMailRow(Index, nullptr),
+				FVector2D(10.75f, 0.0f), FVector2D(457.0f, 114.24f), 1);
+			MailListScroll->AddChild(WrapFixedSize(RowContainer,
+				*FString::Printf(TEXT("MailRowSize_%d"), Index), FVector2D(478.5f, 114.0f)));
+		}
+		PlaceOnCanvas(ModeCanvas, MakeAtlasBorder(TEXT("MailDetailPanel"), CommonAtlasPath,
+			CommonPanelRect, CommonAtlasSize, FVector2D(830.0f, 590.0f), CommonPanelMargin),
+			FVector2D(547.0f, 128.0f), FVector2D(830.0f, 590.0f), 3);
+		const FRokMailLocalUnreadRow* Selected = MailLocalUnreadState.Find(SelectedMailIndex);
+		UTextBlock* DetailTitle = MakeScreenText(TEXT("MailLocalDetailTitle"), 24, FLinearColor::White, true);
+		DetailTitle->SetText(Selected ? FText::FromString(Selected->Title)
+			: NSLOCTEXT("RokFeature", "MailLocalSelectRow", "请选择一封邮件"));
+		PlaceOnCanvas(ModeCanvas, DetailTitle, FVector2D(570.0f, 158.0f), FVector2D(775.0f, 45.0f), 6);
+		UTextBlock* DetailBody = MakeScreenText(TEXT("MailLocalDetailBody"), 18, FLinearColor::White);
+		DetailBody->SetText(Selected ? FText::FromString(Selected->Summary) : FText::GetEmpty());
+		PlaceOnCanvas(ModeCanvas, DetailBody, FVector2D(570.0f, 240.0f), FVector2D(775.0f, 45.0f), 6);
+	}
+	else if (bHasReferenceMail)
 	{
 		for (int32 Index = 0; Index < 6; ++Index)
 		{
@@ -10255,6 +10432,13 @@ void URokUnityFeatureScreenWidget::BuildMail()
 		Empty->SetText(NSLOCTEXT("RokFeature", "MailEmptyState", "当前暂无邮件。"));
 		PlaceOnCanvas(ModeCanvas, Empty, FVector2D(547.0f, 128.0f), FVector2D(830.0f, 590.0f), 6);
 	}
+	if (bLocalMailUnreadFixtureState)
+	{
+		UTextBlock* LocalNotice = MakeScreenText(TEXT("MailLocalUnreadNotice"), 14,
+			FLinearColor(0.90f, 0.67f, 0.30f, 1.0f), true, ETextJustify::Center);
+		LocalNotice->SetText(NSLOCTEXT("RokFeature", "MailLocalUnreadNotice", "本地邮件交互夹具 · 不是当前账号邮件"));
+		PlaceOnCanvas(ModeCanvas, LocalNotice, FVector2D(470.0f, 785.0f), FVector2D(500.0f, 22.0f), 12);
+	}
 
 	if (bReferenceMailCaptureState)
 	{
@@ -10321,9 +10505,12 @@ void URokUnityFeatureScreenWidget::BuildMail()
 		Display,
 		TEXT("Rok mail screen: source=UI_Win_Mail logical_page=%d rendered_rows=%d authority=%s."),
 		SelectedMailTab,
-		bHasReferenceMail ? 6 : 0,
-		bReadOnlyMailRewardFixtureState ? TEXT("read_only_reward_fixture")
-			: (bReferenceMailCaptureState ? TEXT("reference_fixture") : TEXT("unbound")));
+		bLocalMailUnreadFixtureState ? MailLocalUnreadState.Rows.FilterByPredicate(
+			[this](const FRokMailLocalUnreadRow& Row) { return Row.Tab == SelectedMailTab; }).Num()
+			: (bHasReferenceMail ? 6 : 0),
+		bLocalMailUnreadFixtureState ? TEXT("explicit_local_unread_fixture")
+			: (bReadOnlyMailRewardFixtureState ? TEXT("read_only_reward_fixture")
+			: (bReferenceMailCaptureState ? TEXT("reference_fixture") : TEXT("unbound"))));
 }
 
 bool URokUnityFeatureScreenWidget::ResolveMailRewardIcon(
@@ -10560,6 +10747,7 @@ void URokUnityFeatureScreenWidget::BuildMailRewardTooltip()
 UCanvasPanel* URokUnityFeatureScreenWidget::MakeMailRow(int32 Index, const FRokMailRewardTemplate* MailTemplate)
 {
 	UCanvasPanel* Row = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), *FString::Printf(TEXT("MailRow_%d"), Index));
+	const FRokMailLocalUnreadRow* LocalRow = bLocalMailUnreadFixtureState ? MailLocalUnreadState.Find(Index) : nullptr;
 	const bool bSelected = Index == SelectedMailIndex;
 	const FVector2D RowBackgroundSize = bSelected ? FVector2D(467.0f, 104.0f) : FVector2D(443.0f, 100.0f);
 	UCanvasPanel* RowBackground = MakeAtlasBorder(*FString::Printf(TEXT("MailRowBackground_%d"), Index), CommonAtlasPath, bSelected ? SideSelectedRect : SideNormalRect, CommonAtlasSize, RowBackgroundSize, bSelected ? SideSelectedMargin : SideNormalMargin);
@@ -10573,29 +10761,29 @@ UCanvasPanel* URokUnityFeatureScreenWidget::MakeMailRow(int32 Index, const FRokM
 	UTextBlock* Title = MakeScreenText(*FString::Printf(TEXT("MailRowTitle_%d"), Index), 15,
 		bSelected ? FLinearColor::Black : FLinearColor::FromSRGBColor(FColor(226, 209, 155)), true);
 	Title->SetShadowOffset(FVector2D::ZeroVector);
-	Title->SetText(MailTemplate && Index == 0
+	Title->SetText(LocalRow ? FText::FromString(LocalRow->Title) : (MailTemplate && Index == 0
 		? FText::FromString(MailTemplate->Title)
-		: NSLOCTEXT("RokFeature", "MailRowReward", "活动奖励补发"));
+		: NSLOCTEXT("RokFeature", "MailRowReward", "活动奖励补发")));
 	PlaceOnCanvas(Row, Title, FVector2D(100.5f, 23.33f), FVector2D(313.0f, 31.25f), 3);
 	UTextBlock* Subject = MakeScreenText(*FString::Printf(TEXT("MailRowSubject_%d"), Index), 14,
 		bSelected ? FLinearColor::Black : FLinearColor::White);
 	Subject->SetFont(FCoreStyle::GetDefaultFontStyle(TEXT("Regular"), 18.0f * 72.0f / 96.0f));
 	Subject->SetShadowOffset(FVector2D::ZeroVector);
-	Subject->SetText(Index == 1
+	Subject->SetText(LocalRow ? FText::FromString(LocalRow->Summary) : (Index == 1
 		? NSLOCTEXT("RokFeature", "MailSubjectBanquet", "英豪盛宴活动奖励补发")
 		: (MailTemplate && Index == 0
 			? FText::FromString(MailTemplate->Subtitle)
-			: NSLOCTEXT("RokFeature", "MailSubjectConquest", "征服之始活动奖励补发")));
+			: NSLOCTEXT("RokFeature", "MailSubjectConquest", "征服之始活动奖励补发"))));
 	PlaceOnCanvas(Row, Subject, FVector2D(100.5f, 49.73f), FVector2D(313.0f, 32.13f), 3);
 	UTextBlock* Date = MakeScreenText(*FString::Printf(TEXT("MailRowDate_%d"), Index), 14, bSelected ? FLinearColor(0.45f, 0.43f, 0.37f, 1.0f) : FLinearColor(0.55f, 0.55f, 0.54f, 1.0f));
 	// The source mail template has no EmailInfo.sendTime; do not invent one.
 	Date->SetText(FText::GetEmpty());
 	PlaceOnCanvas(Row, Date, FVector2D(100.5f, 74.23f), FVector2D(313.0f, 24.94f), 3);
-	if (Index > 0)
+	if (LocalRow ? !LocalRow->bRead : Index > 0)
 	{
 		PlaceOnCanvas(Row, MakeAtlasImage(*FString::Printf(TEXT("MailUnread_%d"), Index), CommonAtlasPath, SpriteRect(1029, 489, 20, 20), CommonAtlasSize, FVector2D(18.0f)), FVector2D(2.0f, 1.0f), FVector2D(18.0f), 4);
 	}
-	if (Index != 1)
+	if (!LocalRow && Index != 1)
 	{
 		// The parent legacy pulse and child SkeletonGraphic have different clocks.
 		// Reuse the child's source instance across row selection and tab rebuilds.
@@ -13305,6 +13493,27 @@ void URokUnityFeatureScreenWidget::BuildVipDailyPointHelpTip()
 
 void URokUnityFeatureScreenWidget::BuildAlliance()
 {
+	if (bAllianceRankingReferenceOpen)
+	{
+		BuildAllianceRankingReference();
+		return;
+	}
+	if (bAllianceTerritoryReferenceOpen)
+	{
+		BuildAllianceTerritoryReference();
+		return;
+	}
+	if (bAllianceShopReferenceOpen)
+	{
+		BuildAllianceShopReference();
+		return;
+	}
+	if (bAllianceGiftReferenceOpen)
+	{
+		BuildAllianceGiftReference();
+		UE_LOG(LogTemp, Display, TEXT("Rok alliance gift reference: static_config_only=1 account_state=0 claim_state=0."));
+		return;
+	}
 	if (bAllianceTechnologyReferenceOpen)
 	{
 		BuildAllianceTechnologyReference();
@@ -13571,6 +13780,579 @@ void URokUnityFeatureScreenWidget::BuildAllianceJoinList()
 		PlaceOnCanvas(ModeCanvas, EmptyDetail, CapturePoint(908.0f, 442.0f), FVector2D(310.0f, 54.0f), 6);
 	}
 	PlaceOnCanvas(ModeCanvas, MakeActionButton(TEXT("AllianceJoinBack"), 621, CommonAtlasPath, MiniBlueButtonRect, CommonAtlasSize, FVector2D(138.0f, 54.0f), NSLOCTEXT("RokAlliance", "Back", "返回"), 18, FLinearColor(0.04f, 0.14f, 0.24f, 1.0f), ESlateBrushDrawType::Box, MiniBlueMargin), CapturePoint(208.0f, 735.0f), FVector2D(138.0f, 54.0f), 7);
+}
+
+void URokUnityFeatureScreenWidget::BuildAllianceRankingReference()
+{
+	// The source root is 1440x810. pl_Total/pl_Detail are centered 1074x664
+	// at anchored (0,-18). The six fixed category slots have 340x181 source
+	// RectTransforms with top-left positions derived from their pinned anchors.
+	BuildSplitWindowFrame(FVector2D(146.0f, 28.0f), FVector2D(1148.0f, 754.0f),
+		NSLOCTEXT("RokAllianceRanking", "Title", "联盟排行榜"), FVector2D(1225.0f, 28.0f));
+	PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("AllianceRankingContentShade"),
+		FLinearColor(0.065f, 0.065f, 0.065f, 0.98f)),
+		FVector2D(183.0f, 91.0f), FVector2D(1074.0f, 664.0f), 2);
+	PlaceOnCanvas(ModeCanvas, MakeActionButton(TEXT("AllianceRankingBack"), 19710,
+		CommonAtlasPath, MiniBlueButtonRect, CommonAtlasSize, FVector2D(138.0f, 54.0f),
+		NSLOCTEXT("RokAllianceRanking", "Back", "返回"), 18,
+		FLinearColor(0.04f, 0.14f, 0.24f, 1.0f), ESlateBrushDrawType::Box, MiniBlueMargin),
+		FVector2D(155.0f, 32.0f), FVector2D(138.0f, 54.0f), 8);
+
+	TArray<FRokLeaderboardRow> Categories;
+	FString LoadError;
+	if (!RokAllianceRankingReadonlyCatalog::Load(Categories, LoadError))
+	{
+		UTextBlock* Unavailable = MakeScreenText(TEXT("AllianceRankingCatalogUnavailable"), 22,
+			FLinearColor(0.88f, 0.84f, 0.76f, 1.0f), false, ETextJustify::Center);
+		Unavailable->SetText(NSLOCTEXT("RokAllianceRanking", "CatalogUnavailable",
+			"排行榜分类暂不可用"));
+		PlaceOnCanvas(ModeCanvas, Unavailable, FVector2D(250.0f, 360.0f),
+			FVector2D(940.0f, 55.0f), 6);
+		UE_LOG(LogTemp, Warning, TEXT("Rok alliance ranking readonly catalog unavailable: %s"), *LoadError);
+		return;
+	}
+
+	const FRokLeaderboardRow* Selected = nullptr;
+	for (const FRokLeaderboardRow& Category : Categories)
+	{
+		if (Category.Id == SelectedAllianceRankingCategoryId)
+		{
+			Selected = &Category;
+			break;
+		}
+	}
+	if (Selected)
+	{
+		UTextBlock* CategoryTitle = MakeScreenText(TEXT("AllianceRankingDetailTitle"), 27,
+			FLinearColor(0.95f, 0.89f, 0.67f, 1.0f), true, ETextJustify::Center);
+		CategoryTitle->SetText(FText::FromString(Selected->Name));
+		PlaceOnCanvas(ModeCanvas, CategoryTitle, FVector2D(340.0f, 170.0f),
+			FVector2D(760.0f, 48.0f), 6);
+		PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("AllianceRankingEmptyListPanel"),
+			FLinearColor(0.15f, 0.15f, 0.14f, 0.98f)), FVector2D(192.915f, 227.23f),
+			FVector2D(1054.17f, 531.22f), 3);
+		UTextBlock* EmptyList = MakeScreenText(TEXT("AllianceRankingEmptyList"), 23,
+			FLinearColor(0.87f, 0.85f, 0.79f, 1.0f), false, ETextJustify::Center);
+		EmptyList->SetText(NSLOCTEXT("RokAllianceRanking", "NoRankData", "暂无排名数据"));
+		PlaceOnCanvas(ModeCanvas, EmptyList, FVector2D(520.0f, 393.0f),
+			FVector2D(400.0f, 60.0f), 6);
+		UTextBlock* NoSelf = MakeScreenText(TEXT("AllianceRankingNoSelfData"), 17,
+			FLinearColor(0.73f, 0.73f, 0.70f, 1.0f), false, ETextJustify::Center);
+		NoSelf->SetText(NSLOCTEXT("RokAllianceRanking", "NoSelfData",
+			"当前排名与得分未接入"));
+		PlaceOnCanvas(ModeCanvas, NoSelf, FVector2D(515.0f, 470.0f),
+			FVector2D(410.0f, 34.0f), 6);
+		return;
+	}
+
+	UTextBlock* Boundary = MakeScreenText(TEXT("AllianceRankingOverviewBoundary"), 17,
+		FLinearColor(0.83f, 0.82f, 0.75f, 1.0f), false, ETextJustify::Center);
+	Boundary->SetText(NSLOCTEXT("RokAllianceRanking", "CategoryPreview",
+		"六类排行榜分类预览 · 排名数据未接入"));
+	PlaceOnCanvas(ModeCanvas, Boundary, FVector2D(335.0f, 115.0f),
+		FVector2D(770.0f, 34.0f), 6);
+	// These are the six pinned pl_Total slot rectangles, in local ID order for
+	// the offline preview. Unity assigns server-response entries to slots at
+	// runtime; category-to-slot order is deliberately not claimed as parity.
+	static const FVector2D SourceSlots[] = {
+		FVector2D(200.0f, 141.0f), FVector2D(550.0f, 141.0f),
+		FVector2D(900.0f, 141.0f), FVector2D(200.0f, 385.0f),
+		FVector2D(550.0f, 385.0f), FVector2D(900.0f, 385.0f),
+	};
+	const UTexture2D* IconAtlas = LoadUiTexture(VipPlayerAtlasPath);
+	const bool bIconAtlasReady = IconAtlas && IconAtlas->GetSizeX() == VipPlayerAtlasSize.X
+		&& IconAtlas->GetSizeY() == VipPlayerAtlasSize.Y;
+	for (int32 Index = 0; Index < Categories.Num() && Index < UE_ARRAY_COUNT(SourceSlots); ++Index)
+	{
+		const FRokLeaderboardRow& Category = Categories[Index];
+		const FVector2D Position = FVector2D(SourceSlots[Index].X, SourceSlots[Index].Y);
+		PlaceOnCanvas(ModeCanvas, MakeSolidBorder(
+			*FString::Printf(TEXT("AllianceRankingCategoryPanel_%d"), Category.Id),
+			FLinearColor(0.20f, 0.19f, 0.17f, 0.98f)),
+			Position, FVector2D(340.0f, 181.0f), 3);
+		UTextBlock* Name = MakeScreenText(
+			*FString::Printf(TEXT("AllianceRankingCategoryName_%d"), Category.Id), 22,
+			FLinearColor(0.96f, 0.90f, 0.73f, 1.0f), true);
+		Name->SetText(FText::FromString(Category.Name));
+		PlaceOnCanvas(ModeCanvas, Name, Position + FVector2D(16.0f, 23.0f),
+			FVector2D(164.0f, 43.0f), 5);
+		if (bIconAtlasReady)
+		{
+			PlaceOnCanvas(ModeCanvas, MakeAtlasImage(
+				*FString::Printf(TEXT("AllianceRankingCategoryIcon_%d"), Category.Id),
+				VipPlayerAtlasPath, Category.IconRect, VipPlayerAtlasSize,
+				FVector2D(148.0f, 176.0f)), Position + FVector2D(190.0f, 2.0f),
+				FVector2D(148.0f, 176.0f), 5);
+		}
+		else
+		{
+			UTextBlock* MissingIcon = MakeScreenText(
+				*FString::Printf(TEXT("AllianceRankingIconMissing_%d"), Category.Id), 15,
+				FLinearColor(0.82f, 0.78f, 0.68f, 1.0f), false, ETextJustify::Center);
+			MissingIcon->SetText(NSLOCTEXT("RokAllianceRanking", "IconMissing", "图标未接入"));
+			PlaceOnCanvas(ModeCanvas, MissingIcon, Position + FVector2D(194.0f, 72.0f),
+				FVector2D(135.0f, 30.0f), 5);
+		}
+		UTextBlock* Empty = MakeScreenText(
+			*FString::Printf(TEXT("AllianceRankingCategoryEmpty_%d"), Category.Id), 15,
+			FLinearColor(0.76f, 0.75f, 0.70f, 1.0f), false);
+		Empty->SetText(NSLOCTEXT("RokAllianceRanking", "CategoryEmpty", "暂无排名数据"));
+		PlaceOnCanvas(ModeCanvas, Empty, Position + FVector2D(16.0f, 86.0f),
+			FVector2D(164.0f, 34.0f), 5);
+		PlaceOnCanvas(ModeCanvas, MakeActionButton(
+			*FString::Printf(TEXT("AllianceRankingCategoryHit_%d"), Category.Id),
+			19700 + Index, nullptr, FIntRect(), FIntPoint::ZeroValue,
+			FVector2D(340.0f, 181.0f)), Position, FVector2D(340.0f, 181.0f), 8);
+	}
+}
+
+void URokUnityFeatureScreenWidget::BuildAllianceTerritoryReference()
+{
+	BuildSplitWindowFrame(CapturePoint(146.0f, 73.0f), FVector2D(1148.0f, 754.0f),
+		NSLOCTEXT("RokAllianceTerritory", "ReferenceTitle", "联盟领土静态配置参考"), CapturePoint(1230.0f, 77.0f));
+	PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("AllianceTerritoryReferenceShade"),
+		FLinearColor(0.065f, 0.065f, 0.065f, 0.98f)),
+		CapturePoint(176.0f, 151.0f), FVector2D(1088.0f, 664.0f), 2);
+	UTextBlock* Boundary = MakeScreenText(TEXT("AllianceTerritoryReferenceBoundary"), 16,
+		FLinearColor(0.89f, 0.85f, 0.67f, 1.0f), true);
+	Boundary->SetText(NSLOCTEXT("RokAllianceTerritory", "ReferenceBoundary",
+		"仅显示12种静态配置；联盟实际领土、拥有数量、建筑状态、坐标、产出与权限未同步。"));
+	PlaceOnCanvas(ModeCanvas, Boundary, CapturePoint(198.0f, 156.0f), FVector2D(1025.0f, 34.0f), 5);
+	PlaceOnCanvas(ModeCanvas, MakeActionButton(TEXT("AllianceTerritoryReferenceBack"), 695,
+		CommonAtlasPath, MiniBlueButtonRect, CommonAtlasSize, FVector2D(138.0f, 54.0f),
+		NSLOCTEXT("RokAllianceTerritory", "ReferenceBack", "返回"), 18,
+		FLinearColor(0.04f, 0.14f, 0.24f, 1.0f), ESlateBrushDrawType::Box, MiniBlueMargin),
+		CapturePoint(1090.0f, 738.0f), FVector2D(138.0f, 54.0f), 7);
+	const TArray<RokAllianceTerritoryReadonly::FGroup>& Groups = RokAllianceTerritoryReadonly::GetGroups();
+	const TArray<RokAllianceTerritoryReadonly::FRow>& Rows = RokAllianceTerritoryReadonly::GetRows();
+	if (SelectedAllianceTerritoryType > 0)
+	{
+		const RokAllianceTerritoryReadonly::FRow* Selected = RokAllianceTerritoryReadonly::FindRow(SelectedAllianceTerritoryType);
+		if (Selected)
+		{
+			PlaceOnCanvas(ModeCanvas, MakeActionButton(TEXT("AllianceTerritoryReturnToDefinitions"), 19630,
+				CommonAtlasPath, MiniBlueButtonRect, CommonAtlasSize, FVector2D(164.0f, 54.0f),
+				NSLOCTEXT("RokAllianceTerritory", "ReturnToDefinitions", "返回配置列表"), 18,
+				FLinearColor(0.04f, 0.14f, 0.24f, 1.0f), ESlateBrushDrawType::Box, MiniBlueMargin),
+				CapturePoint(985.0f, 194.0f), FVector2D(164.0f, 54.0f), 7);
+			UScrollBox* DetailScroll = WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("AllianceTerritoryDefinitionDetailScroll"));
+			DetailScroll->SetOrientation(Orient_Vertical);
+			DetailScroll->SetClipping(EWidgetClipping::ClipToBoundsAlways);
+			PlaceOnCanvas(ModeCanvas, DetailScroll, CapturePoint(198.0f, 256.0f), FVector2D(990.0f, 470.0f), 6);
+			USizeBox* DetailExtent = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("AllianceTerritoryDefinitionDetailExtent"));
+			DetailExtent->SetWidthOverride(970.0f);
+			DetailExtent->SetHeightOverride(1050.0f);
+			DetailScroll->AddChild(DetailExtent);
+			UCanvasPanel* DetailCanvas = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("AllianceTerritoryDefinitionDetailCanvas"));
+			DetailExtent->AddChild(DetailCanvas);
+			UTextBlock* DetailName = MakeScreenText(TEXT("AllianceTerritoryDefinitionName"), 24,
+				FLinearColor(0.94f, 0.88f, 0.62f, 1.0f), true);
+			DetailName->SetText(FText::FromString(RokAllianceTerritoryReadonly::GetChineseSourceText(Selected->NameLocalizationId)));
+			PlaceOnCanvas(DetailCanvas, DetailName, FVector2D(12.0f, 4.0f), FVector2D(930.0f, 50.0f), 2);
+			UTextBlock* DetailIconState = MakeScreenText(TEXT("AllianceTerritoryDefinitionIconState"), 17,
+				FLinearColor(0.84f, 0.80f, 0.69f, 1.0f), false);
+			DetailIconState->SetText(Selected->bSourceIconMissing
+				? NSLOCTEXT("RokAllianceTerritory", "DetailMalformedSourceIcon", "源图标缺失")
+				: (Selected->SourceIconReference[0] == 0
+					? NSLOCTEXT("RokAllianceTerritory", "DetailNoSourceIcon", "源未配置图标")
+					: NSLOCTEXT("RokAllianceTerritory", "DetailPhysicalIconPending", "图标未接入")));
+			PlaceOnCanvas(DetailCanvas, DetailIconState, FVector2D(12.0f, 64.0f), FVector2D(930.0f, 40.0f), 2);
+			UTextBlock* DetailDescription = MakeScreenText(TEXT("AllianceTerritoryDefinitionDescription"), 17,
+				FLinearColor(0.86f, 0.84f, 0.78f, 1.0f), false);
+			DetailDescription->SetText(FText::FromString(RokAllianceTerritoryReadonly::GetChineseSourceText(Selected->DescriptionLocalizationId)));
+			DetailDescription->SetAutoWrapText(true);
+			PlaceOnCanvas(DetailCanvas, DetailDescription, FVector2D(12.0f, 124.0f), FVector2D(930.0f, 210.0f), 2);
+			if (Selected->DetailLocalizationId > 0)
+			{
+				UTextBlock* DetailRules = MakeScreenText(TEXT("AllianceTerritoryDefinitionRules"), 16,
+					FLinearColor(0.86f, 0.84f, 0.78f, 1.0f), false);
+				DetailRules->SetText(FText::FromString(RokAllianceTerritoryReadonly::GetChineseSourceText(Selected->DetailLocalizationId)));
+				DetailRules->SetAutoWrapText(true);
+				PlaceOnCanvas(DetailCanvas, DetailRules, FVector2D(12.0f, 354.0f), FVector2D(930.0f, 680.0f), 2);
+			}
+			return;
+		}
+	}
+	float ContentHeight = 0.0f;
+	for (const RokAllianceTerritoryReadonly::FGroup& Group : Groups)
+	{
+		ContentHeight += 86.0f + 10.0f; // Unity GetItemSize header and ListView spacing.
+		if (ExpandedAllianceTerritoryGroup == Group.Index)
+		{
+			ContentHeight += (Group.Index == 3 ? 290.0f : 370.0f) + 10.0f;
+		}
+	}
+	UScrollBox* Scroll = WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("AllianceTerritoryReferenceScroll"));
+	Scroll->SetOrientation(Orient_Vertical);
+	Scroll->SetConsumeMouseWheel(EConsumeMouseWheel::Always);
+	Scroll->SetClipping(EWidgetClipping::ClipToBoundsAlways);
+	PlaceOnCanvas(ModeCanvas, Scroll, CapturePoint(194.0f, 210.0f), FVector2D(1052.0f, 518.0f), 4);
+	USizeBox* Extent = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("AllianceTerritoryReferenceExtent"));
+	Extent->SetWidthOverride(1052.0f);
+	Extent->SetHeightOverride(ContentHeight);
+	Scroll->AddChild(Extent);
+	UCanvasPanel* List = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("AllianceTerritoryReferenceList"));
+	List->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+	Extent->AddChild(List);
+	float Y = 0.0f;
+	for (const RokAllianceTerritoryReadonly::FGroup& Group : Groups)
+	{
+		const bool bExpanded = ExpandedAllianceTerritoryGroup == Group.Index;
+		UCanvasPanel* Header = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(),
+			*FString::Printf(TEXT("AllianceTerritoryGroup_%d"), Group.Index));
+		PlaceOnCanvas(List, Header, FVector2D(0.0f, Y), FVector2D(1052.0f, 86.0f), 1);
+		PlaceOnCanvas(Header, MakeSolidBorder(*FString::Printf(TEXT("AllianceTerritoryGroupBg_%d"), Group.Index),
+			bExpanded ? FLinearColor(0.31f, 0.27f, 0.20f, 0.98f) : FLinearColor(0.19f, 0.19f, 0.18f, 0.98f)),
+			FVector2D::ZeroVector, FVector2D(1052.0f, 86.0f), 1);
+		UTextBlock* Title = MakeScreenText(*FString::Printf(TEXT("AllianceTerritoryGroupTitle_%d"), Group.Index),
+			22, FLinearColor(0.94f, 0.88f, 0.62f, 1.0f), true);
+		Title->SetText(FText::FromString(RokAllianceTerritoryReadonly::GetChineseSourceText(Group.TitleLocalizationId)));
+		PlaceOnCanvas(Header, Title, FVector2D(18.0f, 9.0f), FVector2D(570.0f, 32.0f), 2);
+		UTextBlock* Summary = MakeScreenText(*FString::Printf(TEXT("AllianceTerritoryGroupSummary_%d"), Group.Index),
+			15, FLinearColor(0.84f, 0.84f, 0.80f, 1.0f), false);
+		Summary->SetText(FText::FromString(RokAllianceTerritoryReadonly::GetChineseSourceText(Group.HeaderLocalizationId)));
+		Summary->SetAutoWrapText(true);
+		PlaceOnCanvas(Header, Summary, FVector2D(18.0f, 45.0f), FVector2D(975.0f, 35.0f), 2);
+		UTextBlock* Expand = MakeScreenText(*FString::Printf(TEXT("AllianceTerritoryExpand_%d"), Group.Index),
+			26, FLinearColor(0.94f, 0.88f, 0.62f, 1.0f), true, ETextJustify::Center);
+		Expand->SetText(FText::FromString(bExpanded ? TEXT("−") : TEXT("+")));
+		PlaceOnCanvas(Header, Expand, FVector2D(1000.0f, 22.0f), FVector2D(44.0f, 42.0f), 3);
+		PlaceOnCanvas(Header, MakeActionButton(*FString::Printf(TEXT("AllianceTerritoryGroupHit_%d"), Group.Index),
+			19620 + Group.Index, nullptr, FIntRect(), FIntPoint::ZeroValue, FVector2D(1052.0f, 86.0f)),
+			FVector2D::ZeroVector, FVector2D(1052.0f, 86.0f), 5);
+		Y += 96.0f;
+		if (!bExpanded) continue;
+		const bool bResourceSummary = Group.Index == 3;
+		const float RowHeight = bResourceSummary ? 290.0f : 370.0f;
+		const float RowWidth = bResourceSummary ? 930.0f : 1030.0f;
+		// Unity building row GridLayoutGroup: four 225x300 cells, 10 horizontal spacing.
+		const float SlotWidth = 225.0f;
+		UCanvasPanel* RowPanel = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(),
+			*FString::Printf(TEXT("AllianceTerritoryRow_%d"), Group.Index));
+		PlaceOnCanvas(List, RowPanel, FVector2D(bResourceSummary ? 61.0f : 11.0f, Y),
+			FVector2D(RowWidth, RowHeight), 1);
+		PlaceOnCanvas(RowPanel, MakeSolidBorder(*FString::Printf(TEXT("AllianceTerritoryRowBg_%d"), Group.Index),
+			FLinearColor(0.13f, 0.13f, 0.12f, 0.98f)), FVector2D::ZeroVector,
+			FVector2D(RowWidth, bResourceSummary ? RowHeight : RowHeight - 10.0f), 1);
+		if (bResourceSummary)
+		{
+			// Unity prefab_index=1 is a 930x290 summary row, not building cells.
+			UTextBlock* ConfigText = MakeScreenText(TEXT("AllianceTerritoryResourceDefinitions"), 16,
+				FLinearColor(0.86f, 0.84f, 0.78f, 1.0f), false);
+			ConfigText->SetText(NSLOCTEXT("RokAllianceTerritory", "ResourceDefinitionReference", "静态资源配置定义 · 非实际占领资源点"));
+			PlaceOnCanvas(RowPanel, ConfigText, FVector2D(12.0f, 8.0f), FVector2D(906.0f, 40.0f), 2);
+			int32 ResourceSlotIndex = 0;
+			for (const RokAllianceTerritoryReadonly::FRow& Definition : Rows)
+			{
+				if (Definition.GroupIndex != Group.Index) continue;
+				const FVector2D ResourceSlotPos(ResourceSlotIndex * (SlotWidth + 10.0f), 55.0f);
+				UTextBlock* ResourceName = MakeScreenText(*FString::Printf(TEXT("AllianceTerritoryResourceName_%d"), Definition.UnityType),
+					17, FLinearColor(0.94f, 0.88f, 0.62f, 1.0f), true);
+				ResourceName->SetText(FText::FromString(RokAllianceTerritoryReadonly::GetChineseSourceText(Definition.NameLocalizationId)));
+				ResourceName->SetAutoWrapText(true);
+				PlaceOnCanvas(RowPanel, ResourceName, ResourceSlotPos + FVector2D(9.0f, 12.0f), FVector2D(207.0f, 80.0f), 3);
+				UTextBlock* ResourceIconState = MakeScreenText(*FString::Printf(TEXT("AllianceTerritoryResourceIconState_%d"), Definition.UnityType),
+					14, FLinearColor(0.84f, 0.80f, 0.69f, 1.0f), false);
+				ResourceIconState->SetText(Definition.bSourceIconMissing
+					? NSLOCTEXT("RokAllianceTerritory", "ResourceMalformedSourceIcon", "源图标缺失")
+					: NSLOCTEXT("RokAllianceTerritory", "ResourcePhysicalIconPending", "图标未接入"));
+				PlaceOnCanvas(RowPanel, ResourceIconState, ResourceSlotPos + FVector2D(9.0f, 107.0f), FVector2D(207.0f, 35.0f), 3);
+				PlaceOnCanvas(RowPanel, MakeActionButton(*FString::Printf(TEXT("AllianceTerritorySelect_%d"), Definition.UnityType),
+					19600 + Definition.UnityType, nullptr, FIntRect(), FIntPoint::ZeroValue, FVector2D(SlotWidth, 182.0f)),
+					ResourceSlotPos, FVector2D(SlotWidth, 182.0f), 5);
+				++ResourceSlotIndex;
+			}
+			Y += RowHeight + 10.0f;
+			continue;
+		}
+		int32 SlotIndex = 0;
+		for (const RokAllianceTerritoryReadonly::FRow& Definition : Rows)
+		{
+			if (Definition.GroupIndex != Group.Index) continue;
+			UCanvasPanel* DetailIconSlot = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(),
+				*FString::Printf(TEXT("AllianceTerritorySlot_%d"), Definition.UnityType));
+			PlaceOnCanvas(RowPanel, DetailIconSlot, FVector2D(SlotIndex * (SlotWidth + 10.0f), 0.0f),
+				FVector2D(SlotWidth, 300.0f), 2);
+			PlaceOnCanvas(DetailIconSlot, MakeSolidBorder(*FString::Printf(TEXT("AllianceTerritorySlotBg_%d"), Definition.UnityType),
+				SelectedAllianceTerritoryType == Definition.UnityType
+				? FLinearColor(0.30f, 0.25f, 0.16f, 0.98f) : FLinearColor(0.19f, 0.19f, 0.17f, 0.98f)),
+				FVector2D::ZeroVector, FVector2D(SlotWidth, 300.0f), 1);
+			UTextBlock* Name = MakeScreenText(*FString::Printf(TEXT("AllianceTerritoryName_%d"), Definition.UnityType),
+				18, FLinearColor(0.94f, 0.88f, 0.62f, 1.0f), true);
+			Name->SetText(FText::FromString(RokAllianceTerritoryReadonly::GetChineseSourceText(Definition.NameLocalizationId)));
+			Name->SetAutoWrapText(true);
+			PlaceOnCanvas(DetailIconSlot, Name, FVector2D(10.0f, 12.0f), FVector2D(SlotWidth - 25.0f, 50.0f), 2);
+			UTextBlock* Identity = MakeScreenText(*FString::Printf(TEXT("AllianceTerritoryType_%d"), Definition.UnityType),
+				14, FLinearColor(0.76f, 0.80f, 0.76f, 1.0f), false);
+			Identity->SetText(FText::FromString(FString::Printf(TEXT("配置 type %d"), Definition.UnityType)));
+			PlaceOnCanvas(DetailIconSlot, Identity, FVector2D(10.0f, 70.0f), FVector2D(SlotWidth - 25.0f, 24.0f), 2);
+			UTextBlock* IconState = MakeScreenText(*FString::Printf(TEXT("AllianceTerritoryIconState_%d"), Definition.UnityType),
+				14, FLinearColor(0.79f, 0.74f, 0.65f, 1.0f), false);
+			IconState->SetText(Definition.bSourceIconMissing
+				? NSLOCTEXT("RokAllianceTerritory", "MalformedSourceIcon", "源图标缺失")
+				: (Definition.SourceIconReference[0] == 0
+					? NSLOCTEXT("RokAllianceTerritory", "NoSourceIcon", "源未配置图标")
+					: NSLOCTEXT("RokAllianceTerritory", "PhysicalIconPending", "图标未接入")));
+			PlaceOnCanvas(DetailIconSlot, IconState, FVector2D(10.0f, 102.0f), FVector2D(SlotWidth - 25.0f, 24.0f), 2);
+			UTextBlock* Description = MakeScreenText(*FString::Printf(TEXT("AllianceTerritoryDescription_%d"), Definition.UnityType),
+				14, FLinearColor(0.86f, 0.84f, 0.78f, 1.0f), false);
+			Description->SetText(FText::FromString(RokAllianceTerritoryReadonly::GetChineseSourceText(Definition.DescriptionLocalizationId)));
+			Description->SetAutoWrapText(true);
+			PlaceOnCanvas(DetailIconSlot, Description, FVector2D(10.0f, 139.0f),
+				FVector2D(SlotWidth - 25.0f, RowHeight - 173.0f), 2);
+			PlaceOnCanvas(DetailIconSlot, MakeActionButton(*FString::Printf(TEXT("AllianceTerritorySelect_%d"), Definition.UnityType),
+				19600 + Definition.UnityType, nullptr, FIntRect(), FIntPoint::ZeroValue,
+				FVector2D(SlotWidth, 300.0f)),
+				FVector2D::ZeroVector, FVector2D(SlotWidth, 300.0f), 5);
+			++SlotIndex;
+		}
+		Y += RowHeight + 10.0f;
+	}
+	UTextBlock* Selection = MakeScreenText(TEXT("AllianceTerritoryReferenceSelection"), 15,
+		FLinearColor(0.84f, 0.80f, 0.69f, 1.0f), false);
+	Selection->SetText(SelectedAllianceTerritoryType > 0
+		? FText::FromString(FString::Printf(TEXT("已选静态定义 type %d · 无联盟实际拥有记录"), SelectedAllianceTerritoryType))
+		: NSLOCTEXT("RokAllianceTerritory", "NoSelection", "点击分组展开配置定义；实际领土记录未同步"));
+	PlaceOnCanvas(ModeCanvas, Selection, CapturePoint(198.0f, 744.0f), FVector2D(840.0f, 42.0f), 6);
+}
+
+void URokUnityFeatureScreenWidget::BuildAllianceShopReference()
+{
+	BuildSplitWindowFrame(CapturePoint(146.0f, 73.0f), FVector2D(1148.0f, 754.0f),
+		NSLOCTEXT("RokAllianceShop", "ReferenceTitle", "联盟商店配置参考"), CapturePoint(1230.0f, 77.0f));
+	PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("AllianceShopReferenceShade"),
+		FLinearColor(0.065f, 0.065f, 0.065f, 0.98f)),
+		CapturePoint(176.0f, 151.0f), FVector2D(1088.0f, 664.0f), 2);
+	UTextBlock* Boundary = MakeScreenText(TEXT("AllianceShopReferenceBoundary"), 16,
+		FLinearColor(0.89f, 0.85f, 0.67f, 1.0f), true);
+	Boundary->SetText(NSLOCTEXT("RokAllianceShop", "ReferenceBoundary",
+		"仅显示商品配置定义和配置价；实际库存、积分余额、权限与购买状态均需服务器数据。"));
+	PlaceOnCanvas(ModeCanvas, Boundary, CapturePoint(198.0f, 156.0f), FVector2D(1020.0f, 34.0f), 5);
+	PlaceOnCanvas(ModeCanvas, MakeActionButton(TEXT("AllianceShopReferenceBack"), 690,
+		CommonAtlasPath, MiniBlueButtonRect, CommonAtlasSize, FVector2D(138.0f, 54.0f),
+		NSLOCTEXT("RokAllianceShop", "ReferenceBack", "返回"), 18,
+		FLinearColor(0.04f, 0.14f, 0.24f, 1.0f), ESlateBrushDrawType::Box, MiniBlueMargin),
+		CapturePoint(1090.0f, 738.0f), FVector2D(138.0f, 54.0f), 7);
+	URokUnityGameplayCatalogSubsystem* Catalog = GetGameplayCatalogSubsystem();
+	if (!Catalog || !Catalog->LoadAllianceShopReadonly())
+	{
+		UTextBlock* Missing = MakeScreenText(TEXT("AllianceShopReferenceUnavailable"), 20,
+			FLinearColor(0.88f, 0.82f, 0.70f, 1.0f), false, ETextJustify::Center);
+		Missing->SetText(NSLOCTEXT("RokAllianceShop", "ReferenceUnavailable",
+			"联盟商店静态配置不可用；未读取库存或购买状态"));
+		PlaceOnCanvas(ModeCanvas, Missing, CapturePoint(250.0f, 410.0f), FVector2D(900.0f, 50.0f), 6);
+		return;
+	}
+	const TArray<FRokUnityAllianceShopReadonlyRow>& Rows = Catalog->GetAllianceShopReadonlyRows();
+	const TArray<FRokUnityAllianceShopGroupReadonlyRow>& Groups = Catalog->GetAllianceShopReadonlyGroups();
+	bool bSelectionInGroup = false;
+	for (const FRokUnityAllianceShopReadonlyRow& Row : Rows)
+	{
+		if (Row.Group == SelectedAllianceShopGroup && Row.ItemType == SelectedAllianceShopItemType)
+		{
+			bSelectionInGroup = true;
+			break;
+		}
+	}
+	if (!bSelectionInGroup)
+	{
+		for (const FRokUnityAllianceShopReadonlyRow& Row : Rows)
+		{
+			if (Row.Group == SelectedAllianceShopGroup)
+			{
+				SelectedAllianceShopItemType = Row.ItemType;
+				break;
+			}
+		}
+	}
+	for (const FRokUnityAllianceShopGroupReadonlyRow& Group : Groups)
+	{
+		const bool bSelected = SelectedAllianceShopGroup == Group.Group;
+		PlaceOnCanvas(ModeCanvas, MakeActionButton(
+			*FString::Printf(TEXT("AllianceShopGroup_%d"), Group.Group), 690 + Group.Group,
+			CommonAtlasPath, MiniBlueButtonRect, CommonAtlasSize, FVector2D(164.0f, 48.0f),
+			FText::FromString(Group.Name), 18,
+			bSelected ? FLinearColor(0.18f, 0.13f, 0.05f, 1.0f)
+				: FLinearColor(0.04f, 0.14f, 0.24f, 1.0f),
+			ESlateBrushDrawType::Box, MiniBlueMargin),
+			CapturePoint(196.0f + (Group.Group - 1) * 173.0f, 197.0f),
+			FVector2D(164.0f, 48.0f), 7);
+	}
+	PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("AllianceShopListPanel"),
+		FLinearColor(0.15f, 0.15f, 0.14f, 0.98f)),
+		CapturePoint(194.0f, 262.0f), FVector2D(636.0f, 482.0f), 3);
+	PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("AllianceShopDetailPanel"),
+		FLinearColor(0.20f, 0.19f, 0.17f, 0.98f)),
+		CapturePoint(848.0f, 262.0f), FVector2D(385.0f, 458.0f), 3);
+	const FRokUnityAllianceShopReadonlyRow* Selected = nullptr;
+	int32 VisibleIndex = 0;
+	for (int32 Index = 0; Index < Rows.Num(); ++Index)
+	{
+		const FRokUnityAllianceShopReadonlyRow& Row = Rows[Index];
+		if (Row.Group != SelectedAllianceShopGroup) continue;
+		if (Row.ItemType == SelectedAllianceShopItemType) Selected = &Row;
+		const float Y = 270.0f + VisibleIndex * 52.0f;
+		const bool bSelected = Row.ItemType == SelectedAllianceShopItemType;
+		PlaceOnCanvas(ModeCanvas, MakeSolidBorder(
+			*FString::Printf(TEXT("AllianceShopRow_%d"), Row.ItemType),
+			bSelected ? FLinearColor(0.34f, 0.31f, 0.24f, 0.98f)
+				: FLinearColor(0.19f, 0.18f, 0.16f, 0.98f)),
+			CapturePoint(202.0f, Y), FVector2D(618.0f, 48.0f), 4);
+		const TCHAR* IconPath = Row.IconAtlas == TEXT("item1") ? Item1AtlasPath
+			: Row.IconAtlas == TEXT("item2") ? Item2AtlasPath
+			: Row.IconAtlas == TEXT("item3") ? Item3AtlasPath : Item5AtlasPath;
+		if (const UTexture2D* Texture = LoadObject<UTexture2D>(nullptr, IconPath))
+		{
+			if (Texture->GetSizeX() == Row.AtlasSize.X && Texture->GetSizeY() == Row.AtlasSize.Y)
+			{
+				PlaceOnCanvas(ModeCanvas, MakeAtlasImage(
+					*FString::Printf(TEXT("AllianceShopIcon_%d"), Row.ItemType),
+					IconPath, Row.IconRect, Row.AtlasSize, FVector2D(40.0f)),
+					CapturePoint(209.0f, Y + 4.0f), FVector2D(40.0f), 5);
+			}
+		}
+		UTextBlock* Label = MakeScreenText(
+			*FString::Printf(TEXT("AllianceShopName_%d"), Row.ItemType), 17,
+			FLinearColor(0.91f, 0.85f, 0.67f, 1.0f), true);
+		Label->SetText(FText::FromString(FString::Printf(TEXT("%s · ID %d · 品质 %d"),
+			*Row.Name, Row.ItemType, Row.Quality)));
+		PlaceOnCanvas(ModeCanvas, Label, CapturePoint(261.0f, Y + 9.0f),
+			FVector2D(540.0f, 30.0f), 6);
+		PlaceOnCanvas(ModeCanvas, MakeActionButton(
+			*FString::Printf(TEXT("AllianceShopSelect_%d"), Row.ItemType), 18100 + Index,
+			nullptr, FIntRect(), FIntPoint::ZeroValue, FVector2D(618.0f, 48.0f)),
+			CapturePoint(202.0f, Y), FVector2D(618.0f, 48.0f), 8);
+		++VisibleIndex;
+	}
+	if (!Selected) return;
+	const TCHAR* DetailIconPath = Selected->IconAtlas == TEXT("item1") ? Item1AtlasPath
+		: Selected->IconAtlas == TEXT("item2") ? Item2AtlasPath
+		: Selected->IconAtlas == TEXT("item3") ? Item3AtlasPath : Item5AtlasPath;
+	if (const UTexture2D* Texture = LoadObject<UTexture2D>(nullptr, DetailIconPath))
+	{
+		if (Texture->GetSizeX() == Selected->AtlasSize.X && Texture->GetSizeY() == Selected->AtlasSize.Y)
+		{
+			PlaceOnCanvas(ModeCanvas, MakeAtlasImage(TEXT("AllianceShopDetailQuality"),
+				Item0AtlasPath, ResolveBagQualityRect(Selected->Quality), Item0AtlasSize,
+				FVector2D(100.0f)), CapturePoint(990.0f, 282.0f), FVector2D(100.0f), 5);
+			PlaceOnCanvas(ModeCanvas, MakeAtlasImage(TEXT("AllianceShopDetailIcon"),
+				DetailIconPath, Selected->IconRect, Selected->AtlasSize, FVector2D(88.0f)),
+				CapturePoint(996.0f, 288.0f), FVector2D(88.0f), 6);
+		}
+	}
+	UTextBlock* Name = MakeScreenText(TEXT("AllianceShopDetailName"), 20,
+		FLinearColor(0.93f, 0.87f, 0.64f, 1.0f), true, ETextJustify::Center);
+	Name->SetText(FText::FromString(Selected->Name));
+	PlaceOnCanvas(ModeCanvas, Name, CapturePoint(870.0f, 403.0f), FVector2D(340.0f, 36.0f), 6);
+	UTextBlock* Identity = MakeScreenText(TEXT("AllianceShopDetailIdentity"), 16,
+		FLinearColor(0.82f, 0.82f, 0.77f, 1.0f), false);
+	Identity->SetText(FText::FromString(FString::Printf(TEXT("物品 ID %d · 配置品质 %d"),
+		Selected->ItemType, Selected->Quality)));
+	PlaceOnCanvas(ModeCanvas, Identity, CapturePoint(876.0f, 452.0f), FVector2D(340.0f, 27.0f), 6);
+	UTextBlock* BuyPrice = MakeScreenText(TEXT("AllianceShopDetailBuyConfigPrice"), 16,
+		FLinearColor(0.85f, 0.83f, 0.76f, 1.0f), false);
+	BuyPrice->SetText(FText::FromString(FString::Printf(
+		TEXT("个人积分购买配置价：%d"), Selected->SellingPrice)));
+	PlaceOnCanvas(ModeCanvas, BuyPrice, CapturePoint(876.0f, 500.0f), FVector2D(340.0f, 30.0f), 6);
+	UTextBlock* StockPrice = MakeScreenText(TEXT("AllianceShopDetailStockConfigPrice"), 16,
+		FLinearColor(0.85f, 0.83f, 0.76f, 1.0f), false);
+	StockPrice->SetText(FText::FromString(FString::Printf(
+		TEXT("联盟积分补货配置价：%d"), Selected->StockPrice)));
+	PlaceOnCanvas(ModeCanvas, StockPrice, CapturePoint(876.0f, 540.0f), FVector2D(340.0f, 30.0f), 6);
+	UTextBlock* State = MakeScreenText(TEXT("AllianceShopDetailServerBoundary"), 15,
+		FLinearColor(0.77f, 0.81f, 0.71f, 1.0f), false);
+	State->SetAutoWrapText(true);
+	State->SetText(NSLOCTEXT("RokAllianceShop", "ServerBoundary",
+		"此处不能查询实际库存、积分余额、可购买数量或购买结果。"));
+	PlaceOnCanvas(ModeCanvas, State, CapturePoint(876.0f, 599.0f), FVector2D(340.0f, 74.0f), 6);
+	UE_LOG(LogTemp, Display,
+		TEXT("Rok alliance shop static definitions: group=%d item_type=%d rows=%d authority=local_reference state_unchanged=1."),
+		SelectedAllianceShopGroup, Selected->ItemType, VisibleIndex);
+}
+
+void URokUnityFeatureScreenWidget::BuildAllianceGiftReference()
+{
+	BuildSplitWindowFrame(CapturePoint(146.0f, 73.0f), FVector2D(1148.0f, 754.0f),
+		NSLOCTEXT("RokAllianceGift", "ReferenceTitle", "联盟礼物配置参考"), CapturePoint(1230.0f, 77.0f));
+	PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("AllianceGiftReferenceShade"),
+		FLinearColor(0.065f, 0.065f, 0.065f, 0.98f)),
+		CapturePoint(176.0f, 151.0f), FVector2D(1088.0f, 664.0f), 2);
+	UTextBlock* Boundary = MakeScreenText(TEXT("AllianceGiftReferenceBoundary"), 16,
+		FLinearColor(0.89f, 0.85f, 0.67f, 1.0f), true);
+	Boundary->SetText(NSLOCTEXT("RokAllianceGift", "ReferenceBoundary",
+		"仅显示静态配置定义；当前联盟等级、积分、钥匙、礼物列表和领取状态均需服务器数据。"));
+	PlaceOnCanvas(ModeCanvas, Boundary, CapturePoint(198.0f, 157.0f), FVector2D(1030.0f, 34.0f), 5);
+	PlaceOnCanvas(ModeCanvas, MakeActionButton(TEXT("AllianceGiftReferenceBack"), 686,
+		CommonAtlasPath, MiniBlueButtonRect, CommonAtlasSize, FVector2D(138.0f, 54.0f),
+		NSLOCTEXT("RokAllianceGift", "ReferenceBack", "返回"), 18,
+		FLinearColor(0.04f, 0.14f, 0.24f, 1.0f), ESlateBrushDrawType::Box, MiniBlueMargin),
+		CapturePoint(837.0f, 198.0f), FVector2D(138.0f, 54.0f), 7);
+	URokUnityGameplayCatalogSubsystem* Catalog = GetGameplayCatalogSubsystem();
+	if (!Catalog || !Catalog->LoadAllianceGiftReadonly())
+	{
+		UTextBlock* Missing = MakeScreenText(TEXT("AllianceGiftReferenceUnavailable"), 20,
+			FLinearColor(0.88f, 0.82f, 0.70f, 1.0f), false, ETextJustify::Center);
+		Missing->SetText(NSLOCTEXT("RokAllianceGift", "ReferenceUnavailable",
+			"礼物静态配置不可用；未生成礼物或领取状态"));
+		PlaceOnCanvas(ModeCanvas, Missing, CapturePoint(250.0f, 410.0f), FVector2D(900.0f, 50.0f), 6);
+		return;
+	}
+	const int32 Level = SelectedAllianceGiftConfiguredLevel;
+	const FRokUnityAllianceGiftLevelReadonlyRow* LevelRow =
+		Catalog->FindAllianceGiftLevelReadonly(Level);
+	PlaceOnCanvas(ModeCanvas, MakeActionButton(TEXT("AllianceGiftReferencePrevious"), 687,
+		CommonAtlasPath, MiniBlueButtonRect, CommonAtlasSize, FVector2D(115.0f, 48.0f),
+		NSLOCTEXT("RokAllianceGift", "PreviousLevel", "上一级"), 17,
+		FLinearColor(0.04f, 0.14f, 0.24f, 1.0f), ESlateBrushDrawType::Box, MiniBlueMargin),
+		CapturePoint(198.0f, 200.0f), FVector2D(115.0f, 48.0f), 7);
+	PlaceOnCanvas(ModeCanvas, MakeActionButton(TEXT("AllianceGiftReferenceNext"), 688,
+		CommonAtlasPath, MiniBlueButtonRect, CommonAtlasSize, FVector2D(115.0f, 48.0f),
+		NSLOCTEXT("RokAllianceGift", "NextLevel", "下一级"), 17,
+		FLinearColor(0.04f, 0.14f, 0.24f, 1.0f), ESlateBrushDrawType::Box, MiniBlueMargin),
+		CapturePoint(534.0f, 200.0f), FVector2D(115.0f, 48.0f), 7);
+	PlaceOnCanvas(ModeCanvas, MakeActionButton(TEXT("AllianceGiftReferenceSpecial"), 689,
+		CommonAtlasPath, MiniBlueButtonRect, CommonAtlasSize, FVector2D(180.0f, 48.0f),
+		bAllianceGiftSpecialDefinitions
+			? NSLOCTEXT("RokAllianceGift", "RegularDefinition", "常规等级定义")
+			: NSLOCTEXT("RokAllianceGift", "SpecialDefinition", "特殊类型定义"), 17,
+		FLinearColor(0.04f, 0.14f, 0.24f, 1.0f), ESlateBrushDrawType::Box, MiniBlueMargin),
+		CapturePoint(1000.0f, 200.0f), FVector2D(180.0f, 48.0f), 7);
+	UTextBlock* LevelLabel = MakeScreenText(TEXT("AllianceGiftReferenceLevel"), 21,
+		FLinearColor(0.92f, 0.86f, 0.63f, 1.0f), true, ETextJustify::Center);
+	LevelLabel->SetText(bAllianceGiftSpecialDefinitions
+		? NSLOCTEXT("RokAllianceGift", "SpecialLevelLabel", "特殊类型 · 配置等级 0")
+		: FText::FromString(FString::Printf(TEXT("配置等级 %d / 50"), Level)));
+	PlaceOnCanvas(ModeCanvas, LevelLabel, CapturePoint(322.0f, 208.0f), FVector2D(205.0f, 34.0f), 6);
+	UTextBlock* Threshold = MakeScreenText(TEXT("AllianceGiftReferenceThreshold"), 16,
+		FLinearColor(0.78f, 0.82f, 0.75f, 1.0f), false);
+	Threshold->SetText(!bAllianceGiftSpecialDefinitions && LevelRow
+		? FText::FromString(FString::Printf(TEXT("该等级配置阈值 exp=%d · 宝箱配置 ID=%d"),
+			LevelRow->ExpThreshold, LevelRow->TreasureId))
+		: NSLOCTEXT("RokAllianceGift", "SpecialThreshold", "特殊类型无等级阈值；下列仅为静态定义"));
+	PlaceOnCanvas(ModeCanvas, Threshold, CapturePoint(198.0f, 267.0f), FVector2D(1000.0f, 30.0f), 6);
+	int32 RowIndex = 0;
+	for (const FRokUnityAllianceGiftRewardReadonlyRow& Row : Catalog->GetAllianceGiftRewardReadonlyRows())
+	{
+		if (Row.GiftLevel != (bAllianceGiftSpecialDefinitions ? 0 : Level)) continue;
+		const float Y = 306.0f + RowIndex * 51.0f;
+		PlaceOnCanvas(ModeCanvas, MakeSolidBorder(
+			*FString::Printf(TEXT("AllianceGiftReferenceRow_%d"), Row.Id),
+			RowIndex % 2 == 0 ? FLinearColor(0.19f, 0.18f, 0.16f, 0.98f)
+			: FLinearColor(0.24f, 0.22f, 0.19f, 0.98f)),
+			CapturePoint(197.0f, Y), FVector2D(1020.0f, 45.0f), 4);
+		UTextBlock* Detail = MakeScreenText(
+			*FString::Printf(TEXT("AllianceGiftReferenceDefinition_%d"), Row.Id), 16,
+			FLinearColor(0.89f, 0.87f, 0.81f, 1.0f), false);
+		Detail->SetText(FText::FromString(FString::Printf(
+			TEXT("类型 %d · 定义 ID %d · 奖励包 ID %d · 礼物积分 %d · 钥匙点数 %d"),
+			Row.GiftType, Row.Id, Row.RewardPackageId, Row.GiftPoint, Row.KeyPoint)));
+		PlaceOnCanvas(ModeCanvas, Detail, CapturePoint(218.0f, Y + 8.0f),
+			FVector2D(980.0f, 30.0f), 6);
+		++RowIndex;
+	}
+	UE_LOG(LogTemp, Display,
+		TEXT("Rok alliance gift static definitions: configured_level=%d special=%d rows=%d authority=local_reference claim_state=0."),
+		Level, bAllianceGiftSpecialDefinitions ? 1 : 0, RowIndex);
 }
 
 void URokUnityFeatureScreenWidget::BuildAllianceOfficeReference()
@@ -14541,9 +15323,87 @@ void URokUnityFeatureScreenWidget::HandleIndexedAction(int32 ActionId)
 
 void URokUnityFeatureScreenWidget::ExecuteIndexedAction(int32 ActionId)
 {
+	// A pending root Close owns the transition. Direct or future dispatches
+	// cannot execute a second action before the original is released.
+	if (PendingAllianceRootCloseActionId != INDEX_NONE
+		&& !bDispatchingAllianceRootCloseAction) return;
+	if (!bDispatchingAllianceRootCloseAction
+		&& TryStartAllianceRootClose(ActionId)) return;
+	if (ActiveMode == ERokUnityFeatureScreenMode::Alliance && bAllianceRankingReferenceOpen)
+	{
+		if (ActionId == 1 || ActionId == 19710)
+		{
+			if (SelectedAllianceRankingCategoryId != INDEX_NONE)
+			{
+				SelectedAllianceRankingCategoryId = INDEX_NONE;
+				RebuildModeContent();
+			}
+			else if (ActionId == 19710)
+			{
+				bAllianceRankingReferenceOpen = false;
+				RebuildModeContent();
+			}
+			else
+			{
+				RequestCloseScreen();
+			}
+			return;
+		}
+		if (SelectedAllianceRankingCategoryId == INDEX_NONE
+			&& ActionId >= 19700 && ActionId < 19706)
+		{
+			TArray<FRokLeaderboardRow> Categories;
+			FString LoadError;
+			if (RokAllianceRankingReadonlyCatalog::Load(Categories, LoadError)
+				&& Categories.IsValidIndex(ActionId - 19700))
+			{
+				SelectedAllianceRankingCategoryId = Categories[ActionId - 19700].Id;
+				RebuildModeContent();
+			}
+			return;
+		}
+		return;
+	}
 	if (ActionId == 1)
 	{
 		RequestCloseScreen();
+		return;
+	}
+	// While the reference page is open, only local navigation is accepted.
+	if (ActiveMode == ERokUnityFeatureScreenMode::Alliance && bAllianceTerritoryReferenceOpen)
+	{
+		if (ActionId == 695)
+		{
+			bAllianceTerritoryReferenceOpen = false;
+			ExpandedAllianceTerritoryGroup = INDEX_NONE;
+			SelectedAllianceTerritoryType = 0;
+			RebuildModeContent();
+			return;
+		}
+		if (ActionId == 19630)
+		{
+			SelectedAllianceTerritoryType = 0;
+			RebuildModeContent();
+			return;
+		}
+		if (ActionId >= 19620 && ActionId <= 19623)
+		{
+			const int32 Group = ActionId - 19620;
+			ExpandedAllianceTerritoryGroup = ExpandedAllianceTerritoryGroup == Group ? INDEX_NONE : Group;
+			SelectedAllianceTerritoryType = 0;
+			RebuildModeContent();
+			return;
+		}
+		if (ActionId >= 19601 && ActionId <= 19612)
+		{
+			const int32 Type = ActionId - 19600;
+			const RokAllianceTerritoryReadonly::FRow* Row = RokAllianceTerritoryReadonly::FindRow(Type);
+			if (Row && Row->GroupIndex == ExpandedAllianceTerritoryGroup)
+			{
+				SelectedAllianceTerritoryType = Type;
+				RebuildModeContent();
+			}
+		}
 		return;
 	}
 	if (ActionId >= 19000 && ActionId < 19500)
@@ -14649,13 +15509,20 @@ void URokUnityFeatureScreenWidget::ExecuteIndexedAction(int32 ActionId)
 	if (ActionId >= 200 && ActionId < 206)
 	{
 		SelectedMailTab = ActionId - 200;
-		SelectedMailIndex = 0;
+		SelectedMailIndex = bLocalMailUnreadFixtureState
+			? MailLocalUnreadState.SelectFirstAndMarkReadForTab(SelectedMailTab) : 0;
 		ActiveMailRewardTooltipIndex = INDEX_NONE;
 		RebuildModeContent();
 		return;
 	}
-	if (ActionId >= 220 && ActionId < 226)
+	if (ActionId >= 220 && ActionId < (bLocalMailUnreadFixtureState ? 220 + MailLocalUnreadState.Rows.Num() : 226))
 	{
+		if (bLocalMailUnreadFixtureState)
+		{
+			const auto* Row = MailLocalUnreadState.Find(ActionId - 220);
+			if (!Row || Row->Tab != SelectedMailTab) return;
+			MailLocalUnreadState.MarkRead(ActionId - 220, SelectedMailTab);
+		}
 		SelectedMailIndex = ActionId - 220;
 		ActiveMailRewardTooltipIndex = INDEX_NONE;
 		RebuildModeContent();
@@ -15304,6 +16171,81 @@ void URokUnityFeatureScreenWidget::ExecuteIndexedAction(int32 ActionId)
 			"联盟搜索需要服务器数据，当前列表未改变。"));
 		return;
 	}
+	if (ActionId == 657 && ActiveMode == ERokUnityFeatureScreenMode::Alliance
+		&& AlliancePreviewState == 2 && SelectedAlliancePage == 0
+		&& !bAllianceOfficeReferenceOpen && !bAllianceTechnologyReferenceOpen
+		&& !bAllianceGiftReferenceOpen)
+	{
+		bAllianceShopReferenceOpen = true;
+		SelectedAllianceShopGroup = 1;
+		SelectedAllianceShopItemType = 0;
+		RebuildModeContent();
+		return;
+	}
+	if (ActiveMode == ERokUnityFeatureScreenMode::Alliance && bAllianceShopReferenceOpen)
+	{
+		if (ActionId == 690)
+		{
+			bAllianceShopReferenceOpen = false;
+			RebuildModeContent();
+			return;
+		}
+		if (ActionId >= 691 && ActionId <= 694)
+		{
+			SelectedAllianceShopGroup = ActionId - 690;
+			SelectedAllianceShopItemType = 0;
+			RebuildModeContent();
+			return;
+		}
+		if (ActionId >= 18100 && ActionId < 18121)
+		{
+			URokUnityGameplayCatalogSubsystem* Catalog = GetGameplayCatalogSubsystem();
+			if (Catalog && Catalog->LoadAllianceShopReadonly())
+			{
+				const TArray<FRokUnityAllianceShopReadonlyRow>& Rows = Catalog->GetAllianceShopReadonlyRows();
+				const int32 Index = ActionId - 18100;
+				if (Rows.IsValidIndex(Index) && Rows[Index].Group == SelectedAllianceShopGroup)
+				{
+					SelectedAllianceShopItemType = Rows[Index].ItemType;
+					RebuildModeContent();
+				}
+			}
+			return;
+		}
+	}
+	if (ActionId == 656 && ActiveMode == ERokUnityFeatureScreenMode::Alliance
+		&& AlliancePreviewState == 2 && SelectedAlliancePage == 0
+		&& !bAllianceOfficeReferenceOpen && !bAllianceTechnologyReferenceOpen)
+	{
+		bAllianceGiftReferenceOpen = true;
+		SelectedAllianceGiftConfiguredLevel = 1;
+		bAllianceGiftSpecialDefinitions = false;
+		RebuildModeContent();
+		return;
+	}
+	if (ActiveMode == ERokUnityFeatureScreenMode::Alliance && bAllianceGiftReferenceOpen)
+	{
+		if (ActionId == 686)
+		{
+			bAllianceGiftReferenceOpen = false;
+			RebuildModeContent();
+			return;
+		}
+		if (ActionId == 687 || ActionId == 688)
+		{
+			SelectedAllianceGiftConfiguredLevel = FMath::Clamp(
+				SelectedAllianceGiftConfiguredLevel + (ActionId == 687 ? -1 : 1), 1, 50);
+			bAllianceGiftSpecialDefinitions = false;
+			RebuildModeContent();
+			return;
+		}
+		if (ActionId == 689)
+		{
+			bAllianceGiftSpecialDefinitions = !bAllianceGiftSpecialDefinitions;
+			RebuildModeContent();
+			return;
+		}
+	}
 	if (ActionId == 625)
 	{
 		if (ActiveMode == ERokUnityFeatureScreenMode::Alliance && AlliancePreviewState == 3
@@ -15356,6 +16298,31 @@ void URokUnityFeatureScreenWidget::ExecuteIndexedAction(int32 ActionId)
 			LogTemp,
 			Display,
 			TEXT("Rok alliance fixture nav: quit_preview_to_welcome authority=local_fixture."));
+		return;
+	}
+	if (ActionId == 651 && ActiveMode == ERokUnityFeatureScreenMode::Alliance
+		&& AlliancePreviewState == 2 && SelectedAlliancePage == 0
+		&& !bAllianceOfficeReferenceOpen && !bAllianceTechnologyReferenceOpen
+		&& !bAllianceGiftReferenceOpen && !bAllianceShopReferenceOpen
+		&& !bAllianceFlagEditorOpen)
+	{
+		bAllianceTerritoryReferenceOpen = true;
+		ExpandedAllianceTerritoryGroup = INDEX_NONE;
+		SelectedAllianceTerritoryType = 0;
+		RebuildModeContent();
+		UE_LOG(LogTemp, Display, TEXT("Rok alliance territory reference: static_config_only=1 owned_state=0 economy=0."));
+		return;
+	}
+	if (ActionId == 672 && ActiveMode == ERokUnityFeatureScreenMode::Alliance
+		&& AlliancePreviewState == 2 && SelectedAlliancePage == 2
+		&& !bAllianceOfficeReferenceOpen && !bAllianceTechnologyReferenceOpen
+		&& !bAllianceTerritoryReferenceOpen && !bAllianceGiftReferenceOpen
+		&& !bAllianceShopReferenceOpen && !bAllianceFlagEditorOpen)
+	{
+		// 672 is this UE settings menu's local action, not a Unity/backend ID.
+		bAllianceRankingReferenceOpen = true;
+		SelectedAllianceRankingCategoryId = INDEX_NONE;
+		RebuildModeContent();
 		return;
 	}
 	if ((ActionId >= 650 && ActionId <= 660) || (ActionId >= 670 && ActionId < 676))

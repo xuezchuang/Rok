@@ -754,6 +754,49 @@ struct FRokUnityAllianceTechnologyReadonlyRow
 	TArray<FRokUnityAllianceTechnologyPrerequisite> Prerequisites;
 };
 
+/** Static AllianceShopItem + Item/Language/icon join; no quantity or balance. */
+struct FRokUnityAllianceShopReadonlyRow
+{
+	int32 ItemType = 0;
+	int32 Group = 0;
+	int32 StockPrice = 0;
+	int32 SellingPrice = 0;
+	int32 NameLocaleId = 0;
+	FString Name;
+	int32 Quality = 0;
+	FString IconReference;
+	FString IconAtlas;
+	FString IconSprite;
+	FIntRect IconRect;
+	FIntPoint AtlasSize = FIntPoint::ZeroValue;
+};
+
+struct FRokUnityAllianceShopGroupReadonlyRow
+{
+	int32 Group = 0;
+	int32 NameLocaleId = 0;
+	FString Name;
+};
+
+/** Configured gift level, never the current alliance level or progress. */
+struct FRokUnityAllianceGiftLevelReadonlyRow
+{
+    int32 Id = 0;
+    int32 ExpThreshold = 0;
+    int32 TreasureId = 0;
+};
+
+/** Static gift definition. RewardPackageId is an unresolved package key, not granted items. */
+struct FRokUnityAllianceGiftRewardReadonlyRow
+{
+    int32 Id = 0;
+    int32 GiftType = 0;
+    int32 GiftLevel = 0;
+    int32 RewardPackageId = 0;
+    int32 GiftPoint = 0;
+    int32 KeyPoint = 0;
+};
+
 /** Static Unity ActivityCalendar definitions only; no server schedule or account state. */
 struct FRokUnityActivityCalendarReadonlyRow
 {
@@ -780,6 +823,31 @@ public:
 	{
 		return AllianceTechnologyReadonlyRows;
 	}
+
+	/** Loads pinned AllianceShopItem definitions only; no inventory, balance or purchase state. */
+	bool LoadAllianceShopReadonly();
+	const TArray<FRokUnityAllianceShopReadonlyRow>& GetAllianceShopReadonlyRows() const
+	{
+		return AllianceShopReadonlyRows;
+	}
+	const TArray<FRokUnityAllianceShopGroupReadonlyRow>& GetAllianceShopReadonlyGroups() const
+	{
+		return AllianceShopReadonlyGroups;
+	}
+	const FRokUnityAllianceShopReadonlyRow* FindAllianceShopReadonly(int32 ItemType) const;
+
+	/** Loads pinned gift level/reward definitions only; never an inventory or claim state. */
+	bool LoadAllianceGiftReadonly();
+	const TArray<FRokUnityAllianceGiftLevelReadonlyRow>& GetAllianceGiftLevelReadonlyRows() const
+	{
+		return AllianceGiftLevelReadonlyRows;
+	}
+	const TArray<FRokUnityAllianceGiftRewardReadonlyRow>& GetAllianceGiftRewardReadonlyRows() const
+	{
+		return AllianceGiftRewardReadonlyRows;
+	}
+	const FRokUnityAllianceGiftLevelReadonlyRow* FindAllianceGiftLevelReadonly(int32 ConfiguredLevel) const;
+	const FRokUnityAllianceGiftRewardReadonlyRow* FindAllianceGiftRewardReadonly(int32 GiftType, int32 ConfiguredLevel) const;
 
 	/** Loads static office definitions; does not load membership or appointment state. */
 	bool LoadAllianceOfficeReadonly();
@@ -932,6 +1000,14 @@ private:
 	TArray<FRokUnityAllianceTechnologyReadonlyRow> AllianceTechnologyReadonlyRows;
 	bool bAllianceTechnologyReadonlyLoaded = false;
 	bool bAllianceTechnologyReadonlyLoadAttempted = false;
+	TArray<FRokUnityAllianceShopReadonlyRow> AllianceShopReadonlyRows;
+	TArray<FRokUnityAllianceShopGroupReadonlyRow> AllianceShopReadonlyGroups;
+	bool bAllianceShopReadonlyLoaded = false;
+	bool bAllianceShopReadonlyLoadAttempted = false;
+	TArray<FRokUnityAllianceGiftLevelReadonlyRow> AllianceGiftLevelReadonlyRows;
+	TArray<FRokUnityAllianceGiftRewardReadonlyRow> AllianceGiftRewardReadonlyRows;
+	bool bAllianceGiftReadonlyLoaded = false;
+	bool bAllianceGiftReadonlyLoadAttempted = false;
 	TArray<FRokUnityAllianceOfficeReadonlyRow> AllianceOfficeReadonlyRows;
 	bool bAllianceOfficeReadonlyLoaded = false;
 	bool bAllianceOfficeReadonlyLoadAttempted = false;

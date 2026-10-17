@@ -1,0 +1,25 @@
+#include "/Rok/Private/RokGrass3SameUvPoints.ush"
+
+Texture2D SourceAtlas;
+SamplerState AtlasSampler;
+
+void SameUvVS(uint VertexID : SV_VertexID, out float4 Position : SV_Position)
+{
+    // Full-screen triangle. No mesh, camera, material replacement or asset mutation.
+    float2 P = float2((VertexID << 1) & 2, VertexID & 2);
+    Position = float4(P * float2(2, -2) + float2(-1, 1), 0, 1);
+}
+
+float4 SameUvPS(float4 Position : SV_Position) : SV_Target0
+{
+    uint Index = min((uint)Position.x, 151u);
+    float2 UnityUV = RokGrass3UnityUV[Index];
+    // Existing UE source material M_WorldSource_Grass3SignedCenterV5:
+    // Custom expression is exactly "return float2(UV.x, 1.0-UV.y);".
+    float2 UESamplerUV = float2(UnityUV.x, 1.0 - UnityUV.y);
+    // The Unity source fragment is tex2D(_MainTex, uv) * _SpriteColor.rgb,
+    // with _SpriteColor fixed to white in the frozen observation.
+    // Explicit mip 0 matches frozen Unity's one loaded mip. The UE asset is
+    // deliberately retained as imported; its actual RHI format is recorded.
+    return SourceAtlas.SampleLevel(AtlasSampler, UESamplerUV, 0);
+}

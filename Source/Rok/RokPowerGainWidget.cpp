@@ -3,6 +3,7 @@
 #include "Dom/JsonObject.h"
 #include "Components/PanelWidget.h"
 #include "Engine/Texture2D.h"
+#include "Engine/World.h"
 #include "Framework/Application/SlateApplication.h"
 #include "ImageUtils.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -18,6 +19,13 @@
 #include "MaterialShared.h"
 #include "ShaderCore.h"
 #endif
+
+namespace
+{
+// Root's isolated Unity 2019.4 preview TimeManager.asset: Maximum Particle Timestep.
+// This is a source-clone setting for UI_10010, not a claim about the live game project.
+constexpr double PowerGainPreviewMaxParticleStepSeconds = 0.03;
+}
 
 class SRokPowerGain : public SLeafWidget
 {
@@ -52,7 +60,20 @@ public:
 			// alpha multiplication instead of gamma-correcting the premultiplied sum.
 			FSlateDrawElement::MakeCustomVerts(Elements, ++Layer, Handle, Vertices, Indices, nullptr, 0, 0, ESlateDrawEffect::NoGamma);
 		};
-		Draw(O.Mesh, nullptr, 0, 0);
+		if (
+#if WITH_DEV_AUTOMATION_TESTS
+			(O.AuditPaintLayers & 1) != 0
+#else
+			true
+#endif
+		) Draw(O.Mesh, nullptr, 0, 0);
+		if (
+#if WITH_DEV_AUTOMATION_TESTS
+			(O.AuditPaintLayers & 2) == 0
+#else
+			false
+#endif
+		) return Layer;
 		for (const auto& Particle : O.ParticleTimes)
 		{
 			if (Particle.bPendingBirth) continue;
@@ -181,33 +202,111 @@ bool URokPowerGainWidget::Play()
 	}
 	// UI_Item_PlayerPowerInfo_SubView: extend AutoDestory, restart Animator, and
 	// replay emission without clearing particles already alive.
+	const bool bReplay = bPlaying;
 	Remaining += 1;
 	bPlaying = true;
+	bHasAbsoluteClock = false;
 	MeshTime = 0;
 	ParticleTimes.Add(FParticlePlayback());
-	Materials[0]->SetScalarParameterValue(TEXT("UTiling"), 1);
+	if (bReplay)
+	{
+		// Animator.Play(..., 0) after Unity's normal update retains the already
+		// evaluated renderer value for this frame. Multiple same-frame replays
+		// still request only one visible reset on the next positive update.
+		bAnimatorRestartPending = true;
+	}
+	else
+	{
+		// A fresh instance starts at the first key. It has no previous frame
+		// whose rendered value must be retained.
+		RenderMeshTime = 0;
+		bAnimatorRestartPending = false;
+		Materials[0]->SetScalarParameterValue(TEXT("UTiling"), 1);
+	}
 	if (SlateWidget) SlateWidget->Invalidate(EInvalidateWidgetReason::Paint);
+	return true;
+}
+
+bool URokPowerGainWidget::PlayAtClock(double AbsoluteSeconds)
+{
+	if (!FMath::IsFinite(AbsoluteSeconds) || !Play()) return false;
+	LastAbsoluteClockSeconds = AbsoluteSeconds;
+	bHasAbsoluteClock = true;
 	return true;
 }
 
 void URokPowerGainWidget::Advance(float DeltaSeconds)
 {
-	if (!IsPlaying() || !FMath::IsFinite(DeltaSeconds)) return;
-	const float Delta = FMath::Max(0, DeltaSeconds);
-	const float NewRemaining = Remaining - Delta;
+	if (bHasAbsoluteClock)
+	{
+		// Real HUD uses the world's scaled game clock, matching Unity Time.time.
+		// The widget tick delta remains the separate particle-simulation input.
+		if (const UWorld* World = GetWorld())
+			AdvanceAtClock(DeltaSeconds, World->GetTimeSeconds());
+		return;
+	}
+	AdvanceInternal(DeltaSeconds, DeltaSeconds);
+}
+
+bool URokPowerGainWidget::AdvanceAtClock(float ParticleDeltaSeconds, double AbsoluteSeconds)
+{
+	if (!bHasAbsoluteClock || !FMath::IsFinite(AbsoluteSeconds)
+		|| !FMath::IsFinite(ParticleDeltaSeconds) || ParticleDeltaSeconds < 0.f
+		|| AbsoluteSeconds < LastAbsoluteClockSeconds)
+		return false;
+	const double ClockDelta = AbsoluteSeconds - LastAbsoluteClockSeconds;
+	if (!FMath::IsFinite(ClockDelta) || ClockDelta > double(TNumericLimits<float>::Max())) return false;
+	LastAbsoluteClockSeconds = AbsoluteSeconds;
+	AdvanceInternal(float(ClockDelta), ParticleDeltaSeconds);
+	return true;
+}
+
+void URokPowerGainWidget::AdvanceInternal(float ClockDeltaSeconds, float ParticleDeltaSeconds)
+{
+	if (!IsPlaying() || !FMath::IsFinite(ClockDeltaSeconds) || !FMath::IsFinite(ParticleDeltaSeconds)) return;
+	const float ClockDelta = FMath::Max(0.f, ClockDeltaSeconds);
+	const float ParticleDelta = FMath::Max(0.f, ParticleDeltaSeconds);
+	const float NewRemaining = Remaining - ClockDelta;
 	// Original AutoDestory uses Time.time-live > time, not >=.
 	bPlaying = NewRemaining >= 0;
 	Remaining = FMath::Max(0.f, NewRemaining);
-	MeshTime += Delta;
-	if (Delta > 0)
+	MeshTime += ClockDelta;
+	if (bAnimatorRestartPending)
+	{
+		if (ClockDelta > 0)
+		{
+			// First normal tick after replay evaluates Animator phase zero;
+			// the following tick advances by its own actual delta.
+			RenderMeshTime = 0;
+			bAnimatorRestartPending = false;
+			Materials[0]->SetScalarParameterValue(TEXT("UTiling"), 1);
+		}
+	}
+	else
+	{
+		RenderMeshTime += ClockDelta;
+		Materials[0]->SetScalarParameterValue(TEXT("UTiling"), EvaluateUTiling(RenderMeshTime));
+	}
+	if (ParticleDelta > 0)
+	{
+		// The zero-time burst appears after the first equal particle substep.
+		// Existing particles span the whole frame; a newly requested burst spans
+		// only the remaining substeps. Compute the step count in double so a large
+		// finite particle delta cannot overflow an integer count.
+		const double SubstepCount = FMath::CeilToDouble(double(ParticleDelta) / PowerGainPreviewMaxParticleStepSeconds);
+		const float FirstSubstep = float(double(ParticleDelta) / SubstepCount);
 		for (auto& Particle : ParticleTimes)
 		{
-			if (Particle.bPendingBirth) Particle.bPendingBirth = false;
-			else Particle.Age += Delta;
+			if (Particle.bPendingBirth)
+			{
+				Particle.bPendingBirth = false;
+				Particle.Age += ParticleDelta - FirstSubstep;
+			}
+			else Particle.Age += ParticleDelta;
 		}
+	}
 	ParticleTimes.RemoveAll([](const FParticlePlayback& Particle) { return !Particle.bPendingBirth && Particle.Age >= 1; });
 	if (!IsPlaying()) ParticleTimes.Reset();
-	Materials[0]->SetScalarParameterValue(TEXT("UTiling"), EvaluateUTiling(MeshTime));
 	if (SlateWidget) SlateWidget->Invalidate(EInvalidateWidgetReason::Paint);
 }
 
@@ -219,7 +318,11 @@ void URokPowerGainWidget::ObservePower(int32 Previous, int32 Current, bool bOwne
 		bVisible &= Parent->IsVisible() && Parent->GetRenderOpacity() > 0;
 	// Initialization is distinct from a valid zero score. Decreases do not stop
 	// an existing source effect; they simply do not create a new one.
-	if (bHasPowerObservation && Current > Previous && bVisible) Play();
+	if (bHasPowerObservation && Current > Previous && bVisible)
+	{
+		if (const UWorld* World = GetWorld()) PlayAtClock(World->GetTimeSeconds());
+		else Play();
+	}
 	bHasPowerObservation = true;
 }
 

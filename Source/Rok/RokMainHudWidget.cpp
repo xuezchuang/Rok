@@ -282,6 +282,11 @@ void URokMainHudWidget::OpenCommandLineModal()
 		if (ModalWidget) ModalWidget->CloseModal();
 		if (FeatureScreenWidget) FeatureScreenWidget->OpenMail(false);
 	}
+	else if (ModalName == TEXT("mail_local_unread"))
+	{
+		if (ModalWidget) ModalWidget->CloseModal();
+		if (FeatureScreenWidget) FeatureScreenWidget->OpenMailLocalUnreadFixture();
+	}
 	else if (ModalName == TEXT("mail_reference") || ModalName == TEXT("mail_preview"))
 	{
 		if (ModalWidget) ModalWidget->CloseModal();
@@ -2483,7 +2488,16 @@ void URokMainHudWidget::HandleOpenMail()
 	}
 	if (FeatureScreenWidget)
 	{
-		FeatureScreenWidget->OpenMail();
+		FString ExplicitMailFixture;
+		if (FParse::Value(FCommandLine::Get(), TEXT("RokOpenModal="), ExplicitMailFixture)
+			&& ExplicitMailFixture.TrimStartAndEnd().Equals(TEXT("mail_local_unread"), ESearchCase::IgnoreCase))
+		{
+			FeatureScreenWidget->OpenMailLocalUnreadFixture();
+		}
+		else
+		{
+			FeatureScreenWidget->OpenMail();
+		}
 	}
 }
 

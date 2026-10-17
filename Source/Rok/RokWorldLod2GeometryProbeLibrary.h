@@ -15,4 +15,8 @@ class ROK_API URokWorldLod2GeometryProbeLibrary : public UBlueprintFunctionLibra
 public:
     UFUNCTION(BlueprintCallable, Category = "Rok|Diagnostics|WorldLOD2")
     static FString CaptureStaticMeshLod0(UStaticMesh* Mesh);
+
+    /** Read-only full-float render-buffer capture for signed UV1/UV2 recovery checks. */
+    UFUNCTION(BlueprintCallable, Category = "Rok|Diagnostics|WorldLOD2")
+    static FString CaptureStaticMeshLod0FullUvSigned(UStaticMesh* Mesh);
 };

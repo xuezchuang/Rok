@@ -2,6 +2,7 @@
 
 #include "Dom/JsonObject.h"
 #include "Misc/FileHelper.h"
+#include "Misc/SecureHash.h"
 #include "Misc/Paths.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
@@ -13,6 +14,25 @@ const TCHAR* LanguageTableRelativePath = TEXT("Saved/RokUnityMigration/ConfigTab
 const TCHAR* ActivityCalendarTableRelativePath = TEXT("Saved/RokUnityMigration/ConfigTables/ActivityCalendar.json");
 const TCHAR* AllianceOfficiallyTableRelativePath = TEXT("Saved/RokUnityMigration/ConfigTables/AllianceOfficially.json");
 const TCHAR* AllianceTechnologyRelativePath = TEXT("Saved/RokUnityMigration/AllianceTechnologyReadonlyCatalogV1.json");
+const TCHAR* AllianceGiftRelativePath = TEXT("Saved/RokUnityMigration/AllianceGiftReadonlyCatalogV2.json");
+const TCHAR* AllianceShopRelativePath = TEXT("Saved/RokUnityMigration/AllianceShopReadonlyCatalogV1.json");
+
+// The manifest's own source hash fields cannot authenticate its payload.
+bool ValidateAllianceShopManifestBytes(const TArray<uint8>& Bytes)
+{
+	return Bytes.Num() == 11394
+		&& FSHA1::HashBuffer(Bytes.GetData(), Bytes.Num()).ToString().Equals(
+			TEXT("fad0a68123d0c09846f651458727e383675c3d02"), ESearchCase::IgnoreCase);
+}
+
+// Exact generated payload gate: the source.sha256 strings inside JSON cannot authenticate the JSON.
+// The Python offline validator uses the same SHA-1 over the same 58790 raw UTF-8 bytes.
+bool ValidateAllianceGiftManifestBytes(const TArray<uint8>& Bytes)
+{
+	return Bytes.Num() == 58790
+		&& FSHA1::HashBuffer(Bytes.GetData(), Bytes.Num()).ToString().Equals(
+			TEXT("ea60dced4903943ecda964bbcf0d4cccbbb9346c"), ESearchCase::IgnoreCase);
+}
 
 bool LoadReadonlyConfigTable(const TCHAR* RelativePath, const TCHAR* TableName,
 	int32 ExpectedRows, TArray<TSharedPtr<FJsonValue>>& OutRows)
@@ -1542,6 +1562,273 @@ bool URokUnityGameplayCatalogSubsystem::LoadAllianceTechnologyReadonly()
 	AllianceTechnologyReadonlyRows = MoveTemp(Candidate);
 	bAllianceTechnologyReadonlyLoaded = true;
 	return true;
+}
+
+bool URokUnityGameplayCatalogSubsystem::LoadAllianceShopReadonly()
+{
+	if (bAllianceShopReadonlyLoaded) return true;
+	if (bAllianceShopReadonlyLoadAttempted) return false;
+	bAllianceShopReadonlyLoadAttempted = true;
+	AllianceShopReadonlyRows.Reset();
+	AllianceShopReadonlyGroups.Reset();
+	TArray<uint8> ManifestBytes;
+	const FString Path = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir(), AllianceShopRelativePath);
+	if (!FFileHelper::LoadFileToArray(ManifestBytes, *Path))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Alliance shop static manifest unavailable; no definitions shown."));
+		return false;
+	}
+	if (!ValidateAllianceShopManifestBytes(ManifestBytes))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Alliance shop static manifest payload digest failed; no definitions shown."));
+		return false;
+	}
+	FString Text;
+	FFileHelper::BufferToString(Text, ManifestBytes.GetData(), ManifestBytes.Num());
+	TSharedPtr<FJsonObject> Root;
+	if (!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Root) || !Root.IsValid()) return false;
+	FString Schema;
+	int32 Count = 0;
+	bool bAccount = true, bStock = true, bPurchase = true;
+	const TArray<TSharedPtr<FJsonValue>>* Groups = nullptr;
+	const TArray<TSharedPtr<FJsonValue>>* Rows = nullptr;
+	const TArray<TSharedPtr<FJsonValue>>* GroupCounts = nullptr;
+	if (!ReadStrictString(Root, TEXT("schema"), Schema)
+		|| Schema != TEXT("rok.alliance_shop_readonly_catalog.v1")
+		|| !ReadStrictNonnegativeInt(Root, TEXT("row_count"), Count) || Count != 21
+		|| !Root->TryGetBoolField(TEXT("account_state_present"), bAccount) || bAccount
+		|| !Root->TryGetBoolField(TEXT("stock_state_present"), bStock) || bStock
+		|| !Root->TryGetBoolField(TEXT("purchase_state_present"), bPurchase) || bPurchase
+		|| !Root->TryGetArrayField(TEXT("groups"), Groups) || !Groups || Groups->Num() != 4
+		|| !Root->TryGetArrayField(TEXT("rows"), Rows) || !Rows || Rows->Num() != 21
+		|| !Root->TryGetArrayField(TEXT("group_counts"), GroupCounts) || !GroupCounts || GroupCounts->Num() != 4)
+	{
+		return false;
+	}
+	TArray<FRokUnityAllianceShopGroupReadonlyRow> CandidateGroups;
+	for (int32 Index = 0; Index < 4; ++Index)
+	{
+		FRokUnityAllianceShopGroupReadonlyRow Entry;
+		const TSharedPtr<FJsonObject> Group = (*Groups)[Index].IsValid()
+			&& (*Groups)[Index]->Type == EJson::Object ? (*Groups)[Index]->AsObject() : nullptr;
+		static const int32 ExpectedLocaleIds[4] = {124001, 733103, 730081, 124003};
+		if (!ReadStrictNonnegativeInt(Group, TEXT("group"), Entry.Group) || Entry.Group != Index + 1
+			|| !ReadStrictNonnegativeInt(Group, TEXT("name_locale_id"), Entry.NameLocaleId)
+			|| Entry.NameLocaleId != ExpectedLocaleIds[Index]
+			|| !ReadStrictString(Group, TEXT("name_zh_cn"), Entry.Name)
+			|| Entry.Name.IsEmpty() || HasBrokenLocale(Entry.Name)) return false;
+		CandidateGroups.Add(MoveTemp(Entry));
+	}
+	TArray<FRokUnityAllianceShopReadonlyRow> CandidateRows;
+	TSet<int32> SeenIds;
+	int32 Counts[4] = {0, 0, 0, 0};
+	for (const TSharedPtr<FJsonValue>& Value : *Rows)
+	{
+		const TSharedPtr<FJsonObject> Row = Value.IsValid() && Value->Type == EJson::Object
+			? Value->AsObject() : nullptr;
+		FRokUnityAllianceShopReadonlyRow Entry;
+		if (!ReadStrictNonnegativeInt(Row, TEXT("item_type"), Entry.ItemType)
+			|| Entry.ItemType <= 0 || SeenIds.Contains(Entry.ItemType)
+			|| !ReadStrictNonnegativeInt(Row, TEXT("group"), Entry.Group)
+			|| Entry.Group < 1 || Entry.Group > 4
+			|| !ReadStrictNonnegativeInt(Row, TEXT("stock_price"), Entry.StockPrice)
+			|| !ReadStrictNonnegativeInt(Row, TEXT("selling_price"), Entry.SellingPrice)
+			|| !ReadStrictNonnegativeInt(Row, TEXT("name_locale_id"), Entry.NameLocaleId)
+			|| Entry.NameLocaleId <= 0
+			|| !ReadStrictString(Row, TEXT("name_zh_cn"), Entry.Name)
+			|| Entry.Name.IsEmpty() || HasBrokenLocale(Entry.Name)
+			|| !ReadStrictNonnegativeInt(Row, TEXT("quality"), Entry.Quality)
+			|| Entry.Quality < 1 || Entry.Quality > 5
+			|| !ReadStrictString(Row, TEXT("icon_reference"), Entry.IconReference)
+			|| !ReadStrictString(Row, TEXT("icon_atlas"), Entry.IconAtlas)
+			|| !ReadStrictString(Row, TEXT("icon_sprite"), Entry.IconSprite)) return false;
+		if (Entry.IconAtlas != TEXT("item1") && Entry.IconAtlas != TEXT("item2")
+			&& Entry.IconAtlas != TEXT("item3") && Entry.IconAtlas != TEXT("item5")) return false;
+		if (Entry.IconReference != FString::Printf(TEXT("%s[%s]"), *Entry.IconAtlas, *Entry.IconSprite)) return false;
+		const TArray<TSharedPtr<FJsonValue>>* Rect = nullptr;
+		const TArray<TSharedPtr<FJsonValue>>* Extent = nullptr;
+		if (!Row->TryGetArrayField(TEXT("icon_rect"), Rect) || !Rect || Rect->Num() != 4
+			|| !Row->TryGetArrayField(TEXT("atlas_size"), Extent) || !Extent || Extent->Num() != 2) return false;
+		int32 R[4] = {0, 0, 0, 0};
+		int32 S[2] = {0, 0};
+		for (int32 Index = 0; Index < 4; ++Index)
+		{
+			const TSharedPtr<FJsonValue>& Number = (*Rect)[Index];
+			if (!Number.IsValid() || Number->Type != EJson::Number) return false;
+			const double Source = Number->AsNumber();
+			if (!FMath::IsFinite(Source) || Source < 0 || Source > MAX_int32
+				|| static_cast<double>(static_cast<int32>(Source)) != Source) return false;
+			R[Index] = static_cast<int32>(Source);
+		}
+		for (int32 Index = 0; Index < 2; ++Index)
+		{
+			const TSharedPtr<FJsonValue>& Number = (*Extent)[Index];
+			if (!Number.IsValid() || Number->Type != EJson::Number) return false;
+			const double Source = Number->AsNumber();
+			if (!FMath::IsFinite(Source) || Source < 0 || Source > MAX_int32
+				|| static_cast<double>(static_cast<int32>(Source)) != Source) return false;
+			S[Index] = static_cast<int32>(Source);
+		}
+		if (R[2] <= 0 || R[3] <= 0 || S[0] <= 0 || S[1] <= 0
+			|| R[0] > S[0] - R[2] || R[1] > S[1] - R[3]) return false;
+		Entry.IconRect = FIntRect(R[0], R[1], R[0] + R[2], R[1] + R[3]);
+		Entry.AtlasSize = FIntPoint(S[0], S[1]);
+		SeenIds.Add(Entry.ItemType);
+		Counts[Entry.Group - 1]++;
+		CandidateRows.Add(MoveTemp(Entry));
+	}
+	static const int32 ExpectedCounts[4] = {4, 4, 4, 9};
+	for (int32 Index = 0; Index < 4; ++Index)
+	{
+		const TSharedPtr<FJsonValue>& Number = (*GroupCounts)[Index];
+		if (!Number.IsValid() || Number->Type != EJson::Number
+			|| Number->AsNumber() != ExpectedCounts[Index]
+			|| Counts[Index] != ExpectedCounts[Index]) return false;
+	}
+	AllianceShopReadonlyGroups = MoveTemp(CandidateGroups);
+	AllianceShopReadonlyRows = MoveTemp(CandidateRows);
+	bAllianceShopReadonlyLoaded = true;
+	UE_LOG(LogTemp, Display, TEXT("Loaded AllianceShop static reference: definitions=21 groups=4 account_state=0 stock_state=0 purchase_state=0."));
+	return true;
+}
+
+const FRokUnityAllianceShopReadonlyRow* URokUnityGameplayCatalogSubsystem::FindAllianceShopReadonly(int32 ItemType) const
+{
+	for (const FRokUnityAllianceShopReadonlyRow& Row : AllianceShopReadonlyRows)
+	{
+		if (Row.ItemType == ItemType) return &Row;
+	}
+	return nullptr;
+}
+
+bool URokUnityGameplayCatalogSubsystem::LoadAllianceGiftReadonly()
+{
+	if (bAllianceGiftReadonlyLoaded) return true;
+	if (bAllianceGiftReadonlyLoadAttempted) return false;
+	bAllianceGiftReadonlyLoadAttempted = true;
+	AllianceGiftLevelReadonlyRows.Reset();
+	AllianceGiftRewardReadonlyRows.Reset();
+	TArray<uint8> ManifestBytes;
+	const FString Path = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir(), AllianceGiftRelativePath);
+	if (!FFileHelper::LoadFileToArray(ManifestBytes, *Path))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Alliance gift static manifest unavailable; no definitions shown."));
+		return false;
+	}
+	if (!ValidateAllianceGiftManifestBytes(ManifestBytes))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Alliance gift static manifest payload digest failed; no definitions shown."));
+		return false;
+	}
+	FString Text;
+	FFileHelper::BufferToString(Text, ManifestBytes.GetData(), ManifestBytes.Num());
+	TSharedPtr<FJsonObject> Root;
+	if (!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Root) || !Root.IsValid()) return false;
+	FString Schema;
+	int32 LevelCount = 0, RewardCount = 0;
+	bool bAccount = true, bClaim = true, bServer = true;
+	const TArray<TSharedPtr<FJsonValue>>* Levels = nullptr;
+	const TArray<TSharedPtr<FJsonValue>>* Rewards = nullptr;
+	const TSharedPtr<FJsonObject> Source = JsonObjectField(Root, TEXT("source"));
+	const TSharedPtr<FJsonObject> LevelSource = JsonObjectField(Source, TEXT("AllianceGiftLevel.csv"));
+	const TSharedPtr<FJsonObject> RewardSource = JsonObjectField(Source, TEXT("AllianceGiftReward.csv"));
+	FString LevelHash, RewardHash;
+	if (!ReadStrictString(Root, TEXT("schema"), Schema)
+		|| Schema != TEXT("rok.alliance_gift_readonly_catalog.v1")
+		|| !ReadStrictNonnegativeInt(Root, TEXT("level_count"), LevelCount) || LevelCount != 50
+		|| !ReadStrictNonnegativeInt(Root, TEXT("reward_definition_count"), RewardCount) || RewardCount != 360
+		|| !Root->TryGetBoolField(TEXT("account_state_present"), bAccount) || bAccount
+		|| !Root->TryGetBoolField(TEXT("claim_state_present"), bClaim) || bClaim
+		|| !Root->TryGetBoolField(TEXT("server_state_present"), bServer) || bServer
+		|| !ReadStrictString(LevelSource, TEXT("sha256"), LevelHash)
+		|| LevelHash != TEXT("230d626e1cf8f6a6fee875eb6a64488ce6f5e507850fa8aac13010a3115748f8")
+		|| !ReadStrictString(RewardSource, TEXT("sha256"), RewardHash)
+		|| RewardHash != TEXT("8a834b8e1ea113bb9782a5609614e715bd8f40808f32ca3e8ef03e304e74f23f")
+		|| !Root->TryGetArrayField(TEXT("levels"), Levels) || !Levels || Levels->Num() != 50
+		|| !Root->TryGetArrayField(TEXT("reward_definitions"), Rewards) || !Rewards || Rewards->Num() != 360)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Alliance gift static manifest contract failed."));
+		return false;
+	}
+	TArray<FRokUnityAllianceGiftLevelReadonlyRow> CandidateLevels;
+	TArray<FRokUnityAllianceGiftRewardReadonlyRow> CandidateRewards;
+	int32 PreviousExp = 0;
+	for (int32 Index = 0; Index < Levels->Num(); ++Index)
+	{
+		const TSharedPtr<FJsonObject> Row = (*Levels)[Index].IsValid()
+			&& (*Levels)[Index]->Type == EJson::Object ? (*Levels)[Index]->AsObject() : nullptr;
+		FRokUnityAllianceGiftLevelReadonlyRow Entry;
+		if (!ReadStrictNonnegativeInt(Row, TEXT("ID"), Entry.Id) || Entry.Id != Index + 1
+			|| !ReadStrictNonnegativeInt(Row, TEXT("exp"), Entry.ExpThreshold)
+			|| Entry.ExpThreshold <= PreviousExp
+			|| !ReadStrictNonnegativeInt(Row, TEXT("treasureId"), Entry.TreasureId)
+			|| Entry.TreasureId < 1 || Entry.TreasureId > 6) return false;
+		PreviousExp = Entry.ExpThreshold;
+		CandidateLevels.Add(Entry);
+	}
+	TSet<int32> SeenIds;
+	TSet<int64> SeenKeys;
+	TMap<int32, int32> TypeCounts;
+	for (const TSharedPtr<FJsonValue>& Value : *Rewards)
+	{
+		const TSharedPtr<FJsonObject> Row = Value.IsValid() && Value->Type == EJson::Object
+			? Value->AsObject() : nullptr;
+		FRokUnityAllianceGiftRewardReadonlyRow Entry;
+		if (!ReadStrictNonnegativeInt(Row, TEXT("ID"), Entry.Id) || Entry.Id <= 0 || SeenIds.Contains(Entry.Id)
+			|| !ReadStrictNonnegativeInt(Row, TEXT("giftType"), Entry.GiftType)
+			|| !ReadStrictNonnegativeInt(Row, TEXT("giftLevel"), Entry.GiftLevel)
+			|| !ReadStrictNonnegativeInt(Row, TEXT("reward"), Entry.RewardPackageId)
+			|| Entry.RewardPackageId <= 0
+			|| !ReadStrictNonnegativeInt(Row, TEXT("giftPoint"), Entry.GiftPoint)
+			|| !ReadStrictNonnegativeInt(Row, TEXT("keyPoint"), Entry.KeyPoint)) return false;
+		const bool bCommon = Entry.GiftType >= 1000 && Entry.GiftType <= 1006;
+		const bool bSpecial = (Entry.GiftType >= 2000 && Entry.GiftType <= 2005)
+			|| (Entry.GiftType >= 3001 && Entry.GiftType <= 3004);
+		if ((!bCommon && !bSpecial) || (bCommon && (Entry.GiftLevel < 1 || Entry.GiftLevel > 50))
+			|| (bSpecial && Entry.GiftLevel != 0)) return false;
+		const int64 Key = static_cast<int64>(Entry.GiftType) * 100 + Entry.GiftLevel;
+		if (SeenKeys.Contains(Key)) return false;
+		SeenIds.Add(Entry.Id);
+		SeenKeys.Add(Key);
+		TypeCounts.FindOrAdd(Entry.GiftType)++;
+		CandidateRewards.Add(Entry);
+	}
+	if (SeenIds.Num() != 360 || SeenKeys.Num() != 360 || TypeCounts.Num() != 17) return false;
+	for (int32 Type = 1000; Type <= 1006; ++Type)
+	{
+		if (TypeCounts.FindRef(Type) != 50) return false;
+	}
+	for (int32 Type = 2000; Type <= 2005; ++Type)
+	{
+		if (TypeCounts.FindRef(Type) != 1) return false;
+	}
+	for (int32 Type = 3001; Type <= 3004; ++Type)
+	{
+		if (TypeCounts.FindRef(Type) != 1) return false;
+	}
+	AllianceGiftLevelReadonlyRows = MoveTemp(CandidateLevels);
+	AllianceGiftRewardReadonlyRows = MoveTemp(CandidateRewards);
+	bAllianceGiftReadonlyLoaded = true;
+	UE_LOG(LogTemp, Display, TEXT("Loaded AllianceGift static reference: levels=50 reward_definitions=360 account_state=0."));
+	return true;
+}
+
+const FRokUnityAllianceGiftLevelReadonlyRow* URokUnityGameplayCatalogSubsystem::FindAllianceGiftLevelReadonly(int32 ConfiguredLevel) const
+{
+	for (const FRokUnityAllianceGiftLevelReadonlyRow& Row : AllianceGiftLevelReadonlyRows)
+	{
+		if (Row.Id == ConfiguredLevel) return &Row;
+	}
+	return nullptr;
+}
+
+const FRokUnityAllianceGiftRewardReadonlyRow* URokUnityGameplayCatalogSubsystem::FindAllianceGiftRewardReadonly(int32 GiftType, int32 ConfiguredLevel) const
+{
+	for (const FRokUnityAllianceGiftRewardReadonlyRow& Row : AllianceGiftRewardReadonlyRows)
+	{
+		if (Row.GiftType == GiftType && Row.GiftLevel == ConfiguredLevel) return &Row;
+	}
+	return nullptr;
 }
 
 bool URokUnityGameplayCatalogSubsystem::LoadAllianceOfficeReadonly()

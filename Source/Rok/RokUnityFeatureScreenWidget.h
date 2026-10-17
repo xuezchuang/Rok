@@ -12,6 +12,7 @@
 #include "RokResourceSearchAnimation.h"
 #include "RokMailAttachmentPulse.h"
 #include "RokMailRewardDetails.h"
+#include "RokMailLocalUnreadState.h"
 #include "RokSpeedUpQueueLifecycle.h"
 #include "RokAllianceFlagLocalPreviewData.h"
 #include "Styling/SlateBrush.h"
@@ -80,6 +81,11 @@ private:
 	friend class URokAllianceTechnologyReadonlyAuditSubsystem;
 	friend class URokAllianceFixtureSearchAuditSubsystem;
 	friend class URokAllianceFlagLocalPreviewAuditSubsystem;
+	friend class URokAllianceGiftReadonlyAuditSubsystem;
+	friend class URokAllianceShopReadonlyAuditSubsystem;
+	friend class URokAllianceTerritoryReadonlyAuditSubsystem;
+	friend class URokAllianceRankingReadonlyAuditSubsystem;
+	friend class URokAllianceUiWindowAnimationAuditSubsystem;
 	friend class URokTaskCompletedRowAnimationAuditSubsystem;
 	int32 ActionId = 0;
 	bool bClickHandlerBound = false;
@@ -154,6 +160,8 @@ class ROK_API URokUnityFeatureScreenWidget : public UUserWidget
 public:
 	void OpenActivityCenter();
 	void OpenMail(bool bUseReferenceCaptureState = false);
+	/** Explicit synthetic mail interaction fixture; state survives closing this widget instance. */
+	void OpenMailLocalUnreadFixture();
 	/** Explicit local, read-only selected-mail reward preview; never account mail. */
 	void OpenMailReadOnlyRewardFixture(const TMap<int32, FRokMailRewardPayload>& PayloadByMailIndex, int32 InitialMailIndex = 0);
 	void OpenTasks(bool bUseTestFixtureState = false);
@@ -239,6 +247,9 @@ public:
 	bool IsMailReferenceCaptureForAudit() const { return bReferenceMailCaptureState && !bReadOnlyMailRewardFixtureState; }
 	int32 GetSelectedMailTabForAudit() const { return SelectedMailTab; }
 	int32 GetSelectedMailIndexForAudit() const { return SelectedMailIndex; }
+	bool IsMailLocalUnreadFixtureForAudit() const { return bLocalMailUnreadFixtureState; }
+	int32 GetMailLocalUnreadCountForAudit(int32 Tab) const { return MailLocalUnreadState.UnreadCount(Tab); }
+	bool IsMailLocalFixtureRowReadForAudit(int32 Index) const { const auto* Row = MailLocalUnreadState.Find(Index); return Row && Row->bRead; }
 	const TArray<FRokMailRewardRow>& GetRenderedMailRewardRowsForAudit() const { return RenderedMailRewardRows; }
 	int32 GetActiveMailRewardTooltipIndexForAudit() const { return ActiveMailRewardTooltipIndex; }
 	FVector2D GetMailRewardTooltipAnchorForAudit() const { return MailRewardTooltipAnchor; }
@@ -305,6 +316,11 @@ private:
 	friend class URokAllianceTechnologyReadonlyAuditSubsystem;
 	friend class URokAllianceFixtureSearchAuditSubsystem;
 	friend class URokAllianceFlagLocalPreviewAuditSubsystem;
+	friend class URokAllianceGiftReadonlyAuditSubsystem;
+	friend class URokAllianceShopReadonlyAuditSubsystem;
+	friend class URokAllianceTerritoryReadonlyAuditSubsystem;
+	friend class URokAllianceRankingReadonlyAuditSubsystem;
+	friend class URokAllianceUiWindowAnimationAuditSubsystem;
 	friend class URokTaskCompletedRowAnimationAuditSubsystem;
 	UPROPERTY(Transient) TObjectPtr<URokHelpWidget> HelpWidget;
 	FRokMailAttachmentPulse MailAttachmentPulse;
@@ -393,6 +409,15 @@ private:
 	ERokUnityFeatureScreenMode ActiveMode = ERokUnityFeatureScreenMode::None;
 	ERokUnityFeatureScreenMode AnimatedMode = ERokUnityFeatureScreenMode::None;
 	FRokUiWindowAnimation WindowAnimation;
+	// The five source-backed alliance prefab roots share UA_WinAnime_T1.
+	enum class EAllianceAnimatedRoot : uint8 { None, Main, Join, Flag, Gift, Shop };
+	EAllianceAnimatedRoot AllianceAnimatedRoot = EAllianceAnimatedRoot::None;
+	int32 PendingAllianceRootCloseActionId = INDEX_NONE;
+	bool bDispatchingAllianceRootCloseAction = false;
+#if WITH_DEV_AUTOMATION_TESTS
+	uint64 AllianceRootCloseDispatchCountForAudit = 0;
+	int32 AllianceRootCloseLastActionForAudit = INDEX_NONE;
+#endif
 	bool bResearchMainMaskClosing = false;
 	FRokResourceSearchAnimation ResourceSearchAnimation;
 	float BuildCityEntranceTime = 1.0f / 3.0f;
@@ -425,6 +450,8 @@ private:
 	int32 SelectedMailIndex = 0;
 	bool bReferenceMailCaptureState = false;
 	bool bReadOnlyMailRewardFixtureState = false;
+	bool bLocalMailUnreadFixtureState = false;
+	FRokMailLocalUnreadState MailLocalUnreadState;
 	TMap<int32, FRokMailRewardPayload> MailRewardFixturePayloadByIndex;
 	TArray<FRokMailRewardRow> RenderedMailRewardRows;
 	int32 ActiveMailRewardTooltipIndex = INDEX_NONE;
@@ -475,6 +502,17 @@ private:
 	TArray<int32> VisibleAllianceFixtureIndices;
 	int32 SelectedAlliancePage = 0;
 	int32 SelectedAllianceOfficeIndex = 0;
+	bool bAllianceTerritoryReferenceOpen = false;
+	int32 ExpandedAllianceTerritoryGroup = INDEX_NONE;
+	int32 SelectedAllianceTerritoryType = 0;
+	bool bAllianceRankingReferenceOpen = false;
+	int32 SelectedAllianceRankingCategoryId = INDEX_NONE;
+	bool bAllianceShopReferenceOpen = false;
+	int32 SelectedAllianceShopGroup = 1;
+	int32 SelectedAllianceShopItemType = 0;
+	bool bAllianceGiftReferenceOpen = false;
+	int32 SelectedAllianceGiftConfiguredLevel = 1;
+	bool bAllianceGiftSpecialDefinitions = false;
 	bool bAllianceOfficeReferenceOpen = false;
 	bool bAllianceTechnologyReferenceOpen = false;
 	int32 SelectedAllianceTechnologyCategory = 1;
@@ -568,6 +606,8 @@ private:
 	void UpdateWindowAnimationForMode(bool bOpening);
 	void ApplyWindowAnimation();
 	void AdvanceWindowAnimation(float DeltaSeconds);
+	EAllianceAnimatedRoot ResolveAllianceAnimatedRoot() const;
+	bool TryStartAllianceRootClose(int32 ActionId);
 	UFUNCTION()
 	void HandleResearchMainMaskClicked();
 	void RequestResearchMainMaskClose();
@@ -590,6 +630,10 @@ private:
 	void CaptureAllianceCreateFormDraft();
 	void ResetAllianceCreateLocalDraft();
 	void BuildAllianceJoined();
+	void BuildAllianceTerritoryReference();
+	void BuildAllianceRankingReference();
+	void BuildAllianceShopReference();
+	void BuildAllianceGiftReference();
 	void BuildAllianceOfficeReference();
 	void BuildAllianceTechnologyReference();
 	void BuildVip();
