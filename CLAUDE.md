@@ -61,14 +61,16 @@ Codex ran this migration until 2026-10-16 and stopped at the user's request. Bef
 
 **UI coverage** (`Saved/RokUnityMigration/unity_ui_runtime_coverage_verify.json`, 2026-09-12): 46 mappings / 49 entries checked, 1105 of 1150 Unity UI prefabs still unimplemented. The verifier only proves that declarations exist. Earlier UI handoff: `UnityLearning/UI_MIGRATION_HANDOFF_2026-08-14.md`.
 
-## Version Control: Git + Perforce (verified 2026-10-17)
+## Version Control: Git + Perforce (verified 2026-10-18)
 
 | | Git | Perforce |
 |---|---|---|
 | Server | `origin` `https://github.com/xuezchuang/Rok.git`, branch `main` | `home.snowsome.com:1666`, user `snow`, client `ueDemo`, root `D:\ueDemo`, view `//depot/... //ueDemo/...` |
-| Owns | Text: `Source/`, `Shaders/`, `Scripts/`, `Config/`, `Rok.uproject`, `AGENTS.md`, `CLAUDE.md`, `UnityLearning/` notes | Binary content and reference snapshot: `//depot/Rok/Content/...` (~2.3k files), `//depot/Rok/ref/...` (~74k files) |
-| Latest (2026-10-17) | `main` at `3da3b629`, pushed: the Jul–Oct WIP checkpoint plus the UIB1 promotion. Only real UnityLearning project files remain untracked | Last submit CL 76 (2026-09-12). The 142 opened Content files (137 add / 5 edit) are **shelved in CL 80**, still open locally, not submitted |
+| Owns | Text: `Source/`, `Shaders/`, `Scripts/`, `Config/`, `Rok.uproject`, `AGENTS.md`, `CLAUDE.md`, `UnityLearning/` notes | Binary content, runtime data and reference snapshot: `//depot/Rok/Content/...` (~2.95k files, incl. `Content/RokData`), `//depot/Rok/ref/...` (~74k files) |
+| Latest (2026-10-18) | `main` at `b59d48c9`, pushed: the Jul–Oct WIP checkpoint, the UIB1 promotion, and Phases 2a/2b (runtime data moved to `Content/RokData`, runtime provenance gates removed). Only real UnityLearning project files remain untracked | Last submit CL 110 (2026-10-18): the 639 `Content/RokData` files, all filetype `binary`. The 142 opened Content files (137 add / 5 edit) are **shelved in CL 80**, still open locally, not submitted |
 
+- **Add `Content/RokData` files as `binary`** (`p4 add -t binary`). They are LF-only JSON/CSV whose bytes C++ loaders pin by SHA-256; the client uses `LineEnd: local` and the typemap covers only `.uasset`/`.umap`, so a `text` add comes back CRLF on sync and fails those pins.
+- **The client's default changelist is not Rok's.** It holds other projects' open files (`//depot/RPG`, `//depot/tx`, 347 on 2026-10-18). Put Rok adds in a numbered changelist and never submit the default one.
 - **P4 holds stale text copies.** `//depot/Rok/Source` (6 files), `Scripts` (16), `Config` (2) and `AGENTS.md` are May 2026 snapshots (CL 46–49), and every one differs from the git copy. Never `p4 sync -f`, "Get Revision (force)", or `p4 reconcile` over those paths: git is authoritative for text.
 - Never `git reset --hard`, `git clean`, `git checkout --`, or bulk revert/submit in P4. Commit or submit only when the user asks. `git clean` is doubly dangerous here: the UnityLearning junctions (see the junction hazard above) lead into `ref/` and `Saved/`.
 - **P4 non-ASCII names:** this server stores Chinese and other non-ASCII path characters as `?` (e.g. `//depot/Rok/ref/config-tables/???????/…`). Content is intact, but names are lossy and may collide. Don't rely on P4 for restoring non-ASCII-named `ref/` files.
