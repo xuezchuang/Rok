@@ -12,7 +12,6 @@
 #include "Misc/Paths.h"
 #include "RokDataPaths.h"
 #include "RokModalNineSlice.h"
-#include "RokTrainArmyMeshData.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 
@@ -42,14 +41,16 @@ bool URokBarracksUpgradeAttributes::InitializeAttributes()
         TEXT("ref/client-unity/Assets/BundleAssets/UI/UITextureStatic/ui_res_common/ui_common.png"),
         TEXT("ref/client-unity/Assets/Scripts/Client/Compoment/ArabLayout/ArabLayoutCompment.cs")};
     if(Sources->Num()!=Required.Num())return Fail(TEXT("Incomplete barracks provenance"));
+    // Recorded provenance must be complete. Its ref/ and Scripts/ inputs do not ship; the generator and
+    // VerifyRokBarracksUpgradeAttributeConsumer.py check their hashes.
     TSet<FString> Seen;
     for(const auto& V:*Sources)
     {
-        FString Path,Hash;TArray<uint8> Bytes;
+        FString Path,Hash;
         if(!V.IsValid()||V->Type!=EJson::Object)return Fail(TEXT("Invalid barracks source row"));
         const auto S=V->AsObject();
-        if(!S->TryGetStringField(TEXT("path"),Path)||!Required.Contains(Path)||Seen.Contains(Path)||!S->TryGetStringField(TEXT("sha256"),Hash)||
-           !FFileHelper::LoadFileToArray(Bytes,*(RokDataPaths::ResolveProjectPath(Path)))||RokTrainArmyMesh::Sha256(Bytes)!=Hash)return Fail(TEXT("Barracks source hash changed"));
+        if(!S->TryGetStringField(TEXT("path"),Path)||!Required.Contains(Path)||Seen.Contains(Path)||!S->TryGetStringField(TEXT("sha256"),Hash)||Hash.Len()!=64)
+            return Fail(TEXT("Invalid barracks source provenance"));
         Seen.Add(Path);
     }
     TArray<FString> Labels,Values;

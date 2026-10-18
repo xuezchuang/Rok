@@ -2,6 +2,7 @@
 import csv, hashlib, json
 from pathlib import Path
 from PrepareRokHospitalExplanationNativeReference import parse_languages
+from rok_data_paths import DATA_ROOT, label
 ROOT = Path(__file__).resolve().parents[1]
 CLIENT = ROOT / 'ref/client-unity'
 MEDIATOR = CLIENT / 'Assets/Scripts/Hotfix/MVC/View_Mediator/BuildingDesc/UI_Win_BuildingUpdateMediator.cs'
@@ -20,11 +21,11 @@ def build():
     assert int(a['infantryAttackMulti']) == int(b['infantryAttackMulti']) == 0
     assert [int(levels[i]['power']) for i in (901, 902)] == [5, 10]
     result = []
-    for key, label in [('infantryTrainNumber', 180329), ('infantryAttackMulti', 180352)]:
+    for key, label_id in [('infantryTrainNumber', 180329), ('infantryAttackMulti', 180352)]:
         current, nxt = int(a[key]), int(b[key])
         if current != nxt:
             assert key == 'infantryTrainNumber'  # This bounded slice has no percentage row.
-            result.append(dict(label_id=label, label=language[label], current=current, delta=nxt-current))
+            result.append(dict(label_id=label_id, label=language[label_id], current=current, delta=nxt-current))
     result.append(dict(label_id=180314, label=language[180314], current=5, delta=5))
     for i, row in enumerate(result):
         row.update(value=language[180356].format(row['current'], row['delta']), separator=i < len(result)-1)
@@ -34,12 +35,12 @@ def build():
     sources = [level_prefab, atlas, Path(str(atlas)+'.meta'), arab, MEDIATOR, CLIENT/WINDOW, CLIENT/ITEM, binary, tables/'BuildingBarracks.csv', tables/'BuildingLevelData.csv', Path(__file__).resolve()]
     manifest = dict(schema='rok.barracks.upgrade_attribute.v1', building_type=9, current_level=1, next_level=2,
         sprite_metadata={'attribute_background': {'name':'pl_com_1001','rect':[436,165,63,55],'border_lbrt':[16,13,15,13]}, 'separator': {'name':'pl_com_1005','rect':[1,611,570,2],'image_type':0,'target_size':[536,3]}},
-        level_presentation={'before':language[180306].format(1),'after':'2','before_language_id':180306,'prefab':level_prefab.relative_to(ROOT).as_posix()},
+        level_presentation={'before':language[180306].format(1),'after':'2','before_language_id':180306,'prefab':label(level_prefab)},
         rows=result, row_height=40, attribute_height=110, height_rule='source item rect height * row count + 30',
         omitted_attack=dict(current=0, next=0, reason='source only adds changed fields'),
         scope='Presentation-only source 1->2; no building preview, ownership, command, cost or queue mutation.',
-        sources=[dict(path=p.relative_to(ROOT).as_posix(), sha256=hashlib.sha256(p.read_bytes()).hexdigest()) for p in sources])
-    target=ROOT/'Saved/RokUnityMigration/barracks_upgrade_attribute.json'
+        sources=[dict(path=label(p), sha256=hashlib.sha256(p.read_bytes()).hexdigest()) for p in sources])
+    target=DATA_ROOT/'barracks_upgrade_attribute.json'
     target.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding='utf-8')
     return manifest
 if __name__ == '__main__':

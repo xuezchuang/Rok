@@ -60,6 +60,18 @@ public static class RenderRokBarracksLevelHeaderText
     static readonly MethodInfo Populate = typeof(Text).GetMethod("OnPopulateMesh", BindingFlags.NonPublic | BindingFlags.Instance,
         null, new[] { typeof(VertexHelper) }, null);
 
+    // Recorded "Saved/RokUnityMigration/..." labels name files that moved to Content/RokData
+    // (same rule as resolve() in Scripts/rok_data_paths.py).
+    static string Resolve(string label)
+    {
+        const string Legacy = "Saved/RokUnityMigration/";
+        if (label.StartsWith(Legacy, StringComparison.Ordinal))
+        {
+            string moved = Repo + "Content/RokData/" + label.Substring(Legacy.Length);
+            if (File.Exists(moved)) return moved;
+        }
+        return Repo + label;
+    }
     static string Hash(string path)
     {
         using (var h = SHA256.Create()) return BitConverter.ToString(h.ComputeHash(File.ReadAllBytes(path))).Replace("-", "").ToLowerInvariant();
@@ -77,7 +89,7 @@ public static class RenderRokBarracksLevelHeaderText
             if (Data.schema != "rok.barracks.source_text.inputs.v1" || Data.sourceTexts.Length != 4 || Populate == null)
                 throw new Exception("Wrong four-header source coverage or Text mesh method unavailable");
             foreach (var s in Data.sources)
-                if (Hash(Repo + s.path) != s.sha256) throw new Exception("Source drift " + s.path);
+                if (Hash(Resolve(s.path)) != s.sha256) throw new Exception("Source drift " + s.path);
             if (Hash(Project + "/Assets/Editor/RenderRokBarracksLevelHeaderText.cs") != Data.copied_renderer_sha256)
                 throw new Exception("Executed renderer drift");
             Output = Project + "/Artifacts/native_" + DateTime.UtcNow.ToString("yyyyMMdd_HHmmss_fff");

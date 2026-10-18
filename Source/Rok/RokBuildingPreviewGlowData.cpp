@@ -31,13 +31,16 @@ bool FData::Load(const FString& Path,FString& Error)
     if(!Root->TryGetStringField(TEXT("schema"),Schema)||Schema!=TEXT("rok.building.preview_glow.data.v1")||!Number(Root,TEXT("duration"),Duration)||Duration!=2)return Fail(TEXT("Wrong source glow schema/duration"));
     const TArray<TSharedPtr<FJsonValue>>* Sources=nullptr;
     if(!Root->TryGetArrayField(TEXT("sources"),Sources)||Sources->Num()!=5)return Fail(TEXT("Glow provenance missing"));
+    // Only packaged data is re-hashed. The source glow report stays in Saved/RokUnityMigration and, like the
+    // Unity probe evidence and Scripts/, does not ship; Verify* scripts check those hashes.
     TSet<FString> Seen;
     for(const auto& V:*Sources)
     {
         if(!V.IsValid()||V->Type!=EJson::Object)return Fail(TEXT("Invalid provenance"));
         FString P,H;const auto O=V->AsObject();TArray<uint8> Bytes;
         if(!O->TryGetStringField(TEXT("path"),P)||!O->TryGetStringField(TEXT("sha256"),H)||H.Len()!=64||!FPaths::IsRelative(P)||P.Contains(TEXT(".."))||Seen.Contains(P)
-            ||(!P.StartsWith(TEXT("Saved/"))&&!P.StartsWith(TEXT("Scripts/"))&&!RokDataPaths::IsDataPath(P))||!FFileHelper::LoadFileToArray(Bytes,*(RokDataPaths::ResolveProjectPath(P)))||RokTrainArmyMesh::Sha256(Bytes)!=H)return Fail(TEXT("Glow provenance changed or unsafe"));
+            ||(!P.StartsWith(TEXT("Saved/"))&&!P.StartsWith(TEXT("Scripts/"))&&!RokDataPaths::IsDataPath(P))
+            ||(RokDataPaths::IsPackagedDataPath(P)&&(!FFileHelper::LoadFileToArray(Bytes,*(RokDataPaths::ResolveProjectPath(P)))||RokTrainArmyMesh::Sha256(Bytes)!=H)))return Fail(TEXT("Glow provenance changed or unsafe"));
         Seen.Add(P);
     }
     const TArray<TSharedPtr<FJsonValue>>* Rows=nullptr;if(!Root->TryGetArrayField(TEXT("layers"),Rows)||Rows->Num()!=2)return Fail(TEXT("Expected two source layers"));

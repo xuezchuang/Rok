@@ -155,14 +155,16 @@ bool FRokLocalCitySimulationContext::Load(FString& OutError)
 		OutError = TEXT("Local city provenance paths are incomplete");
 		return false;
 	}
+	// Only packaged data (the generated catalogs) is re-hashed; Scripts/ and ref/ do not ship.
 	for (const TCHAR* Required : RequiredSources)
 	{
 		FString Expected;
 		TArray<uint8> Bytes;
 		if (!Sources->TryGetStringField(Required, Expected) || Expected.Len() != 64
 			|| !IsSourcePath(Required)
-			|| !FFileHelper::LoadFileToArray(Bytes, *(RokDataPaths::ResolveProjectPath(Required)))
-			|| RokTrainArmyMesh::Sha256(Bytes) != Expected)
+			|| (RokDataPaths::IsPackagedDataPath(Required)
+				&& (!FFileHelper::LoadFileToArray(Bytes, *(RokDataPaths::ResolveProjectPath(Required)))
+					|| RokTrainArmyMesh::Sha256(Bytes) != Expected)))
 		{
 			OutError = FString::Printf(TEXT("Local city source hash changed: %s"), Required);
 			return false;

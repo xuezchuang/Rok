@@ -15,7 +15,6 @@
 #include "Misc/CommandLine.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Parse.h"
-#include "Misc/Paths.h"
 #include "ProceduralMeshComponent.h"
 #if WITH_EDITOR
 #include "RenderingThread.h"
@@ -35,13 +34,6 @@ constexpr TCHAR WorldMap[] = TEXT("/Game/Maps/L_RokUnityWorldMapPrototype");
 constexpr TCHAR ContractSha[] = TEXT("a3e2303e27a42a9244dfeef27a954df7e2d3cabe97a66f5147005d386e8fc46d");
 constexpr TCHAR CpuSha[] = TEXT("cc365fb2e20dfaaa8da4aa9e0766e4754bffa6e2130cec053349ccc26b8ce126");
 constexpr TCHAR AssetManifestRelative[] = TEXT("Saved/PendingUnityTileRippleRendererV8/asset_import_manifest.json");
-
-bool IsRokProject()
-{
-	FString Project = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir());
-	FPaths::NormalizeDirectoryName(Project);
-	return FPaths::IsSamePath(Project, TEXT("D:/ueDemo/Rok"));
-}
 
 bool ReadPinned(const FString& Path, const FString& Expected, TArray<uint8>& Bytes)
 {
@@ -254,7 +246,6 @@ void ARokUnityTileRippleDiagnosticActor::BeginPlay()
 	URokServerSubsystem* Server = Game ? Game->GetSubsystem<URokServerSubsystem>() : nullptr;
 	if (!World || World->WorldType != EWorldType::Game ||
 		World->GetOutermost()->GetName() != RokTileRippleRenderer::WorldMap ||
-		!RokTileRippleRenderer::IsRokProject() ||
 		!FParse::Param(FCommandLine::Get(), TEXT("RokTileRippleDiagnostic")) ||
 		!FParse::Param(FCommandLine::Get(), TEXT("RokLocalOnly")) ||
 		!Server || !Server->IsLocalOnlyRun() || Server->GetHttpDispatchAttemptCount() != 0)

@@ -12,7 +12,6 @@
 #include "Serialization/JsonSerializer.h"
 #include "Styling/CoreStyle.h"
 #include "RokDataPaths.h"
-#include "RokTrainArmyMeshData.h"
 
 bool URokHospitalExplanationWidget::HasExactSourcePaths(const TArray<FString>& Paths)
 {
@@ -47,11 +46,12 @@ bool URokHospitalExplanationWidget::InitializeExplanation()
         SourcePaths.Add(Path);
     }
     if(!HasExactSourcePaths(SourcePaths))return Fail(TEXT("Missing, duplicate or unexpected hospital source"));
+    // The recorded ref/ inputs do not ship; the generator and Verify* scripts check their hashes.
     for(const auto& Value:*Sources)
     {
         if(!Value.IsValid()||Value->Type!=EJson::Object)return Fail(TEXT("Invalid hospital provenance"));
-        const auto S=Value->AsObject();FString Path,Hash;TArray<uint8> Bytes;
-        if(!S->TryGetStringField(TEXT("path"),Path)||!Path.StartsWith(TEXT("ref/"))||Path.Contains(TEXT(".."))||!S->TryGetStringField(TEXT("sha256"),Hash)||!FFileHelper::LoadFileToArray(Bytes,*(RokDataPaths::ResolveProjectPath(Path)))||RokTrainArmyMesh::Sha256(Bytes)!=Hash)return Fail(TEXT("Hospital source hash changed"));
+        const auto S=Value->AsObject();FString Path,Hash;
+        if(!S->TryGetStringField(TEXT("path"),Path)||!Path.StartsWith(TEXT("ref/"))||Path.Contains(TEXT(".."))||!S->TryGetStringField(TEXT("sha256"),Hash)||Hash.Len()!=64)return Fail(TEXT("Invalid hospital source provenance"));
     }
     const TSharedPtr<FJsonObject>* Nodes=nullptr;if(!Data->TryGetObjectField(TEXT("nodes"),Nodes))return Fail(TEXT("Hospital source layout missing"));
     const FString Page=TEXT("Rect/Right/pl_explain"),Label=Page/TEXT("sv_explain_view/v_explain_view/c_explain_view/lbl_explain");

@@ -26,4 +26,12 @@ namespace RokDataPaths
 
 	// True for a project-relative path under ProjectRelativeRoot() without "..".
 	ROK_API bool IsDataPath(const FString& ProjectRelative);
+
+	// True when a recorded provenance path names generated data that ships with the game:
+	// a ProjectRelativeRoot() path, or a legacy label whose file ResolveProjectPath() finds
+	// under Root(). Loaders re-hash only these. Generator scripts (Scripts/), Unity reference
+	// inputs (ref/), Unity probe evidence (Saved/Unity*Probe) and reports that stayed in
+	// Saved/RokUnityMigration are not packaged; their recorded paths and hashes are
+	// build-time provenance that the generators and Verify* scripts check.
+	ROK_API bool IsPackagedDataPath(const FString& ProjectRelative);
 }

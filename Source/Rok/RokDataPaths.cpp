@@ -57,3 +57,24 @@ bool RokDataPaths::IsDataPath(const FString& ProjectRelative)
 	return ProjectRelative.StartsWith(ProjectRelativeRoot(), ESearchCase::CaseSensitive)
 		&& !ProjectRelative.Contains(TEXT(".."));
 }
+
+bool RokDataPaths::IsPackagedDataPath(const FString& ProjectRelative)
+{
+	if (IsDataPath(ProjectRelative))
+	{
+		return true;
+	}
+	if (ProjectRelative.Contains(TEXT("..")))
+	{
+		return false;
+	}
+	for (const FRokLegacyDataPrefix& Prefix : LegacyDataPrefixes)
+	{
+		if (ProjectRelative.StartsWith(Prefix.Legacy, ESearchCase::CaseSensitive))
+		{
+			return IFileManager::Get().FileExists(*Resolve(
+				Prefix.Data + ProjectRelative.RightChop(FCString::Strlen(Prefix.Legacy))));
+		}
+	}
+	return false;
+}

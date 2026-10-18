@@ -1,7 +1,6 @@
 #include "RokCityConstructionGrid.h"
 
 #include "RokDataPaths.h"
-#include "RokTrainArmyMeshData.h"
 #include "Dom/JsonObject.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
@@ -103,15 +102,14 @@ bool FRokCityConstructionGrid::Load(FString& OutError)
 		OutError = TEXT("Source city grid provenance is incomplete");
 		return false;
 	}
+	// The recorded ref/ inputs do not ship, so they are checked by the generator and
+	// VerifyRokCityConstructionGridSources.py, not re-hashed here.
 	for (const auto& Source : (*Sources)->Values)
 	{
 		const FString SourcePath(*Source.Key);
 		FString Expected;
-		TArray<uint8> Bytes;
 		if (!SourcePath.StartsWith(TEXT("ref/")) || SourcePath.Contains(TEXT("..")) || !Source.Value.IsValid()
-			|| !Source.Value->TryGetString(Expected) || Expected.Len() != 64
-			|| !FFileHelper::LoadFileToArray(Bytes, *(RokDataPaths::ResolveProjectPath(SourcePath)))
-			|| RokTrainArmyMesh::Sha256(Bytes) != Expected)
+			|| !Source.Value->TryGetString(Expected) || Expected.Len() != 64)
 		{
 			OutError = FString::Printf(TEXT("Source city grid provenance changed: %s"), *SourcePath);
 			return false;

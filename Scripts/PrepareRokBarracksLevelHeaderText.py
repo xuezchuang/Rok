@@ -7,12 +7,13 @@ import subprocess
 from pathlib import Path
 
 from PrepareRokHospitalExplanationNativeReference import parse_languages
+from rok_data_paths import DATA_ROOT, label
 
 ROOT = Path(__file__).resolve().parents[1]
 CLIENT = ROOT / 'ref/client-unity'
 TARGET = ROOT / 'Saved/UnityBarracksLevelHeaderTextProbe'
 LEVEL_EVIDENCE = ROOT / 'Saved/UnityBarracksLevelProbe/Artifacts/native_20261008_094049_295/render_evidence.json'
-CATALOG = ROOT / 'Saved/RokUnityMigration/building_level_details.json'
+CATALOG = DATA_ROOT / 'building_level_details.json'
 PREFAB_REL = 'Assets/BundleAssets/UI/UIPrefabs/ui_prefabs_build/UIBuildingDesc/UI_Item_BuildingLevelData_Title_Four.prefab'
 PREFAB = CLIENT / PREFAB_REL
 LANGUAGE = CLIENT / 'Assets/StreamingAssets/Config/Bin/Language.bin'
@@ -75,11 +76,11 @@ def main():
     copied = TARGET / 'Assets/Editor/RenderRokBarracksLevelHeaderText.cs'
     shutil.copyfile(renderer, copied)
     inputs = dict(schema='rok.barracks.source_text.inputs.v1', sourceTexts=specs,
-                  prefab=PREFAB_REL, nativeLevelEvidence=LEVEL_EVIDENCE.relative_to(ROOT).as_posix(),
-                  catalog=CATALOG.relative_to(ROOT).as_posix(),
+                  prefab=PREFAB_REL, nativeLevelEvidence=label(LEVEL_EVIDENCE),
+                  catalog=label(CATALOG),
                   sourceRootRect={'x': 208.00003051757812, 'y': 132.8499755859375,
                                   'width': 1024.0, 'height': 50.00006103515625},
-                  sources=[dict(path=p.relative_to(ROOT).as_posix(), sha256=sha(p)) for p in sources],
+                  sources=[dict(path=label(p), sha256=sha(p)) for p in sources],
                   renderer_sha256=sha(renderer), copied_renderer_sha256=sha(copied),
                   scope='Four original Title_Four LanguageText header meshes and GPU font atlases, 22px Normal MiddleCenter BestFit on source 250x50 cells; no whole-text raster or GameApp/login.')
     (TARGET / 'ReferenceInputs.json').write_text(json.dumps(inputs, ensure_ascii=False, indent=2), encoding='utf-8')

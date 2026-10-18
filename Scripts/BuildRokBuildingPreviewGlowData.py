@@ -2,6 +2,7 @@
 import hashlib,json,math
 from pathlib import Path
 import numpy as np
+from rok_data_paths import DATA_ROOT, label
 ROOT=Path(__file__).resolve().parents[1]
 NATIVE=ROOT/'Saved/UnityBuildingPreviewGlowProbe/Artifacts/native_20260912_134632_019/render_evidence.json'
 SOURCE=ROOT/'Saved/RokUnityMigration/BuildingPreviewGlowSource/source_glow.json'
@@ -21,6 +22,6 @@ def build():
     for n,state in enumerate(e['trace']):
         traces.append({'time':state['elapsed'],'projection_valid':n>0,'alpha':[l['tint']['a'] for l in state['layers']],'rotation':[[l['localRotation'][k] for k in ['x','y','z','w']] for l in state['layers']],'screen_quad':[[[p['x'],p['y']] for p in l['screenVertices']] for l in state['layers']]})
     files=[SOURCE,NATIVE,NATIVE.parent/'ReferenceInputs.json',NATIVE.parent/'verify.json',Path(__file__).resolve()]
-    data={'schema':'rok.building.preview_glow.data.v1','duration':2,'layers':layers,'native_samples':traces,'projection_caveat':'Native first Read preceded first Camera.Render: first absolute screen quad invalid. Geometry uses stabilized trace[1:]; first alpha/local quaternion remain valid. No claim of first-frame absolute projection parity.','sources':[{'path':p.relative_to(ROOT).as_posix(),'sha256':sha(p)} for p in files]}
-    out=ROOT/'Saved/RokUnityMigration/BuildingPreviewGlow';out.mkdir(parents=True,exist_ok=True);(out/'glow_data.json').write_text(json.dumps(data,indent=2),encoding='utf-8');print(json.dumps({'layers':layers,'samples':len(traces)}));return data
+    data={'schema':'rok.building.preview_glow.data.v1','duration':2,'layers':layers,'native_samples':traces,'projection_caveat':'Native first Read preceded first Camera.Render: first absolute screen quad invalid. Geometry uses stabilized trace[1:]; first alpha/local quaternion remain valid. No claim of first-frame absolute projection parity.','sources':[{'path':label(p),'sha256':sha(p)} for p in files]}
+    out=DATA_ROOT/'BuildingPreviewGlow';out.mkdir(parents=True,exist_ok=True);(out/'glow_data.json').write_text(json.dumps(data,indent=2),encoding='utf-8');print(json.dumps({'layers':layers,'samples':len(traces)}));return data
 if __name__=='__main__':build()

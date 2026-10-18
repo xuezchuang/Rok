@@ -4,27 +4,28 @@ import hashlib
 import json
 from pathlib import Path
 
+from rok_data_paths import DATA_ROOT, label
+
 
 ROOT = Path(__file__).resolve().parents[1]
-MIGRATION = ROOT / "Saved/RokUnityMigration"
-LEGACY_RESOLUTION = MIGRATION / "unity_gameapp_city_init_building_resolution.json"
-VISUAL_RESOLUTION = MIGRATION / "unity_initial_building_visual_resolution.json"
-INITIAL_STATE = MIGRATION / "unity_initial_city_state.json"
-GRID_CATALOG = MIGRATION / "CityConstructionGridSources/catalog.json"
-CONSTRUCTION_CATALOG = MIGRATION / "CityConstructionSources/catalog.json"
+LEGACY_RESOLUTION = DATA_ROOT / "unity_gameapp_city_init_building_resolution.json"
+VISUAL_RESOLUTION = DATA_ROOT / "unity_initial_building_visual_resolution.json"
+INITIAL_STATE = DATA_ROOT / "unity_initial_city_state.json"
+GRID_CATALOG = DATA_ROOT / "CityConstructionGridSources/catalog.json"
+CONSTRUCTION_CATALOG = DATA_ROOT / "CityConstructionSources/catalog.json"
 CSV_ROOT = ROOT / "ref/config-tables/编译客户端配置/CSV"
 SOURCE_TABLES = tuple(CSV_ROOT / f"{name}.csv" for name in (
     "InitBuilding", "BuildingModelData", "BuildingTypeConfig", "BuildingLevelData",
     "BuildingResourcesProduce", "CityAgeSize"))
 GENERATOR = Path(__file__).resolve()
-OUT = MIGRATION / "LocalCitySimulationContext/catalog.json"
+OUT = DATA_ROOT / "LocalCitySimulationContext/catalog.json"
 SOURCES = (LEGACY_RESOLUTION, VISUAL_RESOLUTION, INITIAL_STATE, GRID_CATALOG,
            CONSTRUCTION_CATALOG, GENERATOR, *SOURCE_TABLES)
 TARGET_LEVEL = "/Game/Maps/L_RokUnityGameAppCity"
 
 
 def relative(path):
-    return path.relative_to(ROOT).as_posix()
+    return label(path)
 
 
 def load(path):

@@ -6,7 +6,6 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
-#include "Misc/Paths.h"
 #include "HAL/PlatformTime.h"
 
 bool URokWorldDayNightSubsystem::ShouldCreateSubsystem(UObject* Outer) const
@@ -29,7 +28,6 @@ void URokWorldDayNightSubsystem::Initialize(FSubsystemCollectionBase& Collection
  // No implicit wall-clock/server substitution. The caller chooses a clearly
  // identified local simulation epoch; elapsed real time advances that epoch.
  if(!FParse::Value(FCommandLine::Get(),TEXT("RokWorldDayNightLocalSeconds="),LocalBaseSeconds)||LocalBaseSeconds<1
-  ||!FPaths::IsSamePath(FPaths::ConvertRelativePathToFull(FPaths::ProjectDir()),TEXT("D:/ueDemo/Rok/"))
   ||GetWorld()->GetOutermost()->GetName()!=TEXT("/Game/Maps/L_RokUnityWorldMapPrototype")||!State.Initialize(Seed))
  {UE_LOG(LogTemp,Error,TEXT("Continuous world day/night needs valid local seconds, source data and exact world map."));return;}
  bReady=true;

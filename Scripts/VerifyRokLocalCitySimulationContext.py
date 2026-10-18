@@ -7,9 +7,10 @@ from BuildRokLocalCitySimulationContext import (
     ROOT, OUT, SOURCES, LEGACY_RESOLUTION, VISUAL_RESOLUTION, INITIAL_STATE,
     GRID_CATALOG, CONSTRUCTION_CATALOG, SOURCE_TABLES, build,
 )
+from rok_data_paths import label
 
 
-REPORT = OUT.with_name("verify.json")
+REPORT = ROOT / "Saved/RokUnityMigration/LocalCitySimulationContext/verify.json"
 
 
 def read(path):
@@ -30,7 +31,7 @@ def verify():
     assert manifest["mode"] == "local_simulation"
     assert manifest["target_level"] == "/Game/Maps/L_RokUnityGameAppCity"
     assert manifest["sources"] == {
-        path.relative_to(ROOT).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+        label(path): hashlib.sha256(path.read_bytes()).hexdigest()
         for path in SOURCES}
     legacy, visual, initial, grid, construction = map(read, (
         LEGACY_RESOLUTION, VISUAL_RESOLUTION, INITIAL_STATE, GRID_CATALOG, CONSTRUCTION_CATALOG))
@@ -39,8 +40,8 @@ def verify():
     assert variant["age"] == legacy["age"] == visual["age"] == 1
     assert variant["qualification"] == "source_visual_variant_not_account_identity"
     evidence = variant["evidence"]
-    assert evidence["legacy_resolution_path"] == LEGACY_RESOLUTION.relative_to(ROOT).as_posix()
-    assert evidence["current_visual_resolution_path"] == VISUAL_RESOLUTION.relative_to(ROOT).as_posix()
+    assert evidence["legacy_resolution_path"] == label(LEGACY_RESOLUTION)
+    assert evidence["current_visual_resolution_path"] == label(VISUAL_RESOLUTION)
     assert (evidence["legacy_spawnable_count"], evidence["legacy_missing_count"],
             evidence["legacy_fallback_count"], evidence["current_failure_count"]) == (
                 legacy["spawnable"], len(legacy["missing"]), len(legacy["fallbacks"]), len(visual["failures"]))
@@ -56,7 +57,7 @@ def verify():
     assert (hall_state["type_id"], hall_state["level"], hall_state["grid"]) == (1, 1, {"x": -5, "y": 5})
     assert (hall_grid["type"], hall_grid["level"], hall_grid["pos_x"], hall_grid["pos_y"]) == (1, 1, -5, 5)
     assert (hall_visual["building_type"], hall_visual["grid_x"], hall_visual["grid_y"]) == (1, -5, 5)
-    assert manifest["initial_city"]["manifest_path"] == INITIAL_STATE.relative_to(ROOT).as_posix()
+    assert manifest["initial_city"]["manifest_path"] == label(INITIAL_STATE)
     assert manifest["initial_city"]["building_count"] == 26
     assert manifest["initial_city"]["bootstrap_resources"] == initial["bootstrap_resources"]
     assert manifest["initial_city"]["bootstrap_resources"]["source"] == "temporary_ue_local_sim_bootstrap"
@@ -67,10 +68,10 @@ def verify():
         "status": "pending_world_transform_evidence", "grid_x": -5, "grid_y": 5,
         "world_transform": None}
     assert manifest["grid"] == {
-        "catalog_path": GRID_CATALOG.relative_to(ROOT).as_posix(), "initial_age": 1,
+        "catalog_path": label(GRID_CATALOG), "initial_age": 1,
         "size": 41, "normal_value": 5}
     assert manifest["construction"] == {
-        "catalog_path": CONSTRUCTION_CATALOG.relative_to(ROOT).as_posix(),
+        "catalog_path": label(CONSTRUCTION_CATALOG),
         "exact_visual_variant": {"civilization": 101, "age": 1}}
     hall_model = next(row for row in construction["models"] if
                       (row["type"], row["civilization"], row["age"]) == (1, 101, 1))
