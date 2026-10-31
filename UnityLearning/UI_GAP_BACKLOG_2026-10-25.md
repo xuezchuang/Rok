@@ -2,7 +2,7 @@
 
 Generated 2026-10-25 by diffing `ref/client-unity/Assets/**/UI_Win_*.prefab` names against the four core widgets (`RokUnityModalWidget`, `RokUnityFeatureScreenWidget`, `RokMainHudWidget`, `RokWorldMapHudWidget`). A name matching there means the screen is at least referenced; it does not prove visual parity.
 
-Total: 115 of 156 window prefabs
+Total when generated: 115 of 156 window prefabs. **Still open on 2026-10-31: 97 of 156** (the list at the end). 19 were ported after the list was generated (under "Done" below). The other 40 already had a UE counterpart, `AddSpeed` included.
 > **Read the parity audit first:** `UnityLearning/UI_PORTED_PARITY_2026-10-25.md` (2026-10-25).
 > The entries below are *data windows*: their numbers are real, but several prefabs are a
 > different kind of screen (TheWall/TheTower are status windows, ItemExchange is a quantity
@@ -28,7 +28,8 @@ Done since this list was generated:
 - `UI_Win_FuncGuide.prefab` -> `URokUnityModalWidget::OpenFuncGuide` (2026-10-25): 77 `Guide.csv` tutorial steps (title from the first `step` column, stage/UI in the detail); capture `ue/E64_func_guide.png`; test `Rok.Ui.FuncGuide.Layout`; open with `-RokOpenModal=func_guide`. `UI_Win_GuideAnim`/`Finger2`/`Finger3` remain runtime overlay work, not list windows.
 - `UI_Win_GuildGift.prefab` -> `URokUnityModalWidget::OpenGuildGift` (2026-10-25): 350 `AllianceGiftReward.csv` tiers (chest name + level, gift/key points, reward id) via `AllianceGiftType.csv` names; capture `ue/E65_guild_gift.png`; test `Rok.Ui.GuildGift.Layout`; open with `-RokOpenModal=guild_gift`. Reward ids are not item ids, so they show raw for now.
 - `UI_Win_ItemExchange.prefab` -> `URokUnityModalWidget::OpenItemExchange` (2026-10-25): 95 `ItemRewardChoice.csv` selectable entries (inline 中文名, group + count); capture `ue/E66_item_exchange.png`; test `Rok.Ui.ItemExchange.Layout`; open with `-RokOpenModal=item_exchange`.
-- `UI_Win_Vip.prefab` -> `URokUnityModalWidget::OpenVipPrivilege` (2026-10-25): 208 positive `VipAtt.csv` privileges across VIP 0-17 (attribute name + granted value, level tag) with the search box; capture `ue/E71_vip_privilege_total.png`; test `Rok.Ui.VipPrivilege.Layout`; open with `-RokOpenModal=vip_privilege`.`n- **Heuristic false positive:** `UI_Win_AddSpeed.prefab` is already covered by the feature-screen `URokUnityFeatureScreenWidget::OpenSpeedUp` (`ERokUnityFeatureScreenMode::SpeedUp`, queue lifecycle + pages), reachable with `-RokOpenModal=speed_up` and from the building panel's feature button while a queue is active. A modal duplicate was built on 2026-10-25 and removed the same day; check `Source/Rok/RokUnityFeatureScreenWidget.*` before porting a window whose name matches a feature mode.
+- `UI_Win_Vip.prefab` -> `URokUnityModalWidget::OpenVipPrivilege` (2026-10-25): 208 positive `VipAtt.csv` privileges across VIP 0-17 (attribute name + granted value, level tag) with the search box; capture `ue/E71_vip_privilege_total.png`; test `Rok.Ui.VipPrivilege.Layout`; open with `-RokOpenModal=vip_privilege`.
+- **Heuristic false positive:** `UI_Win_AddSpeed.prefab` is already covered by the feature-screen `URokUnityFeatureScreenWidget::OpenSpeedUp` (`ERokUnityFeatureScreenMode::SpeedUp`, queue lifecycle + pages), reachable with `-RokOpenModal=speed_up` and from the building panel's feature button while a queue is active. A modal duplicate was built on 2026-10-25 and removed the same day; check `Source/Rok/RokUnityFeatureScreenWidget.*` before porting a window whose name matches a feature mode.
 - `UI_Win_BattlePassRewards.prefab` -> `URokUnityModalWidget::OpenBattlePassRewards` (2026-10-25): rows from `BattlePassReward.csv` (age 0) with Item.csv -> Language.csv names for both tracks; capture `ue/E37_bp_rewards_final.png`; test `Rok.Ui.BattlePassRewards.Layout`; open with `-RokOpenModal=bp_rewards`.
 
 - `UI_Win_AccountMgr.prefab`
@@ -40,7 +41,6 @@ Done since this list was generated:
 - `UI_Win_BagGiftOpen.prefab`
 - `UI_Win_BattleLog.prefab`
 - `UI_Win_BattlePassBuy.prefab`
-- `UI_Win_BattlePassRewards.prefab`
 - `UI_Win_BattlePassRule.prefab`
 - `UI_Win_BookAdd.prefab`
 - `UI_Win_CaptainItemSource.prefab`

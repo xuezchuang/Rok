@@ -2,8 +2,18 @@
 
 This plan replaces the Codex handoff's resume order (`Saved/RokUnityMigration/ClaudeHandoff_20261016T152648077944Z/HANDOFF.md`). That route closed when the evidence was archived on 2026-10-17. The plan is driven by a first side-by-side look at the original Unity game and the live UE build.
 
-## 1. Where things stand (verified 2026-10-18)
+## 1. Where things stand
 
+### Snapshot 2026-10-31
+No new work since round 49 (2026-10-25 22:57); the Phase 2–6 work was committed on 2026-10-31.
+- **Repo:** `main` at `cbcb8c91` (Phases 2–6), one commit ahead of `origin/main` (`88818c95`): **not pushed**. P4 is unchanged: last submit CL 110 (2026-10-18), shelf CL 80 still holds the 137 add / 5 edit Content files. No `.uasset`/`.umap` changed since 2026-10-17.
+- **Build:** `UnrealEditor-Rok.dll` 2026-10-25 22:53 is the last build. It contains everything in `cbcb8c91` (later source mtimes only come from the commit checkout).
+- **Automation tests** (`Saved/ClaudeCapture/round49_full_automation/index.json`): `Rok.*` has 219 tests (182 on 2026-10-18): 181 pass, 32 pass with warnings (HTTP 502, no backend), 6 fail. These are the **same 6 failures as the 2026-10-18 baseline**, still untriaged: 2 need a GPU, 4 are listed below.
+- **Phases:** 1–3 done (except #10, which is a data gap). Phase 4 is blocked (#7 waits on one Unity shot, #8 on the ground pipeline). Phase 5 has U4/U5 parity and the animation curves runtime-sampled; small residuals remain. Phase 6 is under way: 19 windows ported, construction bubble done, citizens blocked on art.
+- **UI windows:** 97 of 156 `UI_Win_*` prefabs still have no UE counterpart (`UI_GAP_BACKLOG_2026-10-25.md`). Of the 19 ported in Phase 6, by prefab structure: 3 match, 14 partial, 1 mismatch (`FuncGuide`), 1 unknown (`GuildFortress`) (`UI_PORTED_PARITY_2026-10-25.md`). The whole-UI verifier (`unity_ui_runtime_coverage_verify.json`) was not re-run after 2026-09-12.
+- **Capture evidence:** `Saved/ClaudeCapture/ue/` reaches `E112`, `compare/` reaches `D12`; there is no Unity reference capture after `U5`.
+
+### Baseline 2026-10-18
 - **Repo and build:** git `main` is clean apart from untracked UnityLearning project files. `UnrealEditor-Rok.dll` (built 2026-10-17 15:41) is newer than every file in `Source/`. Today's editor log has 0 errors; the warnings are HTTP 502 from `URokServerSubsystem` (no backend running) and three commanders without generated animation.
 - **Automation tests:** headless run (`-nullrhi`) of `Rok.*`, 182 tests: 156 pass, 20 pass with warnings, 6 fail.
   - Need a GPU, so probably fail only under `-nullrhi`: `Rok.Rendering.CityGammaRaster.SourceTextureDescriptors`, `Rok.Ui.Animation.PowerGain.Preload`.
@@ -60,9 +70,9 @@ Each phase is accepted only when:
 | 1 Capture baseline | **Done 2026-10-25** | `Saved/ClaudeCapture/tools/capture_ue.ps1` runs one state and keeps the UE log next to the PNG; `ue/E2…E7`, `compare/C4…D6`. The upgrade window is `-RokAutoSelectBuilding=UnityInitId_5 -RokOpenModal=building_upgrade` (existing flag, no new code). |
 | 2 Camera and framing | **Done 2026-10-25** | `Rok.WorldMap.City.*` 7/7 pass; full `Rok.*` 149 pass / 31 warn / 6 fail (same 6 failures as the 2026-10-18 baseline; the warnings are HTTP 502 from the absent backend); `ue/E2_city_dxf150.png`, `compare/C4_city_default_dxf150.png`, `C5_aspect_16x10_vs_wide.png` |
 | 3 HUD correctness | **Done 2026-10-25, except #10** | Full `Rok.*` 151 pass / 32 warn / 6 fail / 189 (same 6 baseline failures); `Rok.City.Hud.{CityBandSwitch,DebugGridMode}` + `Rok.WorldMap.City.FocusCityCenter` pass; `compare/D2_city_band_inside.png`, `D3_city_band_outside.png`, `D4_world_nameplate.png`; spec: `Saved/ClaudeCapture/dsh/reports/gemini_hud_visibility_spec.md` |
-| 4 City completeness | Investigated 2026-10-25, not implementable as written | #7 has no source rule (see the section below); #8 is blocked on the ground pipeline |
-| 5 Interaction + UI animation | U4 + U5 parity 2026-10-25 (GainEffect window v1); animation spot-checks left | `compare/D8_townhall_menu_three.png` (three actions), `ue/E8`/`E9` (gain effect tabs), `ue/E7`/`D6` (upgrade window) |
-| 6 Breadth | Not started | |
+| 4 City completeness | **Blocked** (investigated 2026-10-25) | #7 has no source rule and needs one settled zoomed-out Unity shot (ask first); #8 waits on the ground pipeline. See the section below |
+| 5 Interaction + UI animation | **Mostly done 2026-10-25**: U4 + U5 parity, window/menu/HUD-fold curves runtime-sampled | `compare/D8_townhall_menu_three.png`, `ue/E7`/`D6` (upgrade), `ue/E8`/`E9`/`E16` (gain effect), `ue/E11`–`E14` (animation samples). Left: `UA_Chat_*` runtime sample, gain-effect tab sprite + Unity reference capture, ~10% smaller ring menu (measure first) |
+| 6 Breadth | **In progress since 2026-10-25** (rounds 10–49) | 19 `UI_Win_*` ports (3 match / 14 partial / 1 mismatch / 1 unknown, `UI_PORTED_PARITY_2026-10-25.md`); shared list/grid/search/chips, CSV record reader, language table, sprite atlas, F10 gallery, centred modal canvas; #9 construction bubble (`E23`); citizens opt-in, art blocked. 97 of 156 `UI_Win_*` still to go |
 
 ### Phase 1: repeatable capture baseline — done
 - `Saved/ClaudeCapture/tools/capture_ue.ps1 -Name <state> [-Extra "<flags>"] [-ResX/-ResY] [-Map <map>]` writes `ue/<state>.png`, copies `Saved/Logs/<state>.log` to `ue/<state>.log`, and fails loudly if the PNG is absent or tiny.
@@ -123,6 +133,22 @@ Remaining: `UA_Chat_*` is still unit-tested only. HUD folds are now runtime-samp
 UE ports: `URokUiAnimatedButton`, `FRokUiWindowAnimation`, `RokHudAnimation.h`, `RokMainInterfaceModuleAnimation.h`, `RokChatAnimation.h`.
 
 ### Phase 6: breadth — started 2026-10-25
+**Status 2026-10-31.** The entries below are a newest-first log. In short:
+- **Shared UI infrastructure:**
+  - text: `FRokUiTextTable` (language ids, rich-text sanitizing);
+  - tables: `FRokCsv::ParseRecords` (quoted newlines, repeated headers);
+  - icons: `FRokSpriteAtlas` (`.tpsheet`, bottom-origin rects);
+  - layout: `BuildDefinitionList` (scrolling list or grid, search box, AND-composed chips);
+  - framing: the modal canvas stays centred at any aspect.
+- **Windows:** 19 ported. Most are data windows: real table data, but missing parts of the prefab's controls (`UI_PORTED_PARITY_2026-10-25.md`). Rebuilt into the prefab's kind of screen: `TheTower`, `TheWall`, `ItemExchange`, `ChapterDialog`, `ItemCollection`. Still the wrong kind of screen: `FuncGuide` (Unity's is an overlay).
+- **City life (#9):** the construction bubble is done. Wandering citizens are opt-in and blocked on a single-cell worker material.
+- **Next, by visible payoff:**
+  1. Fill in the partial windows' missing controls: rank icons (`GuildPurview`), progress bars (`GuildGift`, `VipStore`, `Vip`), a stepper (`GuildStore`), item cards (`ExpeditionStore`), a date rail (`EventDate`), category tabs/rarity frames (`ItemCollection`).
+  2. Make the worker sprite one cell (editor material instance or a cut 32×32 frame), then turn citizens back on.
+  3. The `FuncGuide` overlay (`GuideAnim`, `Finger2/3`).
+  4. New windows from the backlog, in the order a new player reaches them.
+- **Known caveats:** 720p captures are unreliable; the F10 gallery key is verified only at the binding level; the gain-effect and Phase 6 windows have no Unity reference capture.
+
 - **Backlog generated 2026-10-25:** `UnityLearning/UI_GAP_BACKLOG_2026-10-25.md` lists the **116** `UI_Win_*.prefab` windows (of 156) that none of the four core widgets reference. Use it to pick the next screen; verify each against its prefab before claiming parity.
 - **`UI_Win_AddSpeed` was a false positive (2026-10-25).** The window already exists as the feature screen `URokUnityFeatureScreenWidget::OpenSpeedUp` (`ERokUnityFeatureScreenMode::SpeedUp`, queue lifecycle + pages, `-RokOpenModal=speed_up`); the building panel feature button opens it while a queue is active. A modal duplicate was written and removed the same day. Check feature-screen modes before porting a window whose name matches one. Evidence: `ue/E38_speed_up_feature_screen.png`.
 - **Modal centering for non-reference aspects (2026-10-25).** A resolution sweep showed the modal pinned to the left at 2560x912: the design canvas expands to the viewport *aspect* (Unity CanvasScaler "expand"), but every builder places absolute coordinates for 1456x910, so wide windows exposed the left-anchored layout. `ModeCanvas` is now a **fixed 1456x910 canvas anchored centre (0.5/0.5)** inside the expanded design canvas; the frame centres at any aspect and is a no-op at the reference size. Evidence: `ue/E110_modal_1440p_center2.png` (centred at 2560x912). Also tried slot alignment on the scale box first — `UScaleBox` has no alignment setters in 5.8 and the alignment lives on `UScaleBoxSlot`, which did not move the content because the design canvas already fills the viewport.
@@ -137,7 +163,7 @@ UE ports: `URokUiAnimatedButton`, `FRokUiWindowAnimation`, `RokHudAnimation.h`, 
 - **`UI_Win_TheWall` rebuilt as a durability status window (2026-10-25).** Bar + `城墙 25 级 · 耐久上限 40000（本地配置，满耐久）` + the durability curve (`1 级 15000 · 5 级 17000 · 10 级 20500 … 25 级 40000`). Because no config table backs the prefab's hero and skill plates (`img_skill1bg1..5`, `btn_hero_add2`), the window says so instead of drawing fake slots. Capture `ue/E78_the_wall_status.png`; test `Rok.Ui.TheWall.Layout` (bar, state text, curve text, no old rows). Parity audit marks it `partial`.
 - **`UI_Win_TheTower` rebuilt as a status window (2026-10-25).** The prefab's `pb_bar` / `img_Fill` / `lbl_state` / `lbl_tiptext` are now honoured: a full `UProgressBar` (`TheTowerHpBar`) over a plate, a state line with the table's top level (`警戒塔 25 级 · 攻击 500000 · 生命 50000（本地配置，满耐久）`), and the five `GuardTowerAttr.csv` HP-section rules as tip text. The old level table is gone. Capture `ue/E77_the_tower_status.png`; test `Rok.Ui.TheTower.Layout` (bar percent, state text, tip text, no old rows). Live HP stays server state, so the bar is a labelled preview.
 - **`UI_Win_ChapterDialog` rebuilt as a dialogue screen (2026-10-25).** With a group id the window no longer lists rows: it parses `TaskDialog.csv` for that group, orders by `step`, and shows left/right portrait plates, the resolved line text, a `继续` button that advances lines, and a footer with the line index, portrait model and voice clip (`未播放`). It also fixed the chapter list, which had been reading `l_nameID`/`l_desID` while the table uses `l_nameId`/`l_desc` (objectives were blank before). Evidence: `ue/E75_chapter_dialog_v2.png` (dialogue) and `ue/E76_chapter_list_fixed.png` (list); tests `Rok.Ui.ChapterDialog.Screen` + `Rok.Ui.ChapterDialog.Layout`. Portrait art and voice playback are still missing, and the parity audit marks the window `partial` for that reason. Also repaired 16 `break; case …:` lines that earlier string splices had merged onto one line.
-- **Prefab-structure parity audit (2026-10-25).** `UnityLearning/UI_PORTED_PARITY_2026-10-25.md` compares every ported window's UE widgets with the Unity prefab's `m_Name` skeleton. Result: 3 matches (`TavernBoxDesc`, `TavernReward`, `BattlePassRewards`), 10 partials (list instead of grid/bars/steppers), and **5 mismatches** — `TheWall` and `TheTower` are status windows, `ItemExchange` is a quantity converter, `FuncGuide` is the guidance overlay, `ChapterDialog` is a portrait dialogue. The backlog now points at this file, and "Done" means *data window*, not *screen ported*. Next slices are ordered in the audit (ChapterDialog → TheTower/TheWall → ItemCollection grid (blocked on icon atlas) → ItemExchange stepper).
+- **Prefab-structure parity audit (2026-10-25).** `UnityLearning/UI_PORTED_PARITY_2026-10-25.md` compares every ported window's UE widgets with the Unity prefab's `m_Name` skeleton. Result: 3 matches (`TavernBoxDesc`, `TavernReward`, `BattlePassRewards`), 10 partials (list instead of grid/bars/steppers), and **5 mismatches** — `TheWall` and `TheTower` are status windows, `ItemExchange` is a quantity converter, `FuncGuide` is the guidance overlay, `ChapterDialog` is a portrait dialogue (later the same day all of these except `FuncGuide` were rebuilt; the audit file has the current verdicts). The backlog now points at this file, and "Done" means *data window*, not *screen ported*. Next slices are ordered in the audit (ChapterDialog → TheTower/TheWall → ItemCollection grid (blocked on icon atlas) → ItemExchange stepper).
 - **F10 gallery hotkey (2026-10-25).** `ARokPlayerController::SetupInputComponent` binds F10 to `HandleUiGalleryHotkey`, which calls `URokMainHudWidget::OpenUiGalleryHotkey()`; startup logs `Rok UI: F10 opens the developer modal gallery.` (present in `E73_gallery_hotkey_probe.log`). The keypress itself is **not** verified headless — a SendKeys attempt produced no gallery and no screenshot, so treat this as binding-level evidence only. Search-box restyling was attempted and reverted: `UEditableTextBox` has no `SetBackgroundColor`, and the stock light field is left as-is rather than faked with an invisible plate.
 - **`UI_Win_Vip` ported 2026-10-25.** `URokUnityModalWidget::OpenVipPrivilege` lists the 208 positive rows of `VipAtt.csv` (attribute name from `dec`, granted value from `add`, `VIP n` tag) across levels 0–17, with the list search enabled. Capture `ue/E71_vip_privilege_total.png`; test `Rok.Ui.VipPrivilege.Layout`; open with `-RokOpenModal=vip_privilege`. Note the earlier footer counted the capped rows; the loop now walks the whole table and reports 208, not 200.
 - **Developer UI gallery (2026-10-25).** `URokUnityModalWidget::OpenUiGallery` (`-RokOpenModal=ui_gallery`) puts every ported modal behind one button: 19 slots that call the same `Open*` entries the command line uses, via `URokGalleryButton` (a `UButton` that broadcasts its slot index, because UMG's `OnClicked` carries no sender). Capture `ue/E68_ui_gallery.png`; test `Rok.Ui.Gallery.Layout` (slot 0 exists, index is correct, pressing slot 6 opens the compendium). This is a developer tool, not a Unity screen.
@@ -171,12 +197,12 @@ UE ports: `URokUiAnimatedButton`, `FRokUiWindowAnimation`, `RokHudAnimation.h`, 
 - Remaining city-life pieces: villagers/soldiers with the real sprite atlas, `招募` bubbles, guide arrows.
 - Then more UI screens, in the order a new player reaches them.
 
-### In parallel, low priority
-- Triage the 4 non-GPU test failures.
+### In parallel, low priority (both still open on 2026-10-31)
+- Triage the 4 non-GPU test failures: `Rok.City.Hud.FeatureScreenEntries`, `Rok.Runtime.LocalCity.ConstructionScaffold.{HiddenPrepareAndRollback,SourceBundleAndNativeFrames}`, `Rok.Ui.Animation.PowerGain.ParticleBirthAndReplay`. They were unchanged from the 2026-10-18 baseline through round 49.
 - Decide whether to prune or restore the ~29 audit subsystems/tests that fail by design since the archive.
 
 ### Parked
-These don't change what the player sees; revisit after Phase 3:
+These don't change what the player sees. Phase 3 is done, but they stay parked while Phases 5–6 have visible work left:
 - the Codex leftovers: Grass3 same-UV GPU runner, Unity offline HUD V3, Daily Activity Reward V4 and its audit V2;
 - the UI/Power runtime adapter (its frozen runner no longer passes preflight);
 - Academy / age 2, which stays blocked.

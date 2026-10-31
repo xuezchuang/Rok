@@ -28,23 +28,39 @@ renders. "Data" means the numbers/strings come from the real config tables;
 | `UI_Win_GuildFortress` | `rect` only | structure list | **unknown**: the prefab's content is built at runtime |
 | `UI_Gallery` (dev) | — | 19-button grid | n/a (developer tool) |
 
-## What this means
+## What this means (updated 2026-10-31)
+
+Tally of the 19 ported windows: **3 match, 14 partial, 1 mismatch, 1 unknown**.
 
 1. The **data path** for every ported window is real (tables → language table →
    rows); none of it is invented.
-2. **Seven** of them are structurally wrong screens: `TheWall`, `TheTower`,
-   `ItemExchange`, `FuncGuide`, `ChapterDialog` are different kinds of screen,
-   and `ItemCollection` / `Vip` render a list where Unity renders a grid or
-   level pager.
-3. Therefore the backlog's "Done" entries should be read as **"data window
-   landed"**, not "screen ported". This document is the honest status.
+2. The first audit found seven structurally wrong screens. Six were rebuilt on
+   2026-10-25 and are `partial` now:
+   - `ChapterDialog`: portrait dialogue;
+   - `TheTower` / `TheWall`: status windows;
+   - `ItemExchange`: quantity stepper;
+   - `ItemCollection`: icon grid;
+   - `Vip`: still a privilege list; its missing level pager is noted in the row.
+   `FuncGuide` is the only **mismatch** left: Unity's prefab is the guidance
+   overlay, and UE still shows a step list.
+3. The backlog's "Done" entries still mean **"data window landed"**, not
+   "screen ported". Most `partial` rows lack the prefab's bars, steppers, icon
+   rows or cards. None of these windows has a Unity reference capture yet.
 
-## Suggested order for the next slices
+## Suggested order for the next slices (2026-10-31)
 
-1. `ChapterDialog`: dialogue screen with left/right portraits + a button; the
-   text table (`TaskDialog.csv`) is already parsed and tested.
-2. `TheTower` / `TheWall`: status windows with bars and hero slots; needs the
-   tower/wall runtime numbers, which are server state, so scope them as
-   read-only previews with clearly-labelled placeholders.
-3. `ItemCollection` grid: blocked on the item-icon atlas rects (no manifest yet).
-4. `ItemExchange`: quantity stepper on top of `ItemRewardChoice.csv`.
+The first list (ChapterDialog → TheTower/TheWall → ItemCollection grid →
+ItemExchange stepper) is done. Next:
+
+1. Fill in the cheap missing controls of `partial` windows:
+   - `GuildPurview`: rank icon row;
+   - `GuildGift`: progress bar;
+   - `VipStore` / `Vip`: VIP bar and level paging;
+   - `GuildStore`: stepper (reuse the ItemExchange one);
+   - `EventDate`: date rail.
+2. Item cards for `ExpeditionStore`, and category tabs / rarity frames for
+   `ItemCollection` (icons already resolve through `FRokSpriteAtlas`).
+3. `FuncGuide` as the overlay (`img_fullMask`, `img_anim_arrow`, plus
+   `GuideAnim`/`Finger2/3`). This is runtime overlay work, not a list.
+4. `ChapterDialog` portraits and voice. Both need assets: the
+   `spine_hero_left/right` art and the voice clips.

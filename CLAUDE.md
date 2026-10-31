@@ -15,15 +15,51 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 The companion live Unity project is at `D:\ueDemo\Rok-unity` (do not commit its `Library/`, `Logs/`, `Temp/` caches). Paired Unity learning notes go in `UnityLearning/`.
 
-## Start Here: Current Plan (2026-10-18; Phases 2–3 done 2026-10-25)
+## Start Here: Current Plan (2026-10-18; status 2026-10-31)
 
-**Read `UnityLearning/MIGRATION_PLAN_2026-10-18.md` first.** It's the active plan. It has the verified state, the Unity-vs-UE gap table from the first side-by-side capture, and Phases 1–6: capture baseline → camera/framing → HUD correctness → city completeness → interaction + UI animation → breadth, plus a progress table. It also has the Unity reference capture procedure (view-only, ask before computer use). The Codex open work below is **parked** until after Phase 3.
+**Read `UnityLearning/MIGRATION_PLAN_2026-10-18.md` first.** It's the active plan. It has:
+- the verified state, with a 2026-10-31 snapshot at the top;
+- the Unity-vs-UE gap table from the first side-by-side capture;
+- Phases 1–6 (capture baseline → camera/framing → HUD correctness → city completeness → interaction + UI animation → breadth) and a progress table;
+- the Unity reference capture procedure (view-only, ask before computer use).
+
+The Codex open work below stays **parked** while Phases 5–6 have visible work left.
+
+**Status on 2026-10-31.**
+- **Phases:**
+  - Phases 1–3 are done; the one exception (#10, one card per task) is a data gap.
+  - Phase 4 is blocked: #7 needs a settled zoomed-out Unity shot, #8 the ground pipeline.
+  - Phase 5 is mostly done.
+  - Phase 6 is in progress.
+- **Tests:** `Rok.*` has 219 tests: 181 pass, 32 pass with warnings, 6 fail. The 6 failures are the 2026-10-18 baseline set and are still untriaged (round 49, 2026-10-25).
+- **Repo:** `main` is at `cbcb8c91`, one commit ahead of `origin` and not pushed. P4 is unchanged since CL 110.
+- **No work since 2026-10-25** apart from that commit.
 
 **Phase 3 (HUD correctness) landed on 2026-10-25, except one-card-per-task.** The city HUD now follows the camera dxf the way `MainInterfaceMediator`/`OpenLodUi` do: at or below `city_bound` (250) the coordinate box is hidden and the hammer + world globe are shown; above it the box appears and the pair flips to the magnifier + castle (`URokMainHudWidget::ApplyCityHudBand`, fed by the pawn's dxf each tick; castle calls `ARokStrategyCameraPawn::FrameCityCenter()`). `rok.DebugBuildingGrid` defaults to 0 in every build and only placement/move force the selected footprint. The `本地预览` city marker is diagnostic-only (`-RokShowCityMarker`), the army-queue entry stays collapsed without a march snapshot, and the world-map nameplate anchors at the city card's visual centre. Panning now moves the zoom target, so a wheel notch no longer snaps the camera back to the city centre. One card per task is deferred: only the active task has runtime state.
 
 **Phase 2 (camera and framing) landed on 2026-10-25.** The city opens at dxf 150 (`city_default`); one wheel notch multiplies dxf by 10/9 out and 10/11 in (`InputManager.cs:151`) with no `DeltaSeconds`, so it is frame-rate independent; the interactive clamp is 82.4551–250 (`min`…`city_bound`) from `MakeDefaultCameraKeys()`; the camera fills any window at 7.5° vertical FOV (`bConstrainAspectRatio=false`, `AspectRatio_MaintainYFOV`). `-RokCameraDistance=` is now read once in `BeginPlay` and accepted verbatim as a capture override (it bypasses the city clamp, e.g. dxf 313.6); `RokCityEntryDxf` stays clamped. Every run logs `Rok city camera initialized: distance=… dxf=… vertical_fov=… aspect=… constrain_aspect=0 axis=0`. Capture with `Saved/ClaudeCapture/tools/capture_ue.ps1` (PowerShell; Git Bash corrupts `/Game/...` into `C:/Program Files/Git/Game/...`) and compare with `pair.py`. Tests: `Rok.WorldMap.City.{Framing,WheelZoom,ZoomClamp,AspectFraming}`.
 
-**Phase 5 started 2026-10-25: U4 and U5 parity.** The town hall's ring menu now shows all three source actions; the third one (`BuildingMenuData[129] → openUI 1001 → UI.s_GainEffect`) opens the new `URokUnityModalWidget::OpenGainEffect(tab)` window (`UI_Win_GainEffect`): 经济/军事 tabs, economy rows from `city_buff_reference.json`, military tab on its server boundary, footer "静态配置预览 · 非实时/未激活". Capture it with `-RokOpenModal=gain_effect` / `gain_effect_military`. The upgrade window was already verified (`-RokAutoSelectBuilding=UnityInitId_5 -RokOpenModal=building_upgrade`). Still open: tab plates vs the prefab, a Unity reference capture of the gain-effect window, and runtime spot-checks of the shared window animations.
+**Phase 5 started 2026-10-25: U4 and U5 parity.** The town hall's ring menu now shows all three source actions; the third one (`BuildingMenuData[129] → openUI 1001 → UI.s_GainEffect`) opens the new `URokUnityModalWidget::OpenGainEffect(tab)` window (`UI_Win_GainEffect`): 经济/军事 tabs, economy rows from `city_buff_reference.json`, military tab on its server boundary, footer "静态配置预览 · 非实时/未激活". Capture it with `-RokOpenModal=gain_effect` / `gain_effect_military`. The upgrade window was already verified (`-RokAutoSelectBuilding=UnityInitId_5 -RokOpenModal=building_upgrade`). The tab plates now have a selected/dim state. Animations are runtime-sampled with these flags:
+- `-RokModalAnimationSample=` (window open curve);
+- `-RokBuildingMenuSample=` (ring menu);
+- `-RokTaskFoldSample=` / `-RokFeatureFoldSample=` (HUD folds).
+
+Still open:
+- the source tab sprite;
+- a Unity reference capture of the gain-effect window;
+- a runtime sample of `UA_Chat_*`;
+- the ring menu renders about 10% smaller than Unity's (measure before changing it).
+
+**Phase 6 (breadth) has been in progress since 2026-10-25.** `URokUnityModalWidget` has 19 new `UI_Win_*` windows, and each opens with its own `-RokOpenModal=` flag. The developer gallery (`-RokOpenModal=ui_gallery`, or F10) has 19 slots: the gain-effect window plus 18 of these. `Vip` (`vip_privilege`) has no slot yet. They are built on shared pieces:
+- text: `FRokUiTextTable` (Language.csv ids, rich-text sanitizing);
+- tables: `FRokCsv::ParseRecords` (quoted newlines);
+- icons: `FRokSpriteAtlas` (Unity `.tpsheet` rects are bottom-origin);
+- layout: `BuildDefinitionList` (scrolling list or grid, search box, chip filters);
+- framing: a fixed 1456x910 modal canvas, centred at any aspect.
+
+Read `UnityLearning/UI_PORTED_PARITY_2026-10-25.md` for status. Against the prefab structure: 3 match, 14 partial, 1 mismatch (`FuncGuide`, which is an overlay in Unity), 1 unknown. "Ported" means *data window*, not *screen parity*. `UnityLearning/UI_GAP_BACKLOG_2026-10-25.md` lists the 97 of 156 `UI_Win_*` prefabs that still have no counterpart.
+
+City life (#9): the `建造 m:ss` construction bubble is done. Wandering citizens (`-RokCityCitizens`) stay opt-in until the worker sheet gets a single-cell material.
 
 ## Background: Codex → Claude handoff (2026-10-16)
 
@@ -69,15 +105,15 @@ Codex ran this migration until 2026-10-16 and stopped at the user's request. Bef
 
 **Account / server boundary.** No real accounts, logins, reward claims, inventory actions, or server writes. UI, power and reward data are explicitly local fixtures/previews. Never copy auth payloads into reports. One exception, which the user asked for on 2026-10-18: the original Unity client may auto-login to the user's own server for **view-only** reference screenshots (see the plan's section 4).
 
-**UI coverage** (`Saved/RokUnityMigration/unity_ui_runtime_coverage_verify.json`, 2026-09-12): 46 mappings / 49 entries checked, 1105 of 1150 Unity UI prefabs still unimplemented. The verifier only proves that declarations exist. Earlier UI handoff: `UnityLearning/UI_MIGRATION_HANDOFF_2026-08-14.md`.
+**UI coverage** (`Saved/RokUnityMigration/unity_ui_runtime_coverage_verify.json`, 2026-09-12): 46 mappings / 49 entries checked, 1105 of 1150 Unity UI prefabs still unimplemented. The verifier only proves that declarations exist, and it has not been re-run since. The window-level view is newer: on 2026-10-31, 97 of 156 `UI_Win_*` prefabs had no UE counterpart (`UnityLearning/UI_GAP_BACKLOG_2026-10-25.md`; parity in `UI_PORTED_PARITY_2026-10-25.md`). Earlier UI handoff: `UnityLearning/UI_MIGRATION_HANDOFF_2026-08-14.md`.
 
-## Version Control: Git + Perforce (verified 2026-10-18)
+## Version Control: Git + Perforce (verified 2026-10-31)
 
 | | Git | Perforce |
 |---|---|---|
 | Server | `origin` `https://github.com/xuezchuang/Rok.git`, branch `main` | `home.snowsome.com:1666`, user `snow`, client `ueDemo`, root `D:\ueDemo`, view `//depot/... //ueDemo/...` |
 | Owns | Text: `Source/`, `Shaders/`, `Scripts/`, `Config/`, `Rok.uproject`, `AGENTS.md`, `CLAUDE.md`, `UnityLearning/` notes | Binary content, runtime data and reference snapshot: `//depot/Rok/Content/...` (~2.95k files, incl. `Content/RokData`), `//depot/Rok/ref/...` (~74k files) |
-| Latest (2026-10-18) | `main` at `b59d48c9`, pushed: the Jul–Oct WIP checkpoint, the UIB1 promotion, and Phases 2a/2b (runtime data moved to `Content/RokData`, runtime provenance gates removed). Only real UnityLearning project files remain untracked | Last submit CL 110 (2026-10-18): the 639 `Content/RokData` files, all filetype `binary`. The 142 opened Content files (137 add / 5 edit) are **shelved in CL 80**, still open locally, not submitted |
+| Latest (2026-10-31) | `main` at `cbcb8c91` (plan Phases 2–6: camera, city HUD band, UI window ports, tests, docs), **one commit ahead of `origin/main` and not pushed**. Before it, `88818c95`/`b59d48c9` were pushed: the Jul–Oct WIP checkpoint, the UIB1 promotion, and Phases 2a/2b (runtime data moved to `Content/RokData`, runtime provenance gates removed). Only real UnityLearning project files remain untracked | Last submit CL 110 (2026-10-18): the 639 `Content/RokData` files, all filetype `binary`. The 142 opened Content files (137 add / 5 edit) are **shelved in CL 80**, still open locally, not submitted |
 
 - **Add `Content/RokData` files as `binary`** (`p4 add -t binary`). They are LF-only JSON/CSV whose bytes C++ loaders pin by SHA-256; the client uses `LineEnd: local` and the typemap covers only `.uasset`/`.umap`, so a `text` add comes back CRLF on sync and fails those pins.
 - **The client's default changelist is not Rok's.** It holds other projects' open files (`//depot/RPG`, `//depot/tx`, 347 on 2026-10-18). Put Rok adds in a numbered changelist and never submit the default one.
