@@ -27,6 +27,9 @@ class ROK_API URokBuildingPanelWidget : public UUserWidget
 public:
 	void SetSelectedBuilding(AActor* InBuildingActor);
 	void AdvanceMenuAnimation(float DeltaSeconds);
+	// Capture-only: restart UA_BuildingMenu_On and freeze it at Seconds
+	// (0.1167 s = seven frames = the 1.2 peak) for a screenshot.
+	void SampleMenuOpenForCapture(float Seconds);
 	FRokBuildingPanelActorAction OnInfoRequested;
 	FRokBuildingPanelActorAction OnUpgradeRequested;
 	FRokBuildingPanelActorAction OnFeatureRequested;

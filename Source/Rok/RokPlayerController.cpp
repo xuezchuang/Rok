@@ -23,6 +23,9 @@
 #include "RokCityPlacementFirstFit.h"
 #include "RokCityPlacementPreviewActor.h"
 #include "RokCityPlacementPreviewMath.h"
+#include "Components/Button.h"
+#include "RokCityCitizenActor.h"
+#include "Materials/MaterialInterface.h"
 #include "RokCitySpriteActor.h"
 #include "RokMainHudWidget.h"
 #include "RokStrategyCameraPawn.h"
@@ -33,11 +36,10 @@
 
 namespace
 {
-#if WITH_EDITOR
-constexpr int32 DefaultBuildingGridDebugMode = 2;
-#else
+// Unity draws building footprints only while a building is being placed or
+// moved; normal play shows no grid. The cvar stays as a diagnostic override
+// (1 = selected, 2 = every selectable building).
 constexpr int32 DefaultBuildingGridDebugMode = 0;
-#endif
 
 TAutoConsoleVariable<int32> CVarRokDebugBuildingGrid(
 	TEXT("rok.DebugBuildingGrid"),
@@ -56,6 +58,40 @@ ARokPlayerController::ARokPlayerController()
 	DefaultMouseCursor = EMouseCursor::Default;
 	bEnableClickEvents = true;
 	bEnableMouseOverEvents = true;
+}
+
+void ARokPlayerController::SpawnCityCitizenPreview()
+{
+	UWorld* World = GetWorld();
+	UMaterialInterface* WorkerMaterial = LoadObject<UMaterialInterface>(
+		nullptr,
+		TEXT("/Game/RokPrototype/Materials/RuntimeCity/M_RuntimeCitySprite_TestUnity_unit_03_worker.M_RuntimeCitySprite_TestUnity_unit_03_worker"));
+	if (!World || !WorkerMaterial)
+	{
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("Rok city citizens: worker sprite material unavailable; skipping the city-life preview."));
+		return;
+	}
+	constexpr int32 CitizenCount = 6;
+	constexpr float RingRadius = 700.0f;
+	for (int32 Index = 0; Index < CitizenCount; ++Index)
+	{
+		const float Angle = (static_cast<float>(Index) / CitizenCount) * 2.0f * UE_PI;
+		const FVector Home(
+			FMath::Cos(Angle) * RingRadius,
+			FMath::Sin(Angle) * RingRadius,
+			90.0f);
+		FActorSpawnParameters SpawnParams;
+		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		if (ARokCityCitizenActor* Citizen = World->SpawnActor<ARokCityCitizenActor>(
+				ARokCityCitizenActor::StaticClass(), FTransform(Home), SpawnParams))
+		{
+			Citizen->ConfigureCitizen(WorkerMaterial, 150.0f, 110.0f, Home, Index * 17 + 3);
+		}
+	}
+	UE_LOG(LogTemp, Display, TEXT("Rok city citizens: spawned %d local-preview walkers."), CitizenCount);
 }
 
 void ARokPlayerController::BeginPlay()
@@ -99,6 +135,15 @@ void ARokPlayerController::BeginPlay()
 		CVarRokDebugBuildingGrid.GetValueOnGameThread());
 	AutoSelectBuildingFromCommandLine();
 	StartSelectedBuildingUpgradeFromCommandLine();
+	// Opt-in only: the stock worker material samples the whole
+	// TestUnity_unit_03_worker sheet (8x16 cells of 32 px), so a plane shows a
+	// grid of frames. A commandlet-authored single-cell material rendered
+	// nothing in game (even as flat magenta), so this needs an editor-authored
+	// material instance instead. See the plan for the open art step.
+	if (FParse::Param(FCommandLine::Get(), TEXT("RokCityCitizens")))
+	{
+		SpawnCityCitizenPreview();
+	}
 	if (MainHudWidget)
 	{
 		MainHudWidget->OpenCommandLineModal();
@@ -338,6 +383,40 @@ void ARokPlayerController::TakeAutoScreenshot()
 			UE_LOG(LogTemp, Log, TEXT("Rok building menu close capture: sampled %.3fs"), MenuCloseSample);
 		}
 	}
+	float ModalAnimationSample = 0.0f;
+	if (MainHudWidget && FParse::Value(FCommandLine::Get(), TEXT("RokModalAnimationSample="), ModalAnimationSample))
+	{
+		MainHudWidget->SampleModalAnimationForCapture(FMath::Max(0.0f, ModalAnimationSample));
+	}
+	float MenuOpenSample = 0.0f;
+	if (MainHudWidget && FParse::Value(FCommandLine::Get(), TEXT("RokBuildingMenuSample="), MenuOpenSample))
+	{
+		if (auto* Menu = Cast<URokBuildingPanelWidget>(MainHudWidget->GetWidgetFromName(TEXT("BuildingPanelWidget"))))
+		{
+			Menu->SampleMenuOpenForCapture(FMath::Max(0.0f, MenuOpenSample));
+		}
+	}
+	// UA_MainIF_*: freeze the HUD fold animations at a sampled time.
+	float TaskFoldSample = -1.0f;
+	if (MainHudWidget && FParse::Value(FCommandLine::Get(), TEXT("RokTaskFoldSample="), TaskFoldSample))
+	{
+		if (auto* Fold = Cast<UButton>(MainHudWidget->GetWidgetFromName(TEXT("TaskFoldButton"))))
+		{
+			Fold->OnClicked.Broadcast();
+			MainHudWidget->AdvanceHudAnimations(FMath::Max(0.0f, TaskFoldSample));
+			UE_LOG(LogTemp, Display, TEXT("Rok task fold capture: sampled %.3fs"), TaskFoldSample);
+		}
+	}
+	float FeatureFoldSample = -1.0f;
+	if (MainHudWidget && FParse::Value(FCommandLine::Get(), TEXT("RokFeatureFoldSample="), FeatureFoldSample))
+	{
+		if (auto* Fold = Cast<UButton>(MainHudWidget->GetWidgetFromName(TEXT("MoreFeatureButton"))))
+		{
+			Fold->OnClicked.Broadcast();
+			MainHudWidget->AdvanceHudAnimations(FMath::Max(0.0f, FeatureFoldSample));
+			UE_LOG(LogTemp, Display, TEXT("Rok feature fold capture: sampled %.3fs"), FeatureFoldSample);
+		}
+	}
 #endif
 	FString ScreenshotPath;
 	if (!FParse::Value(FCommandLine::Get(), TEXT("RokScreenshotPath="), ScreenshotPath) || ScreenshotPath.IsEmpty())
@@ -392,6 +471,9 @@ void ARokPlayerController::SetupInputComponent()
 			&ARokPlayerController::HandlePlacementPointerReleased);
 		InputComponent->BindKey(EKeys::Escape, IE_Pressed, this,
 			&ARokPlayerController::HandlePlacementEscape);
+		// Developer hotkey: open the modal gallery without a command line switch.
+		InputComponent->BindKey(EKeys::F10, IE_Pressed, this, &ARokPlayerController::HandleUiGalleryHotkey);
+		UE_LOG(LogTemp, Log, TEXT("Rok UI: F10 opens the developer modal gallery."));
 		UE_LOG(LogTemp, Log, TEXT("Rok selection: primary click binding installed on %s."), *GetName());
 	}
 	else
@@ -795,6 +877,15 @@ void ARokPlayerController::HandlePlacementPointerReleased()
 	SetPlacementCameraInputSuspended(false);
 }
 
+void ARokPlayerController::HandleUiGalleryHotkey()
+{
+	if (!MainHudWidget)
+	{
+		return;
+	}
+	MainHudWidget->OpenUiGalleryHotkey();
+	UE_LOG(LogTemp, Log, TEXT("Rok UI gallery opened from the F10 hotkey."));
+}
 void ARokPlayerController::HandlePlacementEscape()
 {
 	if (bPlacementActive || bPlacementFeedbackOnly)
@@ -1028,9 +1119,21 @@ ARokCitySpriteActor* ARokPlayerController::FindCityBuildingByUnityFootprint(
 	return BestActor;
 }
 
+int32 ARokPlayerController::ResolveBuildingGridDebugMode(
+	int32 ConfiguredMode,
+	bool bPlacementActive)
+{
+	const int32 ClampedMode = FMath::Clamp(ConfiguredMode, 0, 2);
+	// Placement always shows at least the selected footprint, matching Unity's
+	// move/placement mode; everything else follows the configured value.
+	return bPlacementActive ? FMath::Max(1, ClampedMode) : ClampedMode;
+}
+
 void ARokPlayerController::DrawBuildingGridDebug() const
 {
-	const int32 DebugMode = FMath::Clamp(CVarRokDebugBuildingGrid.GetValueOnGameThread(), 0, 2);
+	const int32 DebugMode = ResolveBuildingGridDebugMode(
+		CVarRokDebugBuildingGrid.GetValueOnGameThread(),
+		bPlacementActive);
 	if (DebugMode == 0 || !GetWorld())
 	{
 		return;

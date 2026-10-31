@@ -86,6 +86,24 @@ void URokBuildingPanelWidget::AdvanceMenuAnimation(float DeltaSeconds)
 	if (bClosed) SetVisibility(ESlateVisibility::Collapsed);
 }
 
+void URokBuildingPanelWidget::SampleMenuOpenForCapture(float Seconds)
+{
+	if (!bMenuOpen)
+	{
+		bMenuOpen = true;
+		SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+	}
+	MenuAnimation.Open(ERokUiWindowAnimationStyle::BuildingMenu);
+	AdvanceMenuAnimation(FMath::Max(0.0f, Seconds));
+	UE_LOG(
+		LogTemp,
+		Display,
+		TEXT("Rok building menu animation sample: %.4fs scale=%.4f opacity=%.4f."),
+		Seconds,
+		MenuAnimation.GetSample().Scale,
+		MenuAnimation.GetSample().Opacity);
+}
+
 TSharedRef<SWidget> URokBuildingPanelWidget::RebuildWidget()
 {
 	BuildWidgetTree();
@@ -300,6 +318,8 @@ void URokBuildingPanelWidget::Refresh()
 	const FRokBuildingState State = UpgradeSubsystem->GetBuildingStateForActor(SelectedBuildingActor.Get());
 	const bool bIsDecoration = State.UnityBuildingTypeId >= 51 && State.UnityBuildingTypeId <= 55;
 	const bool bHasFeatureAction = State.bUpgradeInProgress
+		// TownCenter: BuildingMenuData[129] -> openUI 1001 -> UI.s_GainEffect.
+		|| State.UnityBuildingTypeId == 1
 		|| State.UnityBuildingTypeId == 7
 		|| (State.UnityBuildingTypeId >= 9 && State.UnityBuildingTypeId <= 12)
 		// BuildingTypeConfig[13] -> BuildingMenuData[110], levels 1..25.

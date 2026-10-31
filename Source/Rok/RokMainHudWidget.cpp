@@ -5,6 +5,9 @@
 #include "RokMainInterfaceModuleAnimation.h"
 #include "RokUiAnimatedButton.h"
 #include "RokCityPlacementPreviewActor.h"
+#include "RokCitySpriteActor.h"
+#include "RokBuildingUpgradeSubsystem.h"
+#include "EngineUtils.h"
 #include "RokPlayerController.h"
 #include "RokAudioRouterSubsystem.h"
 
@@ -92,6 +95,9 @@ const FIntRect ChatBarRect = SpriteRect(1, 1010, 768, 13);
 const FIntRect ChatRect = SpriteRect(976, 983, 43, 40);
 const FIntRect BuildRect = SpriteRect(511, 812, 92, 92);
 const FIntRect CityRect = SpriteRect(1, 667, 127, 148);
+// ui_mainmenu btn_mmu_1017_1 (world-map globe) and btn_mmu_1006 (magnifier).
+const FIntRect GlobeRect = SpriteRect(1, 517, 127, 148);
+const FIntRect SearchRect = SpriteRect(417, 812, 92, 92);
 const FIntRect FeatureBackgroundRect = SpriteRect(317, 907, 147, 101);
 const FIntRect FeatureLabelRect = SpriteRect(130, 553, 84, 27);
 const FIntRect CampaignRect = SpriteRect(315, 717, 88, 88);
@@ -158,6 +164,23 @@ void URokMainHudWidget::SetSelectedBuilding(AActor* InBuildingActor)
 	RefreshFromSubsystem();
 }
 
+void URokMainHudWidget::SampleModalAnimationForCapture(float Seconds)
+{
+	if (ModalWidget && ModalWidget->IsModalOpen())
+	{
+		ModalWidget->SampleWindowAnimationForCapture(Seconds);
+	}
+}
+
+void URokMainHudWidget::OpenUiGalleryHotkey()
+{
+	if (!ModalWidget)
+	{
+		return;
+	}
+	ModalWidget->CloseModal();
+	ModalWidget->OpenUiGallery();
+}
 void URokMainHudWidget::OpenCommandLineModal()
 {
 	if (!ModalWidget && !FeatureScreenWidget)
@@ -406,6 +429,121 @@ void URokMainHudWidget::OpenCommandLineModal()
 	{
 		if (ModalWidget) ModalWidget->CloseModal();
 		if (FeatureScreenWidget) FeatureScreenWidget->OpenHospital(SelectedBuildingActor.Get());
+	}
+	else if (ModalName == TEXT("vip_privilege")
+		|| ModalName == TEXT("vip"))
+	{
+		if (ModalWidget) ModalWidget->CloseModal();
+		if (ModalWidget) ModalWidget->OpenVipPrivilege();
+	}	else if (ModalName == TEXT("ui_gallery")
+		|| ModalName == TEXT("gallery"))
+	{
+		if (ModalWidget) ModalWidget->CloseModal();
+		if (ModalWidget) ModalWidget->OpenUiGallery();
+	}	else if (ModalName == TEXT("item_exchange")
+		|| ModalName == TEXT("reward_choice"))
+	{
+		if (ModalWidget) ModalWidget->CloseModal();
+		if (ModalWidget) ModalWidget->OpenItemExchange();
+	}	else if (ModalName == TEXT("guild_gift")
+		|| ModalName == TEXT("alliance_gift"))
+	{
+		if (ModalWidget) ModalWidget->CloseModal();
+		if (ModalWidget) ModalWidget->OpenGuildGift();
+	}	else if (ModalName == TEXT("func_guide")
+		|| ModalName == TEXT("guide"))
+	{
+		if (ModalWidget) ModalWidget->CloseModal();
+		if (ModalWidget) ModalWidget->OpenFuncGuide();
+	}	else if (ModalName == TEXT("tavern_reward")
+		|| ModalName == TEXT("tavern_pool"))
+	{
+		if (ModalWidget) ModalWidget->CloseModal();
+		if (ModalWidget) ModalWidget->OpenTavernReward();
+	}	else if (ModalName == TEXT("expedition_store")
+		|| ModalName == TEXT("expedition_shop"))
+	{
+		if (ModalWidget) ModalWidget->CloseModal();
+		if (ModalWidget) ModalWidget->OpenExpeditionStore();
+	}	else if (ModalName == TEXT("charge_pop")
+		|| ModalName == TEXT("recharge_sale"))
+	{
+		if (ModalWidget) ModalWidget->CloseModal();
+		if (ModalWidget) ModalWidget->OpenChargePop();
+	}	else if (ModalName == TEXT("gift_limited")
+		|| ModalName == TEXT("limit_time_bag"))
+	{
+		if (ModalWidget) ModalWidget->CloseModal();
+		if (ModalWidget) ModalWidget->OpenGiftLimitedTime();
+	}	else if (ModalName == TEXT("guild_store")
+		|| ModalName == TEXT("alliance_store"))
+	{
+		if (ModalWidget) ModalWidget->CloseModal();
+		if (ModalWidget) ModalWidget->OpenGuildStore();
+	}	else if (ModalName == TEXT("guard_tower")
+		|| ModalName == TEXT("the_tower"))
+	{
+		if (ModalWidget) ModalWidget->CloseModal();
+		if (ModalWidget) ModalWidget->OpenTheTower();
+	}	else if (ModalName == TEXT("city_wall")
+		|| ModalName == TEXT("the_wall"))
+	{
+		if (ModalWidget) ModalWidget->CloseModal();
+		if (ModalWidget) ModalWidget->OpenTheWall();
+	}	else if (ModalName == TEXT("tavern_rate")
+		|| ModalName == TEXT("tavern_box"))
+	{
+		if (ModalWidget) ModalWidget->CloseModal();
+		if (ModalWidget) ModalWidget->OpenTavernBoxDesc();
+	}	else if (ModalName == TEXT("vip_store")
+		|| ModalName == TEXT("vipstore"))
+	{
+		if (ModalWidget) ModalWidget->CloseModal();
+		if (ModalWidget) ModalWidget->OpenVipStore();
+	}	else if (ModalName == TEXT("item_collection")
+		|| ModalName == TEXT("item_compendium"))
+	{
+		if (ModalWidget) ModalWidget->CloseModal();
+		if (ModalWidget) ModalWidget->OpenItemCollection();
+	}	else if (ModalName == TEXT("guild_fortress")
+		|| ModalName == TEXT("alliance_build"))
+	{
+		if (ModalWidget) ModalWidget->CloseModal();
+		if (ModalWidget) ModalWidget->OpenGuildFortress();
+	}	else if (ModalName == TEXT("chapter_dialog")
+		|| ModalName == TEXT("story_chapter"))
+	{
+		if (ModalWidget) ModalWidget->CloseModal();
+		int32 ChapterGroup = 0;
+		FParse::Value(FCommandLine::Get(), TEXT("RokChapterDialogGroup="), ChapterGroup);
+		if (ModalWidget) ModalWidget->OpenChapterDialog(ChapterGroup);
+	}	else if (ModalName == TEXT("guild_purview")
+		|| ModalName == TEXT("alliance_purview"))
+	{
+		if (ModalWidget) ModalWidget->CloseModal();
+		if (ModalWidget) ModalWidget->OpenGuildPurview();
+	}	else if (ModalName == TEXT("event_date")
+		|| ModalName == TEXT("activity_calendar"))
+	{
+		if (ModalWidget) ModalWidget->CloseModal();
+		if (ModalWidget) ModalWidget->OpenEventDate();
+	}	else if (ModalName == TEXT("bp_rewards")
+		|| ModalName == TEXT("battlepass_rewards"))
+	{
+		if (ModalWidget) ModalWidget->CloseModal();
+		if (ModalWidget) ModalWidget->OpenBattlePassRewards();
+	}
+	else if (
+		ModalName == TEXT("gain_effect")
+		|| ModalName == TEXT("gain_effect_economy"))
+	{
+		if (ModalWidget) ModalWidget->CloseModal();
+		if (ModalWidget) ModalWidget->OpenGainEffect(0);
+	}
+	else if (ModalName == TEXT("gain_effect_military"))
+	{
+		if (ModalWidget) ModalWidget->CloseModal();
+		if (ModalWidget) ModalWidget->OpenGainEffect(1);
 	}
 	else if (
 		ModalName == TEXT("city_manager")
@@ -899,9 +1037,27 @@ void URokMainHudWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTim
 {
 	Super::NativeTick(MyGeometry, InDeltaTime);
 	AdvanceHudAnimations(InDeltaTime);
+	if (!bWorldMapTacticalOverlay)
+	{
+		const float CityDxf = GetCityCameraDxf();
+		if (CityDxf >= 0.0f)
+		{
+			const bool bInsideBand = IsCityHudInsideBand(CityDxf);
+			if (bInsideBand != bCityHudInsideBand)
+			{
+				ApplyCityHudBand(bInsideBand);
+			}
+			const bool bButtonsOutside = IsCityButtonOutsideBand(CityDxf, IsCityInViewport());
+			if (bButtonsOutside != bCityHudButtonsOutside)
+			{
+				ApplyCityHudButtons(bButtonsOutside);
+			}
+		}
+	}
 	CurrentRootSize = MyGeometry.GetLocalSize();
 	UpdateExpandedDesignResolution(CurrentRootSize);
 	UpdateCityMarkerProjection();
+	UpdateConstructionBubbles();
 	UpdatePlacementMenuProjection();
 	AdvancePlacementMenuAnimation(InDeltaTime);
 	AdvancePlacementButtonTints(InDeltaTime);
@@ -993,6 +1149,7 @@ void URokMainHudWidget::BuildWidgetTree()
 		return;
 	}
 	BuildCityMarker();
+	BuildConstructionBubblePool();
 
 	StatusText = MakeHudText(TEXT("SelectionStatusText"), 14, FLinearColor(0.95f, 0.9f, 0.75f, 1.0f), true);
 	StatusText->SetJustification(ETextJustify::Center);
@@ -1168,6 +1325,7 @@ void URokMainHudWidget::BuildPositionGroup()
 	UCanvasPanel* Group = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("PositionGroup"));
 	Group->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
 	PlaceOnCanvas(ExpandedDesignCanvas, Group, FVector2D(298.0f, 6.0f), FVector2D(280.0f, 50.0f));
+	PositionGroup = Group;
 
 	// UI_IF_MainInterface/UI_Item_Position/img has one sliced pl_mmu_1001
 	// image, not an additional opaque shade underneath its transparent corners.
@@ -1350,12 +1508,11 @@ void URokMainHudWidget::BuildTaskGroup()
 	UCanvasPanel* ArmyQueueEntry = WidgetTree->ConstructWidget<UCanvasPanel>(
 		UCanvasPanel::StaticClass(),
 		TEXT("ArmyQueueEntry"));
-	// MainInterfaceMediator.RefreshTroopsDispatchNum shows this group when there
-	// are active marches. The world prototype has no march snapshot yet;
-	// keep the shared ArmyShow route, not the old diagnostic --/-- row.
-	ArmyQueueEntry->SetVisibility(bWorldMapTacticalOverlay
-		? ESlateVisibility::Collapsed
-		: ESlateVisibility::SelfHitTestInvisible);
+	// MainInterfaceMediator.RefreshTroopsDispatchNum shows this group only when
+	// active marches exist. The prototype has no march snapshot yet, so the
+	// whole entry stays collapsed instead of showing the old diagnostic --/--
+	// placeholder (Unity shows nothing at 0 marches either).
+	ArmyQueueEntry->SetVisibility(ESlateVisibility::Collapsed);
 	PlaceOnCanvas(
 		ExpandedDesignCanvas,
 		ArmyQueueEntry,
@@ -1476,7 +1633,7 @@ void URokMainHudWidget::BuildChatAndMapGroup()
 		FVector2D(50.0f, 47.0f),
 		FAnchors(0.0f, 1.0f),
 		FVector2D(0.0f, 1.0f));
-	UButton* BuildCityButton = MakeAtlasButton(
+	BuildCityButton = MakeAtlasButton(
 		TEXT("BuildCityButton"),
 		MainMenuAtlasPath,
 		BuildRect,
@@ -1492,7 +1649,29 @@ void URokMainHudWidget::BuildChatAndMapGroup()
 		FVector2D(92.0f, 92.0f),
 		FAnchors(0.0f, 1.0f),
 		FVector2D(0.0f, 1.0f));
-	UButton* CityWorldButton = MakeAtlasButton(
+
+	// Unity UI_IF_MainInterface pl_BuildAndSearch swaps btn_build for the
+	// btn_search magnifier at city_bound (MainInterfaceMediator SetCityButton).
+	WorldSearchButton = MakeAtlasButton(
+		TEXT("WorldSearchButton"),
+		MainMenuAtlasPath,
+		SearchRect,
+		MainMenuAtlasSize,
+		FVector2D(92.0f, 92.0f));
+	WorldSearchButton->OnClicked.AddDynamic(
+		this,
+		&URokMainHudWidget::HandleOpenWorldPositionSearch);
+	PlaceOnCanvas(
+		ExpandedDesignCanvas,
+		WorldSearchButton,
+		FVector2D(18.0f, -158.0f),
+		FVector2D(92.0f, 92.0f),
+		FAnchors(0.0f, 1.0f),
+		FVector2D(0.0f, 1.0f));
+
+	// pl_MapAndCity swaps btn_map (globe, returns to the world map) for btn_city
+	// (castle, returns to the city's default framing) on the same band change.
+	CityWorldButton = MakeAtlasButton(
 		TEXT("CityWorldButton"),
 		MainMenuAtlasPath,
 		CityRect,
@@ -1500,7 +1679,7 @@ void URokMainHudWidget::BuildChatAndMapGroup()
 		FVector2D(127.0f, 148.0f));
 	CityWorldButton->OnClicked.AddDynamic(
 		this,
-		&URokMainHudWidget::HandleReturnToWorldMap);
+		&URokMainHudWidget::HandleFocusCityCenter);
 	PlaceOnCanvas(
 		ExpandedDesignCanvas,
 		CityWorldButton,
@@ -1508,6 +1687,27 @@ void URokMainHudWidget::BuildChatAndMapGroup()
 		FVector2D(127.0f, 148.0f),
 		FAnchors(0.0f, 1.0f),
 		FVector2D(0.0f, 1.0f));
+	WorldGlobeButton = MakeAtlasButton(
+		TEXT("WorldGlobeButton"),
+		MainMenuAtlasPath,
+		GlobeRect,
+		MainMenuAtlasSize,
+		FVector2D(127.0f, 148.0f));
+	WorldGlobeButton->OnClicked.AddDynamic(
+		this,
+		&URokMainHudWidget::HandleReturnToWorldMap);
+	PlaceOnCanvas(
+		ExpandedDesignCanvas,
+		WorldGlobeButton,
+		FVector2D::ZeroVector,
+		FVector2D(127.0f, 148.0f),
+		FAnchors(0.0f, 1.0f),
+		FVector2D(0.0f, 1.0f));
+
+	// The city opens at city_default (dxf 150); NativeTick re-applies the band
+	// and the button pair from the live camera once the pawn exists.
+	ApplyCityHudBand(true);
+	ApplyCityHudButtons(false);
 }
 
 void URokMainHudWidget::BuildFeatureGroup()
@@ -1782,7 +1982,16 @@ void URokMainHudWidget::UpdateExpandedDesignResolution(const FVector2D& RootSize
 
 void URokMainHudWidget::UpdateCityMarkerProjection()
 {
-	if (!CityMarkerCanvasSlot.IsValid() || !GetWorld() || CurrentRootSize.X <= 1.0f || CurrentRootSize.Y <= 1.0f)
+	// The city view has no floating nameplate in Unity: the player-city label
+	// belongs to the world map (GlobalViewLevelMediator.SetCityHud). Keep the
+	// local-preview marker as an explicit diagnostic only.
+	bool bShowCityMarker = false;
+#if !UE_BUILD_SHIPPING
+	bShowCityMarker = FParse::Param(
+		FCommandLine::Get(),
+		TEXT("RokShowCityMarker"));
+#endif
+	if (!bShowCityMarker || !CityMarkerCanvasSlot.IsValid() || !GetWorld() || CurrentRootSize.X <= 1.0f || CurrentRootSize.Y <= 1.0f)
 	{
 		if (CityMarkerRoot)
 		{
@@ -2289,6 +2498,250 @@ void URokMainHudWidget::HandleReturnToWorldMap()
 	}
 }
 
+bool URokMainHudWidget::IsCityHudInsideBand(float CityDxf)
+{
+	// MainInterfaceMediator.SetCityButton: limitDxf is the camera dxf of
+	// city_bound (250). At or below it the view is still "in city".
+	if (!FMath::IsFinite(CityDxf))
+	{
+		// ARokStrategyCameraPawn::GetCurrentCityDxf already normalizes a broken
+		// camera to city_default; keep the same fallback here.
+		return true;
+	}
+	return CityDxf <= ARokStrategyCameraPawn::GetCityMaxDxf();
+}
+
+float URokMainHudWidget::GetCityCameraDxf() const
+{
+	const APlayerController* PlayerController = GetOwningPlayer();
+	const APawn* Pawn = PlayerController ? PlayerController->GetPawn() : nullptr;
+	const ARokStrategyCameraPawn* CameraPawn = Cast<ARokStrategyCameraPawn>(Pawn);
+	return CameraPawn ? CameraPawn->GetCurrentCityDxf() : -1.0f;
+}
+
+void URokMainHudWidget::ApplyCityHudBand(bool bInsideCity)
+{
+	bCityHudInsideBand = bInsideCity;
+	if (PositionGroup)
+	{
+		// OpenLodUi.csv Position row: City = 0, Tactical = 1. Only the camera
+		// band drives the coordinate box; the viewport test never does.
+		PositionGroup->SetVisibility(
+			bInsideCity
+				? ESlateVisibility::Collapsed
+				: ESlateVisibility::SelfHitTestInvisible);
+	}
+}
+
+bool URokMainHudWidget::IsCityButtonOutsideBand(float CityDxf, bool bCityInViewport)
+{
+	// MainInterfaceMediator.OnCityButtonChange:
+	//   outSide = dxf > limitDxf || !Common.IsInViewPort2D(WorldCamera, RolePos, ...)
+	// So the hammer/globe pair also flips when the player pans the city out of
+	// view while still inside the camera band.
+	return !IsCityHudInsideBand(CityDxf) || !bCityInViewport;
+}
+
+bool URokMainHudWidget::IsCityInViewport()
+{
+	const APlayerController* PlayerController = GetOwningPlayer();
+	if (!PlayerController || !GetWorld() || CurrentRootSize.X <= 1.0f || CurrentRootSize.Y <= 1.0f)
+	{
+		return true;
+	}
+	if (!CityMarkerAnchorActor.IsValid())
+	{
+		TArray<AActor*> CityHallActors;
+		UGameplayStatics::GetAllActorsWithTag(GetWorld(), TEXT("UnityInitId_5"), CityHallActors);
+		if (!CityHallActors.IsEmpty())
+		{
+			CityMarkerAnchorActor = CityHallActors[0];
+		}
+	}
+	if (!CityMarkerAnchorActor.IsValid())
+	{
+		return true;
+	}
+
+	FVector2D ScreenPosition;
+	if (!UWidgetLayoutLibrary::ProjectWorldLocationToWidgetPosition(
+		PlayerController,
+		CityMarkerAnchorActor->GetActorLocation(),
+		ScreenPosition,
+		true))
+	{
+		// Behind the camera: the city is not on screen.
+		return false;
+	}
+	constexpr float ViewportTolerance = 16.0f;
+	return ScreenPosition.X >= -ViewportTolerance
+		&& ScreenPosition.Y >= -ViewportTolerance
+		&& ScreenPosition.X <= CurrentRootSize.X + ViewportTolerance
+		&& ScreenPosition.Y <= CurrentRootSize.Y + ViewportTolerance;
+}
+
+void URokMainHudWidget::ApplyCityHudButtons(bool bOutside)
+{
+	bCityHudButtonsOutside = bOutside;
+	const ESlateVisibility InCityVisibility =
+		bOutside ? ESlateVisibility::Collapsed : ESlateVisibility::Visible;
+	const ESlateVisibility OutsideCityVisibility =
+		bOutside ? ESlateVisibility::Visible : ESlateVisibility::Collapsed;
+	if (BuildCityButton)
+	{
+		BuildCityButton->SetVisibility(InCityVisibility);
+	}
+	if (WorldGlobeButton)
+	{
+		WorldGlobeButton->SetVisibility(InCityVisibility);
+	}
+	if (WorldSearchButton)
+	{
+		WorldSearchButton->SetVisibility(OutsideCityVisibility);
+	}
+	if (CityWorldButton)
+	{
+		CityWorldButton->SetVisibility(OutsideCityVisibility);
+	}
+}
+
+FString URokMainHudWidget::FormatRemainingClock(float Seconds)
+{
+	const int32 TotalSeconds = FMath::Max(0, FMath::FloorToInt(Seconds));
+	return FString::Printf(TEXT("%d:%02d"), TotalSeconds / 60, TotalSeconds % 60);
+}
+
+void URokMainHudWidget::BuildConstructionBubblePool()
+{
+	constexpr int32 BubbleCount = 4;
+	ConstructionBubbles.Reset();
+	ConstructionBubbleLabels.Reset();
+	ConstructionBubbleActors.Reset();
+	ConstructionBubbleActors.SetNum(BubbleCount);
+	for (int32 Index = 0; Index < BubbleCount; ++Index)
+	{
+		UCanvasPanel* Bubble = WidgetTree->ConstructWidget<UCanvasPanel>(
+			UCanvasPanel::StaticClass(),
+			*FString::Printf(TEXT("ConstructionBubble_%d"), Index));
+		Bubble->SetVisibility(ESlateVisibility::Collapsed);
+		UCanvasPanelSlot* BubbleSlot = PlaceOnCanvas(ExpandedDesignCanvas, Bubble,
+			FVector2D::ZeroVector, FVector2D(140.0f, 46.0f));
+		BubbleSlot->SetZOrder(6);
+		PlaceOnCanvas(
+			Bubble,
+			MakeHudSlicedAtlasPanel(
+				*FString::Printf(TEXT("ConstructionBubbleBody_%d"), Index),
+				MainMenuAtlasPath,
+				PanelBackgroundRect,
+				MainMenuAtlasSize,
+				FMargin(9, 13, 8, 12)),
+			FVector2D::ZeroVector,
+			FVector2D(140.0f, 42.0f));
+		UTextBlock* Label = MakeHudText(
+			*FString::Printf(TEXT("ConstructionBubbleLabel_%d"), Index),
+			17,
+			FLinearColor(0.94f, 0.92f, 0.85f, 1.0f),
+			true);
+		Label->SetJustification(ETextJustify::Center);
+		UCanvasPanelSlot* LabelSlot = PlaceOnCanvas(Bubble, Label,
+			FVector2D(4.0f, 5.0f), FVector2D(132.0f, 30.0f));
+		LabelSlot->SetZOrder(1);
+		ConstructionBubbles.Add(Bubble);
+		ConstructionBubbleLabels.Add(Label);
+	}
+}
+
+void URokMainHudWidget::UpdateConstructionBubbles()
+{
+	if (ConstructionBubbles.Num() == 0)
+	{
+		return;
+	}
+	URokBuildingUpgradeSubsystem* Subsystem = GetUpgradeSubsystem();
+	APlayerController* PlayerController = GetOwningPlayer();
+	if (!Subsystem || !PlayerController || !GetWorld()
+		|| CurrentRootSize.X <= 1.0f || CurrentRootSize.Y <= 1.0f)
+	{
+		for (UCanvasPanel* Bubble : ConstructionBubbles)
+		{
+			if (Bubble)
+			{
+				Bubble->SetVisibility(ESlateVisibility::Collapsed);
+			}
+		}
+		return;
+	}
+
+	int32 Used = 0;
+	for (TActorIterator<ARokCitySpriteActor> It(GetWorld());
+		It && Used < ConstructionBubbles.Num();
+		++It)
+	{
+		ARokCitySpriteActor* Building = *It;
+		if (!Building || Building->IsHidden())
+		{
+			continue;
+		}
+		const FRokBuildingState State = Subsystem->GetBuildingStateForActor(Building);
+		if (!State.bUpgradeInProgress)
+		{
+			continue;
+		}
+		FVector2D ScreenPosition;
+		if (!UWidgetLayoutLibrary::ProjectWorldLocationToWidgetPosition(
+			PlayerController,
+			Building->GetVisualAnchorWorldPosition() + FVector(0.0f, 0.0f, 260.0f),
+			ScreenPosition,
+			true))
+		{
+			continue;
+		}
+		const FVector2D DesignPosition(
+			ScreenPosition.X * CurrentExpandedDesignSize.X / CurrentRootSize.X,
+			ScreenPosition.Y * CurrentExpandedDesignSize.Y / CurrentRootSize.Y);
+		UCanvasPanel* Bubble = ConstructionBubbles[Used];
+		UTextBlock* Label = ConstructionBubbleLabels[Used];
+		if (!Bubble || !Label)
+		{
+			continue;
+		}
+		ConstructionBubbleActors[Used] = Building;
+		// Never show 0:00 while the queue entry is still active.
+		Label->SetText(FText::FromString(FString::Printf(
+			TEXT("建造 %s"),
+			*FormatRemainingClock(FMath::Max(1.0f, Subsystem->GetRemainingUpgradeSeconds(Building))))));
+		CastChecked<UCanvasPanelSlot>(Bubble->Slot)->SetPosition(
+			DesignPosition - FVector2D(70.0f, 96.0f));
+		Bubble->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+		++Used;
+	}
+	for (int32 Index = Used; Index < ConstructionBubbles.Num(); ++Index)
+	{
+		if (ConstructionBubbles[Index])
+		{
+			ConstructionBubbles[Index]->SetVisibility(ESlateVisibility::Collapsed);
+		}
+		ConstructionBubbleActors[Index].Reset();
+	}
+}
+
+void URokMainHudWidget::HandleFocusCityCenter(){
+	APlayerController* PlayerController = GetOwningPlayer();
+	ARokStrategyCameraPawn* CameraPawn =
+		PlayerController
+			? Cast<ARokStrategyCameraPawn>(PlayerController->GetPawn())
+			: nullptr;
+	if (!CameraPawn)
+	{
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("Rok city focus button found no city camera pawn."));
+		return;
+	}
+	CameraPawn->FrameCityCenter();
+}
+
 void URokMainHudWidget::HandleOpenPlayerProfile()
 {
 	UE_LOG(
@@ -2421,6 +2874,14 @@ void URokMainHudWidget::HandleBuildingFeatureRequested(AActor* BuildingActor)
 	if (State.bUpgradeInProgress)
 	{
 		FeatureScreenWidget->OpenSpeedUp(BuildingActor, 20102);
+		return;
+	}
+	if (State.UnityBuildingTypeId == 1)
+	{
+		// BuildingMenuData[129] (btn_hud_1036) opens UI 1001, which OpenUICMD
+		// maps to UI.s_GainEffect (市政厅-增益效果（经济）).
+		UE_LOG(LogTemp, Display, TEXT("Rok building feature route: gain_effect (town hall)."));
+		ModalWidget->OpenGainEffect(0);
 		return;
 	}
 	if (State.UnityBuildingTypeId == 7)

@@ -39,6 +39,47 @@ enum class ERokUnityModalMode : uint8
 	BuildingUpgrade,
 	WarWarning,
 	BuffList,
+	GainEffect,
+	// UI_Win_BattlePassRewards: battle-pass level rewards (BattlePassReward.csv).
+	BattlePassRewards,
+	// UI_Win_EventDate: activity schedule (ActivityCalendar.csv).
+	EventDate,
+	// UI_Win_GuildPurview: alliance rank permissions (AllianceMemberJurisdiction.csv).
+	GuildPurview,
+	// UI_Win_ChapterDialog: story chapters (TaskChapter.csv).
+	ChapterDialog,
+	// UI_Win_GuildFortress: alliance structures and their build cost.
+	GuildFortress,
+	// UI_Win_ItemCollection: item compendium (Item.csv).
+	ItemCollection,
+	// UI_Win_VipStore: VIP level shop (VipStore.csv).
+	VipStore,
+	// UI_Win_TavernBoxDesc: tavern box probabilities (TavernProbility.csv).
+	TavernBoxDesc,
+	// UI_Win_TheWall: city wall durability by level (BuildingCityWall.csv).
+	TheWall,
+	// UI_Win_TheTower: guard tower stats and HP-section buffs.
+	TheTower,
+	// UI_Win_GuildStore: alliance shop (AllianceShopItem.csv).
+	GuildStore,
+	// UI_Win_GiftLimitedTime: limited-time packs (RechargeLimitTimeBag.csv).
+	GiftLimitedTime,
+	// UI_Win_ChargePop: paid package list (RechargeSale.csv).
+	ChargePop,
+	// UI_Win_ExpeditionStore: expedition shop (ExpeditionShop.csv).
+	ExpeditionStore,
+	// UI_Win_TavernReward: tavern reward pool (TavernRank.csv).
+	TavernReward,
+	// UI_Win_FuncGuide: tutorial step list (Guide.csv).
+	FuncGuide,
+	// UI_Win_GuildGift: alliance gift levels (AllianceGiftReward.csv).
+	GuildGift,
+	// UI_Win_ItemExchange: pick-one reward boxes (ItemRewardChoice.csv).
+	ItemExchange,
+	// Developer gallery that opens every ported modal in one screen.
+	UiGallery,
+	// UI_Win_Vip: VIP privileges per level (VipAtt.csv).
+	VipPrivilege,
 	ChangeName,
 };
 
@@ -60,8 +101,16 @@ enum class ERokChangeNameValidationResult : uint8
  * The widget samples original Unity atlas Sprite rects and keeps gameplay state
  * behind the existing C++ subsystems.
  */
-UCLASS()
-class ROK_API URokUnityModalWidget : public UUserWidget
+/** One TaskDialog.csv line rendered by the chapter dialogue screen. */
+struct FRokDialogLine
+{
+	FString Text;
+	FString Model;
+	FString Voice;
+	bool bRight = false;
+};
+
+UCLASS()class ROK_API URokUnityModalWidget : public UUserWidget
 {
 	GENERATED_BODY()
 
@@ -80,9 +129,58 @@ public:
 	void OpenBuildingUpgrade(AActor* BuildingActor);
 	void OpenWarWarning(bool bUseReferenceCaptureState = false);
 	void OpenBuffList(bool bUseReferenceCaptureState = false);
+	// UI_Win_GainEffect (市政厅增益效果): 0 = economy tab, 1 = military tab.
+	void OpenGainEffect(int32 TabIndex = 0);
+	// UI_Win_BattlePassRewards: battle-pass level rewards (BattlePassReward.csv).
+	void OpenBattlePassRewards();
+	// UI_Win_EventDate (活动日程): activity windows from ActivityCalendar.csv.
+	void OpenEventDate();
+	// UI_Win_GuildPurview (联盟权限): which ranks may use each alliance permission.
+	void OpenGuildPurview();
+	// UI_Win_ChapterDialog (剧情章节): TaskChapter.csv names and objectives.
+	void OpenChapterDialog(int32 GroupId = 0);
+	// UI_Win_GuildFortress (联盟堡垒): AllianceBuildingType/Data.csv costs.
+	void OpenGuildFortress();
+	// UI_Win_ItemCollection (道具图鉴): Item.csv names/type/quality.
+	void OpenItemCollection();
+	// UI_Win_VipStore (贵宾商店): VipStore.csv rows.
+	void OpenVipStore();
+	// UI_Win_TavernBoxDesc (酒馆宝箱概率): TavernProbility.csv rows.
+	void OpenTavernBoxDesc();
+	// UI_Win_TheWall (城墙): BuildingCityWall.csv durability rows.
+	void OpenTheWall();
+	// UI_Win_TheTower (警戒塔): BuildingGuardTower/GuardTowerAttr rows.
+	void OpenTheTower();
+	// UI_Win_GuildStore (联盟商店): AllianceShopItem.csv rows.
+	void OpenGuildStore();
+	// UI_Win_GiftLimitedTime (限时礼包): RechargeLimitTimeBag.csv rows.
+	void OpenGiftLimitedTime();
+	// UI_Win_ChargePop (充值礼包): RechargeSale.csv rows.
+	void OpenChargePop();
+	// UI_Win_ExpeditionStore (远征商店): ExpeditionShop.csv rows.
+	void OpenExpeditionStore();
+	// UI_Win_TavernReward (酒馆奖励池): TavernRank.csv rows.
+	void OpenTavernReward();
+	// UI_Win_FuncGuide (功能引导): Guide.csv step rows.
+	void OpenFuncGuide();
+	// UI_Win_GuildGift (联盟礼物): AllianceGiftReward/Type rows.
+	void OpenGuildGift();
+	// UI_Win_ItemExchange (自选宝箱): ItemRewardChoice.csv rows.
+	void OpenItemExchange();
+	// Developer-only entry: gallery of every ported modal (see BuildUiGallery).
+	void OpenUiGallery();
+	// UI_Win_Vip (贵宾特权): VipAtt.csv rows.
+	void OpenVipPrivilege();
+	// Capture-only: advance the shared window animation to a deterministic time
+	// so a screenshot can freeze the source open/close curve (e.g. 0.1167 s).
+	void SampleWindowAnimationForCapture(float Seconds);
 	void SetFeatureScreenWidget(
 		URokUnityFeatureScreenWidget* InFeatureScreenWidget);
 	void CloseModal();
+	// Applies a case-insensitive substring filter to the active definition list.
+	void SetDefinitionFilter(const FString& Filter);
+	// Rows currently rendered by the active definition list (after filtering).
+	int32 GetDefinitionRowCount() const { return ActiveDefinitionRowCount; }
 	/** User dismissal; unlike CloseModal, keeps the input mask until exit ends. */
 	void RequestCloseModal();
 	bool IsModalOpen() const { return ActiveMode != ERokUnityModalMode::None; }
@@ -125,6 +223,10 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UCanvasPanel> BuffListAnimationRoot;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UCanvasPanel> GainEffectListRoot;
+	int32 GainEffectTabIndex = 0;
 
 	UPROPERTY()
 	TObjectPtr<UButton> AnimationInputBlocker;
@@ -256,6 +358,96 @@ private:
 	void HandleBarracksLevelBackClicked();
 	void BuildWarWarning();
 	void BuildBuffList();
+	void BuildGainEffect();
+	void RebuildGainEffectContent();
+	void BuildBattlePassRewards();
+	// Shared list layout for the definition-preview windows: a header line, up to
+	// six rows (title + detail + tag) and a footer note.
+	struct FRokDefinitionRow
+	{
+		FString Title;
+		FString Detail;
+		FString Tag;
+		// tlas[sprite] reference; drawn when the sprite manifest has it.
+		FString Icon;
+	};
+	void BuildDefinitionList(
+		const FText& Header,
+		const TArray<FRokDefinitionRow>& Rows,
+		const FText& Footer,
+		const FString& WidgetPrefix,
+		float RowWidth = 700.0f,
+		float RowHeight = 76.0f,
+		bool bWrapDetail = false,
+		bool bWithSearch = false,
+		int32 Columns = 1);
+	// Rebuilds the scroll rows from the stored row data, applying the filter.
+	void PopulateDefinitionRows();
+	UFUNCTION()
+	void HandleDefinitionFilterChanged(const FText& Text);
+	// Applies a case-insensitive substring filter to the active list (public so
+	// the command line and tests can drive it without synthesising input).
+	TArray<FRokDefinitionRow> ActiveListRows;
+	UPROPERTY(Transient)
+	TObjectPtr<UCanvasPanel> ActiveListCanvas;
+	UPROPERTY(Transient)
+	TObjectPtr<USizeBox> ActiveListSize;
+	FString ActiveListFilter;
+	FString ActiveListPrefix;
+	float ActiveRowWidth = 700.0f;
+	float ActiveRowHeight = 76.0f;
+	bool bActiveRowsWrap = false;
+	int32 ActiveListColumns = 1;
+	int32 ItemCollectionTotal = 0;
+	int32 ActiveDefinitionRowCount = 0;
+	void BuildEventDate();
+	void BuildGuildPurview();
+	void BuildChapterDialog();
+	void BuildChapterDialogScreen();
+	void ShowDialogLine();
+	UFUNCTION()
+	void AdvanceDialogLine();
+	TArray<FRokDialogLine> ActiveDialogLines;
+	int32 ActiveDialogIndex = 0;
+	void BuildGuildFortress();
+	void BuildItemCollection();
+	void BuildItemTypeFilterChips();
+	UFUNCTION()
+	void HandleItemTypeFilterChip(int32 ChipIndex);
+	UFUNCTION()
+	void HandleItemQualityFilterChip(int32 ChipIndex);
+	void ApplyItemFilter();
+	int32 ItemCollectionType = 0;
+	int32 ItemCollectionQuality = 0;
+	void BuildVipStore();
+	void BuildTavernBoxDesc();
+	void BuildTheWall();
+	void BuildTheTower();
+	void BuildGuildStore();
+	void BuildGiftLimitedTime();
+	void BuildChargePop();
+	void BuildExpeditionStore();
+	void BuildTavernReward();
+	void BuildFuncGuide();
+	void BuildGuildGift();
+	void BuildItemExchange();
+	void RefreshExchangeSummary();
+	UFUNCTION()
+	void HandleExchangePlus();
+	UFUNCTION()
+	void HandleExchangeMinus();
+	TArray<FString> ActiveExchangeEntries;
+	int32 ItemExchangeIndex = 0;
+	int32 ItemExchangeCount = 1;
+	void BuildUiGallery();
+	void BuildVipPrivilege();
+	UFUNCTION()
+	void HandleUiGalleryEntry(int32 EntryIndex);
+	int32 ChapterDialogGroup = 0;
+	UFUNCTION()
+	void HandleGainEffectEconomyTab();
+	UFUNCTION()
+	void HandleGainEffectMilitaryTab();
 	void ResetChangeNameWidgetPointers();
 	bool EnsureChangeNameBannedWordsLoaded();
 	void UpdateChangeNameValidationState();

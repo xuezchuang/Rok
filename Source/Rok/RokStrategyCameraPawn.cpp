@@ -1,6 +1,7 @@
 #include "RokStrategyCameraPawn.h"
 
 #include "Camera/CameraComponent.h"
+#include "RokCityViewTypes.h"
 #include "Components/SceneComponent.h"
 #include "Engine/LocalPlayer.h"
 #include "Engine/Scene.h"
@@ -35,7 +36,24 @@ void ARokStrategyCameraPawn::BeginPlay()
 	Super::BeginPlay();
 
 	ApplyCityEntryOptions();
+	ApplyCommandLineCameraDistanceOverride();
 	ApplyCameraDefaults();
+
+	// One-shot framing record for acceptance runs and comparison captures: the
+	// starting zoom, the FOV the camera keeps, and the aspect behaviour.
+	if (CameraComponent)
+	{
+		UE_LOG(
+			LogTemp,
+			Display,
+			TEXT("Rok city camera initialized: distance=%.3f dxf=%.3f vertical_fov=%.3f aspect=%.4f constrain_aspect=%d axis=%d."),
+			CurrentCameraDistance,
+			GetCurrentCityDxf(),
+			CurrentVerticalFov,
+			CameraComponent->AspectRatio,
+			CameraComponent->bConstrainAspectRatio ? 1 : 0,
+			static_cast<int32>(CameraComponent->AspectRatioAxisConstraint));
+	}
 
 	float AutomationReturnDelaySeconds = 0.0f;
 	if (FApp::IsUnattended()
@@ -128,6 +146,86 @@ bool ARokStrategyCameraPawn::ShouldReturnToWorldMap(
 		&& ReturnThresholdDxf > 0.0f
 		&& RequestedDxf > CurrentDxf
 		&& RequestedDxf >= ReturnThresholdDxf;
+}
+
+float ARokStrategyCameraPawn::GetDefaultCityDxf()
+{
+	return FRokCityViewMath::GetCameraDxfById(
+		FRokCityViewMath::MakeDefaultCameraKeys(),
+		TEXT("city_default"),
+		150.0f);
+}
+
+float ARokStrategyCameraPawn::GetCityMinDxf()
+{
+	return FRokCityViewMath::GetCameraDxfById(
+		FRokCityViewMath::MakeDefaultCameraKeys(),
+		TEXT("min"),
+		82.4551f);
+}
+
+float ARokStrategyCameraPawn::GetCityMaxDxf()
+{
+	return FRokCityViewMath::GetCameraDxfById(
+		FRokCityViewMath::MakeDefaultCameraKeys(),
+		TEXT("city_bound"),
+		250.0f);
+}
+
+float ARokStrategyCameraPawn::ClampCityDxf(float Dxf)
+{
+	if (!FMath::IsFinite(Dxf))
+	{
+		return GetDefaultCityDxf();
+	}
+	return FMath::Clamp(Dxf, GetCityMinDxf(), GetCityMaxDxf());
+}
+
+float ARokStrategyCameraPawn::CalculateWheelZoomDxf(float CurrentDxf, float ZoomDirection)
+{
+	if (!FMath::IsFinite(CurrentDxf) || CurrentDxf <= 0.0f || FMath::IsNearlyZero(ZoomDirection))
+	{
+		return CurrentDxf;
+	}
+
+	// Unity Skyunion InputManager feeds the wheel as scrollRate = 1/(mouseWheel
+	// + 1) with mouseWheel = -0.1 to zoom out and +0.1 to zoom in (axis
+	// sensitivity 0.1), i.e. dxf *= 10/9 out and dxf *= 10/11 in. Unity applies
+	// the new dxf immediately; there is no time-based smoothing to mirror.
+	const float WheelFactor = ZoomDirection > 0.0f ? 10.0f / 9.0f : 10.0f / 11.0f;
+	return CurrentDxf * WheelFactor;
+}
+
+void ARokStrategyCameraPawn::ApplyCityCameraProjection(
+	UCameraComponent* Camera,
+	float VerticalFovDegrees,
+	float ReferenceAspectRatio)
+{
+	if (!Camera
+		|| !FMath::IsFinite(VerticalFovDegrees)
+		|| VerticalFovDegrees <= 0.0f
+		|| !FMath::IsFinite(ReferenceAspectRatio)
+		|| ReferenceAspectRatio <= 0.0f)
+	{
+		return;
+	}
+
+	// Unity writes the vertical FOV and never letterboxes the city view
+	// (WorldCamera.cs:704; no aspect constraint anywhere in the camera path).
+	// UE reads FieldOfView as horizontal at CameraComponent->AspectRatio and,
+	// with AspectRatio_MaintainYFOV, converts it back through that same aspect
+	// ratio before fixing the vertical axis
+	// (CameraStackTypes.cpp:326-333), so the vertical FOV is preserved while a
+	// wider window widens the horizontal FOV instead of adding black bars.
+	Camera->AspectRatio = ReferenceAspectRatio;
+	Camera->bConstrainAspectRatio = false;
+	Camera->bOverrideAspectRatioAxisConstraint = true;
+	Camera->AspectRatioAxisConstraint =
+		EAspectRatioAxisConstraint::AspectRatio_MaintainYFOV;
+	Camera->SetFieldOfView(
+		FRokCityViewMath::VerticalToHorizontalFov(
+			VerticalFovDegrees,
+			ReferenceAspectRatio));
 }
 
 bool ARokStrategyCameraPawn::RequestReturnToWorldMap()
@@ -303,15 +401,13 @@ bool ARokStrategyCameraPawn::ApplyZoomInput(
 		return false;
 	}
 
-	const float RequestedCameraDistance =
-		DefaultCameraDistance + ZoomDirection * ZoomSpeed * DeltaSeconds * 12.0f;
-	const float RequestedDxf =
-		RequestedCameraDistance
-		/ FMath::Max(UeUnitsPerUnityUnit, 1.0f)
-		* CurrentVerticalFov;
+	// One call is one wheel notch: the requested dxf is the current dxf times
+	// the Unity wheel factor, so the zoom step is frame-rate independent.
+	const float CurrentDxf = GetCurrentCityDxf();
+	const float RequestedDxf = CalculateWheelZoomDxf(CurrentDxf, ZoomDirection);
 	if (bReturnToWorldMapOnZoomOut
 		&& ShouldReturnToWorldMap(
-			GetCurrentCityDxf(),
+			CurrentDxf,
 			RequestedDxf,
 			WorldMapReturnThresholdDxf)
 		&& RequestReturnToWorldMap())
@@ -319,10 +415,11 @@ bool ARokStrategyCameraPawn::ApplyZoomInput(
 		return true;
 	}
 
-	DefaultCameraDistance = FMath::Clamp(
-		RequestedCameraDistance,
-		MinCameraDistance,
-		MaxCameraDistance);
+	const float ClampedDxf = ClampCityDxf(RequestedDxf);
+	DefaultCameraDistance = CalculateCameraDistanceForDxf(
+		ClampedDxf,
+		CurrentVerticalFov,
+		UeUnitsPerUnityUnit);
 	ApplyCameraDefaults();
 	return false;
 }
@@ -374,6 +471,37 @@ void ARokStrategyCameraPawn::ApplyPlanarMovement(const FVector2D& Movement, floa
 	Location.X = FMath::Clamp(Location.X, -MapExtent, MapExtent);
 	Location.Y = FMath::Clamp(Location.Y, -MapExtent, MapExtent);
 	SetActorLocation(Location);
+
+	// Zoom re-derives the camera position from the ground target, so panning
+	// must move that target too; otherwise the next wheel notch snapped the
+	// camera back to the city centre.
+	CurrentCameraTarget = FVector(Location.X, Location.Y, DefaultCameraTarget.Z);
+}
+
+void ARokStrategyCameraPawn::FrameCityCenter()
+{
+	// Unity btn_city (MainInterfaceMediator.SetCityButton): return to the city's
+	// default framing after the camera has drifted outside the city band.
+	CurrentCameraTarget = DefaultCameraTarget;
+	const float VerticalFov =
+		FMath::IsFinite(CurrentVerticalFov) && CurrentVerticalFov > UE_SMALL_NUMBER
+			? CurrentVerticalFov
+			: DefaultVerticalFov;
+	const float Distance = CalculateCameraDistanceForDxf(
+		GetDefaultCityDxf(),
+		VerticalFov,
+		UeUnitsPerUnityUnit);
+	if (Distance > 0.0f)
+	{
+		DefaultCameraDistance = Distance;
+		ApplyCameraDefaults();
+	}
+	UE_LOG(
+		LogTemp,
+		Display,
+		TEXT("Rok city camera focus requested: dxf=%.3f distance=%.3f."),
+		GetCurrentCityDxf(),
+		CurrentCameraDistance);
 }
 
 void ARokStrategyCameraPawn::ApplyCityEntryOptions()
@@ -389,8 +517,18 @@ void ARokStrategyCameraPawn::ApplyCityEntryOptions()
 	}
 
 	const float EntryDxf = FCString::Atof(EntryDxfOption);
+	if (!FMath::IsFinite(EntryDxf) || EntryDxf <= 0.0f)
+	{
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("Rok city entry camera ignored invalid dxf option: %s."),
+			EntryDxfOption);
+		return;
+	}
+	const float ClampedEntryDxf = ClampCityDxf(EntryDxf);
 	const float EntryDistance = CalculateCameraDistanceForDxf(
-		EntryDxf,
+		ClampedEntryDxf,
 		DefaultVerticalFov,
 		UeUnitsPerUnityUnit);
 	if (EntryDistance <= 0.0f)
@@ -403,16 +541,60 @@ void ARokStrategyCameraPawn::ApplyCityEntryOptions()
 		return;
 	}
 
-	DefaultCameraDistance = FMath::Clamp(
-		EntryDistance,
-		MinCameraDistance,
-		MaxCameraDistance);
+	DefaultCameraDistance = EntryDistance;
 	UE_LOG(
 		LogTemp,
 		Display,
-		TEXT("Rok city entry camera initialized: entry_dxf=%.3f distance=%.3f."),
+		TEXT("Rok city entry camera initialized: entry_dxf=%.3f clamped_dxf=%.3f distance=%.3f."),
 		EntryDxf,
+		ClampedEntryDxf,
 		DefaultCameraDistance);
+	if (!FMath::IsNearlyEqual(EntryDxf, ClampedEntryDxf, 0.001f))
+	{
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("Rok city entry camera clamped entry dxf %.3f into the city range %.3f..%.3f."),
+			EntryDxf,
+			GetCityMinDxf(),
+			GetCityMaxDxf());
+	}
+}
+
+void ARokStrategyCameraPawn::ApplyCommandLineCameraDistanceOverride()
+{
+	float CommandLineDistance = 0.0f;
+	if (!FParse::Value(
+			FCommandLine::Get(),
+			TEXT("RokCameraDistance="),
+			CommandLineDistance))
+	{
+		return;
+	}
+	if (!FMath::IsFinite(CommandLineDistance) || CommandLineDistance <= 0.0f)
+	{
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("Rok camera ignored invalid -RokCameraDistance=%.3f."),
+			CommandLineDistance);
+		return;
+	}
+
+	// Capture/debug override. It is accepted verbatim, including dxf levels
+	// outside the interactive city range (for example the 313.6 zoomed-out
+	// acceptance shot), so a framing can be reproduced without the gameplay
+	// clamp. It is applied once, so wheel zoom still runs from this start.
+	DefaultCameraDistance = CommandLineDistance;
+	UE_LOG(
+		LogTemp,
+		Display,
+		TEXT("Rok camera distance override: distance=%.3f dxf=%.3f at fov %.3f (interactive city clamp %.3f..%.3f bypassed)."),
+		CommandLineDistance,
+		CommandLineDistance / FMath::Max(UeUnitsPerUnityUnit, 1.0f) * DefaultVerticalFov,
+		DefaultVerticalFov,
+		GetCityMinDxf(),
+		GetCityMaxDxf());
 }
 
 void ARokStrategyCameraPawn::ApplyCameraDefaults()
@@ -426,25 +608,31 @@ void ARokStrategyCameraPawn::ApplyCameraDefaults()
 	float RuntimeYaw = DefaultCameraYaw;
 	float RuntimePitch = DefaultCameraPitch;
 	float RuntimeVerticalFov = DefaultVerticalFov;
-	FParse::Value(FCommandLine::Get(), TEXT("RokCameraDistance="), RuntimeDistance);
 	FParse::Value(FCommandLine::Get(), TEXT("RokCameraYaw="), RuntimeYaw);
 	FParse::Value(FCommandLine::Get(), TEXT("RokCameraPitch="), RuntimePitch);
 	FParse::Value(FCommandLine::Get(), TEXT("RokCameraVerticalFov="), RuntimeVerticalFov);
-	RuntimeDistance = FMath::Clamp(RuntimeDistance, MinCameraDistance, MaxCameraDistance);
+	if (!FMath::IsFinite(RuntimeDistance) || RuntimeDistance <= 0.0f)
+	{
+		RuntimeDistance = CalculateCameraDistanceForDxf(
+			GetDefaultCityDxf(),
+			FMath::IsFinite(RuntimeVerticalFov) && RuntimeVerticalFov > 0.0f
+				? RuntimeVerticalFov
+				: DefaultVerticalFov,
+			UeUnitsPerUnityUnit);
+	}
 	CurrentCameraDistance = RuntimeDistance;
 	CurrentVerticalFov = RuntimeVerticalFov;
 
 	const FRotator RuntimeRotation(RuntimePitch, RuntimeYaw, 0.0f);
 	const FVector RuntimeForward = RuntimeRotation.Vector();
-	SetActorLocation(DefaultCameraTarget - RuntimeForward * RuntimeDistance);
+	SetActorLocation(CurrentCameraTarget - RuntimeForward * RuntimeDistance);
 	SetActorRotation(RuntimeRotation);
 
 	CameraComponent->SetProjectionMode(ECameraProjectionMode::Perspective);
-	CameraComponent->AspectRatio = DefaultAspectRatio;
-	CameraComponent->bConstrainAspectRatio = true;
-	const float HorizontalFov = FMath::RadiansToDegrees(2.0f * FMath::Atan(
-		FMath::Tan(FMath::DegreesToRadians(RuntimeVerticalFov) * 0.5f) * DefaultAspectRatio));
-	CameraComponent->SetFieldOfView(HorizontalFov);
+	ApplyCityCameraProjection(
+		CameraComponent,
+		RuntimeVerticalFov,
+		DefaultAspectRatio);
 	float RuntimeOrthoWidth = DefaultOrthoWidth;
 	FParse::Value(FCommandLine::Get(), TEXT("RokOrthoWidth="), RuntimeOrthoWidth);
 	CameraComponent->SetOrthoWidth(FMath::Clamp(RuntimeOrthoWidth, MinOrthoWidth, MaxOrthoWidth));

@@ -47,7 +47,11 @@ public:
 	float GetPlacementMenuAnimationElapsedSecondsForAudit() const { return PlacementMenuAnimation.GetElapsedSeconds(); }
 #endif
 	void SetSelectedBuilding(AActor* InBuildingActor);
+	// Capture-only helper: freeze the open modal's window animation.
+	void SampleModalAnimationForCapture(float Seconds);
 	void OpenCommandLineModal();
+	// Opens the developer gallery (F10) without going through the command line.
+	void OpenUiGalleryHotkey();
 	// Configure before TakeWidget: world identity/navigation/markers stay in
 	// the parent HUD, and both zoom bands share its existing modal hosts.
 	void ConfigureWorldMapTacticalOverlay(
@@ -62,6 +66,33 @@ public:
 	void SetTaskRewardPresentation(int32 TaskId, bool bComplete);
 	// UI-only adapter. Caller owns membership/channel/unread authority.
 	void SetChatChannelPresentation(bool bInAlliance, bool bAllianceChannel, int32 AllianceUnread);
+
+	// Unity MainInterfaceMediator.SetCityButton()/OnCityButtonChange(): the split
+	// is city_bound (250). Inside the city band the coordinate box is hidden and
+	// the hammer + world-globe pair is shown; past it the box appears and the
+	// pair flips to the search magnifier + return-to-city castle.
+	static bool IsCityHudInsideBand(float CityDxf);
+	// MainInterfaceMediator.OnCityButtonChange: outSide = dxf > city_bound ||
+	// !IsInViewPort2D(city). The button pair flips on either condition; the
+	// coordinate box follows the camera band only.
+	static bool IsCityButtonOutsideBand(float CityDxf, bool bCityInViewport);
+	void ApplyCityHudBand(bool bInsideCity);
+	void ApplyCityHudButtons(bool bOutside);
+	bool IsCityInViewport();
+	// Unity building "建造" bubble above an upgrading building.
+	static FString FormatRemainingClock(float Seconds);
+	void BuildConstructionBubblePool();
+	void UpdateConstructionBubbles();
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UCanvasPanel>> ConstructionBubbles;
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UTextBlock>> ConstructionBubbleLabels;
+	TArray<TWeakObjectPtr<AActor>> ConstructionBubbleActors;
+	// Current city camera dxf, or -1 when no city camera pawn owns this HUD.
+	float GetCityCameraDxf() const;
+#if WITH_DEV_AUTOMATION_TESTS
+	bool IsCityHudInsideBandAppliedForTesting() const { return bCityHudInsideBand; }
+#endif
 #if WITH_DEV_AUTOMATION_TESTS
 	int32 GetFoldSoundRequestsForTesting() const { return FoldSoundRequests; }
 #endif
@@ -224,6 +255,24 @@ private:
 	TObjectPtr<UCanvasPanel> CityMarkerRoot;
 
 	UPROPERTY()
+	TObjectPtr<UCanvasPanel> PositionGroup;
+
+	UPROPERTY()
+	TObjectPtr<UButton> BuildCityButton;
+
+	UPROPERTY()
+	TObjectPtr<UButton> CityWorldButton;
+
+	UPROPERTY()
+	TObjectPtr<UButton> WorldGlobeButton;
+
+	UPROPERTY()
+	TObjectPtr<UButton> WorldSearchButton;
+
+	bool bCityHudInsideBand = true;
+	bool bCityHudButtonsOutside = false;
+
+	UPROPERTY()
 	TArray<TObjectPtr<UWidget>> CollapsibleFeatureWidgets;
 
 	TWeakObjectPtr<AActor> SelectedBuildingActor;
@@ -268,6 +317,9 @@ private:
 
 	UFUNCTION()
 	void HandleReturnToWorldMap();
+
+	UFUNCTION()
+	void HandleFocusCityCenter();
 	UFUNCTION()
 	void HandlePlacementCancelClicked();
 	UFUNCTION()

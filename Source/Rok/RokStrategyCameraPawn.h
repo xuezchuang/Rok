@@ -32,8 +32,38 @@ public:
 		float RequestedDxf,
 		float ReturnThresholdDxf);
 
+	// City framing mirrors Unity CameraParamLod.csv (see
+	// FRokCityViewMath::MakeDefaultCameraKeys): city_default dxf 150 is the
+	// opening zoom, min dxf 82.4551 is the closest wheel zoom, and city_bound
+	// dxf 250 caps the city before the world-map return takes over.
+	static float GetDefaultCityDxf();
+	static float GetCityMinDxf();
+	static float GetCityMaxDxf();
+	static float ClampCityDxf(float Dxf);
+
+	// One mouse-wheel notch multiplies the city dxf by the Unity wheel factor
+	// (Skyunion InputManager scrollRate = 1/(mouseWheel + 1), sensitivity 0.1,
+	// i.e. 10/9 zooming out and 10/11 zooming in). The step is a pure dxf
+	// multiplication, so the target is frame-rate independent.
+	static float CalculateWheelZoomDxf(float CurrentDxf, float ZoomDirection);
+
+	// Unity fills the window at a constant vertical FOV. The camera never
+	// constrains the aspect ratio and pins the projection axis to the vertical
+	// FOV; its FieldOfView stays horizontal, converted at ReferenceAspectRatio.
+	// The engine converts it back to the same vertical FOV at any window aspect
+	// (FMinimalViewInfo::CalculateProjectionMatrixGivenViewRectangle).
+	static void ApplyCityCameraProjection(
+		UCameraComponent* Camera,
+		float VerticalFovDegrees,
+		float ReferenceAspectRatio);
+
 	UFUNCTION(BlueprintCallable, Category="Rok Camera")
 	bool RequestReturnToWorldMap();
+
+	// Unity btn_city: snap back to the city's default framing (city_default dxf
+	// and the home ground target) once the camera is outside the city band.
+	UFUNCTION(BlueprintCallable, Category="Rok Camera")
+	void FrameCityCenter();
 
 	UFUNCTION(BlueprintCallable, Category="Rok Camera")
 	bool RequestReturnToWorldMapAtDisplayCoordinate(
@@ -58,14 +88,15 @@ private:
 	UPROPERTY(EditDefaultsOnly, Category="Rok Camera")
 	FVector DefaultCameraTarget = FVector::ZeroVector;
 
-	UPROPERTY(EditDefaultsOnly, Category="Rok Camera")
-	float DefaultCameraDistance = 17000.0f;
+	// Ground point the camera currently looks at. Panning updates it so a zoom
+	// keeps the framing instead of snapping back to the home target.
+	FVector CurrentCameraTarget = FVector::ZeroVector;
 
+	// CameraParamLod city_default: dxf 150 at fov 7.5 -> 150 / 7.5 * 500. The
+	// interactive zoom range is derived from the camera keys via ClampCityDxf,
+	// not from a second pair of distance fields, so there is one source of truth.
 	UPROPERTY(EditDefaultsOnly, Category="Rok Camera")
-	float MinCameraDistance = 3500.0f;
-
-	UPROPERTY(EditDefaultsOnly, Category="Rok Camera")
-	float MaxCameraDistance = 32000.0f;
+	float DefaultCameraDistance = 10000.0f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Rok Camera")
 	float DefaultCameraYaw = 112.0f;
@@ -113,9 +144,6 @@ private:
 	float MaxCameraHeight = 4200.0f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Rok Camera")
-	float ZoomSpeed = 1600.0f;
-
-	UPROPERTY(EditDefaultsOnly, Category="Rok Camera")
 	float MapExtent = 3600.0f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Rok Camera")
@@ -133,7 +161,7 @@ private:
 	UPROPERTY(EditDefaultsOnly, Category="Rok Camera|Map Flow")
 	TSoftObjectPtr<UWorld> WorldMapLevel;
 
-	float CurrentCameraDistance = 17000.0f;
+	float CurrentCameraDistance = 10000.0f;
 	float CurrentVerticalFov = 7.5f;
 	bool bWorldMapTravelRequested = false;
 	double AutomationWorldReturnNextStepSeconds = 0.0;
@@ -148,6 +176,7 @@ private:
 	void DriveAutomationWorldMapReturn();
 	void ApplyPlanarMovement(const FVector2D& Movement, float DeltaSeconds);
 	void ApplyCityEntryOptions();
+	void ApplyCommandLineCameraDistanceOverride();
 	void ApplyCameraDefaults();
 	bool RequestReturnToWorldMapInternal(
 		const TOptional<FVector2D>& TargetDisplayCoordinate);

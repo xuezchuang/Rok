@@ -15,9 +15,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 The companion live Unity project is at `D:\ueDemo\Rok-unity` (do not commit its `Library/`, `Logs/`, `Temp/` caches). Paired Unity learning notes go in `UnityLearning/`.
 
-## Start Here: Current State (Codex → Claude handoff, 2026-10-16)
+## Start Here: Current Plan (2026-10-18; Phases 2–3 done 2026-10-25)
 
-Codex ran this migration until 2026-10-16 and stopped at the user's request. Before resuming any slice, read `Saved/RokUnityMigration/ClaudeHandoff_20261016T152648077944Z/HANDOFF.md` (Chinese) and its `EVIDENCE.json` / `MANIFEST.json` SHA-256 pins. The migration is **not** complete.
+**Read `UnityLearning/MIGRATION_PLAN_2026-10-18.md` first.** It's the active plan. It has the verified state, the Unity-vs-UE gap table from the first side-by-side capture, and Phases 1–6: capture baseline → camera/framing → HUD correctness → city completeness → interaction + UI animation → breadth, plus a progress table. It also has the Unity reference capture procedure (view-only, ask before computer use). The Codex open work below is **parked** until after Phase 3.
+
+**Phase 3 (HUD correctness) landed on 2026-10-25, except one-card-per-task.** The city HUD now follows the camera dxf the way `MainInterfaceMediator`/`OpenLodUi` do: at or below `city_bound` (250) the coordinate box is hidden and the hammer + world globe are shown; above it the box appears and the pair flips to the magnifier + castle (`URokMainHudWidget::ApplyCityHudBand`, fed by the pawn's dxf each tick; castle calls `ARokStrategyCameraPawn::FrameCityCenter()`). `rok.DebugBuildingGrid` defaults to 0 in every build and only placement/move force the selected footprint. The `本地预览` city marker is diagnostic-only (`-RokShowCityMarker`), the army-queue entry stays collapsed without a march snapshot, and the world-map nameplate anchors at the city card's visual centre. Panning now moves the zoom target, so a wheel notch no longer snaps the camera back to the city centre. One card per task is deferred: only the active task has runtime state.
+
+**Phase 2 (camera and framing) landed on 2026-10-25.** The city opens at dxf 150 (`city_default`); one wheel notch multiplies dxf by 10/9 out and 10/11 in (`InputManager.cs:151`) with no `DeltaSeconds`, so it is frame-rate independent; the interactive clamp is 82.4551–250 (`min`…`city_bound`) from `MakeDefaultCameraKeys()`; the camera fills any window at 7.5° vertical FOV (`bConstrainAspectRatio=false`, `AspectRatio_MaintainYFOV`). `-RokCameraDistance=` is now read once in `BeginPlay` and accepted verbatim as a capture override (it bypasses the city clamp, e.g. dxf 313.6); `RokCityEntryDxf` stays clamped. Every run logs `Rok city camera initialized: distance=… dxf=… vertical_fov=… aspect=… constrain_aspect=0 axis=0`. Capture with `Saved/ClaudeCapture/tools/capture_ue.ps1` (PowerShell; Git Bash corrupts `/Game/...` into `C:/Program Files/Git/Game/...`) and compare with `pair.py`. Tests: `Rok.WorldMap.City.{Framing,WheelZoom,ZoomClamp,AspectFraming}`.
+
+**Phase 5 started 2026-10-25: U4 and U5 parity.** The town hall's ring menu now shows all three source actions; the third one (`BuildingMenuData[129] → openUI 1001 → UI.s_GainEffect`) opens the new `URokUnityModalWidget::OpenGainEffect(tab)` window (`UI_Win_GainEffect`): 经济/军事 tabs, economy rows from `city_buff_reference.json`, military tab on its server boundary, footer "静态配置预览 · 非实时/未激活". Capture it with `-RokOpenModal=gain_effect` / `gain_effect_military`. The upgrade window was already verified (`-RokAutoSelectBuilding=UnityInitId_5 -RokOpenModal=building_upgrade`). Still open: tab plates vs the prefab, a Unity reference capture of the gain-effect window, and runtime spot-checks of the shared window animations.
+
+## Background: Codex → Claude handoff (2026-10-16)
+
+Codex ran this migration until 2026-10-16 and stopped at the user's request. Before resuming any of its slices, read `Saved/RokUnityMigration/ClaudeHandoff_20261016T152648077944Z/HANDOFF.md` (Chinese) and its `EVIDENCE.json` / `MANIFEST.json` SHA-256 pins. The migration is **not** complete.
 
 **Cleanup done on 2026-10-17 (Phases 0, 1 and 3 of the cleanup plan).**
 - **Code promoted.** Codex built Run1–Run30 in a byte-copied shadow project, `Saved/UIB1/`. Its Source/Shaders deltas (31 new + 13 updated files, 2 shaders) are now in `main` (commit `3da3b629`). `RokEditor` builds with 0 errors. Runtime and visual acceptance have **not** been run on the live project.
@@ -43,7 +53,7 @@ Codex ran this migration until 2026-10-16 and stopped at the user's request. Bef
 
 **Last verified checkpoint (historical).** The Run30 repair build of UIB1 passed independent review. Its receipt (SHA `ac0604ac…`) is now in `pending.tar` under `PendingRootPowerMapRun30RepairBuildV1/`. After the repair, no runtime or visual acceptance ran.
 
-**Open work carried over from the handoff** (candidate files are in `pending.tar`):
+**Open work carried over from the handoff** (parked by the 2026-10-18 plan; candidate files are in `pending.tar`):
 1. UI/Power runtime adapter (`PendingRootRun30UiPowerRuntimeAdapterV1`): five modes (`mail/local_fixture`, `mail/ordinary_unbound`, `shop`, `ranking`, `power`). Check real PNGs. Power keeps 17 captures and the manual-close boundary.
 2. Grass3 same-UV GPU runner (`PendingRootRokGrass3SameUvActualRunnerV2`): was on HOLD. It's a direct RHI texture probe, not material or full-map visual acceptance.
 3. Unity offline HUD V3 (`PendingRootUnityPowerHudOfflineIsolationV3`): fix the `GrayChildrens.LoadGrayMaterial` NRE with a key-scoped local `IAssetService` adapter for `UI_GrayWithMask`. Do not disable `GrayChildrens`, edit the prefab, or start GameApp/real services.
@@ -57,7 +67,7 @@ Codex ran this migration until 2026-10-16 and stopped at the user's request. Bef
 
 **Junction hazard.** Nine folders under `UnityLearning/*/Assets/` are NTFS junctions: `BundleAssets`, `BundleAssetsTest`, `Mesh`, `Resources`, `Shader`, `T4M`, `T4MOBJ` point into `ref/client-unity/Assets/`, and `RokUnityMigration` points into `Saved/RokUnityMigration`. They're listed in `.gitignore`. Remove a junction only with `cmd /c rmdir <path>` (or PowerShell `(Get-Item <path>).Delete()`). **Never use `rm -rf` or a recursive delete**: it deletes the real `ref/` / `Saved/` data behind the link. The Unity project also writes `.meta` files through the `RokUnityMigration` junction into `Saved/RokUnityMigration`.
 
-**Account / server boundary.** No real accounts, logins, reward claims, inventory actions, or server writes. UI, power and reward data are explicitly local fixtures/previews. Never copy auth payloads into reports.
+**Account / server boundary.** No real accounts, logins, reward claims, inventory actions, or server writes. UI, power and reward data are explicitly local fixtures/previews. Never copy auth payloads into reports. One exception, which the user asked for on 2026-10-18: the original Unity client may auto-login to the user's own server for **view-only** reference screenshots (see the plan's section 4).
 
 **UI coverage** (`Saved/RokUnityMigration/unity_ui_runtime_coverage_verify.json`, 2026-09-12): 46 mappings / 49 entries checked, 1105 of 1150 Unity UI prefabs still unimplemented. The verifier only proves that declarations exist. Earlier UI handoff: `UnityLearning/UI_MIGRATION_HANDOFF_2026-08-14.md`.
 

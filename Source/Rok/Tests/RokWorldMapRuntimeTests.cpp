@@ -1,7 +1,11 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
+#include "Camera/CameraComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Engine/Engine.h"
+#include "Engine/GameInstance.h"
+#include "Engine/World.h"
 #include "../RokStrategyCameraPawn.h"
 #include "../RokWorldMapCameraPawn.h"
 #include "../RokWorldMapCityActor.h"
@@ -362,6 +366,274 @@ bool FRokWorldMapTreeLodTest::RunTest(const FString& Parameters)
 			ARokWorldMapCameraPawn::EvaluateUnityTreeScale(72750.0f),
 			1.2f,
 			0.000001f));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FRokCityCameraFramingTest,
+	"Rok.WorldMap.City.Framing",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FRokCityCameraFramingTest::RunTest(const FString& Parameters)
+{
+	TestEqual(TEXT("Default city dxf matches Unity city_default"),
+		ARokStrategyCameraPawn::GetDefaultCityDxf(), 150.0f);
+	TestTrue(TEXT("Default city dxf sits below the world-map return threshold"),
+		ARokStrategyCameraPawn::GetDefaultCityDxf() < 250.0f);
+	TestTrue(TEXT("City min dxf matches Unity CameraParamLod min"),
+		FMath::IsNearlyEqual(ARokStrategyCameraPawn::GetCityMinDxf(), 82.4551f, 0.001f));
+	TestTrue(TEXT("City max dxf matches Unity CameraParamLod city_bound"),
+		FMath::IsNearlyEqual(ARokStrategyCameraPawn::GetCityMaxDxf(), 250.0f, 0.001f));
+	TestTrue(TEXT("Default camera distance maps to the default city dxf"),
+		FMath::IsNearlyEqual(
+			ARokStrategyCameraPawn::CalculateCameraDistanceForDxf(
+				ARokStrategyCameraPawn::GetDefaultCityDxf(), 7.5f, 500.0f),
+			10000.0f, 0.001f));
+	TestTrue(TEXT("City min is below the default and the default is below the max"),
+		ARokStrategyCameraPawn::GetCityMinDxf() < ARokStrategyCameraPawn::GetDefaultCityDxf()
+		&& ARokStrategyCameraPawn::GetDefaultCityDxf() < ARokStrategyCameraPawn::GetCityMaxDxf());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FRokCityCameraWheelZoomTest,
+	"Rok.WorldMap.City.WheelZoom",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FRokCityCameraWheelZoomTest::RunTest(const FString& Parameters)
+{
+	// Unity Skyunion InputManager passes scrollRate = 1/(mouseWheel + 1) with
+	// axis sensitivity 0.1: one notch multiplies dxf by 10/9 out, 10/11 in.
+	const float ZoomOutFactor = 10.0f / 9.0f;
+	const float ZoomInFactor = 10.0f / 11.0f;
+
+	float OutDxf = ARokStrategyCameraPawn::GetDefaultCityDxf();
+	for (int32 Notch = 1; Notch <= 10; ++Notch)
+	{
+		OutDxf = ARokStrategyCameraPawn::CalculateWheelZoomDxf(OutDxf, 1.0f);
+		TestTrue(
+			FString::Printf(TEXT("Zoom-out notch %d gives 150*(10/9)^%d"), Notch, Notch),
+			FMath::IsNearlyEqual(OutDxf, 150.0f * FMath::Pow(ZoomOutFactor, static_cast<float>(Notch)), 0.01f));
+	}
+
+	float InDxf = ARokStrategyCameraPawn::GetCityMaxDxf();
+	for (int32 Notch = 1; Notch <= 10; ++Notch)
+	{
+		InDxf = ARokStrategyCameraPawn::CalculateWheelZoomDxf(InDxf, -1.0f);
+		TestTrue(
+			FString::Printf(TEXT("Zoom-in notch %d gives 250*(10/11)^%d"), Notch, Notch),
+			FMath::IsNearlyEqual(InDxf, 250.0f * FMath::Pow(ZoomInFactor, static_cast<float>(Notch)), 0.01f));
+	}
+
+	TestEqual(TEXT("Zero zoom direction keeps the dxf"),
+		ARokStrategyCameraPawn::CalculateWheelZoomDxf(150.0f, 0.0f), 150.0f);
+	TestEqual(TEXT("Non-positive dxf is passed through untouched"),
+		ARokStrategyCameraPawn::CalculateWheelZoomDxf(0.0f, 1.0f), 0.0f);
+
+	// Frame-rate independence on live pawns: one call is one wheel notch and the
+	// step is a pure dxf multiplication, so 30 fps and 120 fps must land on the
+	// same framing. The pawns need a world because ApplyCameraDefaults moves
+	// them and drives their camera component.
+	UGameInstance* Instance = NewObject<UGameInstance>(GEngine);
+	Instance->InitializeStandalone(TEXT("RokCityCameraWheelZoomTest"));
+	UWorld* World = Instance->GetWorld();
+	if (!TestNotNull(TEXT("Isolated test world for the live pawns"), World))
+	{
+		Instance->Shutdown();
+		return false;
+	}
+
+	ARokStrategyCameraPawn* SlowPawn = World->SpawnActor<ARokStrategyCameraPawn>();
+	ARokStrategyCameraPawn* FastPawn = World->SpawnActor<ARokStrategyCameraPawn>();
+	if (TestNotNull(TEXT("30 fps pawn"), SlowPawn)
+		&& TestNotNull(TEXT("120 fps pawn"), FastPawn))
+	{
+		for (int32 Notch = 0; Notch < 6; ++Notch)
+		{
+			SlowPawn->ApplyZoomInput(-1.0f, 1.0f / 30.0f);
+			FastPawn->ApplyZoomInput(-1.0f, 1.0f / 120.0f);
+		}
+		TestTrue(TEXT("30 fps and 120 fps zoom-in produce the same dxf"),
+			FMath::IsNearlyEqual(SlowPawn->GetCurrentCityDxf(), FastPawn->GetCurrentCityDxf(), 0.0001f));
+		TestTrue(TEXT("Six zoom-in notches give 150*(10/11)^6"),
+			FMath::IsNearlyEqual(SlowPawn->GetCurrentCityDxf(), 84.6711f, 0.01f));
+
+		// Stay below the 250 world-map return threshold on the zoom-out leg.
+		ARokStrategyCameraPawn* SlowOut = World->SpawnActor<ARokStrategyCameraPawn>();
+		ARokStrategyCameraPawn* FastOut = World->SpawnActor<ARokStrategyCameraPawn>();
+		if (TestNotNull(TEXT("30 fps zoom-out pawn"), SlowOut)
+			&& TestNotNull(TEXT("120 fps zoom-out pawn"), FastOut))
+		{
+			for (int32 Notch = 0; Notch < 4; ++Notch)
+			{
+				SlowOut->ApplyZoomInput(1.0f, 1.0f / 30.0f);
+				FastOut->ApplyZoomInput(1.0f, 1.0f / 120.0f);
+			}
+			TestTrue(TEXT("30 fps and 120 fps zoom-out produce the same dxf"),
+				FMath::IsNearlyEqual(SlowOut->GetCurrentCityDxf(), FastOut->GetCurrentCityDxf(), 0.0001f));
+			TestTrue(TEXT("Four zoom-out notches give 150*(10/9)^4"),
+				FMath::IsNearlyEqual(SlowOut->GetCurrentCityDxf(), 228.6237f, 0.01f));
+			SlowOut->Destroy();
+			FastOut->Destroy();
+		}
+
+		TestFalse(TEXT("Zero zoom direction is rejected"),
+			SlowPawn->ApplyZoomInput(0.0f, 1.0f / 60.0f));
+		TestFalse(TEXT("Non-positive delta seconds is rejected"),
+			SlowPawn->ApplyZoomInput(1.0f, 0.0f));
+		SlowPawn->Destroy();
+		FastPawn->Destroy();
+	}
+
+	Instance->Shutdown();
+	GEngine->DestroyWorldContext(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FRokCityCameraZoomClampTest,
+	"Rok.WorldMap.City.ZoomClamp",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FRokCityCameraZoomClampTest::RunTest(const FString& Parameters)
+{
+	TestTrue(TEXT("Dxf below the Unity min clamps to CameraParamLod min"),
+		FMath::IsNearlyEqual(ARokStrategyCameraPawn::ClampCityDxf(1.0f), 82.4551f, 0.001f));
+	TestTrue(TEXT("Dxf above the Unity max clamps to CameraParamLod city_bound"),
+		FMath::IsNearlyEqual(ARokStrategyCameraPawn::ClampCityDxf(5000.0f), 250.0f, 0.001f));
+	TestTrue(TEXT("In-range dxf is untouched"),
+		FMath::IsNearlyEqual(ARokStrategyCameraPawn::ClampCityDxf(150.0f), 150.0f, 0.001f));
+	const float NonFiniteDxf = FMath::Pow(10.0f, 100.0f);
+	TestTrue(TEXT("Non-finite dxf falls back to the default city dxf"),
+		FMath::IsNearlyEqual(
+			ARokStrategyCameraPawn::ClampCityDxf(-NonFiniteDxf),
+			ARokStrategyCameraPawn::GetDefaultCityDxf(),
+			0.001f));
+
+	UGameInstance* Instance = NewObject<UGameInstance>(GEngine);
+	Instance->InitializeStandalone(TEXT("RokCityCameraZoomClampTest"));
+	UWorld* World = Instance->GetWorld();
+	if (!TestNotNull(TEXT("Isolated test world for the clamp pawns"), World))
+	{
+		Instance->Shutdown();
+		return false;
+	}
+
+	ARokStrategyCameraPawn* Pawn = World->SpawnActor<ARokStrategyCameraPawn>();
+	if (TestNotNull(TEXT("Clamp pawn"), Pawn))
+	{
+		for (int32 Notch = 0; Notch < 20; ++Notch)
+		{
+			Pawn->ApplyZoomInput(-1.0f, 1.0f / 60.0f);
+		}
+		TestTrue(TEXT("Twenty zoom-in notches clamp at the Unity min dxf"),
+			FMath::IsNearlyEqual(Pawn->GetCurrentCityDxf(), ARokStrategyCameraPawn::GetCityMinDxf(), 0.001f));
+		Pawn->Destroy();
+	}
+
+	ARokStrategyCameraPawn* OutPawn = World->SpawnActor<ARokStrategyCameraPawn>();
+	if (TestNotNull(TEXT("Zoom-out pawn"), OutPawn))
+	{
+		for (int32 Notch = 0; Notch < 3; ++Notch)
+		{
+			OutPawn->ApplyZoomInput(1.0f, 1.0f / 60.0f);
+		}
+		TestTrue(TEXT("Three zoom-out notches stay below the world-map threshold"),
+			OutPawn->GetCurrentCityDxf() < 250.0f);
+		OutPawn->Destroy();
+	}
+
+	Instance->Shutdown();
+	GEngine->DestroyWorldContext(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FRokCityCameraFocusCenterTest,
+	"Rok.WorldMap.City.FocusCityCenter",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FRokCityCameraFocusCenterTest::RunTest(const FString& Parameters)
+{
+	UGameInstance* Instance = NewObject<UGameInstance>(GEngine);
+	Instance->InitializeStandalone(TEXT("RokCityCameraFocusCenterTest"));
+	UWorld* World = Instance->GetWorld();
+	if (!TestNotNull(TEXT("Isolated test world for the focus pawn"), World))
+	{
+		Instance->Shutdown();
+		return false;
+	}
+
+	ARokStrategyCameraPawn* Pawn = World->SpawnActor<ARokStrategyCameraPawn>();
+	if (TestNotNull(TEXT("Focus camera pawn"), Pawn))
+	{
+		// The castle button only exists outside the city band, so push the pawn
+		// there first, then assert the focus snaps back to city_default.
+		for (int32 Notch = 0; Notch < 4; ++Notch)
+		{
+			Pawn->ApplyZoomInput(1.0f, 1.0f / 60.0f);
+		}
+		TestTrue(TEXT("Four zoom-out notches leave the city band"),
+			Pawn->GetCurrentCityDxf() > 200.0f);
+		Pawn->FrameCityCenter();
+		TestTrue(TEXT("Focus restores the city_default dxf"),
+			FMath::IsNearlyEqual(Pawn->GetCurrentCityDxf(), 150.0f, 0.01f));
+		Pawn->Destroy();
+	}
+
+	Instance->Shutdown();
+	GEngine->DestroyWorldContext(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FRokCityCameraAspectFramingTest,
+	"Rok.WorldMap.City.AspectFraming",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FRokCityCameraAspectFramingTest::RunTest(const FString& Parameters)
+{
+	// Read the state the production code writes into the camera component.
+	// (The first draft re-derived the maths from the constants instead, so it
+	// could not have failed if ApplyCameraDefaults stopped configuring the camera.)
+	UCameraComponent* Camera = NewObject<UCameraComponent>(GetTransientPackage());
+	if (!TestNotNull(TEXT("Transient camera component"), Camera))
+	{
+		return false;
+	}
+	ARokStrategyCameraPawn::ApplyCityCameraProjection(Camera, 7.5f, 16.0f / 10.0f);
+
+	TestFalse(TEXT("City camera does not constrain the aspect ratio"),
+		Camera->bConstrainAspectRatio);
+	TestTrue(TEXT("City camera overrides the aspect-ratio axis constraint"),
+		Camera->bOverrideAspectRatioAxisConstraint);
+	TestEqual(TEXT("City camera pins the projection to the vertical FOV axis"),
+		Camera->AspectRatioAxisConstraint,
+		EAspectRatioAxisConstraint::AspectRatio_MaintainYFOV);
+	TestTrue(TEXT("Camera aspect reference stays 16:10"),
+		FMath::IsNearlyEqual(Camera->AspectRatio, 16.0f / 10.0f, 0.0001f));
+	TestTrue(TEXT("Horizontal FOV at 16:10 is the vertical-to-horizontal conversion"),
+		FMath::IsNearlyEqual(Camera->FieldOfView, 11.9731f, 0.001f));
+
+	// The engine path in FMinimalViewInfo::CalculateProjectionMatrixGivenViewRectangle
+	// (CameraStackTypes.cpp:326-333) turns the stored horizontal FOV back into a
+	// vertical FOV using the camera's own aspect ratio.
+	auto VerticalFovFromCamera = [](const UCameraComponent& Component) {
+		const float HalfXFov = FMath::DegreesToRadians(
+			FMath::Max(0.001f, Component.FieldOfView) * 0.5f);
+		const float HalfYFov = FMath::Atan(FMath::Tan(HalfXFov) / Component.AspectRatio);
+		return FMath::RadiansToDegrees(2.0f * HalfYFov);
+	};
+	TestTrue(TEXT("The engine recovers the Unity 7.5 degree vertical FOV"),
+		FMath::IsNearlyEqual(VerticalFovFromCamera(*Camera), 7.5f, 0.0001f));
+
+	// With the vertical axis fixed, a wider window widens the horizontal FOV
+	// instead of adding black bars (Unity fills the window at any aspect).
+	const float WideWindowHorizontalFov = FMath::RadiansToDegrees(2.0f * FMath::Atan(
+		FMath::Tan(FMath::DegreesToRadians(VerticalFovFromCamera(*Camera)) * 0.5f)
+		* (21.0f / 9.0f)));
+	TestTrue(TEXT("A 21:9 window widens the horizontal FOV instead of pillarboxing"),
+		WideWindowHorizontalFov > Camera->FieldOfView);
 	return true;
 }
 

@@ -2335,11 +2335,24 @@ void URokWorldMapHudWidget::UpdatePlayerMarkerProjection()
 	}
 	FRokWorldMapProjection TitleProjection;
 	FVector2D TitlePosition;
-	if (!MarkerCamera || !ResolveProjection(TitleProjection)
-		|| !UWidgetLayoutLibrary::ProjectWorldLocationToWidgetPosition(PlayerController,
-			PlayerCity->GetActorLocation() + FVector(0,
-				EvaluateCityTitleOffset(MarkerCamera->GetCurrentDxf()) * TitleProjection.GetSafeUeScale(),
-				bPortraitBand ? EvaluateCityTitleOffset(MarkerCamera->GetCurrentDxf()) * TitleProjection.GetSafeUeScale() : 0),
+	if (!ResolveProjection(TitleProjection))
+	{
+		SelfMarkerRoot->SetVisibility(ESlateVisibility::Collapsed);
+		return;
+	}
+	// The converted city card is not centred on the actor root (its visual
+	// centre sits +345/+624 cm away), so anchoring the plate at the root put it
+	// about 20 m from the visible city. Unity anchors at the entity's ground
+	// position, which is the card base here; use the card's visual centre, then
+	// apply the source CastleTitle offset along the ground plane.
+	const FVector TitleAnchor = PlayerCity->GetVisualCenterWorldPosition();
+	const float TitleOffsetCm =
+		EvaluateCityTitleOffset(MarkerCamera->GetCurrentDxf())
+		* TitleProjection.GetSafeUeScale();
+	if (!UWidgetLayoutLibrary::ProjectWorldLocationToWidgetPosition(PlayerController,
+			TitleAnchor + FVector(0,
+				TitleOffsetCm,
+				bPortraitBand ? TitleOffsetCm : 0),
 			TitlePosition, true))
 	{
 		SelfMarkerRoot->SetVisibility(ESlateVisibility::Collapsed);
@@ -2347,7 +2360,7 @@ void URokWorldMapHudWidget::UpdatePlayerMarkerProjection()
 	}
 	// MapElementUI.WorldToUIPos: below 3000 CastleTitle offsets Unity z
 	// only (UE Y). At/above 3000 it offsets both Unity z and y (UE Y/Z).
-	// Neither band uses the imported mesh bounds center.
+	// The anchor is the card's declared visual centre (not computed bounds).
 	const UCameraComponent* TitleCamera = MarkerCamera->GetCameraComponent();
 	const float TitleVerticalFov = FMath::RadiansToDegrees(2*FMath::Atan(
 		FMath::Tan(FMath::DegreesToRadians(TitleCamera->FieldOfView)*0.5f) / TitleCamera->AspectRatio));

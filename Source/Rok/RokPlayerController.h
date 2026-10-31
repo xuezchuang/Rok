@@ -61,6 +61,14 @@ public:
 	ARokPlayerController();
 	FRokCityPlacementRuntimeSnapshot GetCityPlacementPreviewSnapshot() const;
 
+	// rok.DebugBuildingGrid resolution: 0 in normal play, at least the selected
+	// footprint while placing or moving a building (Unity shows footprints only
+	// in that mode). Exposed for the automation test.
+	static int32 ResolveBuildingGridDebugMode(int32 ConfiguredMode, bool bPlacementActive);
+
+	// City-life preview: spawn the wandering worker sprites (no gameplay state).
+	void SpawnCityCitizenPreview();
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void SetupInputComponent() override;
@@ -139,6 +147,8 @@ private:
 	void HandlePlacementPointerPressed();
 	void HandlePlacementPointerReleased();
 	void HandlePlacementEscape();
+	// F10: developer-only modal gallery (same entry as -RokOpenModal=ui_gallery).
+	void HandleUiGalleryHotkey();
 	void HandlePlacementCancelRequested();
 	void HandlePlacementConfirmRequested();
 	void UpdatePlacementDrag();
