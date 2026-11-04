@@ -57,6 +57,7 @@
 #include "Misc/Parse.h"
 #include "Misc/Paths.h"
 #include "RokBuildingUpgradeSubsystem.h"
+#include "RokLocalConstructionVisualFactory.h"
 #include "RokClientSettingsSubsystem.h"
 #include "RokAudioRouterSubsystem.h"
 #include "RokCommanderMeshWidget.h"
@@ -16846,7 +16847,8 @@ void URokUnityFeatureScreenWidget::ExecuteIndexedAction(int32 ActionId)
 		}
 		const int32 TypeId = VisibleBuildCityTypeIds[Index];
 		SelectedBuildCityTypeId = TypeId;
-		const bool bPlacementTarget = TypeId == 2 || TypeId == 3 || TypeId == 13;
+		const bool bPlacementTarget = TypeId == 13
+			|| FRokLocalConstructionVisualFactory::FindSourceVisual(TypeId) != nullptr;
 		FRokLocalConstructionPreview ConstructionPreview;
 		bool bSourceEntryEvaluated = false;
 		if (bPlacementTarget)

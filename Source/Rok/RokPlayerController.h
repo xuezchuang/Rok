@@ -90,6 +90,8 @@ private:
 	bool bStartedCityBgmForMap = false;
 	FTimerHandle AutoScreenshotTimerHandle;
 	FTimerHandle AutoScreenshotQuitTimerHandle;
+	FTimerHandle PlacementCaptureTimerHandle;
+	FTimerHandle PlacementCaptureReportTimerHandle;
 	FDelegateHandle BuildCityPlacementDelegateHandle;
 	FDelegateHandle PlacementCancelDelegateHandle;
 	FDelegateHandle PlacementConfirmDelegateHandle;
@@ -142,6 +144,11 @@ private:
 	void StartSelectedBuildingUpgradeFromCommandLine();
 	void TakeAutoScreenshot();
 	void QuitAfterAutoScreenshot();
+	// -RokPlaceBuilding=<type> [-RokPlaceBuildingConfirm]: diagnostic capture of the
+	// BuildCity placement request and confirm (local ledger only).
+	void SchedulePlacementCaptureFromCommandLine();
+	void RunPlacementCaptureFromCommandLine();
+	void ReportPlacementCaptureFromCommandLine();
 	void HandlePrimaryClick();
 	void HandleBuildCityPlacementRequested(int32 UnityBuildingTypeId);
 	void HandlePlacementPointerPressed();

@@ -2678,7 +2678,10 @@ void URokMainHudWidget::UpdateConstructionBubbles()
 		++It)
 	{
 		ARokCitySpriteActor* Building = *It;
-		if (!Building || Building->IsHidden())
+		// A pending local construction has no upgrade, and GetBuildingStateForActor
+		// would register a second, label-keyed state for it before completion.
+		if (!Building || Building->IsHidden()
+			|| Building->Tags.Contains(TEXT("RokLocalConstructionPending")))
 		{
 			continue;
 		}

@@ -27,6 +27,7 @@
 #include "RokCityCitizenActor.h"
 #include "Materials/MaterialInterface.h"
 #include "RokCitySpriteActor.h"
+#include "RokLocalConstructionVisualFactory.h"
 #include "RokMainHudWidget.h"
 #include "RokStrategyCameraPawn.h"
 #include "RokUnityFeatureScreenWidget.h"
@@ -165,6 +166,7 @@ void ARokPlayerController::BeginPlay()
 			}
 		}
 	}
+	SchedulePlacementCaptureFromCommandLine();
 	ScheduleAutoScreenshot();
 }
 
@@ -461,6 +463,65 @@ void ARokPlayerController::QuitAfterAutoScreenshot()
 	ConsoleCommand(TEXT("quit"));
 }
 
+void ARokPlayerController::SchedulePlacementCaptureFromCommandLine()
+{
+#if !UE_BUILD_SHIPPING
+	int32 TypeId = 0;
+	if (!FParse::Value(FCommandLine::Get(), TEXT("RokPlaceBuilding="), TypeId) || TypeId <= 0) return;
+	float DelaySeconds = 2.0f;
+	FParse::Value(FCommandLine::Get(), TEXT("RokPlaceBuildingDelay="), DelaySeconds);
+	GetWorldTimerManager().SetTimer(PlacementCaptureTimerHandle, this,
+		&ARokPlayerController::RunPlacementCaptureFromCommandLine, FMath::Clamp(DelaySeconds, 0.5f, 30.0f), false);
+#endif
+}
+
+void ARokPlayerController::RunPlacementCaptureFromCommandLine()
+{
+	int32 TypeId = 0;
+	FParse::Value(FCommandLine::Get(), TEXT("RokPlaceBuilding="), TypeId);
+	// Same entry the BuildCity card broadcasts (Unity CityGlobalMediator.CreateTempBuild).
+	HandleBuildCityPlacementRequested(TypeId);
+	UE_LOG(LogTemp, Display, TEXT("Rok placement capture: type=%d active=%d grid=(%d,%d) can_commit=%d reason=%s"),
+		TypeId, bPlacementActive, PlacementGrid.X, PlacementGrid.Y, bPlacementCanCommit, *LastPlacementPreviewReason);
+	URokBuildingUpgradeSubsystem* Buildings = GetWorld()
+		? GetWorld()->GetSubsystem<URokBuildingUpgradeSubsystem>() : nullptr;
+	if (!bPlacementActive || !Buildings || !FParse::Param(FCommandLine::Get(), TEXT("RokPlaceBuildingConfirm"))) return;
+	// Without a mouse the card click's own release never arrives.
+	HandlePlacementPointerReleased();
+	const FRokResourceStock Before = Buildings->GetCurrentResources();
+	HandlePlacementConfirmRequested(); // Unity CreateTempBuildYes -> SendCreateBuild.
+	const FRokResourceStock After = Buildings->GetCurrentResources();
+	UE_LOG(LogTemp, Display,
+		TEXT("Rok placement capture confirm: outcome=%s id=%llu failure=%s food %d->%d wood %d->%d stone %d->%d gold %d->%d"),
+		*LastConfirmOutcome.ToString(), static_cast<unsigned long long>(LastConfirmedLocalConstructionId),
+		*LastConfirmFailure, Before.Food, After.Food, Before.Wood, After.Wood,
+		Before.Stone, After.Stone, Before.Gold, After.Gold);
+	FRokLocalConstructionTicket Ticket;
+	if (!Buildings->GetLocalConstructionTicket(LastConfirmedLocalConstructionId, Ticket)) return;
+	const double Remaining = Ticket.FinishesAt - GetWorld()->GetTimeSeconds();
+	GetWorldTimerManager().SetTimer(PlacementCaptureReportTimerHandle, this,
+		&ARokPlayerController::ReportPlacementCaptureFromCommandLine,
+		static_cast<float>(FMath::Max(Remaining, 0.0) + 0.5), false);
+}
+
+void ARokPlayerController::ReportPlacementCaptureFromCommandLine()
+{
+	URokBuildingUpgradeSubsystem* Buildings = GetWorld()
+		? GetWorld()->GetSubsystem<URokBuildingUpgradeSubsystem>() : nullptr;
+	FRokLocalConstructionTicket Ticket;
+	if (!Buildings || !Buildings->GetLocalConstructionTicket(LastConfirmedLocalConstructionId, Ticket)) return;
+	ARokCitySpriteActor* Actor = Buildings->GetLocalConstructionActor(LastConfirmedLocalConstructionId);
+	FRokBuildingState State;
+	Buildings->TryPeekExistingBuildingStateForActor(Actor, State); // Read-only: never creates state.
+	FString Failure;
+	Buildings->GetLocalConstructionCompletionFailure(LastConfirmedLocalConstructionId, Failure);
+	UE_LOG(LogTemp, Display,
+		TEXT("Rok placement capture completion: id=%llu type=%d completed=%d pending=%d state_type=%d level=%d power=%d name=%s failure=%s"),
+		static_cast<unsigned long long>(Ticket.Id), Ticket.TypeId, Ticket.bCompleted,
+		Buildings->IsLocalConstructionPending(Ticket.Id), State.UnityBuildingTypeId, State.Level, State.Power,
+		*State.DisplayName.ToString(), *Failure);
+}
+
 void ARokPlayerController::SetupInputComponent()
 {
 	Super::SetupInputComponent();
@@ -615,9 +676,9 @@ void ARokPlayerController::HandleBuildCityPlacementRequested(int32 UnityBuilding
 {
 	CancelPlacementPreview();
 	SuppressPrimaryClickThroughFrame = GFrameCounter + 1;
-	if (UnityBuildingTypeId != 2 && UnityBuildingTypeId != 3)
+	if (!FRokLocalConstructionVisualFactory::FindSourceVisual(UnityBuildingTypeId))
 	{
-		PresentPlacementFailure(TEXT("本轮仅支持农场和木材厂的临时摆放预览。"));
+		PresentPlacementFailure(TEXT("该建筑的源视觉资产尚未迁移，暂不支持临时摆放预览。"));
 		return;
 	}
 	URokBuildingUpgradeSubsystem* Buildings = GetWorld()

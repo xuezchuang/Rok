@@ -15,10 +15,26 @@
 
 namespace
 {
-constexpr TCHAR FarmMesh[] = TEXT("/Game/RokUnity/City/ResourceBuildings/build_2_101_1/SM_build_2_101_1_SourceSpriteMesh.SM_build_2_101_1_SourceSpriteMesh");
-constexpr TCHAR FarmMaterial[] = TEXT("/Game/RokUnity/City/ResourceBuildings/build_2_101_1/M_build_2_101_1_SourceRG.M_build_2_101_1_SourceRG");
-constexpr TCHAR WoodMesh[] = TEXT("/Game/RokUnity/City/ResourceBuildings/build_3_101_1/SM_build_3_101_1_SourceSpriteMesh.SM_build_3_101_1_SourceSpriteMesh");
-constexpr TCHAR WoodMaterial[] = TEXT("/Game/RokUnity/City/ResourceBuildings/build_3_101_1/M_build_3_101_1_SourceRG.M_build_3_101_1_SourceRG");
+// Farm/Wood: CityResourcePresentationAssets/ue_assets_verify.json.
+// Commander hall: CityBuildingPresentationAssets/ue_assets_create.json (mesh_topology).
+// Child poses are the prefab main sprite child (float values widened to double).
+const FRokLocalSourceBuildingVisual SourceVisuals[] = {
+	{2, TEXT("build_2_101_1"),
+		TEXT("/Game/RokUnity/City/ResourceBuildings/build_2_101_1/SM_build_2_101_1_SourceSpriteMesh.SM_build_2_101_1_SourceSpriteMesh"),
+		TEXT("/Game/RokUnity/City/ResourceBuildings/build_2_101_1/M_build_2_101_1_SourceRG.M_build_2_101_1_SourceRG"),
+		FVector(0.0430000014603138, 0.05299999937415123, 0.03099999949336052), 0.13229629397392273,
+		133, 163, FVector(-234.9999847412, 0.0, -222.0), FVector(243.0, 0.0, 240.0000152588), true},
+	{3, TEXT("build_3_101_1"),
+		TEXT("/Game/RokUnity/City/ResourceBuildings/build_3_101_1/SM_build_3_101_1_SourceSpriteMesh.SM_build_3_101_1_SourceSpriteMesh"),
+		TEXT("/Game/RokUnity/City/ResourceBuildings/build_3_101_1/M_build_3_101_1_SourceRG.M_build_3_101_1_SourceRG"),
+		FVector(0.003000000026077032, 0.04100000113248825, 0.0560000017285347), 0.1359577178955078,
+		43, 41, FVector(-236.9999847412, 0.0, -190.5), FVector(256.0, 0.0, 208.5), true},
+	{18, TEXT("build_18_101_1"),
+		TEXT("/Game/RokUnity/City/SourceBuildings/build_18_101_1/SM_build_18_101_1_SourceSpriteMesh.SM_build_18_101_1_SourceSpriteMesh"),
+		TEXT("/Game/RokUnity/City/SourceBuildings/build_18_101_1/M_build_18_101_1_SourceRG.M_build_18_101_1_SourceRG"),
+		FVector(0.020999999716877937, 0.03700000047683716, 0.03200000151991844), 0.1124904677271843,
+		47, 46, FVector(-256.0, 0.0, -216.0), FVector(256.0, 0.0, 216.0), false},
+};
 constexpr TCHAR PendingTag[] = TEXT("RokLocalConstructionPending");
 constexpr TCHAR SourceLevelZeroTag[] = TEXT("RokLocalSourceLevel_0");
 constexpr TCHAR SourceLevelOneTag[] = TEXT("RokLocalSourceLevel_1");
@@ -56,12 +72,11 @@ FQuat UnityRotationToCity(const FQuat& Q)
 	return FQuat(-Q.X, -Q.Z, -Q.Y, Q.W);
 }
 
-FTransform SourceChildTransform(int32 TypeId)
+FTransform SourceChildTransform(const FRokLocalSourceBuildingVisual& Visual)
 {
-	const FVector Position = TypeId == 2
-		? FVector(0.0430000014603138, 0.05299999937415123, 0.03099999949336052)
-		: FVector(0.003000000026077032, 0.04100000113248825, 0.0560000017285347);
-	const double Scale = TypeId == 2 ? 0.13229629397392273 : 0.1359577178955078;
+	const FVector& Position = Visual.ChildPosition;
+	const double Scale = Visual.ChildScale;
+	// Identical main sprite child rotation in every supported source prefab.
 	const FQuat SourceRotation(0.3535533845424652, 0.3535533845424652,
 		-0.1464466005563736, 0.8535534739494324);
 	// Source OBJ uses 100 cm/unit; city container owns the 500 UU/unit scale.
@@ -70,34 +85,26 @@ FTransform SourceChildTransform(int32 TypeId)
 		FVector(-Scale / 100.0, Scale / 100.0, Scale / 100.0));
 }
 
-bool MatchBounds(const UStaticMesh& Mesh, int32 TypeId)
+bool MatchBounds(const UStaticMesh& Mesh, const FRokLocalSourceBuildingVisual& Visual)
 {
 	const FBoxSphereBounds Bounds = Mesh.GetBounds();
 	const FVector Lo = Bounds.Origin - Bounds.BoxExtent;
 	const FVector Hi = Bounds.Origin + Bounds.BoxExtent;
-	// Pinned by CityResourcePresentationAssets/ue_assets_verify.json.
-	const FVector ExpectedLo = TypeId == 2 ? FVector(-234.9999847412, 0.0, -222.0)
-		: FVector(-236.9999847412, 0.0, -190.5);
-	const FVector ExpectedHi = TypeId == 2 ? FVector(243.0, 0.0, 240.0000152588)
-		: FVector(256.0, 0.0, 208.5);
-	return Lo.Equals(ExpectedLo, BoundsToleranceCm)
-		&& Hi.Equals(ExpectedHi, BoundsToleranceCm);
+	return Lo.Equals(Visual.BoundsLo, BoundsToleranceCm)
+		&& Hi.Equals(Visual.BoundsHi, BoundsToleranceCm);
 }
 
 bool ValidateSourceAsset(UStaticMesh* Mesh, UMaterialInterface* Material,
-	int32 TypeId, FString& OutError)
+	const FRokLocalSourceBuildingVisual& Visual, FString& OutError)
 {
-	const TCHAR* ExpectedMesh = TypeId == 2 ? FarmMesh : WoodMesh;
-	const TCHAR* ExpectedMaterial = TypeId == 2 ? FarmMaterial : WoodMaterial;
-	const int32 Vertices = TypeId == 2 ? 133 : 43;
-	const int32 Triangles = TypeId == 2 ? 163 : 41;
 	if (!IsValid(Mesh) || !IsValid(Material)
-		|| Mesh->GetPathName() != ExpectedMesh || Material->GetPathName() != ExpectedMaterial
-		|| Mesh->GetNumLODs() != 1 || Mesh->GetNumVertices(0) != Vertices
-		|| Mesh->GetNumTriangles(0) != Triangles || Mesh->GetNumTexCoords(0) != 1
-		|| Mesh->GetMaterial(0) != Material || !MatchBounds(*Mesh, TypeId))
+		|| Mesh->GetPathName() != Visual.MeshPath || Material->GetPathName() != Visual.MaterialPath
+		|| Mesh->GetNumLODs() != 1 || Mesh->GetNumVertices(0) != Visual.Vertices
+		|| Mesh->GetNumTriangles(0) != Visual.Triangles || Mesh->GetNumTexCoords(0) != 1
+		|| Mesh->GetMaterial(0) != Material || !MatchBounds(*Mesh, Visual))
 	{
-		OutError = TEXT("Farm/Wood source mesh, RG material, LOD0 or pivot differs from verified assets");
+		OutError = FString::Printf(TEXT("%s source mesh, RG material, LOD0 or pivot differs from verified assets"),
+			Visual.ModelId);
 		return false;
 	}
 	return true;
@@ -109,18 +116,20 @@ bool ResolveSource(UWorld* World, const FRokCityPlacementWorldFrame& Frame,
 {
 	Out = FSourceVisual();
 	OutError.Reset();
+	const FRokLocalSourceBuildingVisual* Visual =
+		FRokLocalConstructionVisualFactory::FindSourceVisual(Request.UnityBuildingTypeId);
 	if (!IsValid(World) || !World->IsGameWorld() || !Frame.IsValid()
 		|| !Preview.bContextVerified || !Preview.bSourceEligible || !Preview.bPositionEvaluated
-		|| (Request.UnityBuildingTypeId != 2 && Request.UnityBuildingTypeId != 3)
+		|| !Visual
 		|| (Request.CivilizationId != 0 && Request.CivilizationId != 101)
 		|| (Request.Age != 0 && Request.Age != 1)
 		|| Preview.VisualCivilization != 101 || Preview.ResolvedAge != 1
 		|| Preview.Footprint != FIntPoint(5, 5) || Preview.SourceCellIndices.Num() != 25)
 	{
-		OutError = TEXT("Only eligible source Farm/Wood 101 age-one 5x5 city construction is supported");
+		OutError = TEXT("Only eligible source-visual 101 age-one 5x5 city construction is supported");
 		return false;
 	}
-	Out.ModelId = Request.UnityBuildingTypeId == 2 ? TEXT("build_2_101_1") : TEXT("build_3_101_1");
+	Out.ModelId = Visual->ModelId;
 	if (Preview.SourceModelId != Out.ModelId)
 	{
 		OutError = TEXT("Local construction source model ID differs from the verified visual variant");
@@ -145,7 +154,7 @@ bool ResolveSource(UWorld* World, const FRokCityPlacementWorldFrame& Frame,
 	}
 	Out.Actor = Frame.GetCityContainerTransform();
 	Out.Actor.SetLocation(CenterWorld);
-	Out.Child = SourceChildTransform(Request.UnityBuildingTypeId);
+	Out.Child = SourceChildTransform(*Visual);
 	if (!Out.Actor.IsValid() || !Out.Child.IsValid())
 	{
 		OutError = TEXT("Source city root or child pose is invalid");
@@ -160,10 +169,9 @@ bool ResolveSource(UWorld* World, const FRokCityPlacementWorldFrame& Frame,
 		OutError = TEXT("Verified city camera LOD state is unavailable");
 		return false;
 	}
-	Out.Mesh = Cast<UStaticMesh>(FSoftObjectPath(Request.UnityBuildingTypeId == 2 ? FarmMesh : WoodMesh).TryLoad());
-	Out.Material = Cast<UMaterialInterface>(FSoftObjectPath(Request.UnityBuildingTypeId == 2
-		? FarmMaterial : WoodMaterial).TryLoad());
-	return ValidateSourceAsset(Out.Mesh, Out.Material, Request.UnityBuildingTypeId, OutError);
+	Out.Mesh = Cast<UStaticMesh>(FSoftObjectPath(Visual->MeshPath).TryLoad());
+	Out.Material = Cast<UMaterialInterface>(FSoftObjectPath(Visual->MaterialPath).TryLoad());
+	return ValidateSourceAsset(Out.Mesh, Out.Material, *Visual, OutError);
 }
 
 bool HasForbiddenIdentity(const ARokCitySpriteActor& Actor)
@@ -179,6 +187,15 @@ bool HasForbiddenIdentity(const ARokCitySpriteActor& Actor)
 	}
 	return false;
 }
+}
+
+const FRokLocalSourceBuildingVisual* FRokLocalConstructionVisualFactory::FindSourceVisual(int32 TypeId)
+{
+	for (const FRokLocalSourceBuildingVisual& Visual : SourceVisuals)
+	{
+		if (Visual.TypeId == TypeId) return &Visual;
+	}
+	return nullptr;
 }
 
 bool FRokLocalConstructionVisualFactory::Preflight(UWorld* World,
@@ -206,7 +223,7 @@ bool FRokLocalConstructionVisualFactory::Prepare(UWorld* World,
 		ARokCitySpriteActor::StaticClass(), Source.Actor, Params);
 	if (!IsValid(Actor))
 	{
-		OutError = TEXT("Source Farm/Wood city actor could not be spawned");
+		OutError = TEXT("Source city building actor could not be spawned");
 		return false;
 	}
 	Actor->SetActorHiddenInGame(true);
@@ -250,12 +267,12 @@ bool FRokLocalConstructionVisualFactory::ValidateHeldActor(const ARokCitySpriteA
 {
 	OutError.Reset();
 	const int32 TypeId = Ticket.TypeId;
-	const FString ModelId = TypeId == 2 ? TEXT("build_2_101_1") : TEXT("build_3_101_1");
+	const FRokLocalSourceBuildingVisual* Visual = FindSourceVisual(TypeId);
 	const UStaticMeshComponent* Component = Actor.GetSpriteMeshComponent();
-	if ((TypeId != 2 && TypeId != 3) || Ticket.Civilization != 101 || Ticket.Age != 1
+	if (!Visual || Ticket.Civilization != 101 || Ticket.Age != 1
 		|| Ticket.Id == 0 || Ticket.Footprint.Size != FIntPoint(5, 5)
 		|| !Actor.Tags.Contains(FName(PendingTag)) || !Actor.Tags.Contains(TicketTag(Ticket.Id))
-		|| !Actor.Tags.Contains(SourceModelTag(ModelId))
+		|| !Actor.Tags.Contains(SourceModelTag(Visual->ModelId))
 		|| !Actor.Tags.Contains(FName(SourceLevelZeroTag)) || HasForbiddenIdentity(Actor)
 		|| !Actor.Tags.Contains(IndexedTag(TEXT("UnityBuildingType_"), TypeId))
 		|| !Actor.Tags.Contains(IndexedTag(TEXT("UnityGridX_"), Ticket.Footprint.Origin.X))
@@ -266,7 +283,7 @@ bool FRokLocalConstructionVisualFactory::ValidateHeldActor(const ARokCitySpriteA
 		|| Actor.GetFootprintSize() != Ticket.Footprint.Size || Actor.IsHidden()
 		|| !Component || Component->GetCollisionEnabled() != ECollisionEnabled::NoCollision
 		|| !ValidateSourceAsset(Component ? Component->GetStaticMesh().Get() : nullptr,
-			Component ? Component->GetMaterial(0) : nullptr, TypeId, OutError))
+			Component ? Component->GetMaterial(0) : nullptr, *Visual, OutError))
 	{
 		if (OutError.IsEmpty()) OutError = TEXT("Pending local actor source identity or footprint differs");
 		return false;
@@ -280,7 +297,7 @@ bool FRokLocalConstructionVisualFactory::ValidateHeldActor(const ARokCitySpriteA
 	}
 	FTransform ExpectedActor = Frame.GetCityContainerTransform();
 	ExpectedActor.SetLocation(CenterWorld);
-	const FTransform Child = SourceChildTransform(TypeId);
+	const FTransform Child = SourceChildTransform(*Visual);
 	const double Lod = Actor.GetUnityLodScale();
 	if (!FMath::IsFinite(Lod) || Lod <= 0.0 || Lod > 7.8
 		|| !Actor.GetActorTransform().Equals(ExpectedActor, 0.01)

@@ -31,9 +31,9 @@ The Codex open work below stays **parked** while Phases 5–6 have visible work 
   - Phase 4 is blocked: #7 needs a settled zoomed-out Unity shot, #8 the ground pipeline.
   - Phase 5 is mostly done.
   - Phase 6 is in progress.
-- **Tests:** `Rok.*` has 219 tests: 181 pass, 32 pass with warnings, 6 fail. The 6 failures are the 2026-10-18 baseline set and are still untriaged (round 49, 2026-10-25).
+- **Tests:** `Rok.*` has 221 tests: 190 pass, 25 pass with warnings, 6 fail. The 6 failures are the 2026-10-18 baseline set and are still untriaged (`Saved/ClaudeCapture/type18_full_automation`, 2026-10-31).
 - **Repo:** `main` is at `cbcb8c91`, one commit ahead of `origin` and not pushed. P4 is unchanged since CL 110.
-- **No work since 2026-10-25** apart from that commit.
+- **2026-10-31, uncommitted:** the commander hall (统帅厅, type 18) builds locally through the BuildCity flow, using an exported Unity tight `Sprite.mesh`. `FRokLocalConstructionVisualFactory::FindSourceVisual` is the per-type table for constructible source visuals. Its 4 new assets in `Content/RokUnity/City/SourceBuildings/build_18_101_1/` are not in P4. Details are in the plan's Phase 6 log.
 
 **Phase 3 (HUD correctness) landed on 2026-10-25, except one-card-per-task.** The city HUD now follows the camera dxf the way `MainInterfaceMediator`/`OpenLodUi` do: at or below `city_bound` (250) the coordinate box is hidden and the hammer + world globe are shown; above it the box appears and the pair flips to the magnifier + castle (`URokMainHudWidget::ApplyCityHudBand`, fed by the pawn's dxf each tick; castle calls `ARokStrategyCameraPawn::FrameCityCenter()`). `rok.DebugBuildingGrid` defaults to 0 in every build and only placement/move force the selected footprint. The `本地预览` city marker is diagnostic-only (`-RokShowCityMarker`), the army-queue entry stays collapsed without a march snapshot, and the world-map nameplate anchors at the city card's visual centre. Panning now moves the zoom target, so a wheel notch no longer snaps the camera back to the city centre. One card per task is deferred: only the active task has runtime state.
 

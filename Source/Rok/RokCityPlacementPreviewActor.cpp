@@ -1,6 +1,7 @@
 #include "RokCityPlacementPreviewActor.h"
 
 #include "RokCityPlacementPreviewMath.h"
+#include "RokLocalConstructionVisualFactory.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
@@ -13,10 +14,6 @@ namespace
 constexpr TCHAR PreviewTag[] = TEXT("RokPlacementPreviewTemporary");
 constexpr TCHAR BottomMeshPath[] = TEXT("/Game/RokUnity/City/PlacementPreview/SM_building_move_bottom_SourceQuad.SM_building_move_bottom_SourceQuad");
 constexpr TCHAR BottomMaterialPath[] = TEXT("/Game/RokUnity/City/PlacementPreview/M_building_move_bottom_SourceAlpha.M_building_move_bottom_SourceAlpha");
-constexpr TCHAR FarmMeshPath[] = TEXT("/Game/RokUnity/City/ResourceBuildings/build_2_101_1/SM_build_2_101_1_SourceSpriteMesh.SM_build_2_101_1_SourceSpriteMesh");
-constexpr TCHAR FarmMaterialPath[] = TEXT("/Game/RokUnity/City/ResourceBuildings/build_2_101_1/M_build_2_101_1_SourceRG.M_build_2_101_1_SourceRG");
-constexpr TCHAR WoodMeshPath[] = TEXT("/Game/RokUnity/City/ResourceBuildings/build_3_101_1/SM_build_3_101_1_SourceSpriteMesh.SM_build_3_101_1_SourceSpriteMesh");
-constexpr TCHAR WoodMaterialPath[] = TEXT("/Game/RokUnity/City/ResourceBuildings/build_3_101_1/M_build_3_101_1_SourceRG.M_build_3_101_1_SourceRG");
 
 // Unity 2019 native probe: UnityCityResourceVisualProbe/OutputRuns/20261008_161052_827_45112.
 // CityGlobalMediator.CreateCityBuilding explicitly zeros each root's local Euler
@@ -81,15 +78,14 @@ bool ARokCityPlacementPreviewActor::InitializePreview(int32 TypeId, int32 Visual
 	OutError.Reset();
 	bInitialized = false;
 	SetActorHiddenInGame(true);
-	if ((TypeId != 2 && TypeId != 3) || VisualCivilization != 101 || Age != 1)
+	const FRokLocalSourceBuildingVisual* Visual = FRokLocalConstructionVisualFactory::FindSourceVisual(TypeId);
+	if (!Visual || VisualCivilization != 101 || Age != 1)
 	{
-		OutError = TEXT("Only source Farm 2/Wood 3 civilization 101 age 1 have verified preview assets");
+		OutError = TEXT("Only source-visual types at civilization 101 age 1 have verified preview assets");
 		return false;
 	}
-	const TCHAR* MeshPath = TypeId == 2 ? FarmMeshPath : WoodMeshPath;
-	const TCHAR* MaterialPath = TypeId == 2 ? FarmMaterialPath : WoodMaterialPath;
-	UStaticMesh* SourceMesh = LoadExact<UStaticMesh>(MeshPath);
-	UMaterialInterface* SourceMaterial = LoadExact<UMaterialInterface>(MaterialPath);
+	UStaticMesh* SourceMesh = LoadExact<UStaticMesh>(Visual->MeshPath);
+	UMaterialInterface* SourceMaterial = LoadExact<UMaterialInterface>(Visual->MaterialPath);
 	UStaticMesh* SourceBottomMesh = LoadExact<UStaticMesh>(BottomMeshPath);
 	UMaterialInterface* SourceBottomMaterial = LoadExact<UMaterialInterface>(BottomMaterialPath);
 	if (!SourceMesh || !SourceMaterial || !SourceBottomMesh || !SourceBottomMaterial)
@@ -110,10 +106,8 @@ bool ARokCityPlacementPreviewActor::InitializePreview(int32 TypeId, int32 Visual
 
 	// Preserve native root/child pivot and pose. CityContainer owns the 500x unit scale;
 	// the source OBJ was authored at 100 cm/unit, so component scale divides by 100.
-	const FVector ChildPosition = TypeId == 2
-		? FVector(0.0430000014603138, 0.05299999937415123, 0.03099999949336052)
-		: FVector(0.003000000026077032, 0.04100000113248825, 0.0560000017285347);
-	const double ChildScale = TypeId == 2 ? 0.13229629397392273 : 0.1359577178955078;
+	const FVector ChildPosition = Visual->ChildPosition;
+	const double ChildScale = Visual->ChildScale;
 	const FQuat ChildUnityRotation(0.3535533845424652, 0.3535533845424652,
 		-0.1464466005563736, 0.8535534739494324);
 	const FQuat ChildCityRotation = UnityRotationToCity(ChildUnityRotation);

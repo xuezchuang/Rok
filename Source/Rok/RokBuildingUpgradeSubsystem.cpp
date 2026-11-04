@@ -283,7 +283,7 @@ void URokBuildingUpgradeSubsystem::Tick(float DeltaTime)
 		LocalConstructionLedger.CompleteDue(GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0, CompletedConstruction);
 		for (const FRokLocalConstructionTicket& Ticket : LocalConstructionLedger.GetTickets())
 		{
-			if (!Ticket.bCompleted || (Ticket.TypeId != 2 && Ticket.TypeId != 3)
+			if (!Ticket.bCompleted || !FRokLocalConstructionVisualFactory::FindSourceVisual(Ticket.TypeId)
 				|| (LocalConstructionActors.Contains(Ticket.Id)
 					&& !PendingLocalConstructionActors.Contains(Ticket.Id))) continue;
 			ARokCitySpriteActor* Actor = nullptr;
@@ -431,17 +431,17 @@ bool URokBuildingUpgradeSubsystem::EvaluateLocalConstruction(
 		return false;
 	}
 	FRokUnityCatalogBuildingType BuildingType;
-	if ((Request.UnityBuildingTypeId != 2 && Request.UnityBuildingTypeId != 3
-		&& Request.UnityBuildingTypeId != 13)
+	const FRokLocalSourceBuildingVisual* SourceVisual =
+		FRokLocalConstructionVisualFactory::FindSourceVisual(Request.UnityBuildingTypeId);
+	if ((!SourceVisual && Request.UnityBuildingTypeId != 13)
 		|| !Catalog->GetBuildingType(Request.UnityBuildingTypeId, BuildingType))
 	{
-		OutPreview.FailureReason = TEXT("当前仅开放农场、木材厂和研究院的本地源建造类型。");
+		OutPreview.FailureReason = TEXT("当前仅开放农场、木材厂、统帅厅和研究院的本地源建造类型。");
 		return true;
 	}
-	if ((Request.UnityBuildingTypeId == 2 || Request.UnityBuildingTypeId == 3)
-		&& BuildingType.DisplayNameZhCn.IsEmpty())
+	if (SourceVisual && BuildingType.DisplayNameZhCn.IsEmpty())
 	{
-		OutPreview.FailureReason = TEXT("资源建筑的源中文名称配置缺失。");
+		OutPreview.FailureReason = TEXT("本地源建筑的源中文名称配置缺失。");
 		return false;
 	}
 	const TMap<int32, FRokUnityBuildingLevelConfig>* Levels = UnityBuildingLevelConfigs.Find(Request.UnityBuildingTypeId);
@@ -456,13 +456,13 @@ bool URokBuildingUpgradeSubsystem::EvaluateLocalConstruction(
 	OutPreview.Cost = LevelOne->Cost;
 	OutPreview.BuildSeconds = LevelOne->BuildSeconds;
 	OutPreview.Power = LevelOne->Power;
-	if (Request.UnityBuildingTypeId == 2 || Request.UnityBuildingTypeId == 3)
+	if (SourceVisual && !LevelOne->bSourceEconomyValid)
 	{
-		if (!LevelOne->bSourceEconomyValid)
-		{
-			OutPreview.FailureReason = TEXT("资源建筑一级源费用或建造时长配置无效。");
-			return false;
-		}
+		OutPreview.FailureReason = TEXT("本地源建筑一级源费用或建造时长配置无效。");
+		return false;
+	}
+	if (SourceVisual && SourceVisual->bProducesResource)
+	{
 		const TMap<int32, FRokUnityBuildingProduceConfig>* ProduceLevels =
 			UnityBuildingProduceConfigs.Find(Request.UnityBuildingTypeId);
 		const FRokUnityBuildingProduceConfig* Produce = ProduceLevels ? ProduceLevels->Find(1) : nullptr;
@@ -557,7 +557,7 @@ bool URokBuildingUpgradeSubsystem::EvaluateLocalConstruction(
 		}
 	}
 	OutPreview.bSourceEligible = true;
-	if (bCheckPosition && (Request.UnityBuildingTypeId == 2 || Request.UnityBuildingTypeId == 3)
+	if (bCheckPosition && SourceVisual
 		&& OutPreview.VisualCivilization == 101 && ActualAge == 1)
 	{
 		FRokCityPlacementWorldFrame Frame;
@@ -581,11 +581,11 @@ bool URokBuildingUpgradeSubsystem::StartLocalConstruction(
 	FRokLocalConstructionPreview Preview;
 	if (!PreviewLocalConstruction(Request, Preview) || !Preview.bCanCommit
 		|| !Preview.bSourceEligible || !Preview.bPositionEvaluated
-		|| (Request.UnityBuildingTypeId != 2 && Request.UnityBuildingTypeId != 3)
+		|| !FRokLocalConstructionVisualFactory::FindSourceVisual(Request.UnityBuildingTypeId)
 		|| Preview.VisualCivilization != 101 || Preview.ResolvedAge != 1)
 	{
 		OutFailureReason = Preview.FailureReason.IsEmpty()
-			? TEXT("本地资源建筑源条件或视觉占地尚未验证。") : Preview.FailureReason;
+			? TEXT("本地建筑源条件或视觉占地尚未验证。") : Preview.FailureReason;
 		return false;
 	}
 	FRokCityPlacementWorldFrame Frame;
@@ -596,7 +596,7 @@ bool URokBuildingUpgradeSubsystem::StartLocalConstruction(
 	if (!IsValid(PreparedActor) || PreparedActor->GetWorld() != GetWorld())
 	{
 		if (IsValid(PreparedActor)) PreparedActor->Destroy();
-		OutFailureReason = TEXT("源资源建筑工厂未返回有效的本世界视觉实例。");
+		OutFailureReason = TEXT("源建筑视觉工厂未返回有效的本世界视觉实例。");
 		return false;
 	}
 	FRokLocalConstructionTicket Proposed;
@@ -681,7 +681,7 @@ bool URokBuildingUpgradeSubsystem::RegisterCompletedLocalConstructionActor(
 	const TWeakObjectPtr<ARokCitySpriteActor>* Pending = PendingLocalConstructionActors.Find(LocalConstructionId);
 	if (!IsValid(Actor) || Actor->GetWorld() != GetWorld()
 		|| !LocalConstructionLedger.Find(LocalConstructionId, Ticket)
-		|| !Ticket.bCompleted || (Ticket.TypeId != 2 && Ticket.TypeId != 3)
+		|| !Ticket.bCompleted || !FRokLocalConstructionVisualFactory::FindSourceVisual(Ticket.TypeId)
 		|| !Pending || Pending->Get() != Actor
 		|| LocalConstructionActors.Contains(LocalConstructionId))
 	{
@@ -705,7 +705,7 @@ bool URokBuildingUpgradeSubsystem::RegisterCompletedLocalConstructionActor(
 		|| !Catalog->GetBuildingType(Ticket.TypeId, BuildingType)
 		|| BuildingType.DisplayNameZhCn.IsEmpty())
 	{
-		OutFailureReason = TEXT("资源建筑的源中文名称配置在完工登记时不可用。");
+		OutFailureReason = TEXT("本地源建筑的源中文名称配置在完工登记时不可用。");
 		return false;
 	}
 	FRokLocalProductionSource Production;
