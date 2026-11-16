@@ -13,11 +13,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Default GameMode**: `ARokGameModeBase`
 - **Python for Scripts/**: `C:\Python312\python.exe` (3.12.1). Bare `python` on PATH is the Microsoft Store stub. Codex handoff runners were invoked with `C:/Users/13436/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe -B -X utf8`.
 
-The companion live Unity project is at `D:\ueDemo\Rok-unity` (do not commit its `Library/`, `Logs/`, `Temp/` caches). Paired Unity learning notes go in `UnityLearning/`.
+The companion live Unity project is at `D:\ueDemo\Rok-unity` (do not commit its `Library/`, `Logs/`, `Temp/` caches).
 
-## Start Here: Current Plan (2026-10-18; status 2026-10-31)
+## Migration History (2026-10-18 through 2026-11-04)
 
-**Read `UnityLearning/MIGRATION_PLAN_2026-10-18.md` first.** It's the active plan. It has:
+The retired experiments and migration notes are available in the `UnityLearning/` tree of commit `0f59fce2`. Use `git show 0f59fce2:UnityLearning/MIGRATION_PLAN_2026-10-18.md` to read the historical plan, which includes the following.
 - the verified state, with a 2026-10-31 snapshot at the top;
 - the Unity-vs-UE gap table from the first side-by-side capture;
 - Phases 1–6 (capture baseline → camera/framing → HUD correctness → city completeness → interaction + UI animation → breadth) and a progress table;
@@ -25,15 +25,23 @@ The companion live Unity project is at `D:\ueDemo\Rok-unity` (do not commit its 
 
 The Codex open work below stays **parked** while Phases 5–6 have visible work left.
 
-**Status on 2026-10-31.**
+**Status on 2026-11-04.**
 - **Phases:**
   - Phases 1–3 are done; the one exception (#10, one card per task) is a data gap.
   - Phase 4 is blocked: #7 needs a settled zoomed-out Unity shot, #8 the ground pipeline.
   - Phase 5 is mostly done.
   - Phase 6 is in progress.
-- **Tests:** `Rok.*` has 221 tests: 190 pass, 25 pass with warnings, 6 fail. The 6 failures are the 2026-10-18 baseline set and are still untriaged (`Saved/ClaudeCapture/type18_full_automation`, 2026-10-31).
-- **Repo:** `main` is at `cbcb8c91`, one commit ahead of `origin` and not pushed. P4 is unchanged since CL 110.
-- **2026-10-31, uncommitted:** the commander hall (统帅厅, type 18) builds locally through the BuildCity flow, using an exported Unity tight `Sprite.mesh`. `FRokLocalConstructionVisualFactory::FindSourceVisual` is the per-type table for constructible source visuals. Its 4 new assets in `Content/RokUnity/City/SourceBuildings/build_18_101_1/` are not in P4. Details are in the plan's Phase 6 log.
+- **Tests:** `Rok.*` has 222 tests: 190 pass, 26 pass with warnings, 6 fail. The 6 failures are the 2026-10-18 baseline set and are still untriaged (`Saved/ClaudeCapture/newbuild_bar_full_automation`, 2026-11-04).
+- **Repo:** `main` is at `7ed15c69` (commander hall), equal to `origin/main`. P4 is unchanged since CL 110; the commander hall's 4 `build_18_101_1` assets are open for add in the client's **default** changelist and should move to a numbered one.
+- **2026-10-31:** the commander hall (统帅厅, type 18) builds locally through the BuildCity flow, using an exported Unity tight `Sprite.mesh`. `FRokLocalConstructionVisualFactory::FindSourceVisual` is the per-type table for constructible source visuals.
+- **2026-11-04, uncommitted:** new builds and upgrades show Unity's `UI_Tip_BuildingBar` (`URokMainHudWidget::UpdateConstructionBars`), which replaces the `建造 m:ss` bubble. The finished hall's ring menu still lacks `tavernCall` (136). Details are in the plan's Phase 6 log.
+- **2026-11-04, uncommitted: Phase 7 (live server state).**
+  - `URokGameNetSubsystem` (with `RokSkynetCrypt` and `RokSproto`) logs in to the user's skynet server with `-RokNet`, the same way Unity's `NetProxy` does, and dumps the merged state to `Saved/RokNet/LastSession.json`.
+  - The HUD top bar (S1–S8: power, resources, gems, VIP + red dot, head/frame, coordinates, age, city name/level) shows the live `Role_RoleInfo` values through `RokPlayerTopBar` and `URokMainHudWidget::ApplyServerTopBar`. Offline, the local preview values stay.
+  - The city buildings (S9–S10) follow `Build_BuildingInfo` through `URokServerCitySubsystem`: source actors move to the server pos and take the server level, player-built buildings (27+) are spawned with `FRokLocalConstructionVisualFactory::SpawnServerBuilding`, and `FRokCityPlacementWorldFrame::ResolveForWorld` returns the frame cached before the move. While connected, the local build/upgrade ledger is off.
+  - New `Content/RokUnity/City/SourceBuildings/build_{18,28,11}_101_1` assets (18 recreated, 28 and 11 new) are not in P4 yet.
+  - The city camera yaw is now 90° (`ARokStrategyCameraPawn::DefaultCameraYaw`, was 112°), from Unity's `CameraParamLod` forward `(0,-0.7,0.7)`. With it, the dxf 150 city overlays the Unity capture almost pixel for pixel. Captures taken before 2026-11-04 are rotated about 20°.
+  - Build queues, tasks, troops, heroes and the world map (S11–S15) are not bound yet. The plan's Phase 7 section has the item-by-item checklist.
 
 **Phase 3 (HUD correctness) landed on 2026-10-25, except one-card-per-task.** The city HUD now follows the camera dxf the way `MainInterfaceMediator`/`OpenLodUi` do: at or below `city_bound` (250) the coordinate box is hidden and the hammer + world globe are shown; above it the box appears and the pair flips to the magnifier + castle (`URokMainHudWidget::ApplyCityHudBand`, fed by the pawn's dxf each tick; castle calls `ARokStrategyCameraPawn::FrameCityCenter()`). `rok.DebugBuildingGrid` defaults to 0 in every build and only placement/move force the selected footprint. The `本地预览` city marker is diagnostic-only (`-RokShowCityMarker`), the army-queue entry stays collapsed without a march snapshot, and the world-map nameplate anchors at the city card's visual centre. Panning now moves the zoom target, so a wheel notch no longer snaps the camera back to the city centre. One card per task is deferred: only the active task has runtime state.
 
@@ -57,9 +65,9 @@ Still open:
 - layout: `BuildDefinitionList` (scrolling list or grid, search box, chip filters);
 - framing: a fixed 1456x910 modal canvas, centred at any aspect.
 
-Read `UnityLearning/UI_PORTED_PARITY_2026-10-25.md` for status. Against the prefab structure: 3 match, 14 partial, 1 mismatch (`FuncGuide`, which is an overlay in Unity), 1 unknown. "Ported" means *data window*, not *screen parity*. `UnityLearning/UI_GAP_BACKLOG_2026-10-25.md` lists the 97 of 156 `UI_Win_*` prefabs that still have no counterpart.
+The historical `UI_PORTED_PARITY_2026-10-25.md` records the status below. Against the prefab structure: 3 match, 14 partial, 1 mismatch (`FuncGuide`, which is an overlay in Unity), 1 unknown. "Ported" means *data window*, not *screen parity*. `UI_GAP_BACKLOG_2026-10-25.md` lists the 97 of 156 `UI_Win_*` prefabs that still have no counterpart.
 
-City life (#9): the `建造 m:ss` construction bubble is done. Wandering citizens (`-RokCityCitizens`) stay opt-in until the worker sheet gets a single-cell material.
+City life (#9): the source build bar (`UI_Tip_BuildingBar`) follows new builds and upgrades. Wandering citizens (`-RokCityCitizens`) stay opt-in until the worker sheet gets a single-cell material.
 
 ## Background: Codex → Claude handoff (2026-10-16)
 
@@ -76,7 +84,7 @@ Codex ran this migration until 2026-10-16 and stopped at the user's request. Bef
   - A copy of the Claude handoff folder is there too.
   - To restore a dir, extract it from the tar and check its SHA against the manifest.
 - **Kept in `Saved/`:**
-  - `RokUnityMigration` entries referenced by `Source/`, `Scripts/`, UnityLearning or the docs.
+  - `RokUnityMigration` entries referenced by `Source/`, `Scripts/`, the former Unity experiments or the docs.
   - The handoff folder.
   - `Unity*Probe` outputs (Library/Temp caches removed).
   - Recent logs.
@@ -101,9 +109,14 @@ Codex ran this migration until 2026-10-16 and stopped at the user's request. Bef
 - Verifier PASS ≠ visual parity: always inspect the PNG.
 - Don't rewrite failed history. Historical Stage `88ebb11b…`, adopted inner `9da47986…` and outer `392d7451…` stay false.
 
-**Junction hazard.** Nine folders under `UnityLearning/*/Assets/` are NTFS junctions: `BundleAssets`, `BundleAssetsTest`, `Mesh`, `Resources`, `Shader`, `T4M`, `T4MOBJ` point into `ref/client-unity/Assets/`, and `RokUnityMigration` points into `Saved/RokUnityMigration`. They're listed in `.gitignore`. Remove a junction only with `cmd /c rmdir <path>` (or PowerShell `(Get-Item <path>).Delete()`). **Never use `rm -rf` or a recursive delete**: it deletes the real `ref/` / `Saved/` data behind the link. The Unity project also writes `.meta` files through the `RokUnityMigration` junction into `Saved/RokUnityMigration`.
+**Junction hazard.** Local copies of the retired Unity experiments can contain NTFS junctions: `BundleAssets`, `BundleAssetsTest`, `Mesh`, `Resources`, `Shader`, `T4M`, `T4MOBJ` point into `ref/client-unity/Assets/`, and `RokUnityMigration` points into `Saved/RokUnityMigration`. They're listed in `.gitignore`. Remove a junction only with `cmd /c rmdir <path>` (or PowerShell `(Get-Item <path>).Delete()`). **Never use `rm -rf` or a recursive delete**: it deletes the real `ref/` / `Saved/` data behind the link. The Unity project also writes `.meta` files through the `RokUnityMigration` junction into `Saved/RokUnityMigration`.
 
-**Account / server boundary.** No real accounts, logins, reward claims, inventory actions, or server writes. UI, power and reward data are explicitly local fixtures/previews. Never copy auth payloads into reports. One exception, which the user asked for on 2026-10-18: the original Unity client may auto-login to the user's own server for **view-only** reference screenshots (see the plan's section 4).
+**Account / server boundary.** No reward claims, inventory actions, or server writes without the user's go-ahead. Never copy auth payloads (token, DES secret) into reports or committed files. Two exceptions, both asked for by the user:
+- **2026-10-18:** the original Unity client may auto-login to the user's own server for **view-only** reference screenshots (see the plan's section 4).
+- **2026-11-04:** UE itself may log in to that server (`URokGameNetSubsystem`, `-RokNet`) as the Unity editor account, to show the same state as Unity.
+  - The account is read from untracked `Saved/RokNet/Account.ini`.
+  - UE sends only `Role_GetRoleList`, `Role_RoleLogin` and `Role_Heart`; it never creates a role.
+  - Logging in from UE can kick a running Unity session on the same account.
 
 **UI coverage** (`Saved/RokUnityMigration/unity_ui_runtime_coverage_verify.json`, 2026-09-12): 46 mappings / 49 entries checked, 1105 of 1150 Unity UI prefabs still unimplemented. The verifier only proves that declarations exist, and it has not been re-run since. The window-level view is newer: on 2026-10-31, 97 of 156 `UI_Win_*` prefabs had no UE counterpart (`UnityLearning/UI_GAP_BACKLOG_2026-10-25.md`; parity in `UI_PORTED_PARITY_2026-10-25.md`). Earlier UI handoff: `UnityLearning/UI_MIGRATION_HANDOFF_2026-08-14.md`.
 
@@ -112,13 +125,13 @@ Codex ran this migration until 2026-10-16 and stopped at the user's request. Bef
 | | Git | Perforce |
 |---|---|---|
 | Server | `origin` `https://github.com/xuezchuang/Rok.git`, branch `main` | `home.snowsome.com:1666`, user `snow`, client `ueDemo`, root `D:\ueDemo`, view `//depot/... //ueDemo/...` |
-| Owns | Text: `Source/`, `Shaders/`, `Scripts/`, `Config/`, `Rok.uproject`, `AGENTS.md`, `CLAUDE.md`, `UnityLearning/` notes | Binary content, runtime data and reference snapshot: `//depot/Rok/Content/...` (~2.95k files, incl. `Content/RokData`), `//depot/Rok/ref/...` (~74k files) |
+| Owns | Text: `Source/`, `Shaders/`, `Scripts/`, `Config/`, `Rok.uproject`, `AGENTS.md`, `CLAUDE.md` | Binary content, runtime data and reference snapshot: `//depot/Rok/Content/...` (~2.95k files, incl. `Content/RokData`), `//depot/Rok/ref/...` (~74k files) |
 | Latest (2026-10-31) | `main` at `cbcb8c91` (plan Phases 2–6: camera, city HUD band, UI window ports, tests, docs), **one commit ahead of `origin/main` and not pushed**. Before it, `88818c95`/`b59d48c9` were pushed: the Jul–Oct WIP checkpoint, the UIB1 promotion, and Phases 2a/2b (runtime data moved to `Content/RokData`, runtime provenance gates removed). Only real UnityLearning project files remain untracked | Last submit CL 110 (2026-10-18): the 639 `Content/RokData` files, all filetype `binary`. The 142 opened Content files (137 add / 5 edit) are **shelved in CL 80**, still open locally, not submitted |
 
 - **Add `Content/RokData` files as `binary`** (`p4 add -t binary`). They are LF-only JSON/CSV whose bytes C++ loaders pin by SHA-256; the client uses `LineEnd: local` and the typemap covers only `.uasset`/`.umap`, so a `text` add comes back CRLF on sync and fails those pins.
 - **The client's default changelist is not Rok's.** It holds other projects' open files (`//depot/RPG`, `//depot/tx`, 347 on 2026-10-18). Put Rok adds in a numbered changelist and never submit the default one.
 - **P4 holds stale text copies.** `//depot/Rok/Source` (6 files), `Scripts` (16), `Config` (2) and `AGENTS.md` are May 2026 snapshots (CL 46–49), and every one differs from the git copy. Never `p4 sync -f`, "Get Revision (force)", or `p4 reconcile` over those paths: git is authoritative for text.
-- Never `git reset --hard`, `git clean`, `git checkout --`, or bulk revert/submit in P4. Commit or submit only when the user asks. `git clean` is doubly dangerous here: the UnityLearning junctions (see the junction hazard above) lead into `ref/` and `Saved/`.
+- Never `git reset --hard`, `git clean`, `git checkout --`, or bulk revert/submit in P4. Commit or submit only when the user asks. If a local copy of a retired Unity experiment exists, check for junctions into `ref/` and `Saved/` before removing it.
 - **P4 non-ASCII names:** this server stores Chinese and other non-ASCII path characters as `?` (e.g. `//depot/Rok/ref/config-tables/???????/…`). Content is intact, but names are lossy and may collide. Don't rely on P4 for restoring non-ASCII-named `ref/` files.
 - `.gitignore` excludes `*.slnx` and the .NET `Scripts/*/bin/`, `Scripts/*/obj/` folders of the Spine exporters (`RokSpineExport`, `RokMailSpineExport`, `RokTrainSpineExport`). Keep `obj/project.assets.json` on disk: the handoff's offline `--no-restore` Spine builds depend on it.
 
@@ -175,6 +188,7 @@ All state, validation, timers, and lookup live here. UI calls into these; they d
 
 | Subsystem | Responsibility |
 |---|---|
+| `URokGameNetSubsystem` | TCP client for the user's skynet game server (Unity `NetProxy` port): login handshake, DES `GateMessage` frames, sproto codec read from `Content/RokData/Protocol/Protocol.sproto`, heartbeat, merged push state. Opt-in via `-RokNet` / `URokGameNetSettings::bConnectOnStart`. |
 | `URokServerSubsystem` | HTTP client to the dedicated backend. `PingHealth`, `ConnectAsGuest`, `FetchWorldState`, `StartTestMarch`. Configured via `URokServerSettings` (UObject, `Config=Game`, `DefaultConfig`). |
 | `URokBuildingUpgradeSubsystem` | Building queue/timer, reads `Saved/RokUnityMigration/unity_initial_city_state.json`, prefers `UnityInitId_*` tags over actor-label inference. |
 | `URokUnityConfigSubsystem` | Unity `InitBuilding` resolution (`unity_gameapp_city_init_building_resolution.json`). |

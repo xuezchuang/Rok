@@ -56,6 +56,7 @@ The extracted reference material lives under `ref/`. Treat it as reference input
 
 ## Working Rules
 
+- Minimize Computer Use (desktop and browser UI automation). Prefer CLI tools, scripts, APIs, and project-supported Unreal commandlets or MCP when they can complete the task. Use Computer Use when explicitly requested or when a required interaction or visual check needs the UI.
 - Prefer small, staged UE-native systems over broad ports.
 - Keep durable architecture decisions in this file as the project evolves.
 - Keep C++ as the source of gameplay/framework behavior; use Blueprints for asset shells, layout, tuning, and visual scripting hooks where it improves iteration.
@@ -65,13 +66,13 @@ The extracted reference material lives under `ref/`. Treat it as reference input
 
 ## Version Control and Workspace State (verified 2026-10-17; updated 2026-10-31)
 
-- Git (`origin` `https://github.com/xuezchuang/Rok.git`, `main`) owns text: `Source/`, `Shaders/`, `Scripts/`, `Config/`, `Rok.uproject`, `AGENTS.md`, `CLAUDE.md`, `UnityLearning/` notes. Perforce (`home.snowsome.com:1666`, client `ueDemo`, root `D:\ueDemo`) owns binary content and the reference snapshot: `//depot/Rok/Content/...` and `//depot/Rok/ref/...`.
+- Git (`origin` `https://github.com/xuezchuang/Rok.git`, `main`) owns text: `Source/`, `Shaders/`, `Scripts/`, `Config/`, `Rok.uproject`, `AGENTS.md`, `CLAUDE.md`. Perforce (`home.snowsome.com:1666`, client `ueDemo`, root `D:\ueDemo`) owns binary content and the reference snapshot: `//depot/Rok/Content/...` and `//depot/Rok/ref/...`.
 - `//depot/Rok/Source`, `Scripts`, `Config`, and `AGENTS.md` in P4 are stale May 2026 snapshots (CL 46-49) that differ from the git copies. Never force-sync or reconcile those paths from P4; git is authoritative for text.
 - State on 2026-10-17: `main` at `3da3b629`, pushed. It holds the Jul-Oct WIP checkpoint and the promoted `Saved/UIB1` shadow code (31 new + 13 updated Source files, 2 shaders). The 142 opened P4 Content files are shelved in CL 80, not submitted.
-- State on 2026-10-31: `main` is at `cbcb8c91` (migration-plan Phases 2-6), one commit ahead of `origin/main` and not pushed. P4: last submit is CL 110 (`Content/RokData`, 2026-10-18), and CL 80 is still shelved. For the current plan and per-phase progress, read `UnityLearning/MIGRATION_PLAN_2026-10-18.md`. The per-slice sections below are the older Codex-era record. Do not `git reset --hard`, `git clean`, `git checkout --`, or bulk revert/submit P4. Commit/submit only on explicit user request.
+- State on 2026-10-31: `main` is at `cbcb8c91` (migration-plan Phases 2-6), one commit ahead of `origin/main` and not pushed. P4: last submit is CL 110 (`Content/RokData`, 2026-10-18), and CL 80 is still shelved. The historical migration plan is available via `git show 0f59fce2:UnityLearning/MIGRATION_PLAN_2026-10-18.md`. The per-slice sections below are the older Codex-era record. Do not `git reset --hard`, `git clean`, `git checkout --`, or bulk revert/submit P4. Commit/submit only on explicit user request.
 - Work in the live tree, not a shadow copy. `Saved/UIB1` now keeps only `Content/` (8 extra Grass3 diagnostic assets), `Source/`, `Shaders/`, `Config/` and `Rok.uproject`. Never copy its `Config/` back.
 - Codex evidence (`Saved/Pending*`, UIB1 `Run*` receipts, UPH receipts, `RokUnityMigration` evidence-only entries, old logs) is archived in verified tars under `F:\RokArchive\`, each with a `*.manifest.csv` plus `INDEX.csv`. Exception: `PendingUnityTileRippleRendererV8` and `PendingUnityTileRippleSimulationV2` stay because product code reads them. Handoff: `Saved/RokUnityMigration/ClaudeHandoff_20261016T152648077944Z/HANDOFF.md`. Its frozen runners no longer pass preflight; `CLAUDE.md` describes the current resume path.
-- `UnityLearning/*/Assets/{BundleAssets,BundleAssetsTest,Mesh,Resources,Shader,T4M,T4MOBJ,RokUnityMigration}` are NTFS junctions into `ref/` and `Saved/`. Remove them only with `rmdir`, never with a recursive delete.
+- Local copies of the retired `UnityLearning` experiments can contain NTFS junctions into `ref/` and `Saved/`. Remove them only with `rmdir`, never with a recursive delete.
 
 ## Initial Technical Direction
 
@@ -90,10 +91,9 @@ The extracted reference material lives under `ref/`. Treat it as reference input
 
 - Treat `D:\ueDemo\Rok-unity` as the live Unity learning/source project, and treat this repository's `ref/` folder as the normalized in-repo snapshot refreshed from that Unity project when explicitly requested.
 - When refreshing `ref/` from `D:\ueDemo\Rok-unity`, copy `client-unity`, `server`, `resources`, and `config-tables`, but do not copy Unity-generated local caches such as `Library/`, `Logs/`, `Temp/`, `Obj/`, `.vs/`, or build outputs.
-- Use `UnityLearning/` in this repository for paired Unity-side learning notes, small experiments, and per-slice comparison records. Do not put Unity generated caches or packaged builds in that folder.
 - For every new migration slice, work both sides together: identify or implement the Unity behavior first, then implement the UE counterpart, and record the Unity source path, Unity experiment path, UE target class/asset/map, and the observed Unity-versus-UE difference.
 - Do not migrate by blindly copying Unity runtime code into UE. Keep the Unity side as the executable reference and learning implementation, while rebuilding the UE side with C++, UMG, DataAssets/DataTables, and reproducible editor automation.
-- When a slice changes both sides, keep paired acceptance evidence under `Saved/RokUnityMigration/` or in a slice note under `UnityLearning/`, including the exact Unity scene/prefab/config and UE script/map touched.
+- When a slice changes both sides, keep paired acceptance evidence under `Saved/RokUnityMigration/`, including the exact Unity scene/prefab/config and UE script/map touched.
 
 ### Source Inventory
 
@@ -389,14 +389,14 @@ The full Unity-to-UE migration is a large multi-slice goal. Do not treat quick v
 - Type 51 variants under `build_51_101_1_*` are allowed because those files exist as Unity sprite variants for the same model prefix.
 
 
-## UnityLearning Reference-Fidelity Rules
+## Unity Reference-Fidelity Rules
 
-When editing anything under `UnityLearning/`, the implementation must be source-faithful to `ref/` before it is considered acceptable.
+Unity reference experiments must be source-faithful to `ref/`.
 
 - First identify the exact owning reference chain in `ref/client-unity`: runtime script, prefab, material, shader, texture or atlas, config table, and scene/prefab transform data.
 - Do not replace a reference asset or behavior with a hand-made approximation when the reference source exists. This specifically forbids temporary Mesh arrows, guessed icon geometry, guessed shader behavior, guessed positions, or visually similar placeholder objects.
 - For Unity learning slices, mimic the reference object structure first. If ref uses `SpriteRenderer`, use `SpriteRenderer`; if ref uses a prefab hierarchy, reproduce that hierarchy; if ref uses atlas sprites, load those atlas sprites or copy the source atlas into the learning project.
 - Keep reference constants traceable in code comments when practical: source prefab path, source material path, source shader path, atlas sprite names, child names, local transforms, scale, and offset formulas.
-- If a required ref asset cannot be loaded or copied into `UnityLearning/`, stop and report the missing source path instead of inventing a fallback visual.
+- If a required ref asset cannot be loaded or copied into the experiment, stop and report the missing source path instead of inventing a fallback visual.
 - For city selection and move feedback, the current source of truth is `ref/client-unity/Assets/Scripts/Hotfix/MVC/GlobalMediator/CityGlobalMediator.cs`, `ref/client-unity/Assets/BundleAssets/Scene/City/city_function/building_move_arrow.prefab`, `building_move_bottom.prefab`, `city_building_move_arrow.mat`, `customcitybuilding_move_arrow+21.shader`, and `ui_hud` atlas sprites `Arrow_up`, `Arrow_right`, `Arrow_down`, and `Arrow_left`.
 - The reference arrow hierarchy is `building_move_arrow/arrow1..arrow4`; child transforms stay source-shaped and use the source arrow sprites. Do not draw replacement triangles or custom arrow meshes.
