@@ -108,7 +108,7 @@ bool FRokCommanderSkillReadonlySelectionTest::RunTest(const FString& Parameters)
         return false;
     }
     Widget->TakeWidget();
-    Widget->OpenCommander();
+    Widget->OpenCommander(true);
     TestEqual(TEXT("Unsupported default hero has no detail"),
         Widget->GetSelectedCommanderSkillDetailIdForAudit(), INDEX_NONE);
     UButton* FirstHero = Cast<UButton>(Widget->GetWidgetFromName(

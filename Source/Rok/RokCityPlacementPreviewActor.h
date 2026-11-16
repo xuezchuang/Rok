@@ -9,7 +9,7 @@ class UMaterialInstanceDynamic;
 class USceneComponent;
 class UStaticMeshComponent;
 
-/** Temporary, nonselectable visual for a source-grid Farm/Wood placement candidate. */
+/** Temporary, nonselectable visual for a source-grid placement candidate. */
 UCLASS(NotPlaceable)
 class ROK_API ARokCityPlacementPreviewActor : public AActor
 {
@@ -18,8 +18,10 @@ class ROK_API ARokCityPlacementPreviewActor : public AActor
 public:
 	ARokCityPlacementPreviewActor();
 
-	bool InitializePreview(int32 TypeId, int32 VisualCivilization, int32 Age, FString& OutError);
-	void SetCandidate(const FTransform& CityContainer, const FRokCityConstructionFootprint& Footprint, bool bGridValid);
+	bool InitializePreview(int32 TypeId, const FString& ModelId, FString& OutError);
+	void SetCandidate(const FTransform& CityContainer, const FRokCityConstructionFootprint& Footprint);
+	void UpdateFootprintFeedback(bool bDragging, bool bGridValid);
+	void SetFootprintLightingCompensation(const FLinearColor& Compensation);
 
 	UStaticMeshComponent* GetBuildingMeshComponent() const { return BuildingMesh.Get(); }
 	UStaticMeshComponent* GetBottomMeshComponent() const { return BottomMesh.Get(); }
@@ -40,5 +42,7 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInstanceDynamic> BottomMaterial;
 
+	FLinearColor FootprintTint = FLinearColor::Green;
+	FLinearColor FootprintCompensation = FLinearColor::White;
 	bool bInitialized = false;
 };

@@ -590,7 +590,6 @@ bool FRokMainHudInteractiveControlsTest::RunTest(
 			{TEXT("PositionSearchButton"), TEXT("WorldPositionGo")},
 			{TEXT("FavoriteButton"), TEXT("MapMarkerGo")},
 			{TEXT("BuildCityButton"), TEXT("BuildCityCategory_0")},
-			{TEXT("CampaignFeatureButton"), TEXT("ExpeditionChallenge")},
 			{TEXT("GemResourceHitButton"), TEXT("ChargePage_107")},
 		};
 		for (const FEntryExpectation& Entry : Entries)
@@ -617,6 +616,13 @@ bool FRokMainHudInteractiveControlsTest::RunTest(
 					? static_cast<UWidget*>(Cast<UButton>(TargetWidget))
 					: static_cast<UWidget*>(Cast<UScrollBox>(TargetWidget)));
 			FeatureWidget->CloseScreen();
+		}
+		if (auto* Campaign = Cast<UButton>(HudWidget->GetWidgetFromName(TEXT("CampaignFeatureButton"))))
+		{
+			Campaign->OnClicked.Broadcast();
+			TestFalse(TEXT("City below the Expedition requirement stays in the HUD"), FeatureWidget->IsScreenOpen());
+			const auto* Tip = HudWidget->GetWidgetFromName(TEXT("ExpeditionUnlockTip"));
+			TestTrue(TEXT("Campaign gate shows the source unlock requirement"), Tip && Tip->IsVisible());
 		}
 	}
 
@@ -1377,7 +1383,7 @@ bool FRokMainHudFeatureScreenEntryTest::RunTest(
 		FeatureWidget->GetWidgetFromName(
 			TEXT("BuildCityDrawerBackground")));
 	TestNotNull(
-		TEXT("BuildCity uses the Unity right-side decoration"),
+		TEXT("BuildCity uses the Unity left-side decoration"),
 		FeatureWidget->GetWidgetFromName(
 			TEXT("BuildCitySideDecoration")));
 	TestNull(

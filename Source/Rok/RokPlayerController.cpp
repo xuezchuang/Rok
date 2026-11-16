@@ -7,7 +7,6 @@
 #include "Engine/World.h"
 #include "Engine/GameInstance.h"
 #include "EngineUtils.h"
-#include "Framework/Application/SlateApplication.h"
 #include "HAL/FileManager.h"
 #include "HAL/IConsoleManager.h"
 #include "InputCoreTypes.h"
@@ -24,14 +23,13 @@
 #include "RokCityPlacementPreviewActor.h"
 #include "RokCityPlacementPreviewMath.h"
 #include "Components/Button.h"
-#include "RokCityCitizenActor.h"
 #include "Materials/MaterialInterface.h"
 #include "RokCitySpriteActor.h"
 #include "RokLocalConstructionVisualFactory.h"
 #include "RokMainHudWidget.h"
 #include "RokStrategyCameraPawn.h"
+#include "RokServerCitySubsystem.h"
 #include "RokUnityFeatureScreenWidget.h"
-#include "Layout/WidgetPath.h"
 #include "TimerManager.h"
 #include "UnrealClient.h"
 
@@ -59,40 +57,6 @@ ARokPlayerController::ARokPlayerController()
 	DefaultMouseCursor = EMouseCursor::Default;
 	bEnableClickEvents = true;
 	bEnableMouseOverEvents = true;
-}
-
-void ARokPlayerController::SpawnCityCitizenPreview()
-{
-	UWorld* World = GetWorld();
-	UMaterialInterface* WorkerMaterial = LoadObject<UMaterialInterface>(
-		nullptr,
-		TEXT("/Game/RokPrototype/Materials/RuntimeCity/M_RuntimeCitySprite_TestUnity_unit_03_worker.M_RuntimeCitySprite_TestUnity_unit_03_worker"));
-	if (!World || !WorkerMaterial)
-	{
-		UE_LOG(
-			LogTemp,
-			Warning,
-			TEXT("Rok city citizens: worker sprite material unavailable; skipping the city-life preview."));
-		return;
-	}
-	constexpr int32 CitizenCount = 6;
-	constexpr float RingRadius = 700.0f;
-	for (int32 Index = 0; Index < CitizenCount; ++Index)
-	{
-		const float Angle = (static_cast<float>(Index) / CitizenCount) * 2.0f * UE_PI;
-		const FVector Home(
-			FMath::Cos(Angle) * RingRadius,
-			FMath::Sin(Angle) * RingRadius,
-			90.0f);
-		FActorSpawnParameters SpawnParams;
-		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-		if (ARokCityCitizenActor* Citizen = World->SpawnActor<ARokCityCitizenActor>(
-				ARokCityCitizenActor::StaticClass(), FTransform(Home), SpawnParams))
-		{
-			Citizen->ConfigureCitizen(WorkerMaterial, 150.0f, 110.0f, Home, Index * 17 + 3);
-		}
-	}
-	UE_LOG(LogTemp, Display, TEXT("Rok city citizens: spawned %d local-preview walkers."), CitizenCount);
 }
 
 void ARokPlayerController::BeginPlay()
@@ -136,15 +100,6 @@ void ARokPlayerController::BeginPlay()
 		CVarRokDebugBuildingGrid.GetValueOnGameThread());
 	AutoSelectBuildingFromCommandLine();
 	StartSelectedBuildingUpgradeFromCommandLine();
-	// Opt-in only: the stock worker material samples the whole
-	// TestUnity_unit_03_worker sheet (8x16 cells of 32 px), so a plane shows a
-	// grid of frames. A commandlet-authored single-cell material rendered
-	// nothing in game (even as flat magenta), so this needs an editor-authored
-	// material instance instead. See the plan for the open art step.
-	if (FParse::Param(FCommandLine::Get(), TEXT("RokCityCitizens")))
-	{
-		SpawnCityCitizenPreview();
-	}
 	if (MainHudWidget)
 	{
 		MainHudWidget->OpenCommandLineModal();
@@ -334,6 +289,12 @@ void ARokPlayerController::ScheduleAutoScreenshot()
 void ARokPlayerController::TakeAutoScreenshot()
 {
 #if !UE_BUILD_SHIPPING
+	// A building spawned from the server snapshot may not exist at BeginPlay.
+	if (MainHudWidget && !SelectedBuildingActor.IsValid())
+	{
+		AutoSelectBuildingFromCommandLine();
+		if (SelectedBuildingActor.IsValid()) MainHudWidget->OpenCommandLineModal();
+	}
 	float BuildCitySample = 0.0f;
 	float PowerSample = 0.0f;
 	if (MainHudWidget && FParse::Value(FCommandLine::Get(), TEXT("RokHudPowerSample="), PowerSample))
@@ -485,7 +446,8 @@ void ARokPlayerController::RunPlacementCaptureFromCommandLine()
 		TypeId, bPlacementActive, PlacementGrid.X, PlacementGrid.Y, bPlacementCanCommit, *LastPlacementPreviewReason);
 	URokBuildingUpgradeSubsystem* Buildings = GetWorld()
 		? GetWorld()->GetSubsystem<URokBuildingUpgradeSubsystem>() : nullptr;
-	if (!bPlacementActive || !Buildings || !FParse::Param(FCommandLine::Get(), TEXT("RokPlaceBuildingConfirm"))) return;
+	if (!bPlacementActive || !Buildings || bPlacementUsesServer
+		|| !FParse::Param(FCommandLine::Get(), TEXT("RokPlaceBuildingConfirm"))) return;
 	// Without a mouse the card click's own release never arrives.
 	HandlePlacementPointerReleased();
 	const FRokResourceStock Before = Buildings->GetCurrentResources();
@@ -520,6 +482,21 @@ void ARokPlayerController::ReportPlacementCaptureFromCommandLine()
 		static_cast<unsigned long long>(Ticket.Id), Ticket.TypeId, Ticket.bCompleted,
 		Buildings->IsLocalConstructionPending(Ticket.Id), State.UnityBuildingTypeId, State.Level, State.Power,
 		*State.DisplayName.ToString(), *Failure);
+	if (!FParse::Param(FCommandLine::Get(), TEXT("RokPlaceBuildingSelect"))) return;
+	// Capture-only: open the finished building's ring menu without a pointer tap.
+	const bool bSelectable = Ticket.bCompleted && IsSelectableBuilding(Actor);
+	if (bSelectable)
+	{
+		SelectBuilding(Actor);
+	}
+	UE_LOG(LogTemp, Display, TEXT("Rok placement capture select: id=%llu selectable=%d actor=%s"),
+		static_cast<unsigned long long>(Ticket.Id), bSelectable, *GetNameSafe(Actor));
+}
+
+bool ARokPlayerController::InputKey(const FInputKeyEventArgs& Params)
+{
+	MapPointer.CapturePress(*this, Params, MainHudWidget ? MainHudWidget->GetCachedWidget().Get() : nullptr);
+	return Super::InputKey(Params);
 }
 
 void ARokPlayerController::SetupInputComponent()
@@ -527,9 +504,9 @@ void ARokPlayerController::SetupInputComponent()
 	Super::SetupInputComponent();
 	if (InputComponent)
 	{
-		InputComponent->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &ARokPlayerController::HandlePrimaryClick);
+		InputComponent->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &ARokPlayerController::HandlePrimaryPressed);
 		InputComponent->BindKey(EKeys::LeftMouseButton, IE_Released, this,
-			&ARokPlayerController::HandlePlacementPointerReleased);
+			&ARokPlayerController::HandlePrimaryReleased);
 		InputComponent->BindKey(EKeys::Escape, IE_Pressed, this,
 			&ARokPlayerController::HandlePlacementEscape);
 		// Developer hotkey: open the modal gallery without a command line switch.
@@ -546,6 +523,14 @@ void ARokPlayerController::SetupInputComponent()
 void ARokPlayerController::PlayerTick(float DeltaTime)
 {
 	Super::PlayerTick(DeltaTime);
+	if (MapPointer.IsActive())
+	{
+		FVector2D Position;
+		if (!IsInputKeyDown(EKeys::LeftMouseButton) || !UpdateMapPointer(Position))
+		{
+			MapPointer.Cancel();
+		}
+	}
 	if (bPlacementAwaitPointerRelease && !IsInputKeyDown(EKeys::LeftMouseButton))
 	{
 		bPlacementAwaitPointerRelease = false;
@@ -560,7 +545,7 @@ void ARokPlayerController::PlayerTick(float DeltaTime)
 			}
 			if (URokUnityFeatureScreenWidget* Feature = MainHudWidget->GetFeatureScreenWidgetForPlacement())
 			{
-				if (Feature->IsScreenOpen())
+				if (Feature->IsScreenOpen() && !Feature->IsWorkerQueueOpen())
 				{
 					CancelPlacementPreview();
 				}
@@ -584,8 +569,10 @@ void ARokPlayerController::PlayerTick(float DeltaTime)
 	DrawBuildingGridDebug();
 }
 
-void ARokPlayerController::HandlePrimaryClick()
+void ARokPlayerController::HandlePrimaryPressed()
 {
+	MapPointer.Cancel();
+	const auto Press = MapPointer.TakePress();
 	++PrimaryPressEventCount;
 	LastPrimaryPressFrame = GFrameCounter;
 	if (GFrameCounter <= SuppressPrimaryClickThroughFrame)
@@ -593,15 +580,12 @@ void ARokPlayerController::HandlePrimaryClick()
 		LastPrimaryPressOutcome = TEXT("suppressed");
 		return;
 	}
-	float MouseX = 0.0f;
-	float MouseY = 0.0f;
-	const bool bHasMousePosition = GetMousePosition(MouseX, MouseY);
-	if (!bHasMousePosition)
+	if (!Press)
 	{
 		LastPrimaryPressOutcome = TEXT("no_mouse");
 		return;
 	}
-	if (IsPointerOverRokUi())
+	if (Press->bOverUi || (bPlacementActive && (!MainHudWidget || IsCityCameraInputBlocked())))
 	{
 		LastPrimaryPressOutcome = TEXT("ui_owned");
 		return;
@@ -619,10 +603,56 @@ void ARokPlayerController::HandlePrimaryClick()
 		}
 		return;
 	}
-	LastPrimaryPressOutcome = TEXT("selection");
-	UE_LOG(LogTemp, Log, TEXT("Rok selection: primary click received (mouse=%s %.1f,%.1f)."),
-		bHasMousePosition ? TEXT("valid") : TEXT("invalid"), MouseX, MouseY);
+	if (!IsCityCameraInputBlocked())
+	{
+		LastPrimaryPressOutcome = TEXT("map_pointer");
+		MapPointer.Begin(Press->Position);
+	}
+	else
+	{
+		LastPrimaryPressOutcome = TEXT("modal");
+	}
+}
 
+bool ARokPlayerController::UpdateMapPointer(FVector2D& OutPosition)
+{
+	float MouseX, MouseY;
+	if (bPlacementActive || IsCityCameraInputBlocked() || !GetMousePosition(MouseX, MouseY))
+	{
+		return false;
+	}
+	OutPosition = FVector2D(MouseX, MouseY);
+	MapPointer.Update(OutPosition, [this](FVector2D Previous, FVector2D Current)
+	{
+		if (auto* Camera = Cast<ARokStrategyCameraPawn>(GetPawn()))
+		{
+			Camera->PanFromScreenDrag(Previous, Current);
+		}
+	});
+	return true;
+}
+
+void ARokPlayerController::HandlePrimaryReleased()
+{
+	HandlePlacementPointerReleased();
+	if (!MapPointer.IsActive())
+	{
+		return;
+	}
+	FVector2D Position;
+	if (!UpdateMapPointer(Position))
+	{
+		MapPointer.Cancel();
+		return;
+	}
+	if (!MapPointer.EndAsClick() || IsPointerOverRokUi())
+	{
+		return;
+	}
+
+	LastPrimaryPressOutcome = TEXT("selection");
+	UE_LOG(LogTemp, Log, TEXT("Rok selection: primary click received (mouse=valid %.1f,%.1f)."),
+		Position.X, Position.Y);
 	AActor* HitActor = FindSelectableBuildingUnderCursor();
 	if (!HitActor)
 	{
@@ -635,31 +665,18 @@ void ARokPlayerController::HandlePrimaryClick()
 	SelectBuilding(HitActor);
 }
 
+bool ARokPlayerController::IsCityCameraInputBlocked() const
+{
+	if (!MainHudWidget) return false;
+	const auto* Screen = MainHudWidget->GetFeatureScreenWidgetForPlacement();
+	return MainHudWidget->IsPlacementBlockingModalOpen() || (Screen && Screen->IsScreenOpen());
+}
+
 bool ARokPlayerController::IsPointerOverRokUi() const
 {
-	if (!FSlateApplication::IsInitialized() || !MainHudWidget)
-	{
-		return bPlacementActive;
-	}
-	FSlateApplication& Slate = FSlateApplication::Get();
-	const FWidgetPath Path = Slate.LocateWindowUnderMouse(
-		Slate.GetCursorPos(), Slate.GetInteractiveTopLevelWindows());
-	if (!Path.IsValid())
-	{
-		return true; // Ambiguous ownership must not start a world drag.
-	}
-	if (Path.ContainsWidget(&MainHudWidget->TakeWidget().Get()))
-	{
-		return true;
-	}
-	for (int32 Index = 0; Index < Path.Widgets.Num(); ++Index)
-	{
-		if (Path.Widgets[Index].Widget->GetTypeAsString().Contains(TEXT("SObjectWidget")))
-		{
-			return true; // Another UMG surface owns this pointer.
-		}
-	}
-	return false;
+	return MainHudWidget
+		? FRokMapPointerGesture::IsOverUi(MainHudWidget->GetCachedWidget().Get())
+		: bPlacementActive;
 }
 
 void ARokPlayerController::PresentPlacementFailure(const FString& Reason)
@@ -674,19 +691,15 @@ void ARokPlayerController::PresentPlacementFailure(const FString& Reason)
 
 void ARokPlayerController::HandleBuildCityPlacementRequested(int32 UnityBuildingTypeId)
 {
+	if (bPlacementConfirmInProgress) return;
 	CancelPlacementPreview();
 	SuppressPrimaryClickThroughFrame = GFrameCounter + 1;
-	if (!FRokLocalConstructionVisualFactory::FindSourceVisual(UnityBuildingTypeId))
-	{
-		PresentPlacementFailure(TEXT("该建筑的源视觉资产尚未迁移，暂不支持临时摆放预览。"));
-		return;
-	}
 	URokBuildingUpgradeSubsystem* Buildings = GetWorld()
 		? GetWorld()->GetSubsystem<URokBuildingUpgradeSubsystem>() : nullptr;
 	FRokLocalConstructionPreview Entry;
-	if (!Buildings || !Buildings->PreviewLocalConstructionEntry(UnityBuildingTypeId, Entry)
+	if (!Buildings || !Buildings->PreviewConstructionEntry(UnityBuildingTypeId, Entry)
 		|| !Entry.bContextVerified || !Entry.bSourceEligible
-		|| Entry.Footprint.X != 5 || Entry.Footprint.Y != 5)
+		|| (!Buildings->UsesServerCity() && !FRokLocalConstructionVisualFactory::FindSourceVisual(UnityBuildingTypeId)))
 	{
 		PresentPlacementFailure(!Entry.FailureReason.IsEmpty()
 			? Entry.FailureReason : TEXT("源建造入口或一级占地尚未通过校验。"));
@@ -700,8 +713,8 @@ void ARokPlayerController::HandleBuildCityPlacementRequested(int32 UnityBuilding
 		return;
 	}
 	FIntPoint FirstGrid;
-	const bool bFound = FRokCityPlacementFirstFit::Find(Frame.GetGridSize(), Entry.Footprint,
-		[this, Buildings, UnityBuildingTypeId, &Entry](const FIntPoint& Candidate)
+	const bool bFound = FRokCityPlacementFirstFit::Find(Entry.GridSize, Entry.Footprint,
+		[Buildings, UnityBuildingTypeId, &Entry](const FIntPoint& Candidate)
 		{
 			FRokLocalConstructionRequest Request;
 			Request.UnityBuildingTypeId = UnityBuildingTypeId;
@@ -709,13 +722,13 @@ void ARokPlayerController::HandleBuildCityPlacementRequested(int32 UnityBuilding
 			Request.Age = Entry.ResolvedAge;
 			Request.Grid = Candidate;
 			FRokLocalConstructionPreview Preview;
-			return Buildings->PreviewLocalConstruction(Request, Preview)
+			return Buildings->PreviewConstruction(Request, Preview)
 				&& Preview.bContextVerified && Preview.bPositionEvaluated
 				&& Preview.bSourceEligible && Preview.Footprint == Entry.Footprint;
 		}, FirstGrid);
 	if (!bFound)
 	{
-		PresentPlacementFailure(TEXT("当前城市源格图没有可用的五乘五摆放位置。"));
+		PresentPlacementFailure(TEXT("当前城市没有足够的空地放置该建筑。"));
 		return;
 	}
 	FRokLocalConstructionRequest Request;
@@ -724,7 +737,7 @@ void ARokPlayerController::HandleBuildCityPlacementRequested(int32 UnityBuilding
 	Request.Age = Entry.ResolvedAge;
 	Request.Grid = FirstGrid;
 	FRokLocalConstructionPreview Positioned;
-	if (!Buildings->PreviewLocalConstruction(Request, Positioned)
+	if (!Buildings->PreviewConstruction(Request, Positioned)
 		|| !Positioned.bContextVerified || !Positioned.bPositionEvaluated
 		|| !Positioned.bSourceEligible)
 	{
@@ -738,7 +751,7 @@ void ARokPlayerController::HandleBuildCityPlacementRequested(int32 UnityBuilding
 	ARokCityPlacementPreviewActor* PreviewActor = GetWorld()->SpawnActor<ARokCityPlacementPreviewActor>(
 		ARokCityPlacementPreviewActor::StaticClass(), FTransform::Identity, Spawn);
 	if (!PreviewActor || !PreviewActor->InitializePreview(UnityBuildingTypeId,
-			Entry.VisualCivilization, Entry.ResolvedAge, Error))
+			Entry.SourceModelId, Error))
 	{
 		if (PreviewActor) PreviewActor->Destroy();
 		PresentPlacementFailure(Error.IsEmpty()
@@ -746,7 +759,7 @@ void ARokPlayerController::HandleBuildCityPlacementRequested(int32 UnityBuilding
 		return;
 	}
 	const FRokCityConstructionFootprint Footprint{FirstGrid, Entry.Footprint};
-	PreviewActor->SetCandidate(Frame.GetCityContainerTransform(), Footprint, true);
+	PreviewActor->SetCandidate(Frame.GetCityContainerTransform(), Footprint);
 	PlacementPreviewActor = PreviewActor;
 	PlacementWorldFrame = Frame;
 	PlacementGrid = FirstGrid;
@@ -756,8 +769,20 @@ void ARokPlayerController::HandleBuildCityPlacementRequested(int32 UnityBuilding
 	PlacementAge = Entry.ResolvedAge;
 	bPlacementGridValid = true;
 	bPlacementCanCommit = Positioned.bCanCommit;
+	bPlacementNeedsWorkerQueue = Positioned.bNeedsWorkerQueue;
 	LastPlacementPreviewReason = Positioned.FailureReason;
 	bPlacementActive = true;
+	bPlacementUsesServer = Buildings->UsesServerCity();
+	if (bPlacementUsesServer)
+	{
+		// Unity MoveCameraToBuilding centers the temporary footprint on entry.
+		FVector Center;
+		if (ARokStrategyCameraPawn* Camera = Cast<ARokStrategyCameraPawn>(GetPawn());
+			Camera && Frame.GridCenterToWorld(Footprint, Center, Error))
+		{
+			Camera->FocusCityGroundPoint(Center);
+		}
+	}
 	LastPlacementReadinessCheckSeconds = GetWorld()->GetRealTimeSeconds();
 	bPlacementFeedbackOnly = false;
 	bPlacementAwaitPointerRelease = true; // The BuildCity card's own click cannot start a world drag.
@@ -766,10 +791,12 @@ void ARokPlayerController::HandleBuildCityPlacementRequested(int32 UnityBuilding
 	// the previous building HUD once the temporary actor exists. The separate
 	// UE placement menu now owns that target; retire the old selection/menu.
 	ClearSelection();
+	if (BuildingSelectionIndicator)
+		BuildingSelectionIndicator->ShowAtFootprint(PreviewActor->GetBottomMeshComponent()->GetComponentLocation(), PlacementFootprint);
 	if (MainHudWidget)
 	{
 		MainHudWidget->SetPlacementPresentation(true, true, bPlacementCanCommit,
-			FText::FromString(Positioned.FailureReason));
+			FText::FromString(Positioned.FailureReason), bPlacementNeedsWorkerQueue);
 	}
 	UE_LOG(LogTemp, Display,
 		TEXT("Rok city placement preview: type=%d grid=(%d,%d) source model=%s; no ticket or resource change."),
@@ -805,7 +832,7 @@ void ARokPlayerController::HandlePlacementPointerPressed()
 	LastPlacementPressGround = FVector::ZeroVector;
 	LastPlacementPressLocalHit = FVector2D::ZeroVector;
 	LastPlacementPressLocalCenter = FVector2D::ZeroVector;
-	if (!bPlacementActive || !PlacementPreviewActor.IsValid()
+	if (!bPlacementActive || bPlacementConfirmInProgress || !PlacementPreviewActor.IsValid()
 		|| !Cast<ARokStrategyCameraPawn>(GetPawn()))
 	{
 		LastPlacementPressFailure = TEXT("placement_actor_or_camera_unavailable");
@@ -859,6 +886,7 @@ void ARokPlayerController::HandlePlacementPointerPressed()
 	}
 	++PlacementDragBeginCount;
 	LastPlacementDragBeginFrame = GFrameCounter;
+	PlacementPreviewActor->UpdateFootprintFeedback(true, bPlacementGridValid);
 	SetPlacementCameraInputSuspended(true);
 }
 
@@ -888,7 +916,7 @@ void ARokPlayerController::UpdatePlacementDrag()
 
 void ARokPlayerController::RefreshPlacementCommitReadiness()
 {
-	if (!bPlacementActive) return;
+	if (!bPlacementActive || bPlacementConfirmInProgress) return;
 	LastPlacementReadinessCheckSeconds = GetWorld() ? GetWorld()->GetRealTimeSeconds() : 0.0;
 	FRokLocalConstructionRequest Request;
 	Request.UnityBuildingTypeId = PlacementTypeId;
@@ -898,8 +926,13 @@ void ARokPlayerController::RefreshPlacementCommitReadiness()
 	FRokLocalConstructionPreview Preview;
 	URokBuildingUpgradeSubsystem* Buildings = GetWorld()
 		? GetWorld()->GetSubsystem<URokBuildingUpgradeSubsystem>() : nullptr;
-	if (!Buildings || !Buildings->PreviewLocalConstruction(Request, Preview)
-		|| !Preview.bContextVerified)
+	if (!Buildings || Buildings->UsesServerCity() != bPlacementUsesServer)
+	{
+		CancelPlacementPreview();
+		PresentPlacementFailure(TEXT("城市连接状态已变化，请重新选择建筑。"));
+		return;
+	}
+	if (!Buildings->PreviewConstruction(Request, Preview) || !Preview.bContextVerified)
 	{
 		CancelPlacementPreview();
 		PresentPlacementFailure(!Preview.FailureReason.IsEmpty()
@@ -915,16 +948,20 @@ void ARokPlayerController::RefreshPlacementCommitReadiness()
 	LastPlacementPreviewReason = Preview.FailureReason;
 	bPlacementGridValid = Preview.bPositionEvaluated && Preview.bSourceEligible;
 	bPlacementCanCommit = Preview.bCanCommit;
+	bPlacementNeedsWorkerQueue = Preview.bNeedsWorkerQueue;
 	if (ARokCityPlacementPreviewActor* Actor = PlacementPreviewActor.Get())
 	{
 		Actor->SetCandidate(PlacementWorldFrame.GetCityContainerTransform(),
-			FRokCityConstructionFootprint{PlacementGrid, PlacementFootprint}, bPlacementGridValid);
+			FRokCityConstructionFootprint{PlacementGrid, PlacementFootprint});
+		Actor->UpdateFootprintFeedback(PlacementDragState.bActive, bPlacementGridValid);
+		if (BuildingSelectionIndicator)
+			BuildingSelectionIndicator->ShowAtFootprint(Actor->GetBottomMeshComponent()->GetComponentLocation(), PlacementFootprint);
 	}
 	if (MainHudWidget)
 	{
 		MainHudWidget->SetPlacementPresentation(true, bPlacementGridValid, bPlacementCanCommit,
 			FText::FromString(PlacementSubmitFailure.IsEmpty()
-				? Preview.FailureReason : PlacementSubmitFailure));
+				? Preview.FailureReason : PlacementSubmitFailure), bPlacementNeedsWorkerQueue);
 	}
 }
 
@@ -935,6 +972,8 @@ void ARokPlayerController::HandlePlacementPointerReleased()
 	bPlacementAwaitPointerRelease = false;
 	if (!PlacementDragState.bActive) return;
 	FRokCityPlacementPreviewMath::CancelDrag(PlacementDragState);
+	if (auto* Actor = PlacementPreviewActor.Get())
+		Actor->UpdateFootprintFeedback(false, bPlacementGridValid);
 	SetPlacementCameraInputSuspended(false);
 }
 
@@ -949,6 +988,15 @@ void ARokPlayerController::HandleUiGalleryHotkey()
 }
 void ARokPlayerController::HandlePlacementEscape()
 {
+	if (bPlacementActive && MainHudWidget)
+	{
+		if (URokUnityFeatureScreenWidget* Feature = MainHudWidget->GetFeatureScreenWidgetForPlacement();
+			Feature && Feature->IsWorkerQueueOpen())
+		{
+			Feature->RequestCloseScreen();
+			return;
+		}
+	}
 	if (bPlacementActive || bPlacementFeedbackOnly)
 	{
 		if (bPlacementActive && PlacementPreviewActor.IsValid())
@@ -962,7 +1010,7 @@ void ARokPlayerController::HandlePlacementEscape()
 
 void ARokPlayerController::HandlePlacementCancelRequested()
 {
-	CancelPlacementPreview();
+	if (!bPlacementConfirmInProgress) CancelPlacementPreview();
 }
 
 void ARokPlayerController::HandlePlacementConfirmRequested()
@@ -1002,13 +1050,23 @@ void ARokPlayerController::HandlePlacementConfirmRequested()
 	FRokLocalConstructionPreview Preview;
 	URokBuildingUpgradeSubsystem* Buildings = GetWorld()
 		? GetWorld()->GetSubsystem<URokBuildingUpgradeSubsystem>() : nullptr;
-	if (!Buildings || !Buildings->PreviewLocalConstruction(Request, Preview)
-		|| !Preview.bContextVerified || !Preview.bPositionEvaluated
-		|| !Preview.bSourceEligible || !Preview.bCanCommit)
+	const bool bValidPreview = Buildings && Buildings->UsesServerCity() == bPlacementUsesServer
+		&& Buildings->PreviewConstruction(Request, Preview) && Preview.bContextVerified
+		&& Preview.bPositionEvaluated && Preview.bSourceEligible;
+	if (bValidPreview && Preview.bNeedsWorkerQueue)
+	{
+		if (URokUnityFeatureScreenWidget* Feature = MainHudWidget->GetFeatureScreenWidgetForPlacement())
+		{
+			LastConfirmOutcome = TEXT("worker_queue_opened");
+			Feature->OpenWorkerQueue(nullptr, Preview.BuildSeconds);
+			return;
+		}
+	}
+	if (!bValidPreview || !Preview.bCanCommit)
 	{
 		LastConfirmOutcome = TEXT("invalid_preview");
 		LastConfirmFailure = !Preview.FailureReason.IsEmpty()
-			? Preview.FailureReason : TEXT("本地建造条件尚未满足。");
+			? Preview.FailureReason : TEXT("建造条件尚未满足。");
 		if (Buildings)
 		{
 			RefreshPlacementCommitReadiness();
@@ -1024,11 +1082,29 @@ void ARokPlayerController::HandlePlacementConfirmRequested()
 				FText::FromString(LastConfirmFailure));
 		}
 		bPlacementCanCommit = false;
+		bPlacementNeedsWorkerQueue = false;
 		if (bPlacementActive) PlacementSubmitFailure = LastConfirmFailure;
 		return;
 	}
 	bPlacementConfirmInProgress = true;
 	PlacementSubmitFailure.Reset();
+	if (bPlacementUsesServer)
+	{
+		FString Failure;
+		const TWeakObjectPtr<ARokPlayerController> WeakThis(this);
+		if (!Buildings->StartServerConstruction(Request, [WeakThis](const FString& Result)
+		{
+			if (ARokPlayerController* Controller = WeakThis.Get()) Controller->HandleServerPlacementResult(Result);
+		}, Failure))
+		{
+			HandleServerPlacementResult(Failure);
+			return;
+		}
+		LastConfirmOutcome = TEXT("server_pending");
+		bPlacementCanCommit = false;
+		MainHudWidget->SetPlacementPresentation(true, true, false, FText::FromString(TEXT("正在等待服务器确认建造。")));
+		return;
+	}
 	uint64 LocalConstructionId = 0;
 	FString FailureReason;
 	const bool bStarted = Buildings->StartLocalConstruction(Request, LocalConstructionId, FailureReason);
@@ -1065,6 +1141,29 @@ void ARokPlayerController::HandlePlacementConfirmRequested()
 	ClearSelection();
 }
 
+void ARokPlayerController::HandleServerPlacementResult(const FString& Failure)
+{
+	bPlacementConfirmInProgress = false;
+	if (!bPlacementActive || !bPlacementUsesServer) return;
+	if (Failure.IsEmpty())
+	{
+		LastConfirmOutcome = TEXT("server_confirmed");
+		CancelPlacementPreview(false);
+		ClearSelection();
+		return;
+	}
+
+	LastConfirmOutcome = TEXT("server_rejected");
+	LastConfirmFailure = Failure;
+	RefreshPlacementCommitReadiness();
+	if (bPlacementActive && MainHudWidget)
+	{
+		PlacementSubmitFailure = Failure;
+		MainHudWidget->SetPlacementPresentation(true, bPlacementGridValid, bPlacementCanCommit,
+			FText::FromString(Failure), bPlacementNeedsWorkerQueue);
+	}
+}
+
 void ARokPlayerController::CancelPlacementPreview(bool bRestoreSelection)
 {
 	if (!bPlacementActive && !bPlacementFeedbackOnly && !PlacementPreviewActor.IsValid()) return;
@@ -1072,14 +1171,20 @@ void ARokPlayerController::CancelPlacementPreview(bool bRestoreSelection)
 	HandlePlacementPointerReleased();
 	FRokCityPlacementPreviewMath::CancelDrag(PlacementDragState);
 	SetPlacementCameraInputSuspended(false);
-	if (ARokCityPlacementPreviewActor* Actor = PlacementPreviewActor.Get()) Actor->Destroy();
+	if (ARokCityPlacementPreviewActor* Actor = PlacementPreviewActor.Get())
+	{
+		Actor->Destroy();
+		if (BuildingSelectionIndicator) BuildingSelectionIndicator->HideIndicator();
+	}
 	PlacementPreviewActor.Reset();
 	PlacementWorldFrame = FRokCityPlacementWorldFrame();
 	PlacementGrid = PlacementFootprint = FIntPoint::ZeroValue;
 	PlacementTypeId = PlacementVisualCivilization = PlacementAge = 0;
 	bPlacementGridValid = false;
 	bPlacementCanCommit = false;
+	bPlacementNeedsWorkerQueue = false;
 	bPlacementActive = false;
+	bPlacementUsesServer = false;
 	LastPlacementReadinessCheckSeconds = -1.0;
 	bPlacementFeedbackOnly = false;
 	PlacementSubmitFailure.Reset();
@@ -1280,6 +1385,79 @@ void ARokPlayerController::DrawBuildingGridDebugForActor(
 			SDPG_Foreground,
 			Thickness);
 	}
+}
+
+bool ARokPlayerController::FocusTaskHospital()
+{
+	auto* Camera = Cast<ARokStrategyCameraPawn>(GetPawn());
+	auto* World = GetWorld();
+	auto* Buildings = World ? World->GetSubsystem<URokBuildingUpgradeSubsystem>() : nullptr;
+	if (!Camera || !Buildings || bPlacementActive)
+	{
+		return false;
+	}
+
+	auto Focus = [this, Camera](AActor* Actor)
+	{
+		const auto* Hospital = Cast<ARokCitySpriteActor>(Actor);
+		if (!Hospital || !IsSelectableBuilding(Actor) || Hospital->IsHidden())
+		{
+			return false;
+		}
+		Camera->FocusCityGroundPoint(Hospital->GetVisualAnchorWorldPosition());
+		SelectBuilding(Actor);
+		UE_LOG(LogTemp, Display, TEXT("Rok task focused hospital: %s"), *GetNameSafe(Actor));
+		return true;
+	};
+
+	if (Buildings->UsesServerCity())
+	{
+		const auto* City = World->GetSubsystem<URokServerCitySubsystem>();
+		if (City)
+		{
+			for (const FRokServerBuilding& Building : City->GetAppliedBuildings())
+			{
+				if (Building.Type == 14 && Building.Level > 0 && Focus(City->FindBuildingBarAnchor(Building.Index)))
+				{
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+	for (TActorIterator<ARokCitySpriteActor> It(World); It; ++It)
+	{
+		if (It->ActorHasTag(TEXT("UnityBuildingType_14"))
+			&& Buildings->GetBuildingStateForActor(*It).Level > 0 && Focus(*It))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+bool ARokPlayerController::FocusTaskCityBuilding(int32 BuildingType)
+{
+	auto* Camera = Cast<ARokStrategyCameraPawn>(GetPawn());
+	auto* World = GetWorld();
+	const auto* City = World ? World->GetSubsystem<URokServerCitySubsystem>() : nullptr;
+	if (!Camera || !City || bPlacementActive || BuildingType <= 0) return false;
+
+	// Unity CityBuildingProxy.GetBuildingInfoByType chooses the highest-level building.
+	const FRokServerBuilding* Target = nullptr;
+	for (const FRokServerBuilding& Building : City->GetAppliedBuildings())
+	{
+		if (Building.Type == BuildingType && Building.Level > 0
+			&& (!Target || Building.Level > Target->Level)) Target = &Building;
+	}
+	AActor* Actor = Target ? City->FindBuildingBarAnchor(Target->Index) : nullptr;
+	const auto* Sprite = Cast<ARokCitySpriteActor>(Actor);
+	if (!Sprite || Sprite->IsHidden() || !IsSelectableBuilding(Actor)) return false;
+	Camera->FocusCityGroundPoint(Sprite->GetVisualAnchorWorldPosition());
+	SelectBuilding(Actor);
+	UE_LOG(LogTemp, Display, TEXT("Rok task focused city building: type=%d index=%d level=%d."),
+		BuildingType, Target->Index, Target->Level);
+	return true;
 }
 
 void ARokPlayerController::SelectBuilding(AActor* Actor)

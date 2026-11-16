@@ -80,6 +80,10 @@ struct FRokResourceStock
 
 	UPROPERTY(BlueprintReadOnly, Category="Rok Building")
 	int32 Gold = 600;
+
+	// Starting balance of the isolated city simulation.
+	UPROPERTY(BlueprintReadOnly, Category="Rok Building")
+	int32 Denar = 350;
 };
 
 USTRUCT(BlueprintType)
@@ -322,6 +326,7 @@ struct FRokLocalConstructionPreview
 	bool bContextVerified = false;
 	bool bSourceEligible = false;
 	bool bCanCommit = false;
+	bool bNeedsWorkerQueue = false;
 	bool bPositionEvaluated = false;
 	FString FailureReason;
 	int32 VisualCivilization = 0;
@@ -336,6 +341,7 @@ struct FRokLocalConstructionPreview
 	int32 CountLimit = 0;
 	int32 ExistingCount = 0;
 	FString SourceModelId;
+	int32 GridSize = 0;
 	TArray<int32> SourceCellIndices;
 };
 
@@ -367,11 +373,26 @@ public:
 	// Source-derived construction is deliberately distinct from a UnityInitId building.
 	bool PreviewLocalConstructionEntry(int32 UnityBuildingTypeId, FRokLocalConstructionPreview& OutPreview) const;
 	bool PreviewLocalConstruction(const FRokLocalConstructionRequest& Request, FRokLocalConstructionPreview& OutPreview) const;
+	bool UsesServerCity() const;
+	bool PreviewConstructionEntry(int32 UnityBuildingTypeId, FRokLocalConstructionPreview& OutPreview) const;
+	FString GetCityConstructionModelId(int32 UnityBuildingTypeId, int32 TownHallLevel, int32 CivilizationId = 0) const;
+	bool PreviewConstruction(const FRokLocalConstructionRequest& Request, FRokLocalConstructionPreview& OutPreview) const;
+	bool StartServerConstruction(const FRokLocalConstructionRequest& Request,
+		TFunction<void(const FString&)> OnResult, FString& OutFailureReason);
+	bool GetServerInstantUpgradeQuote(AActor* Actor, int64& OutGems) const;
+	bool CanStartServerUpgrade(AActor* Actor, bool bImmediately, FString& OutFailureReason,
+		int32 ExpectedLevel = 0) const;
+	bool StartServerUpgrade(AActor* Actor, int32 ExpectedLevel, bool bImmediately,
+		TFunction<void(const FString&)> OnResult, FString& OutFailureReason);
+
 	bool StartLocalConstruction(const FRokLocalConstructionRequest& Request, uint64& OutLocalConstructionId, FString& OutFailureReason);
 	bool GetLocalConstructionTicket(uint64 LocalConstructionId, FRokLocalConstructionTicket& OutTicket) const;
 	int32 GetActiveLocalConstructionCount() const;
 	ARokCitySpriteActor* GetLocalConstructionActor(uint64 LocalConstructionId) const;
 	bool IsLocalConstructionPending(uint64 LocalConstructionId) const;
+	// Build-queue clock of the unfinished local construction this actor shows.
+	bool GetPendingLocalConstructionClock(const AActor* Actor,
+		float& OutRemainingSeconds, float& OutTotalSeconds) const;
 	bool GetLocalConstructionCompletionFailure(uint64 LocalConstructionId, FString& OutFailureReason) const;
 	bool RegisterCompletedLocalConstructionActor(uint64 LocalConstructionId, ARokCitySpriteActor* Actor, FString& OutFailureReason);
 	bool QueryLocalProduction(uint64 LocalConstructionId,
@@ -386,8 +407,15 @@ public:
 	// Pure cache read: no actor binding insertion or elapsed-upgrade settlement.
 	bool TryPeekExistingBuildingStateForActor(const AActor* Actor, FRokBuildingState& OutState) const;
 
+	// Live server state (Build_BuildingInfo) owns type, level and grid. Overwrites the
+	// actor's state, cancels any local upgrade timer and rewrites the level/grid tags.
+	void ApplyServerBuilding(AActor* Actor, int32 TypeId, int32 Level, const FIntPoint& Grid);
+
 	UFUNCTION(BlueprintCallable, Category="Rok Building")
 	bool StartUpgrade(AActor* Actor, FString& OutFailureReason);
+	// A negative quote means the local price could not be resolved.
+	bool CanStartLocalInstantUpgrade(AActor* Actor, int32 ExpectedLevel, int64& OutGems, FString& OutFailureReason);
+	bool StartLocalInstantUpgrade(AActor* Actor, int32 ExpectedLevel, int64 ExpectedGems, FString& OutFailureReason);
 
 	UFUNCTION(BlueprintCallable, Category="Rok Building")
 	float GetUpgradeProgress(AActor* Actor);
@@ -428,6 +456,7 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category="Rok Building")
 	FRokResourceRates GetProductionRates() const;
+	const FRokUnityBuildingProduceConfig* GetBuildingProduceConfig(int32 TypeId, int32 Level) const;
 
 	UFUNCTION(BlueprintCallable, Category="Rok Building")
 	int32 GetInitialCityBuildingCount() const;
@@ -484,6 +513,10 @@ private:
 
 	FRokBuildingState& GetOrCreateBuildingState(AActor* Actor);
 	bool RefreshUpgradeCompletion(FRokBuildingState& State);
+	bool CompleteLocalUpgrade(FRokBuildingState& State);
+	bool CanUpgradeLocalBuilding(const FRokBuildingState& State, FString& OutFailureReason) const;
+	bool EvaluateLocalInstantUpgrade(const FRokBuildingState& State, int32 ExpectedLevel, int64& OutGems,
+		FRokResourceCost& OutResourceDebit, FString& OutFailureReason) const;
 	FName MakeBuildingKey(AActor* Actor) const;
 	FString GetActorDisplayString(AActor* Actor) const;
 	ERokBuildingType InferBuildingType(const FString& Label) const;
@@ -512,7 +545,7 @@ private:
 	bool CanUseLocalCitySimulation(FString& OutFailureReason) const;
 	bool CanUseLocalEconomy(FString& OutFailureReason) const;
 	FRokLocalEconomyAuthoritySnapshot GetLocalEconomyAuthoritySnapshot() const;
-	bool EvaluateLocalConstruction(const FRokLocalConstructionRequest& Request, bool bCheckPosition,
+	bool EvaluateConstruction(const FRokLocalConstructionRequest& Request, bool bCheckPosition, bool bServer,
 		FRokLocalConstructionPreview& OutPreview) const;
 	bool ResolveLocalProductionNowSeconds(uint64 LocalConstructionId,
 		int64& OutNowSeconds, FString& OutFailureReason) const;

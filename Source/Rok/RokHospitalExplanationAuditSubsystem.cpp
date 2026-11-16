@@ -164,11 +164,8 @@ bool URokHospitalExplanationAuditSubsystem::Validate()
 #if !UE_BUILD_SHIPPING
     if (!Expect(Feature->GetFeatureContextActorForAudit() == Hospital.Get(), TEXT("Hospital lost actual actor context"))) return false;
 #endif
-    for (int32 I = 0; I < 4; ++I)
-    {
-        const auto* T = Cast<UTextBlock>(Find(*FString::Printf(TEXT("HospitalTroopValue_%d"), I)));
-        if (!Expect(T && T->GetText().ToString() == TEXT("--"), TEXT("Wounded count was fabricated"))) return false;
-    }
+    if (!Expect(!Find(TEXT("HospitalTreatmentList")) && !Find(TEXT("HospitalHealButton"))
+        && !Find(TEXT("HospitalHealNowButton")), TEXT("Unknown hospital must not show selectable troops or treatment actions"))) return false;
     const auto* Capacity = Cast<UTextBlock>(Find(TEXT("HospitalCapacityValue")));
     if (!Expect(Capacity && Capacity->GetText().ToString().Contains(TEXT("--")), TEXT("Capacity must retain unknown wounded count"))) return false;
     const bool Explanation = Page == EPage::Explanation;
@@ -180,16 +177,10 @@ bool URokHospitalExplanationAuditSubsystem::Validate()
             const auto* T = Cast<UTextBlock>(Find(Pair.Key));
             if (!Expect(T && Visible(T) && T->GetText().ToString() == Pair.Value, TEXT("Main page unknown text changed on return"))) return false;
         }
-        for (const auto& Pair : MainOptions)
-        {
-            const auto* B = Cast<UButton>(Find(Pair.Key));
-            if (!Expect(B && Visible(B) && B->GetIsEnabled() == Pair.Value, TEXT("Treatment option changed on return"))) return false;
-        }
-        return true;
+        return Expect(Visible(Find(TEXT("HospitalMainContent"))), TEXT("Main hospital content is hidden"));
     }
-    for (const auto& Pair : MainOptions)
-        if (!Expect(!Visible(Find(Pair.Key)), TEXT("Treatment controls overlap explanation"))) return false;
-    if (!Expect(!Visible(Capacity) && Visible(Find(TEXT("HospitalExplanationBackButton"))), TEXT("Explanation source count/back visibility differs"))) return false;
+    if (!Expect(!Visible(Find(TEXT("HospitalMainContent"))) && Visible(Find(TEXT("HospitalExplanationBackButton"))),
+        TEXT("Hospital controls overlap the explanation or the back button is missing"))) return false;
     const auto* T = Cast<URichTextBlock>(Find(TEXT("HospitalExplanationText")));
     auto* S = Scroll();
     if (!Expect(T && S && Visible(T) && T->GetText().ToString() == ExpectedRichText && S->GetCachedGeometry().GetLocalSize().Y > 1, TEXT("Source rich text or actual scroll geometry missing"))) return false;
@@ -243,10 +234,8 @@ void URokHospitalExplanationAuditSubsystem::Tick(float DeltaTime)
     case 0: if (Begin()) Enter(1); break;
     case 1: if (Click(Cast<UUserWidget>(Hud->GetWidgetFromName(TEXT("BuildingPanelWidget"))), TEXT("BuildingFeatureButton"))) { Page = EPage::Main; Enter(2); } break;
     case 2:
-        for (const auto* Name : {TEXT("HospitalWoundedState"), TEXT("HospitalTreatmentCost"), TEXT("HospitalCapacityValue")})
+        for (const auto* Name : {TEXT("HospitalWoundedState"), TEXT("HospitalCapacityValue")})
         { const auto* T = Cast<UTextBlock>(Find(Name)); if (!Expect(T != nullptr, TEXT("Missing hospital boundary text"))) return; MainTexts.Add(Name, T->GetText().ToString()); }
-        for (const auto* Name : {TEXT("HospitalMaxButton"), TEXT("HospitalHealButton"), TEXT("HospitalHealNowButton")})
-        { const auto* B = Cast<UButton>(Find(Name)); if (!Expect(B != nullptr, TEXT("Missing treatment option"))) return; MainOptions.Add(Name, B->GetIsEnabled()); }
         Capture(TEXT("01_hospital_unknown")); break;
     case 3: if (Click(Feature.Get(), TEXT("HospitalCapacityInfo"))) { Page = EPage::Explanation; Enter(4); } break;
     case 4: OriginalScroll = Scroll(); Capture(TEXT("02_explanation_top")); break;

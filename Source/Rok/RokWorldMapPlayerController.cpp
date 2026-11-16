@@ -693,9 +693,14 @@ void ARokWorldMapPlayerController::ClearWorldMapSelection()
 	SelectWorldMapActor(nullptr);
 }
 
+bool ARokWorldMapPlayerController::FocusWorldSearchResult(int64 ObjectId, FVector2D UnityPosition)
+{
+	return WorldMapHudWidget && WorldMapHudWidget->FocusWorldSearchResult(ObjectId, UnityPosition);
+}
+
 bool ARokWorldMapPlayerController::RequestEnterPlayerCity(
 	TSoftObjectPtr<UWorld> PlayerCityLevel,
-	float EntryDxf)
+	float EntryDxf, int32 TaskBuildingType, bool bOpenBuildCity, bool bUpgradeBuilding)
 {
 	if (bPlayerCityEntryRequested
 		|| PlayerCityLevel.IsNull()
@@ -706,9 +711,12 @@ bool ARokWorldMapPlayerController::RequestEnterPlayerCity(
 	}
 
 	bPlayerCityEntryRequested = true;
-	const FString Options = FString::Printf(
-		TEXT("RokCityEntryDxf=%.3f"),
-		EntryDxf);
+	FString Options = FString::Printf(TEXT("RokCityEntryDxf=%.3f"), EntryDxf);
+	if (TaskBuildingType > 0)
+	{
+		Options += FString::Printf(TEXT("?%s=%d"),
+			bOpenBuildCity ? TEXT("RokTaskBuildType") : bUpgradeBuilding ? TEXT("RokTaskUpgradeType") : TEXT("RokTaskBuildingType"), TaskBuildingType);
+	}
 	UE_LOG(
 		LogTemp,
 		Display,
@@ -723,7 +731,7 @@ bool ARokWorldMapPlayerController::RequestEnterPlayerCity(
 	return true;
 }
 
-void ARokWorldMapPlayerController::SelectWorldMapActor(AActor* Actor)
+void ARokWorldMapPlayerController::SelectWorldMapActor(AActor* Actor, bool bShowInfo)
 {
 	if (!IsWorldMapSelectableActor(Actor))
 	{
@@ -731,7 +739,7 @@ void ARokWorldMapPlayerController::SelectWorldMapActor(AActor* Actor)
 	}
 	if (SelectedWorldMapActor.Get() == Actor)
 	{
-		if (WorldMapHudWidget)
+		if (WorldMapHudWidget && bShowInfo)
 		{
 			WorldMapHudWidget->ShowWorldObjectInfo(Actor);
 		}
@@ -741,7 +749,7 @@ void ARokWorldMapPlayerController::SelectWorldMapActor(AActor* Actor)
 	ApplySelectionHighlight(SelectedWorldMapActor.Get(), false);
 	SelectedWorldMapActor = Actor;
 	ApplySelectionHighlight(Actor, true);
-	if (WorldMapHudWidget)
+	if (WorldMapHudWidget && bShowInfo)
 	{
 		WorldMapHudWidget->ShowWorldObjectInfo(Actor);
 	}

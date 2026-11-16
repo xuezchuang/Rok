@@ -108,16 +108,28 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FRokCityHudConstructionClockTest::RunTest(const FString& Parameters)
 {
-	TestEqual(TEXT("Zero seconds formats as 0:00"),
-		URokMainHudWidget::FormatRemainingClock(0.0f), FString(TEXT("0:00")));
-	TestEqual(TEXT("Under a minute keeps the minute zero"),
-		URokMainHudWidget::FormatRemainingClock(59.4f), FString(TEXT("0:59")));
-	TestEqual(TEXT("Exactly one minute"),
-		URokMainHudWidget::FormatRemainingClock(60.0f), FString(TEXT("1:00")));
-	TestEqual(TEXT("Past an hour keeps counting minutes"),
-		URokMainHudWidget::FormatRemainingClock(3661.0f), FString(TEXT("61:01")));
+	// UI_Tip_BuildingBar lbl_time = ClientUtils.FormatCountDown((int)leftTime).
+	TestEqual(TEXT("Zero seconds formats as 00:00:00"),
+		URokMainHudWidget::FormatRemainingClock(0.0f), FString(TEXT("00:00:00")));
+	TestEqual(TEXT("Seconds truncate like the source int cast"),
+		URokMainHudWidget::FormatRemainingClock(1.9f), FString(TEXT("00:00:01")));
+	TestEqual(TEXT("Under a minute"),
+		URokMainHudWidget::FormatRemainingClock(59.4f), FString(TEXT("00:00:59")));
+	TestEqual(TEXT("Past an hour shows the hour field"),
+		URokMainHudWidget::FormatRemainingClock(3661.0f), FString(TEXT("01:01:01")));
+	TestEqual(TEXT("Past a day uses Language 128004"),
+		URokMainHudWidget::FormatRemainingClock(90061.0f), FString(TEXT("1天 01:01:01")));
 	TestEqual(TEXT("Negative remaining clamps to zero"),
-		URokMainHudWidget::FormatRemainingClock(-5.0f), FString(TEXT("0:00")));
+		URokMainHudWidget::FormatRemainingClock(-5.0f), FString(TEXT("00:00:00")));
+
+	// RefreshhudView: (costTime - leftTime) / costTime, and 1 once leftTime < 0.
+	TestEqual(TEXT("A just-started build has an empty bar"),
+		URokMainHudWidget::GetBuildBarProgress(2.0f, 2.0f), 0.0f);
+	TestEqual(TEXT("Half way"), URokMainHudWidget::GetBuildBarProgress(2.0f, 1.0f), 0.5f);
+	TestEqual(TEXT("Overdue fills the bar"), URokMainHudWidget::GetBuildBarProgress(2.0f, 0.0f), 1.0f);
+	TestEqual(TEXT("A zero-length build is full"), URokMainHudWidget::GetBuildBarProgress(0.0f, 0.0f), 1.0f);
+	TestEqual(TEXT("Remaining above the total clamps to empty"),
+		URokMainHudWidget::GetBuildBarProgress(2.0f, 3.0f), 0.0f);
 	return true;
 }
 

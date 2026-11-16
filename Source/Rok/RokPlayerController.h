@@ -4,6 +4,7 @@
 #include "GameFramework/PlayerController.h"
 #include "RokCityPlacementPreviewMath.h"
 #include "RokCityPlacementWorldFrame.h"
+#include "RokMapPointerGesture.h"
 #include "RokPlayerController.generated.h"
 
 class URokMainHudWidget;
@@ -60,6 +61,9 @@ class ROK_API ARokPlayerController : public APlayerController
 public:
 	ARokPlayerController();
 	FRokCityPlacementRuntimeSnapshot GetCityPlacementPreviewSnapshot() const;
+	bool IsCityCameraInputBlocked() const;
+	bool FocusTaskHospital();
+	bool FocusTaskCityBuilding(int32 BuildingType);
 
 	// rok.DebugBuildingGrid resolution: 0 in normal play, at least the selected
 	// footprint while placing or moving a building (Unity shows footprints only
@@ -67,11 +71,11 @@ public:
 	static int32 ResolveBuildingGridDebugMode(int32 ConfiguredMode, bool bPlacementActive);
 
 	// City-life preview: spawn the wandering worker sprites (no gameplay state).
-	void SpawnCityCitizenPreview();
 
 protected:
 	virtual void BeginPlay() override;
 	virtual void SetupInputComponent() override;
+	virtual bool InputKey(const FInputKeyEventArgs& Params) override;
 	virtual void PlayerTick(float DeltaTime) override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
@@ -99,6 +103,7 @@ private:
 	TWeakObjectPtr<AActor> SelectionBeforePlacement;
 	TWeakObjectPtr<ARokStrategyCameraPawn> PlacementLockedCamera;
 	FRokCityPlacementWorldFrame PlacementWorldFrame;
+	FRokMapPointerGesture MapPointer;
 	FRokCityPlacementDragState PlacementDragState;
 	FIntPoint PlacementGrid = FIntPoint::ZeroValue;
 	FIntPoint PlacementFootprint = FIntPoint::ZeroValue;
@@ -108,7 +113,9 @@ private:
 	bool bPlacementActive = false;
 	bool bPlacementGridValid = false;
 	bool bPlacementCanCommit = false;
+	bool bPlacementNeedsWorkerQueue = false;
 	bool bPlacementConfirmInProgress = false;
+	bool bPlacementUsesServer = false;
 	double LastPlacementReadinessCheckSeconds = -1.0;
 	bool bPlacementPriorCameraSuspended = false;
 	bool bPlacementAwaitPointerRelease = false;
@@ -149,7 +156,9 @@ private:
 	void SchedulePlacementCaptureFromCommandLine();
 	void RunPlacementCaptureFromCommandLine();
 	void ReportPlacementCaptureFromCommandLine();
-	void HandlePrimaryClick();
+	void HandlePrimaryPressed();
+	void HandlePrimaryReleased();
+	bool UpdateMapPointer(FVector2D& OutPosition);
 	void HandleBuildCityPlacementRequested(int32 UnityBuildingTypeId);
 	void HandlePlacementPointerPressed();
 	void HandlePlacementPointerReleased();
@@ -158,6 +167,7 @@ private:
 	void HandleUiGalleryHotkey();
 	void HandlePlacementCancelRequested();
 	void HandlePlacementConfirmRequested();
+	void HandleServerPlacementResult(const FString& Failure);
 	void UpdatePlacementDrag();
 	void RefreshPlacementCommitReadiness();
 	void CancelPlacementPreview(bool bRestoreSelection = true);

@@ -5,6 +5,8 @@
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "RokWorldMapEntitySubsystem.generated.h"
 
+class FJsonObject;
+
 USTRUCT(BlueprintType)
 struct FRokWorldMapFormationUnit
 {
@@ -64,8 +66,33 @@ struct FRokWorldMapEntityRecord
 	UPROPERTY(BlueprintReadOnly, Category = "Rok|World Map|Entity")
 	int32 SourceId = 0;
 
+	// Live MapObjectInfo identity is independent of the config-table SourceId.
+	UPROPERTY(BlueprintReadOnly, Category = "Rok|World Map|Entity")
+	int64 ServerObjectId = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Rok|World Map|Entity")
+	int32 ServerObjectType = 0;
+
+	// -1 means that this object has no resourceAmount field.
+	UPROPERTY(BlueprintReadOnly, Category = "Rok|World Map|Entity")
+	int64 ResourceAmount = -1;
+	int64 ResourceCapacity = -1;
+	int64 CollectorRoleId = 0;
+	FString CollectorName;
+	FString ResourceAlliance;
+
+	// True when the exact Unity map icon is used at all LODs because the
+	// matching close model has not yet been migrated.
+	UPROPERTY(BlueprintReadOnly, Category = "Rok|World Map|Entity")
+	bool bIconOnlyVisual = false;
+
 	UPROPERTY(BlueprintReadOnly, Category = "Rok|World Map|Entity")
 	FString SourceTable;
+
+	// Exact modelId from the source config row for live server objects.
+	UPROPERTY(BlueprintReadOnly, Category = "Rok|World Map|Entity")
+	FString SourceModelId;
+	float SourceYawDegrees = 0.0f;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Rok|World Map|Entity")
 	FString Kind;
@@ -163,9 +190,43 @@ public:
 		return Entities;
 	}
 
+	// Projects one server MapObjectInfo using packaged Unity config and
+	// source-derived visuals. Unsupported models are deliberately rejected.
+	bool ResolveServerEntity(const TSharedPtr<FJsonObject>& Row,
+		FRokWorldMapEntityRecord& Out) const;
+	double GetResourceRadius(int32 SourceId) const;
+
 private:
+	struct FServerSourceRow
+	{
+		int32 Type = 0;
+		int32 Group = 0;
+		int32 Level = 0;
+		float YawDegrees = 0.0f;
+		FString ModelId;
+		FString ModelIdLod;
+		FString ModelIdLod2;
+		FString MapIconRes;
+		FString MapIcon;
+		FString Name;
+		FString Name2;
+		int64 ResourceCapacity = -1;
+		double Radius = 0;
+		FVector2D Position = FVector2D::ZeroVector;
+	};
+
 	UPROPERTY(Transient)
 	TArray<FRokWorldMapEntityRecord> Entities;
+
+	TMap<int32, FServerSourceRow> ResourceSources;
+	TMap<int32, FServerSourceRow> MonsterSources;
+	TMap<int32, FServerSourceRow> FixedPointSources;
+	TMap<int32, FServerSourceRow> AllianceSources;
+	TMap<int32, FServerSourceRow> StrongHoldDataSources;
+	TMap<int32, FServerSourceRow> StrongHoldTypeSources;
+	TMap<FString, FRokWorldMapEntityRecord> ServerVisualTemplates;
+	// Model-keyed close visuals from the supplementary Monster presentation.
+	TMap<FString, FRokWorldMapEntityRecord> ServerBarbarianFormations;
 
 	FString LevelBadgeTexturePath;
 	FString CityNameBgTexturePath;
@@ -174,4 +235,6 @@ private:
 	bool bPopulationLoaded = false;
 
 	void LoadPresentation();
+	void LoadServerProjection(const TSharedPtr<FJsonObject>& PopulationRoot);
+	void LoadServerIconVisuals();
 };

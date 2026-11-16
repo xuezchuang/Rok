@@ -30,6 +30,7 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Rok|World Map")
 	float GetCurrentDxf() const { return CameraState.CurrentDxf; }
+	float GetTacticalDxf() const { return FRokWorldMapMath::GetNamedDxf(ActiveCameraKeys, FRokWorldMapMath::TacticalCameraKey(), 1509.0f); }
 	float GetWorldUnitsPerUnityUnit() const { return GetProjection().GetSafeUeScale(); }
 
 	UFUNCTION(BlueprintPure, Category = "Rok|World Map")
@@ -47,6 +48,7 @@ public:
 	// Negative values zoom in and positive values zoom out. The physical
 	// mouse-wheel path and unattended runtime verification share this method.
 	bool ApplyZoomInput(float ZoomDirection, bool bPreserveCursor);
+	void PanFromScreenDrag(FVector2D Previous, FVector2D Current);
 
 	static float EvaluateUnityTreeScale(float Dxf);
 

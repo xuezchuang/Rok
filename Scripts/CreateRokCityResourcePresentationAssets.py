@@ -448,8 +448,9 @@ def _canonical_obj_position(position, manifest, source_axes):
     if source_axes:
         y, z = z, y
     pivot = manifest["unity_sprite_pivot_pixels"]
-    lattice_x = pivot["x"] - round(pivot["x"] - x)
-    lattice_y = round(y + pivot["y"]) - pivot["y"]
+    pixel_cm = 100.0 / manifest["unity_sprite_pixels_per_unit"]
+    lattice_x = (pivot["x"] - round(pivot["x"] - x / pixel_cm)) * pixel_cm
+    lattice_y = (round(y / pixel_cm + pivot["y"]) - pivot["y"]) * pixel_cm
     def float32_roundtrip_bound(value):
         def ulp32(number):
             return 2.0 ** (math.floor(math.log2(max(abs(number), 1e-30))) - 23)

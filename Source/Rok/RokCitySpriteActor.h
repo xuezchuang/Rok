@@ -17,6 +17,7 @@ class ROK_API ARokCitySpriteActor : public AActor
 	GENERATED_BODY()
 
 public:
+	static float EvaluateUnityCityLodScale(float Dxf);
 	ARokCitySpriteActor();
 
 	virtual void Tick(float DeltaSeconds) override;
@@ -27,6 +28,9 @@ public:
 	// Source tight SpriteMesh geometry and its pivot-preserving child transform.
 	UFUNCTION(BlueprintCallable, Category = "Rok|City")
 	void ConfigureSourceMesh(UStaticMesh* Mesh, UMaterialInterface* Material, const FTransform& RelativeTransform, int32 SortPriority);
+
+	void SetRuntimeSourceMesh(UStaticMesh* Mesh, UMaterialInterface* Material, const FTransform& RelativeTransform);
+	void RestoreMapSourceMesh();
 
 	UStaticMeshComponent* GetSpriteMeshComponent() const { return SpriteMeshComponent.Get(); }
 
@@ -59,6 +63,9 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Rok|City")
 	FIntPoint GetGameplayTile() const { return GameplayTile; }
+
+	// Live server layout moved the building: the caller also moves the actor.
+	void SetGameplayTile(FIntPoint InGameplayTile) { GameplayTile = InGameplayTile; }
 
 	UFUNCTION(BlueprintPure, Category = "Rok|City")
 	FVector GetUnityBaseVisualCenterOffset() const;
@@ -124,6 +131,14 @@ protected:
 	FVector SelectionOriginalSpriteScale = FVector::OneVector;
 	bool bSelectionHighlighted = false;
 
-	static float EvaluateUnityCityLodScale(float Dxf);
+	UPROPERTY(Transient)
+	TObjectPtr<UStaticMesh> MapSourceMesh;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInterface> MapSourceMaterial;
+
+	FTransform MapSourceTransform;
+	bool bMapUsesSourceMesh = false;
+
 	void ApplyUnityLodScale(float LodScale);
 };

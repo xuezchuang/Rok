@@ -116,6 +116,8 @@ namespace Client {
         contracts.append({
             "schema": "rok.city_building_visual_native_probe.v1",
             "model": model["model_id"], "source_catalog_sha256": digest(OUT),
+            "sprite_asset": copies[model["sprite"]["path"]]["probe_asset"],
+            "mask_asset": copies[model["mask"]["path"]]["probe_asset"],
             "renderer_script_sha256": digest(RENDERER), "root": root, "sprite_child": child,
             "material": catalog["material"],
             "camera": {"source_row": "city_default", "dxf": 150.0, "distance": 20.0,

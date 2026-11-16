@@ -2,7 +2,9 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+#include "RokMapPointerGesture.h"
 #include "RokWorldMapTypes.h"
+#include "RokServerArmySubsystem.h"
 #include "RokWorldMapFilterTint.h"
 #include "RokUiWindowAnimation.h"
 #include "RokPowerCounterAnimation.h"
@@ -10,14 +12,18 @@
 #include "RokWorldMapHudWidget.generated.h"
 
 class ARokWorldMapCityActor;
+class ARokWorldMapPlayerController;
 class ARokStrategicResourceLayer;
 class ARokWorldMapEntityActor;
 class UBorder;
 class UButton;
 class UCanvasPanel;
+class UCheckBox;
 class UCanvasPanelSlot;
 class UImage;
 class USizeBox;
+class UScrollBox;
+class UProgressBar;
 class UTextBlock;
 class URichTextBlock;
 class UTexture2D;
@@ -40,9 +46,8 @@ enum class ERokWorldMapHudFilter : uint8
 class URokWorldMapHudWidget;
 
 /**
- * Full-viewport pointer surface below every HUD control.  Standalone
- * GameAndUI focus can otherwise deliver Slate button clicks while never
- * forwarding an empty-world left click to the controller InputComponent.
+ * Full-viewport map click and drag surface below every HUD control.
+ * Standalone GameAndUI focus may not forward empty-world clicks to the controller.
  */
 UCLASS(NotBlueprintable)
 class ROK_API URokWorldMapSelectionInputWidget : public UUserWidget
@@ -58,7 +63,17 @@ protected:
 		const FGeometry& InGeometry,
 		const FPointerEvent& InMouseEvent) override;
 
+	virtual FReply NativeOnMouseButtonDoubleClick(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
+	virtual FReply NativeOnMouseMove(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
+	virtual FReply NativeOnMouseButtonUp(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
+	virtual void NativeOnMouseCaptureLost(const FCaptureLostEvent& CaptureLostEvent) override;
+
 private:
+	ARokWorldMapPlayerController* GetMapController() const;
+	FVector2D GetViewportPosition(const FPointerEvent& Event) const;
+	void UpdateMapPointer(ARokWorldMapPlayerController& Controller, FVector2D Position);
+
+	FRokMapPointerGesture MapPointer;
 	TWeakObjectPtr<URokWorldMapHudWidget> OwningHud;
 };
 
@@ -138,6 +153,7 @@ public:
 	void FocusPlayerLocation();
 
 	void OpenCommandLineModal();
+	bool FocusWorldSearchResult(int64 ObjectId, FVector2D UnityPosition);
 	void UpdateZoomPresentation(float Dxf);
 	void AdvanceMiniMapAnimation(float DeltaSeconds);
 	void AdvanceStrategicModuleAnimation(float DeltaSeconds);
@@ -176,6 +192,110 @@ protected:
 
 private:
 	void PlayResourceClickSound();
+	void BuildGatherPanel();
+	void BuildWorldMarchQueue();
+	void RefreshWorldMarchQueue();
+	void UpdateAttackMarchMarkers(const FRokServerArmySnapshot& Snapshot);
+	void UpdateAttackMarchRoutes();
+	TArray<FRokServerMarch> AttackMarchRoutes;
+	double AttackMarchSampleTime = 0.0;
+	UPROPERTY(Transient) TArray<TObjectPtr<UImage>> AttackRouteDots;
+	UPROPERTY(Transient) TArray<TObjectPtr<UImage>> AttackRouteDestinations;
+	UPROPERTY(Transient) TObjectPtr<UTexture2D> AttackRouteDestinationTexture;
+	UPROPERTY(Transient) TArray<TObjectPtr<UImage>> AttackMarchMarkers;
+	UPROPERTY(Transient) TArray<TObjectPtr<UTextBlock>> AttackDamageLabels;
+	void HandleWorldMarchClicked(int32 ArmyIndex);
+	void TryOpenFocusedWorldTarget();
+	FString PendingWorldTargetId;
+	FVector2D PendingWorldTargetCenter = FVector2D::ZeroVector;
+	double PendingWorldTargetDeadline = 0;
+	bool bPendingWorldTargetFromSearch = false;
+	UPROPERTY(Transient) TObjectPtr<UImage> WorldSearchResultGuide;
+	UFUNCTION()
+	void HandleWorldMarchQueueToggle();
+	void BuildWorldGatherProgress(UCanvasPanel* Panel);
+	int64 SelectedRecallTargetId = 0;
+	int32 SelectedMarchArmyIndex = 0;
+	bool bWorldMarchQueueExpanded = true;
+	FString WorldMarchQueueSignature;
+	UPROPERTY(Transient)
+	TObjectPtr<UCanvasPanel> WorldMarchQueueRoot;
+	UPROPERTY(Transient)
+	TObjectPtr<UTextBlock> WorldMarchQueueCount;
+	UPROPERTY(Transient)
+	TObjectPtr<UImage> WorldMarchQueueArrow;
+	UPROPERTY(Transient)
+	TObjectPtr<UScrollBox> WorldMarchQueueList;
+	UPROPERTY(Transient)
+	TObjectPtr<UCanvasPanel> WorldGatherProgressRoot;
+	UPROPERTY(Transient)
+	TObjectPtr<UProgressBar> WorldGatherProgressBar;
+	UPROPERTY(Transient)
+	TObjectPtr<UImage> WorldGatherProgressIcon;
+	UPROPERTY(Transient)
+	TObjectPtr<UTextBlock> WorldGatherProgressText;
+	UPROPERTY(Transient)
+	TObjectPtr<UButton> WorldGatherActionButton;
+	UPROPERTY(Transient)
+	TObjectPtr<UTextBlock> WorldGatherActionText;
+	void AddWorldPopupFrame(UCanvasPanel* Panel, const FVector2D& PanelSize, const TCHAR* Prefix);
+	void OpenGatherPanel(ARokWorldMapEntityActor* Target, int64 TargetId, TOptional<bool> AttackStationAfterBattle = {});
+	void BuildBarbarianInfo();
+	void RefreshBarbarianInfo(const ARokWorldMapEntityActor& Target);
+	void SetBarbarianDetailsExpanded(bool bExpanded);
+	UFUNCTION() void HandleBarbarianDetailsClicked();
+	UFUNCTION() void HandleBarbarianDetailsBackClicked();
+	void RefreshAttackArmyChoices();
+	void SelectAttackArmy(int32 ArmyIndex);
+	UFUNCTION() void HandleBarbarianAttackClicked();
+	UFUNCTION() void HandleSelectNewAttackArmy();
+	void UpdateGatherRoute();
+	void SetGatherQueueVisible(bool bVisible);
+	UFUNCTION()
+	void HandleGatherCreateClicked();
+	UFUNCTION()
+	void HandleGatherCloseClicked();
+	UPROPERTY(Transient)
+	TObjectPtr<UCanvasPanel> GatherRoot;
+	UPROPERTY(Transient)
+	TObjectPtr<UTextBlock> GatherQueueCount;
+	UPROPERTY(Transient)
+	TObjectPtr<UImage> GatherQueueShade;
+	UPROPERTY(Transient)
+	TObjectPtr<UTextBlock> GatherFeedback;
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UImage>> GatherRouteDots;
+	TMap<TWeakObjectPtr<UWidget>, float> GatherHiddenChrome;
+	TWeakObjectPtr<ARokWorldMapEntityActor> GatherTarget;
+	int64 GatherTargetId = 0;
+	TOptional<bool> GatherAttackStation;
+	int32 GatherExistingArmyIndex = 0;
+	bool bExistingAttackPending = false;
+	uint32 GatherQueueSerial = 0;
+	uint64 GatherQueueAoiGeneration = 0;
+	UPROPERTY(Transient) TObjectPtr<UScrollBox> AttackArmyChoices;
+	UPROPERTY(Transient) TObjectPtr<UButton> GatherCreateButton;
+	UPROPERTY(Transient) TObjectPtr<UTextBlock> GatherCreateLabel;
+	UPROPERTY(Transient) TObjectPtr<UWidget> GatherNewSelected;
+	UPROPERTY(Transient) TObjectPtr<UCanvasPanel> WorldResourceInfoPanel;
+	UPROPERTY(Transient) TObjectPtr<UCanvasPanel> WorldBarbarianInfoPanel;
+	UPROPERTY(Transient) TObjectPtr<UTextBlock> BarbarianTitle;
+	UPROPERTY(Transient) TObjectPtr<UTextBlock> BarbarianCoordinate;
+	UPROPERTY(Transient) TObjectPtr<UCanvasPanel> BarbarianNormalPage;
+	UPROPERTY(Transient) TObjectPtr<UCanvasPanel> BarbarianDetailsPage;
+	UPROPERTY(Transient) TObjectPtr<UCanvasPanel> BarbarianRewards;
+	UPROPERTY(Transient) TObjectPtr<UImage> BarbarianPortrait;
+	UPROPERTY(Transient) TObjectPtr<UCanvasPanel> BarbarianTimer;
+	UPROPERTY(Transient) TObjectPtr<UTextBlock> BarbarianTimeRemaining;
+	UPROPERTY(Transient) TObjectPtr<UTextBlock> BarbarianDescription;
+	int32 BarbarianDisplayedRewardGroup = INDEX_NONE;
+	UPROPERTY(Transient) TObjectPtr<UTextBlock> BarbarianCost;
+	UPROPERTY(Transient) TObjectPtr<UTextBlock> BarbarianFeedback;
+	UPROPERTY(Transient) TObjectPtr<UCheckBox> BarbarianStay;
+	UPROPERTY(Transient) TObjectPtr<UButton> BarbarianAttackButton;
+	UPROPERTY(Transient) TObjectPtr<UTextBlock> BarbarianAttackLabel;
+	float GatherPreviousDxf = 0;
+	FVector2D GatherPreviousCenter = FVector2D::ZeroVector;
 	FRokPowerCounterAnimation PowerCounter;
 	UPROPERTY(Transient)
 	TObjectPtr<class URokPowerGainWidget> PowerGain;
@@ -186,6 +306,8 @@ private:
 #endif
 	UPROPERTY(Transient)
 	TObjectPtr<UCanvasPanel> MiniMapRoot;
+
+	UPROPERTY(Transient) TObjectPtr<UCanvasPanel> WorldMapChrome;
 	bool bMiniMapTargetVisible = false;
 	float MiniMapAnimationSeconds = 0.25f;
 	UPROPERTY()
@@ -229,11 +351,15 @@ private:
 	struct FEntityBadgeEntry
 	{
 		TWeakObjectPtr<ARokWorldMapEntityActor> Entity;
+		FString ServerObjectId;
 		TObjectPtr<UCanvasPanel> Root;
+		TObjectPtr<UTextBlock> LevelText;
+		TObjectPtr<UImage> GatheringIcon;
 		TWeakObjectPtr<UCanvasPanelSlot> CanvasSlot;
 	};
 
 	TArray<FEntityBadgeEntry> EntityBadges;
+	uint64 NextEntityBadgeId = 0;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UTexture2D> LevelBadgeTexture;
@@ -285,7 +411,13 @@ private:
 	TObjectPtr<UTextBlock> WorldObjectInfoNameText;
 
 	UPROPERTY()
-	TObjectPtr<UTextBlock> WorldObjectInfoLevelText;
+	TObjectPtr<UTextBlock> WorldObjectInfoAmountText;
+
+	UPROPERTY()
+	TObjectPtr<UTextBlock> WorldObjectInfoCollectorText;
+
+	UPROPERTY()
+	TObjectPtr<UTextBlock> WorldObjectInfoAllianceText;
 
 	UPROPERTY()
 	TObjectPtr<UTextBlock> WorldObjectInfoCoordinateText;
@@ -316,16 +448,17 @@ private:
 	TWeakObjectPtr<UCanvasPanelSlot> MiniMapViewportCanvasSlot;
 	TWeakObjectPtr<UCanvasPanelSlot> MiniMapSelfCanvasSlot;
 	TWeakObjectPtr<UCanvasPanelSlot> WorldObjectInfoCanvasSlot;
-	TWeakObjectPtr<UCanvasPanelSlot> WorldObjectInfoPanelCanvasSlot;
 	TWeakObjectPtr<UCanvasPanelSlot> WorldObjectInfoArrowCanvasSlot;
 	TWeakObjectPtr<ARokWorldMapCityActor> PlayerCityActor;
 	TWeakObjectPtr<ARokStrategicResourceLayer> StrategicResourceLayer;
 	TWeakObjectPtr<ARokStrategicResourceLayer> StrategicExplorationLayer;
 	TWeakObjectPtr<ARokWorldMapEntityActor> SelectedWorldObjectActor;
+	FString SelectedWorldObjectServerId;
 
 	FVector2D CurrentRootSize = FVector2D::ZeroVector;
 	FVector2D CurrentExpandedDesignSize = FVector2D(1440.0f, 810.0f);
 	float RefreshAccumulator = 0.0f;
+	bool bDisplayingServerTopBar = false;
 	bool bWorldObjectDetailsExpanded = false;
 	bool bWorldObjectProjectionDebugPending = false;
 	bool bTacticalPresentation = false;
@@ -342,7 +475,9 @@ private:
 	void BuildSelfMarker();
 
 	void BuildEntityBadges();
+	void ReconcileEntityBadges();
 	void UpdateEntityBadges();
+	void RefreshSelectedWorldObjectValues();
 	void BuildWorldObjectInfo();
 	void BuildServerListOverlay();
 	void UpdateExpandedDesignResolution(const FVector2D& RootSize);
@@ -357,14 +492,19 @@ private:
 	void OpenFeatureScreen();
 	void ClearWorldObjectSelection();
 	void SetWorldObjectDetailsExpanded(bool bExpanded);
-	const TCHAR* ResolveWorldObjectIconPath(
-		const FString& EntityKind) const;
+
 
 	UFUNCTION()
 	void HandleWorldObjectDetailsClicked();
 
 	UFUNCTION()
 	void HandleWorldObjectGatherClicked();
+
+	UFUNCTION()
+	void HandleWorldObjectBookmarkClicked();
+
+	UFUNCTION()
+	void HandleWorldObjectShareClicked();
 
 	UFUNCTION()
 	void HandleOpenResourceSearchClicked();

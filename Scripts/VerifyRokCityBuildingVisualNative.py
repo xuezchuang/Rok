@@ -40,7 +40,7 @@ def verify_model(run, catalog, contract):
     if report["maskBinding"] != MASK_BINDING:
         raise RuntimeError("Original MaskSprite MPB binding not observed")
     if (report["spriteAsset"], report["maskAsset"], report["materialAsset"]) != (
-            f"Assets/Source/{model_id}.png", f"Assets/Source/{model_id}_mask.png", "Assets/Source/map_building.mat"):
+            contract["sprite_asset"], contract["mask_asset"], "Assets/Source/map_building.mat"):
         raise RuntimeError("Native rendered a different source asset")
     for key, source in (("materialColor1", catalog["material"]["color_1"]),
                         ("materialColor2", catalog["material"]["color_2"]),
@@ -70,7 +70,11 @@ def verify_model(run, catalog, contract):
             len(geometry["screenVertices"]) != vertex_count or \
             len(geometry["triangles"]) < 6 or len(geometry["triangles"]) % 3:
         raise RuntimeError("Unity Sprite.mesh vertices/UV/triangles are incomplete")
-    if not close(geometry["pixelsPerUnit"], model["sprite"]["importer"]["pixels_to_units"]):
+    # Unity scales the sprite's PPU with the imported width when its importer
+    # reduces the source texture to the platform size limit.
+    expected_ppu = (model["sprite"]["importer"]["pixels_to_units"]
+                    * report["spriteTextureWidth"] / model["sprite"]["size"][0])
+    if not close(geometry["pixelsPerUnit"], expected_ppu):
         raise RuntimeError("Unity Sprite.mesh PPU differs from source meta")
     for role in ("sprite", "mask"):
         imported = report[role + "Import"]

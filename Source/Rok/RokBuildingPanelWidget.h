@@ -151,6 +151,7 @@ private:
 	FString LastActionMessage;
 	bool bMenuLayoutInitialized = false;
 	bool bShowingDecorationLayout = false;
+	bool bShowingBuilderHutLayout = false;
 	bool bShowingFeatureAction = false;
 
 	UFUNCTION()
@@ -164,7 +165,7 @@ private:
 
 	void BuildWidgetTree();
 	void Refresh();
-	void ApplyMenuLayout(bool bIsDecoration, bool bHasFeatureAction);
+	void ApplyMenuLayout(bool bIsDecoration, bool bIsBuilderHut, bool bHasFeatureAction);
 	void ApplyFeatureButtonVisual(int32 UnityBuildingTypeId, bool bUpgradeInProgress);
 	void UpdateMenuPosition();
 	UTexture2D* LoadUiTexture(const TCHAR* TexturePath) const;

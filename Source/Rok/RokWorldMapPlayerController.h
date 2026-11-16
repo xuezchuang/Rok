@@ -25,9 +25,11 @@ public:
 
 	bool SelectWorldMapActorAtScreenPosition(FVector2D ScreenPosition);
 	void ClearWorldMapSelection();
+	void SelectWorldMapActor(AActor* Actor, bool bShowInfo = true);
+	bool FocusWorldSearchResult(int64 ObjectId, FVector2D UnityPosition);
 	bool RequestEnterPlayerCity(
 		TSoftObjectPtr<UWorld> PlayerCityLevel,
-		float EntryDxf);
+		float EntryDxf, int32 TaskBuildingType = 0, bool bOpenBuildCity = false, bool bUpgradeBuilding = false);
 
 	UFUNCTION(BlueprintCallable, Category = "Rok|World Map")
 	bool FocusPlayerLocation();
@@ -65,6 +67,5 @@ private:
 	ARokWorldMapCityActor* FindPlayerCity() const;
 	AActor* FindSelectableActorAtScreenPosition(
 		FVector2D ScreenPosition) const;
-	void SelectWorldMapActor(AActor* Actor);
 	void ApplySelectionHighlight(AActor* Actor, bool bSelected) const;
 };

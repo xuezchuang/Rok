@@ -41,7 +41,13 @@ bool ResolveDeclaredModel(const TArray<FName>& Tags,const FString& Json,FString&
 bool ResolveActorModel(AActor* Actor,FString& Model,FString& Error)
 {
     Model.Reset();Error.Reset();
-    if(!Actor||!Actor->GetWorld()||Actor->GetWorld()->GetOutermost()->GetName()!=TEXT("/Game/Maps/L_RokUnityGameAppCity")) {Error=TEXT("No live source city actor");return false;}
+    const UWorld* World = IsValid(Actor) ? Actor->GetWorld() : nullptr;
+    if (!World || !World->IsGameWorld()
+        || UWorld::RemovePIEPrefix(World->GetOutermost()->GetName()) != TEXT("/Game/Maps/L_RokUnityGameAppCity"))
+    {
+        Error = TEXT("No live source city actor");
+        return false;
+    }
     int32 Count=0;FName Identity;
     for(FName Tag:Actor->Tags)if(Tag.ToString().StartsWith(TEXT("UnityInitId_")))Identity=Tag;
     for(TActorIterator<AActor> It(Actor->GetWorld());It;++It)if(It->ActorHasTag(Identity)&&It->ActorHasTag(TEXT("RokUnityConfigInitBuilding")))++Count;

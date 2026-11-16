@@ -25,12 +25,12 @@ def verify(doc: dict) -> None:
     assert doc["schema"] == "rok.city_audio_source.v1"
     assert doc["policy"] == "local_audio_only_no_network_no_account_state"
     assert doc["gain_policy"] == "AudioService AudioConfig ignores AudioInfo.volume; multiply source voice once by channel slider, not by table volume"
-    assert doc["event_count"] == 7 and doc["source_table_row_count"] == 650
+    assert doc["event_count"] == 10 and doc["source_table_row_count"] == 650
     source = parse_table(WORKBOOK, ROOT / "ref")
     assert source["row_count"] == 650
     rows = {row["ID"]: row for row in source["rows"]}
     assert len(rows) == 650
-    assert [event["id"] for event in doc["events"]] == [1007, 1008, 4001, 4005, 4037, 4048, 4051]
+    assert [event["id"] for event in doc["events"]] == [1007, 1008, 4001, 4005, 4014, 4025, 4037, 4048, 4051, 4080]
     pins = {entry["path"]: entry["sha256"] for entry in doc["sources"]}
     assert len(pins) == len(doc["sources"])
     for path, digest in pins.items():
@@ -71,7 +71,7 @@ def verify(doc: dict) -> None:
                             "source_meta_sha256": sha(resolve(source_meta))}
             assert pins[source_mp3] == clip["source_mp3_sha256"]
             assert pins[source_meta] == clip["source_meta_sha256"]
-    assert len(seen_clips) == 9
+    assert len(seen_clips) == 12
     assert rows[1007]["audios"] == "Bgm_PeaceDay01|Bgm_PeaceDay02"
     assert rows[1008]["audios"] == "Bgm_PeaceNight01|Bgm_PeaceNight02"
     assert rows[1007]["interval"] == "3|8" and rows[1008]["interval"] == "1|2"
@@ -99,10 +99,10 @@ def main() -> None:
             raise AssertionError("Damaged source audio was accepted")
     result = {"schema": "rok.city_audio_verify.v1", "status": "passed",
               "catalog_path": label(CATALOG),
-              "catalog_sha256": sha(CATALOG), "source_events": 7, "source_clips": 9,
+              "catalog_sha256": sha(CATALOG), "source_events": 10, "source_clips": 12,
               "negative_cases_rejected": rejected, "engine_started": False}
     REPORT.write_bytes((json.dumps(result, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
-    print(f"PASS: 7 events, 9 clips, {rejected} negative cases; {sha(CATALOG)}")
+    print(f"PASS: 10 events, 12 clips, {rejected} negative cases; {sha(CATALOG)}")
 
 
 if __name__ == "__main__":

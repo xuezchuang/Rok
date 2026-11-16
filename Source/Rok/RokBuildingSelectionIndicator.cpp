@@ -4,6 +4,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Materials/MaterialInterface.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "RokCitySpriteActor.h"
 #include "UObject/ConstructorHelpers.h"
 
@@ -105,7 +106,12 @@ void ARokBuildingSelectionIndicator::ShowForBuilding(const ARokCitySpriteActor* 
 		return;
 	}
 
-	SetActorLocation(BuildingActor->GetVisualAnchorWorldPosition() + FVector(0.0f, 0.0f, ArrowGroundClearance));
+	ShowAtFootprint(BuildingActor->GetVisualAnchorWorldPosition(), FootprintSize);
+}
+
+void ARokBuildingSelectionIndicator::ShowAtFootprint(const FVector& Center, FIntPoint FootprintSize)
+{
+	SetActorLocation(Center + FVector(0.0f, 0.0f, ArrowGroundClearance));
 	UpArrowComponent->SetRelativeLocation(CalculateArrowOffset(FootprintSize, ERokBuildingSelectionArrowDirection::Up));
 	RightArrowComponent->SetRelativeLocation(CalculateArrowOffset(FootprintSize, ERokBuildingSelectionArrowDirection::Right));
 	DownArrowComponent->SetRelativeLocation(CalculateArrowOffset(FootprintSize, ERokBuildingSelectionArrowDirection::Down));
@@ -116,6 +122,27 @@ void ARokBuildingSelectionIndicator::ShowForBuilding(const ARokCitySpriteActor* 
 void ARokBuildingSelectionIndicator::HideIndicator()
 {
 	SetActorHiddenInGame(true);
+}
+
+void ARokBuildingSelectionIndicator::ApplySceneGammaCompensation(
+	UMaterialInterface* Template, const FLinearColor& InverseGain)
+{
+	for (auto* Arrow : {UpArrowComponent.Get(), RightArrowComponent.Get(), DownArrowComponent.Get(), LeftArrowComponent.Get()})
+	{
+		UMaterialInterface* Source = Arrow->GetMaterial(0);
+		if (!Source) continue;
+		auto* Instance = Cast<UMaterialInstanceDynamic>(Source);
+		if (!Instance || Instance->GetBaseMaterial() != Template->GetBaseMaterial())
+		{
+			TArray<UTexture*> Textures;
+			Source->GetUsedTextures(Textures);
+			if (Textures.Num() != 1) continue;
+			Instance = Arrow->CreateDynamicMaterialInstance(0, Template);
+			if (!Instance) continue;
+			Instance->SetTextureParameterValue(TEXT("GroundTexture"), Textures[0]);
+		}
+		Instance->SetVectorParameterValue(TEXT("UnitySpriteColor"), InverseGain);
+	}
 }
 
 FVector ARokBuildingSelectionIndicator::CalculateArrowOffset(

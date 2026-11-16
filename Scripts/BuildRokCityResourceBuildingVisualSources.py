@@ -68,7 +68,7 @@ def prefab_nodes(path):
             game_objects[fid] = {"file_id": fid, "name": field(body, "m_Name"),
                                  "active": field(body, "m_IsActive") == "1",
                                  "layer": int(field(body, "m_Layer"))}
-        elif class_id == 4:
+        elif class_id in (4, 224):  # Transform and RectTransform
             go = file_id(body, "m_GameObject")
             assert go not in transforms
             transforms[go] = {"file_id": fid, "parent_transform_file_id": file_id(body, "m_Father"),
@@ -79,7 +79,7 @@ def prefab_nodes(path):
                               "local_euler_hint": vec(body, "m_LocalEulerAnglesHint")}
         elif class_id == 212:
             go = file_id(body, "m_GameObject")
-            material = re.search(r"(?m)^  - \{fileID: 2100000, guid: ([0-9a-f]{32}), type: 2\}$", body)
+            material = re.search(r"(?m)^  - \{fileID: (?:2100000, guid: ([0-9a-f]{32}), type: 2|0)\}$", body)
             sprite = re.search(r"m_Sprite: \{fileID: (-?\d+)(?:, guid: ([0-9a-f]{32}))?", body)
             assert material and sprite and go not in renderers
             renderers[go] = {"file_id": fid, "enabled": field(body, "m_Enabled") == "1",

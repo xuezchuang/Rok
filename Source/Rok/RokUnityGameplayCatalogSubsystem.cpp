@@ -531,11 +531,29 @@ bool URokUnityGameplayCatalogSubsystem::LoadCatalog()
 	const TArray<TSharedPtr<FJsonValue>>* TaskValues = nullptr;
 	if (RootObject->TryGetArrayField(TEXT("main_tasks"), TaskValues) && TaskValues)
 	{
+		// Unity resolves TaskMain.l_nameId through LanguageUtils. The catalog's
+		// embedded names are the original design-table labels.
+		TMap<int32, FString> LocalizedNames;
+		TArray<TSharedPtr<FJsonValue>> LanguageRows;
+		if (LoadReadonlyConfigTable(LanguageTableRelativePath, TEXT("Language"), 8067, LanguageRows))
+		{
+			for (const auto& Value : LanguageRows)
+			{
+				if (!Value.IsValid() || Value->Type != EJson::Object) continue;
+				const auto& Row = Value->AsObject();
+				const FString Name = JsonStringField(Row, TEXT("cn"));
+				if (!Name.IsEmpty() && !HasBrokenLocale(Name))
+					LocalizedNames.Add(JsonIntField(Row, TEXT("id")), Name);
+			}
+		}
 		for (const TSharedPtr<FJsonValue>& Value : *TaskValues)
 		{
-			FRokUnityCatalogTask Task = ParseTask(Value.IsValid() ? Value->AsObject() : nullptr);
+			const auto Row = Value.IsValid() ? Value->AsObject() : nullptr;
+			FRokUnityCatalogTask Task = ParseTask(Row);
 			if (Task.Id > 0)
 			{
+				if (const FString* Name = LocalizedNames.Find(JsonIntField(Row, TEXT("name_locale_id"))))
+					Task.Name = *Name;
 				MainTasks.Add(Task.Id, MoveTemp(Task));
 			}
 		}

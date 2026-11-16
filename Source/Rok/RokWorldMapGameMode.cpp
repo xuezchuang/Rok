@@ -10,6 +10,9 @@
 #include "Misc/App.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
+#include "RokGameNetSubsystem.h"
+#include "RokUnityConfigSubsystem.h"
+#include "RokWorldMapArmyActor.h"
 #include "RokWorldMapCameraPawn.h"
 #include "RokWorldMapCityActor.h"
 #include "RokWorldMapConfigActor.h"
@@ -31,7 +34,16 @@ ARokWorldMapGameMode::ARokWorldMapGameMode()
 void ARokWorldMapGameMode::BeginPlay()
 {
 	Super::BeginPlay();
-	SpawnWorldMapPopulation();
+	const UGameInstance* Instance = GetGameInstance();
+	const URokGameNetSubsystem* Net = Instance ? Instance->GetSubsystem<URokGameNetSubsystem>() : nullptr;
+	if (Net && Net->GetState() != ERokGameNetState::Offline)
+	{
+		StartServerPopulation();
+	}
+	else
+	{
+		SpawnWorldMapPopulation();
+	}
 	NormalizeWorldMapCollision();
 
 	const UWorld* World = GetWorld();
@@ -229,6 +241,249 @@ void ARokWorldMapGameMode::SpawnWorldMapPopulation()
 	}
 }
 
+void ARokWorldMapGameMode::StartServerPopulation()
+{
+	ServerPopulation.bServerMode = true;
+	SetActorTickEnabled(true);
+	TActorIterator<ARokWorldMapConfigActor> Config(GetWorld());
+	if (Config)
+	{
+		ServerMapConfig = *Config;
+	}
+	for (TActorIterator<ARokWorldMapCityActor> City(GetWorld()); City; ++City)
+	{
+		if (City->ActorHasTag(FRokWorldMapMath::WorldMapPlayerCityTag()))
+		{
+			PlayerCityActor = *City;
+			City->SetActorHiddenInGame(true);
+			City->SetActorEnableCollision(false);
+			break;
+		}
+	}
+}
+
+void ARokWorldMapGameMode::ClearServerPopulation()
+{
+	for (const auto& Pair : ServerEntityActors)
+	{
+		if (IsValid(Pair.Value)) Pair.Value->Destroy();
+	}
+	ServerEntityActors.Reset();
+	for (const auto& Pair : ServerArmyActors)
+		if (IsValid(Pair.Value)) Pair.Value->Destroy();
+	ServerArmyActors.Reset();
+	ServerPopulation.bRoleReady = false;
+	ServerPopulation.ActiveObjects = 0;
+	ServerPopulation.EntityActors = 0;
+	ServerPopulation.OwnCityObjects = 0;
+	ServerPopulation.UnmappedTypes.Reset();
+	if (ARokWorldMapCityActor* City = PlayerCityActor.Get())
+	{
+		City->SetActorHiddenInGame(true);
+		City->SetActorEnableCollision(false);
+	}
+	LastAoiGeneration = MAX_uint64;
+	LastAoiRevision = MAX_uint64;
+}
+
+bool ARokWorldMapGameMode::HasVisibleArmyFormation(int64 ObjectId) const
+{
+	const auto* Army = ServerArmyActors.FindRef(ObjectId).Get();
+	return IsValid(Army) && Army->IsFormationVisible();
+}
+
+void ARokWorldMapGameMode::ApplyServerHomePosition(const URokGameNetSubsystem& Net)
+{
+	ARokWorldMapCityActor* City = PlayerCityActor.Get();
+	const TSharedPtr<FJsonObject> RoleInfo = Net.GetRoleInfo();
+	const TSharedPtr<FJsonObject>* Pos = nullptr;
+	int64 X = 0, Y = 0;
+	if (!City || !RoleInfo.IsValid() || !RoleInfo->TryGetObjectField(TEXT("pos"), Pos)
+		|| !RokSprotoJson::TryGetInt64(*Pos, TEXT("x"), X)
+		|| !RokSprotoJson::TryGetInt64(*Pos, TEXT("y"), Y))
+	{
+		return;
+	}
+	const FRokWorldMapProjection Projection = ServerMapConfig.IsValid()
+		? ServerMapConfig->Projection : FRokWorldMapProjection();
+	const FVector2D HomeUnity(double(X) / 100.0, double(Y) / 100.0);
+	if (!Projection.ClampUnity(HomeUnity).Equals(HomeUnity)) return;
+	FVector Location = Projection.UnityToUe(HomeUnity);
+	Location.Z = City->GetActorLocation().Z;
+	if (!City->GetActorLocation().Equals(Location)) City->SetActorLocation(Location);
+	City->SetActorHiddenInGame(false);
+	City->SetActorEnableCollision(true);
+
+	APlayerController* Controller = GetWorld()->GetFirstPlayerController();
+	ARokWorldMapCameraPawn* Camera = Controller ? Cast<ARokWorldMapCameraPawn>(Controller->GetPawn()) : nullptr;
+	if (!Camera) return;
+	int64 Country = 0, HallLevel = 0;
+	auto* Config = GetGameInstance()->GetSubsystem<URokUnityConfigSubsystem>();
+	int32 Age = 0, AgeSize = 0, MaxSize = 0;
+	FString ModelId;
+	if (Config && RokSprotoJson::TryGetInt64(RoleInfo, TEXT("country"), Country) && Country >= 100 && Country <= 999
+		&& RokSprotoJson::TryGetInt64(RoleInfo, TEXT("level"), HallLevel) && HallLevel >= 1 && HallLevel <= MAX_int32
+		&& Config->GetIntFieldByKey(TEXT("BuildingTownCenter"), TEXT("ID"), int32(HallLevel), TEXT("age"), Age)
+		&& Config->GetIntFieldByKey(TEXT("CityAgeSize"), TEXT("age"), Age, TEXT("size"), AgeSize)
+		&& Config->GetIntFieldByKey(TEXT("CityAgeSize"), TEXT("age"), 5, TEXT("size"), MaxSize)
+		&& AgeSize > 0 && MaxSize > 0)
+	{
+		// Unity BuildingModelData ID is the building type, civilization, and age.
+		Config->GetStringFieldByKey(TEXT("BuildingModelData"), TEXT("ID"), 10000 + int32(Country) * 10 + Age,
+			TEXT("modelId"), ModelId);
+		City->ApplyHomeModel(ModelId, 7.8f * AgeSize / MaxSize, Projection.GetSafeUeScale(), Camera->GetCurrentDxf());
+	}
+
+	if (!bServerHomePositionApplied)
+	{
+		const bool bHasTravelFocus = GetWorld()->URL.GetOption(TEXT("RokWorldEntryX="), nullptr)
+			&& GetWorld()->URL.GetOption(TEXT("RokWorldEntryY="), nullptr);
+		float FocusX = -1.0f, FocusY = -1.0f;
+		FParse::Value(FCommandLine::Get(), TEXT("RokWorldMapFocusX="), FocusX);
+		FParse::Value(FCommandLine::Get(), TEXT("RokWorldMapFocusY="), FocusY);
+		if (!bHasTravelFocus && !(FocusX >= 0.0f && FocusY >= 0.0f))
+		{
+			Camera->SetViewCenterUnity(HomeUnity);
+		}
+		bServerHomePositionApplied = true;
+	}
+}
+
+void ARokWorldMapGameMode::UpdateServerPopulation()
+{
+	UGameInstance* Instance = GetGameInstance();
+	URokGameNetSubsystem* Net = Instance ? Instance->GetSubsystem<URokGameNetSubsystem>() : nullptr;
+	if (!Net || Net->GetState() != ERokGameNetState::RoleReady)
+	{
+		if (ServerPopulation.bRoleReady) ClearServerPopulation();
+		return;
+	}
+	if (LastAoiGeneration != Net->GetWorldMapAoiGeneration())
+	{
+		ClearServerPopulation();
+		LastAoiGeneration = Net->GetWorldMapAoiGeneration();
+	}
+	ServerPopulation.bRoleReady = true;
+	ApplyServerHomePosition(*Net);
+	const APlayerController* Controller = GetWorld()->GetFirstPlayerController();
+	const ARokWorldMapCameraPawn* Camera = Controller ? Cast<ARokWorldMapCameraPawn>(Controller->GetPawn()) : nullptr;
+	if (Camera && bServerHomePositionApplied)
+	{
+		const FVector2D Center = Camera->GetViewCenterUnity();
+		// GlobalViewLevelMediator remains tactical through the 5400 dxf transition.
+		Net->RequestViewportAoi(FMath::FloorToInt64(Center.X), FMath::FloorToInt64(Center.Y),
+			Camera->GetCurrentDxf() > 5400.0f);
+	}
+	if (LastAoiRevision == Net->GetWorldMapAoiRevision()) return;
+	LastAoiRevision = Net->GetWorldMapAoiRevision();
+
+	URokWorldMapEntitySubsystem* Entities = Instance->GetSubsystem<URokWorldMapEntitySubsystem>();
+	const FRokWorldMapProjection Projection = ServerMapConfig.IsValid()
+		? ServerMapConfig->Projection : FRokWorldMapProjection();
+	const float Dxf = Camera ? Camera->GetCurrentDxf() : 1509.0f;
+	const TSharedPtr<FJsonObject> Objects = Net->GetWorldMapObjects();
+	int64 RoleId = Net->GetRoleId();
+	if (RoleId <= 0) RokSprotoJson::TryGetInt64(Net->GetRoleInfo(), TEXT("rid"), RoleId);
+	ServerPopulation.ActiveObjects = Objects.IsValid() ? Objects->Values.Num() : 0;
+	ServerPopulation.OwnCityObjects = 0;
+	ServerPopulation.UnmappedTypes.Reset();
+	TSet<int64> Retained;
+	TSet<int64> RetainedArmies;
+	if (Objects.IsValid())
+	{
+		for (const auto& Pair : Objects->Values)
+		{
+			const TSharedPtr<FJsonObject>* Row = nullptr;
+			if (!Pair.Value.IsValid() || !Pair.Value->TryGetObject(Row) || !Row) continue;
+			int64 Type = 0, CityOwner = 0;
+			RokSprotoJson::TryGetInt64(*Row, TEXT("objectType"), Type);
+			int64 ArmyOwner = 0, ArmyId = 0;
+			// RoleType.ARMY and Map_ObjectInfo are the map authority for displayed troops.
+			if (Type == 1 && RoleId > 0 && RokSprotoJson::TryGetInt64(*Row, TEXT("armyRid"), ArmyOwner)
+				&& ArmyOwner == RoleId && RokSprotoJson::TryGetInt64(*Row, TEXT("objectId"), ArmyId) && ArmyId > 0)
+			{
+				auto* Army = ServerArmyActors.FindRef(ArmyId).Get();
+				if (!IsValid(Army))
+				{
+					Army = GetWorld()->SpawnActor<ARokWorldMapArmyActor>();
+					if (Army) ServerArmyActors.Add(ArmyId, Army);
+				}
+				if (Army && Army->UpdateFromServer(*Row, Projection, *Net)) RetainedArmies.Add(ArmyId);
+				continue;
+			}
+			if (Type == 3 && RoleId > 0 && RokSprotoJson::TryGetInt64(*Row, TEXT("cityRid"), CityOwner)
+				&& CityOwner == RoleId && PlayerCityActor.IsValid())
+			{
+				++ServerPopulation.OwnCityObjects;
+				continue; // RoleInfo owns the persistent home anchor even outside the AOI.
+			}
+			FRokWorldMapEntityRecord Record;
+			if (!Entities || !Entities->ResolveServerEntity(*Row, Record)
+				|| !Projection.ClampUnity(Record.UnityPosition).Equals(Record.UnityPosition))
+			{
+				++ServerPopulation.UnmappedTypes.FindOrAdd(int32(Type));
+				continue;
+			}
+			FVector Location = Projection.UnityToUe(Record.UnityPosition);
+			Location.Z += 20.0;
+			ARokWorldMapEntityActor* Actor = ServerEntityActors.FindRef(Record.ServerObjectId);
+			if (IsValid(Actor) && !Actor->ApplyServerUpdate(Record, Location))
+			{
+				Actor->Destroy();
+				ServerEntityActors.Remove(Record.ServerObjectId);
+				Actor = nullptr;
+			}
+			if (!IsValid(Actor))
+			{
+				FActorSpawnParameters Spawn;
+				Spawn.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+				Actor = GetWorld()->SpawnActor<ARokWorldMapEntityActor>(Location, FRotator::ZeroRotator, Spawn);
+				if (!Actor || !Actor->Configure(Record, Dxf))
+				{
+					if (Actor) Actor->Destroy();
+					++ServerPopulation.UnmappedTypes.FindOrAdd(int32(Type));
+					continue;
+				}
+#if WITH_EDITOR
+				Actor->SetActorLabel(FString::Printf(TEXT("RokAOI_%s_%lld"), *Record.Kind, Record.ServerObjectId));
+				Actor->SetFolderPath(FName(TEXT("RokUnityWorldMap/ServerAOI")));
+#endif
+				ServerEntityActors.Add(Record.ServerObjectId, Actor);
+			}
+			Retained.Add(Record.ServerObjectId);
+		}
+	}
+	for (auto It = ServerEntityActors.CreateIterator(); It; ++It)
+	{
+		if (!Retained.Contains(It.Key()))
+		{
+			if (IsValid(It.Value())) It.Value()->Destroy();
+			It.RemoveCurrent();
+		}
+	}
+	for (auto It = ServerArmyActors.CreateIterator(); It; ++It)
+	{
+		if (!RetainedArmies.Contains(It.Key()))
+		{
+			if (IsValid(It.Value())) It.Value()->Destroy();
+			It.RemoveCurrent();
+		}
+	}
+	ServerPopulation.EntityActors = ServerEntityActors.Num();
+	TArray<int32> Types;
+	ServerPopulation.UnmappedTypes.GetKeys(Types);
+	Types.Sort();
+	TArray<FString> Unmapped;
+	for (int32 Type : Types)
+	{
+		Unmapped.Add(FString::Printf(TEXT("%d:%d"), Type, ServerPopulation.UnmappedTypes.FindRef(Type)));
+	}
+	UE_LOG(LogTemp, Display,
+		TEXT("Rok world AOI applied: revision=%llu active=%d actors=%d own_city=%d unmapped=%s."),
+		LastAoiRevision, ServerPopulation.ActiveObjects, ServerPopulation.EntityActors,
+		ServerPopulation.OwnCityObjects, *FString::Join(Unmapped, TEXT(",")));
+}
+
 bool ARokWorldMapGameMode::ApplyWorldMapCollisionPolicy(
 	const TArray<FName>& ActorTags,
 	UPrimitiveComponent* PrimitiveComponent)
@@ -331,6 +586,15 @@ void ARokWorldMapGameMode::NormalizeWorldMapCollision()
 void ARokWorldMapGameMode::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
+	if (ServerPopulation.bServerMode)
+	{
+		ServerPopulationElapsed += DeltaSeconds;
+		if (ServerPopulationElapsed >= 0.25f)
+		{
+			ServerPopulationElapsed = 0.0f;
+			UpdateServerPopulation();
+		}
+	}
 	const double CurrentTimeSeconds = FPlatformTime::Seconds();
 	if (AutomationSelectionDeadlineSeconds > 0.0
 		&& CurrentTimeSeconds >= AutomationSelectionDeadlineSeconds)
@@ -364,7 +628,8 @@ void ARokWorldMapGameMode::Tick(float DeltaSeconds)
 		return;
 	}
 
-	if (AutomationSelectionDeadlineSeconds <= 0.0
+	if (!ServerPopulation.bServerMode
+		&& AutomationSelectionDeadlineSeconds <= 0.0
 		&& AutomationCaptureDeadlineSeconds <= 0.0
 		&& AutomationCityEntryNextStepSeconds <= 0.0
 		&& AutomationFlowExitDeadlineSeconds <= 0.0)

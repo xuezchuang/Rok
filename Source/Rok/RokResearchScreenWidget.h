@@ -12,6 +12,7 @@ class URokUnityIndexedButton;
 class UScrollBox;
 class UTextBlock;
 class UWidget;
+class UWidgetSwitcher;
 
 struct FRokResearchSprite
 {
@@ -34,13 +35,15 @@ struct FRokResearchRenderedLine
 DECLARE_MULTICAST_DELEGATE(FRokResearchCloseRequested);
 DECLARE_MULTICAST_DELEGATE_OneParam(FRokResearchDetailVisibilityChanged, bool);
 
-/** Read-only Unity ResearchMain technology tree. Account research and queue state are deliberately unknown. */
+/** Binds the research Widget Blueprints to the source catalog and server state. */
 UCLASS()
 class ROK_API URokResearchScreenWidget : public UUserWidget
 {
     GENERATED_BODY()
 public:
+    static TSubclassOf<URokResearchScreenWidget> LoadPresentationClass();
     bool InitializeResearch(AActor* AcademyActor);
+    UWidget* GetWidgetFromName(const FName& Name) const;
     FRokResearchCloseRequested OnCloseRequested;
     FRokResearchDetailVisibilityChanged OnDetailVisibilityChanged;
     bool IsDetailVisible() const;
@@ -50,8 +53,8 @@ public:
     int32 GetSelectedStudyTypeForAudit() const { return SelectedStudyType; }
     int32 GetViewedConfigLevelForAudit() const { return ViewedConfigLevel; }
     bool IsReferencePreviewForAudit() const { return !AcademyContext.IsValid(); }
-    bool IsAccountResearchSyncedForAudit() const { return false; }
-    bool IsResearchQueueSyncedForAudit() const { return false; }
+    bool IsAccountResearchSyncedForAudit() const { return bAccountResearchSynced; }
+    bool IsResearchQueueSyncedForAudit() const { return bResearchQueueSynced; }
     float GetEconomyScrollOffsetForAudit() const;
     float GetMilitaryScrollOffsetForAudit() const;
     float GetPowerScrollOffsetForAudit() const;
@@ -77,27 +80,20 @@ public:
 #endif
 
 protected:
+    virtual void NativePreConstruct() override;
     virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 
 private:
+    friend class FRokResearchWidgetTest;
     bool LoadSpriteManifest(FString& Error);
-    UImage* MakeSprite(const FName& Name, const FString& Reference,
-        const FVector2D& Size, bool bUseSourceGray = false);
-    bool ApplySprite(UImage* Image, const FString& Reference,
-        const FVector2D& Size, bool bUseSourceGray = false);
-    UCanvasPanel* MakeNineSlice(const FName& Name, const FString& Reference,
-        const FVector2D& Size, const FMargin& SourceMargin);
-    UTextBlock* MakeText(const FName& Name, const FString& Value, float PixelSize,
-        const FLinearColor& Color, bool bBold = false);
-    URokUnityIndexedButton* MakeButton(const FName& Name, int32 ActionId);
-    void Place(UCanvasPanel* Parent, UWidget* Child, const FVector2D& Position,
-        const FVector2D& Size, int32 ZOrder = 0);
-    void BuildTree();
-    UScrollBox* BuildPage(int32 Type);
-    void BuildNode(UCanvasPanel* Column, const FRokResearchRow& Row,
-        int32 Type, int32 ItemIndex);
-    void BuildDetail();
-    void BuildPowerPage();
+    bool ApplySprite(UImage* Image, const FString& Reference, bool bUseSourceGray = false);
+    bool LoadResearchData();
+    bool BindPresentation();
+    void BindNodePresentation(bool bBindActions);
+    bool BindAction(UWidget* Widget, int32 ActionId, bool bAnimatePress = true);
+    void RefreshAccountState();
+    FString ResearchActionStatus(bool bIgnoreResourceShortage = false) const;
+    bool GetResearchQuote(int64& Seconds, int64& Gems) const;
     void ShowSelectedDetail();
     void RefreshPowerRows(const FRokResearchRow& SelectedRow);
     void HandleIndexedAction(int32 ActionId);
@@ -112,10 +108,12 @@ private:
     void ApplyDetailAnimation();
     void ResetDetailAnimation();
 
-    UPROPERTY(Transient) TObjectPtr<UCanvasPanel> RootCanvas;
     UPROPERTY(Transient) TObjectPtr<UScrollBox> EconomyScroll;
     UPROPERTY(Transient) TObjectPtr<UScrollBox> MilitaryScroll;
     UPROPERTY(Transient) TObjectPtr<UCanvasPanel> DetailMask;
+    UPROPERTY(Transient) TObjectPtr<UWidgetSwitcher> TreePages;
+    UPROPERTY(Transient) TObjectPtr<UWidgetSwitcher> DetailPages;
+    UPROPERTY(Transient) TObjectPtr<UUserWidget> DetailView;
     UPROPERTY(Transient) TObjectPtr<UCanvasPanel> DetailRoot;
     UPROPERTY(Transient) TObjectPtr<UCanvasPanel> DetailUpdateRoot;
     UPROPERTY(Transient) TObjectPtr<UCanvasPanel> PowerRoot;
@@ -131,7 +129,8 @@ private:
     UPROPERTY(Transient) TObjectPtr<UTextBlock> DetailTitle;
     UPROPERTY(Transient) TObjectPtr<UTextBlock> DetailDescription;
     UPROPERTY(Transient) TObjectPtr<UTextBlock> DetailLevel;
-    UPROPERTY(Transient) TObjectPtr<UTextBlock> DetailCosts;
+    UPROPERTY(Transient) TObjectPtr<UTextBlock> DetailLevelNext;
+    UPROPERTY(Transient) TObjectPtr<UImage> DetailLevelArrow;
     UPROPERTY(Transient) TObjectPtr<UImage> DetailIcon;
     UPROPERTY(Transient) TObjectPtr<UTextBlock> DetailProgress;
     UPROPERTY(Transient) TObjectPtr<UTextBlock> DetailAttrName;
@@ -140,14 +139,25 @@ private:
     UPROPERTY(Transient) TObjectPtr<UTextBlock> DetailPowerBefore;
     UPROPERTY(Transient) TObjectPtr<UTextBlock> DetailPowerDelta;
     UPROPERTY(Transient) TArray<TObjectPtr<UTextBlock>> DetailCostValues;
-    UPROPERTY(Transient) TObjectPtr<UImage> EconomySelected;
-    UPROPERTY(Transient) TObjectPtr<UImage> MilitarySelected;
+    UPROPERTY(Transient) TMap<int32, TObjectPtr<UTextBlock>> NodeLevels;
+    UPROPERTY(Transient) TObjectPtr<UWidgetSwitcher> EconomyTabStyle;
+    UPROPERTY(Transient) TObjectPtr<UWidgetSwitcher> MilitaryTabStyle;
     TWeakObjectPtr<AActor> AcademyContext;
     FRokResearchCatalog Catalog;
     TArray<FRokResearchRow> RenderedNodes;
     TArray<FRokResearchRenderedLine> RenderedLines;
     TMap<FString, FRokResearchSprite> Sprites;
     FString LoadError;
+    TMap<int32, int32> AccountLevels;
+    bool bAccountResearchSynced = false;
+    bool bResearchQueueSynced = false;
+    int32 QueueStudyType = 0;
+    int64 QueueFinishTime = 0;
+    bool bConfirmStop = false;
+    bool bConfirmInstant = false;
+    int64 ConfirmedInstantPrice = -1;
+    FString ResearchResult;
+    float AccountRefreshElapsed = 1.0f;
     int32 SelectedType = 1;
     int32 SelectedStudyType = 0;
     int32 ViewedConfigLevel = 1;

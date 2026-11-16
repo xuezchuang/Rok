@@ -41,9 +41,14 @@ public:
 	bool Load(FString& OutError);
 	bool IsLoaded() const { return Ages.Num() == 5 && InitialOccupancy.Num() == 26; }
 	int32 GetAgeForTownHallLevel(int32 TownHallLevel) const;
+	int32 GetSizeForAge(int32 Age) const
+	{
+		const FRokCityConstructionAge* Grid = Ages.Find(Age);
+		return Grid ? Grid->Size : 0;
+	}
 	bool CheckFootprint(int32 Age, const FRokCityConstructionFootprint& Footprint,
 		TConstArrayView<FRokCityConstructionFootprint> LocalFootprints,
-		FString& OutError, TArray<int32>* OutCellIndices = nullptr) const;
+		FString& OutError, TArray<int32>* OutCellIndices = nullptr, bool bIncludeInitialOccupancy = true) const;
 	const TArray<FRokCityConstructionInitialOccupant>& GetInitialOccupancy() const { return InitialOccupancy; }
 	static int32 SourceCellIndex(int32 Size, int32 X, int32 Y);
 
@@ -91,6 +96,8 @@ public:
 	int32 GetActiveCount() const;
 	const TArray<FRokLocalConstructionTicket>& GetTickets() const { return Tickets; }
 	bool Find(uint64 Id, FRokLocalConstructionTicket& OutTicket) const;
+	// Unity buildQueue finishTime for the HUD build bar: false once completed or unknown.
+	bool GetRemainingSeconds(uint64 Id, double Now, double& OutSeconds) const;
 
 private:
 	uint64 NextId = 1;

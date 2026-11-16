@@ -4,15 +4,12 @@
 #include "GameFramework/Actor.h"
 #include "RokCityCitizenActor.generated.h"
 
-class UMaterialInterface;
+class UMaterialInstanceDynamic;
+struct FRokSpriteClip;
 class USceneComponent;
 class UStaticMeshComponent;
 
-/**
- * City-life preview: a worker sprite that wanders between deterministic points
- * inside the city (Unity `citizen.prefab` + `People.cs` walkers). Presentation
- * only: it owns no gameplay state, never touches the economy or the server.
- */
+// Animated, non-interactive city resident or training-yard soldier.
 UCLASS()
 class ROK_API ARokCityCitizenActor : public AActor
 {
@@ -23,12 +20,12 @@ public:
 
 	virtual void Tick(float DeltaSeconds) override;
 
-	void ConfigureCitizen(
-		UMaterialInterface* Material,
-		float SizeCm,
-		float SpeedCmPerSecond,
-		const FVector& InHome,
+	bool ConfigureWalker(const FString& Model, const FVector& Start, const FVector& End,
+		const FTransform& InCityFrame, int32 InSeed);
+	bool ConfigureSoldier(const FString& Model, const FVector& Position, const FVector2D& Heading,
 		int32 InSeed);
+	void SetTraining(bool bTraining);
+	bool IsTraining() const { return bTraining; }
 
 	// Deterministic target for (seed, step); pure so the wander stays testable.
 	static FVector EvaluateWanderTarget(
@@ -37,23 +34,28 @@ public:
 		int32 Seed,
 		int32 Step);
 
-	FVector GetWanderTarget() const { return WanderTarget; }
-	int32 GetWanderStep() const { return Step; }
-
 private:
-	UPROPERTY()
-	TObjectPtr<USceneComponent> SceneRoot;
+	bool ConfigureSprite(const FString& Directory, const FString& Model, const TCHAR* Pose, int32 InSeed);
+	void SetHeading(const FVector2D& Heading);
+	void UpdateSprite();
 
 	UPROPERTY()
 	TObjectPtr<UStaticMeshComponent> SpriteMeshComponent;
 
-	FVector HomeLocation = FVector::ZeroVector;
-	FVector WanderTarget = FVector::ZeroVector;
-	float WanderRadius = 900.0f;
-	float MoveSpeed = 130.0f;
-	int32 Seed = 0;
-	int32 Step = 0;
+	UPROPERTY()
+	TObjectPtr<UMaterialInstanceDynamic> SpriteMaterial;
 
-	void PickNextTarget();
-	void FaceCamera();
+	UPROPERTY()
+	TObjectPtr<UTexture2D> LastFrame;
+
+	TSharedPtr<FRokSpriteClip> Clip;
+	TSharedPtr<FRokSpriteClip> TrainingClip;
+	FTransform CityFrame;
+	FVector RouteStart = FVector::ZeroVector;
+	FVector RouteEnd = FVector::ZeroVector;
+	float AnimationElapsed = 0.0f;
+	int32 Facing = 0;
+	bool bWalking = false;
+	bool bTraining = false;
+	bool bTowardEnd = true;
 };

@@ -2,19 +2,19 @@
 
 #include "RokArmyShowPanelAnimation.h"
 #include "RokDataPaths.h"
+#include "RokGameNetSubsystem.h"
+#include "RokServerCitySubsystem.h"
+#include "RokUnityConfigSubsystem.h"
+#include "RokInstantPrice.h"
+#include "Engine/World.h"
+#include "Engine/GameInstance.h"
 #include "RokUiWindowAnimation.h"
+#include "Components/TextBlock.h"
 #include "RokUnityFeatureScreenWidget.h"
-#include "Blueprint/WidgetTree.h"
-#include "Components/Border.h"
-#include "Components/ButtonSlot.h"
 #include "Components/CanvasPanel.h"
-#include "Components/CanvasPanelSlot.h"
-#include "Components/HorizontalBox.h"
 #include "Components/Image.h"
 #include "Components/ScrollBox.h"
-#include "Components/SizeBox.h"
-#include "Components/TextBlock.h"
-#include "Components/VerticalBox.h"
+#include "Components/WidgetSwitcher.h"
 #include "Dom/JsonObject.h"
 #include "Engine/Texture2D.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -23,7 +23,6 @@
 #include "Misc/Paths.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
-#include "Styling/CoreStyle.h"
 
 namespace
 {
@@ -38,6 +37,7 @@ constexpr int32 BackAction = 22;
 constexpr int32 MoreAction = 23;
 constexpr int32 PowerBackAction = 24;
 constexpr int32 BoundaryAction = 30;
+constexpr int32 InstantAction = 31;
 constexpr int32 NodeActionBase = 100000;
 constexpr float DetailShowDuration = 0.25f;
 constexpr float DetailCloseDuration = 0.15f;
@@ -182,38 +182,6 @@ bool URokResearchScreenWidget::LoadSpriteManifest(FString& Error)
         Error = TEXT("Research atlas is missing required source sprites");
         return false;
     }
-    // These common/page sprites are already imported by the modal atlas
-    // pipeline. Coordinates come from ui_common.tpsheet and ui_page.tpsheet.
-    auto AddExisting = [this](const TCHAR* Reference, const TCHAR* Path,
-        int32 X, int32 Y, int32 Width, int32 Height, const FIntPoint& AtlasSize)
-    {
-        FRokResearchSprite Sprite;
-        Sprite.Reference = Reference;
-        Sprite.AssetPath = Path;
-        Sprite.Rect = FIntRect(X, Y, X + Width, Y + Height);
-        Sprite.AtlasSize = AtlasSize;
-        Sprites.Add(Sprite.Reference, MoveTemp(Sprite));
-    };
-    const TCHAR* CommonPath = TEXT("/Game/RokPrototype/UI/MainHudAtlases/rok_hud_atlas_common");
-    const TCHAR* PagePath = TEXT("/Game/RokPrototype/UI/ModalAtlases/rok_modal_atlas_page");
-    const TCHAR* FramePath = TEXT("/Game/RokPrototype/UI/ModalAtlases/rok_modal_atlas_frame");
-    AddExisting(TEXT("ui_common[btn_com_1008_1]"), CommonPath, 205, 370, 145, 103, FIntPoint(2048, 1024));
-    AddExisting(TEXT("ui_common[btn_com_1008_2]"), CommonPath, 205, 266, 121, 102, FIntPoint(2048, 1024));
-    AddExisting(TEXT("ui_common[pb_com_1000_0]"), CommonPath, 427, 477, 45, 40, FIntPoint(2048, 1024));
-    AddExisting(TEXT("ui_common[pb_com_1000_1]"), CommonPath, 401, 112, 20, 23, FIntPoint(2048, 1024));
-    AddExisting(TEXT("ui_common[pl_com_1001]"), CommonPath, 436, 165, 63, 55, FIntPoint(2048, 1024));
-    AddExisting(TEXT("ui_common[pl_com_1008]"), CommonPath, 1003, 932, 400, 42, FIntPoint(2048, 1024));
-    AddExisting(TEXT("ui_common[btn_com_1000_1]"), CommonPath, 883, 589, 69, 69, FIntPoint(2048, 1024));
-    AddExisting(TEXT("ui_common[btn_com_1000]"), CommonPath, 703, 282, 69, 69, FIntPoint(2048, 1024));
-    AddExisting(TEXT("ui_common[btn_com_1007]"), CommonPath, 782, 237, 37, 37, FIntPoint(2048, 1024));
-    AddExisting(TEXT("ui_common[pl_com_1012_2]"), CommonPath, 1003, 976, 964, 47, FIntPoint(2048, 1024));
-    AddExisting(TEXT("ui_common[pl_com_1005]"), CommonPath, 1, 611, 570, 2, FIntPoint(2048, 1024));
-    AddExisting(TEXT("ui_frame[pl_fra_1000]"), FramePath, 1, 822, 524, 659, FIntPoint(1024, 2048));
-    AddExisting(TEXT("ui_frame[pl_fra_1002]"), FramePath, 1, 329, 560, 60, FIntPoint(1024, 2048));
-    AddExisting(TEXT("ui_page[paging_401]"), PagePath, 1, 561, 60, 60, FIntPoint(128, 2048));
-    AddExisting(TEXT("ui_page[paging_401_1]"), PagePath, 1, 623, 60, 60, FIntPoint(128, 2048));
-    AddExisting(TEXT("ui_page[paging_402]"), PagePath, 1, 685, 60, 60, FIntPoint(128, 2048));
-    AddExisting(TEXT("ui_page[paging_402_1]"), PagePath, 1, 747, 60, 60, FIntPoint(128, 2048));
     return true;
 }
 
@@ -233,6 +201,29 @@ bool URokResearchScreenWidget::InitializeResearch(AActor* AcademyActor)
     bDetailCloseAnimating = false;
     bDetailClosed = false;
     AnimationInterruptCount = 0;
+    if (!LoadResearchData() || !BindPresentation()) return false;
+    RefreshAccountState();
+    return true;
+}
+
+TSubclassOf<URokResearchScreenWidget> URokResearchScreenWidget::LoadPresentationClass()
+{
+    return LoadClass<URokResearchScreenWidget>(nullptr,
+        TEXT("/Game/RokPrototype/UI/Research/WBP_RokResearchTree.WBP_RokResearchTree_C"));
+}
+
+void URokResearchScreenWidget::NativePreConstruct()
+{
+    Super::NativePreConstruct();
+    if (!IsDesignTime() || !LoadResearchData()) return;
+    BindNodePresentation(false);
+    // The designer displays collapsed controls, including the runtime click-away mask.
+    if (auto* Mask = Super::GetWidgetFromName(TEXT("ResearchDetailMask")))
+        Mask->SetRenderOpacity(0.0f);
+}
+
+bool URokResearchScreenWidget::LoadResearchData()
+{
     RenderedNodes.Reset();
     RenderedLines.Reset();
     LoadError.Empty();
@@ -259,9 +250,7 @@ bool URokResearchScreenWidget::InitializeResearch(AActor* AcademyActor)
         }
         if (!bLoaded) LoadError = TEXT("Research source columns, locations or node count differ");
     }
-    if (bLoaded) bLoaded = LoadSpriteManifest(LoadError);
-    BuildTree();
-    return bLoaded;
+    return bLoaded && LoadSpriteManifest(LoadError);
 }
 
 bool URokResearchScreenWidget::IsDetailVisible() const
@@ -321,6 +310,12 @@ float URokResearchScreenWidget::GetAnimationNormalizedTimeForAudit() const
 void URokResearchScreenWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 {
     Super::NativeTick(MyGeometry, InDeltaTime);
+    AccountRefreshElapsed += InDeltaTime;
+    if (AccountRefreshElapsed >= 1.0f)
+    {
+        AccountRefreshElapsed = 0.0f;
+        RefreshAccountState();
+    }
     // Advance the prior clip before dispatching a newly queued action. A
     // Play("Show") issued by this tick then starts at the source's t=0 key.
     AdvanceDetailAnimation(InDeltaTime);
@@ -330,6 +325,192 @@ void URokResearchScreenWidget::NativeTick(const FGeometry& MyGeometry, float InD
         PendingActionId = INDEX_NONE;
         ExecuteIndexedAction(Action);
     }
+}
+
+void URokResearchScreenWidget::RefreshAccountState()
+{
+    const auto* Instance = GetGameInstance();
+    const auto* Net = Instance ? Instance->GetSubsystem<URokGameNetSubsystem>() : nullptr;
+    const auto Role = Net && Net->GetState() == ERokGameNetState::RoleReady ? Net->GetRoleInfo() : nullptr;
+    TMap<int32, int32> Levels;
+    bool bLevelsKnown = false;
+    bool bQueueKnown = false;
+    int64 Study = 0, Finish = 0;
+    if (Role)
+    {
+        auto ReadRow = [&Levels](const TSharedPtr<FJsonObject>& Row)
+        {
+            int64 Type = 0, Level = 0;
+            if (!RokSprotoJson::TryGetInt64(Row, TEXT("technologyType"), Type) || Type <= 0 || Type > MAX_int32 ||
+                !RokSprotoJson::TryGetInt64(Row, TEXT("level"), Level) || Level < 0 || Level > MAX_int32) return false;
+            Levels.Add(static_cast<int32>(Type), static_cast<int32>(Level));
+            return true;
+        };
+        const TArray<TSharedPtr<FJsonValue>>* Rows = nullptr;
+        const TSharedPtr<FJsonObject>* Map = nullptr;
+        if (Role->TryGetArrayField(TEXT("technologies"), Rows))
+        {
+            bLevelsKnown = true;
+            for (const auto& Value : *Rows)
+            {
+                const TSharedPtr<FJsonObject>* Row = nullptr;
+                if (!Value || !Value->TryGetObject(Row) || !ReadRow(*Row)) { bLevelsKnown = false; break; }
+            }
+        }
+        else if (Role->TryGetObjectField(TEXT("technologies"), Map))
+        {
+            bLevelsKnown = true;
+            for (const auto& Pair : (*Map)->Values)
+            {
+                const TSharedPtr<FJsonObject>* Row = nullptr;
+                if (!Pair.Value || !Pair.Value->TryGetObject(Row) || !ReadRow(*Row)) { bLevelsKnown = false; break; }
+            }
+        }
+        const TSharedPtr<FJsonObject>* Queue = nullptr;
+        if (Role->TryGetObjectField(TEXT("technologyQueue"), Queue))
+        {
+            // Server defaults may encode an empty queue as an empty struct.
+            bQueueKnown = true;
+            if ((*Queue)->HasField(TEXT("technologyType")) &&
+                (!RokSprotoJson::TryGetInt64(*Queue, TEXT("technologyType"), Study) || Study < 0 || Study > MAX_int32)) bQueueKnown = false;
+            if (Study > 0 && !RokSprotoJson::TryGetInt64(*Queue, TEXT("finishTime"), Finish)) bQueueKnown = false;
+        }
+    }
+    if (!bLevelsKnown) Levels.Reset();
+    bAccountResearchSynced = bLevelsKnown;
+    bResearchQueueSynced = bQueueKnown;
+    if (!bQueueKnown || QueueStudyType != Study || QueueFinishTime != Finish) bConfirmInstant = false;
+    QueueStudyType = bQueueKnown ? static_cast<int32>(Study) : 0;
+    QueueFinishTime = bQueueKnown ? Finish : 0;
+    AccountLevels = MoveTemp(Levels);
+    for (const FRokResearchRow& Row : RenderedNodes)
+    {
+        if (UTextBlock* Level = NodeLevels.FindRef(Row.StudyType))
+            Level->SetText(FText::FromString(bLevelsKnown ? FString::Printf(TEXT("%d/%d"), AccountLevels.FindRef(Row.StudyType), Row.MaxLevel)
+                : FString::Printf(TEXT("--/%d"), Row.MaxLevel)));
+    }
+    if (SelectedStudyType > 0 && IsDetailVisible())
+    {
+        FRokResearchRow Row;
+        if (Catalog.GetByStudyLevel(SelectedStudyType, ViewedConfigLevel, Row))
+        {
+            const FString Current = bLevelsKnown ? FString::FromInt(AccountLevels.FindRef(Row.StudyType)) : TEXT("—");
+            if (DetailLevel) DetailLevel->SetText(FText::FromString(FString::Printf(TEXT("等级%s"), *Current)));
+            const bool bShowNext = !bLevelsKnown || AccountLevels.FindRef(Row.StudyType) < Row.MaxLevel;
+            if (DetailLevelNext)
+            {
+                DetailLevelNext->SetText(FText::AsNumber(Row.Level));
+                DetailLevelNext->SetVisibility(bShowNext ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+            }
+            if (DetailLevelArrow) DetailLevelArrow->SetVisibility(bShowNext ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+            if (DetailProgress) DetailProgress->SetText(FText::FromString(FString::Printf(
+                TEXT("%s/%d"), bLevelsKnown ? *Current : TEXT("--"), Row.MaxLevel)));
+        }
+    }
+    if (IsDetailVisible())
+    {
+        const FString Status = ResearchActionStatus();
+        if (UTextBlock* Text = Cast<UTextBlock>(GetWidgetFromName(TEXT("ResearchDetailUnknownState"))))
+            Text->SetText(FText::FromString(!ResearchResult.IsEmpty() ? ResearchResult : Status));
+        if (UTextBlock* Label = Cast<UTextBlock>(GetWidgetFromName(TEXT("ResearchDetailBoundaryLabel"))))
+        {
+            const bool bPending = Net && Net->IsResearchWritePending();
+            const FString Action = bPending ? TEXT("等待服务器") : QueueStudyType == SelectedStudyType && QueueStudyType > 0
+                ? (QueueFinishTime > 0 ? (bConfirmStop ? TEXT("确认取消") : TEXT("取消研究")) : TEXT("领取研究"))
+                : TEXT("开始研究");
+            Label->SetText(FText::FromString(Action == TEXT("开始研究") ? TEXT("研究") : Action));
+        }
+        const bool bIdle = bResearchQueueSynced && QueueStudyType == 0;
+        for (const TCHAR* Name : { TEXT("ResearchInstantBackground"), TEXT("ResearchInstantButton"),
+            TEXT("ResearchInstantLabel"), TEXT("ResearchInstantGem"), TEXT("ResearchInstantPrice") })
+            if (UWidget* Item = GetWidgetFromName(Name))
+                Item->SetVisibility(bIdle ? (FString(Name) == TEXT("ResearchInstantButton") ? ESlateVisibility::Visible : ESlateVisibility::HitTestInvisible) : ESlateVisibility::Collapsed);
+        int64 Seconds = 0, Gems = 0;
+        const bool bQuote = GetResearchQuote(Seconds, Gems);
+        if (UTextBlock* Time = Cast<UTextBlock>(GetWidgetFromName(TEXT("ResearchDuration"))))
+            Time->SetText(FText::FromString(bQuote ? FString::Printf(TEXT("%02lld:%02lld:%02lld"), Seconds / 3600, (Seconds / 60) % 60, Seconds % 60) : TEXT("--:--:--")));
+        if (UTextBlock* Price = Cast<UTextBlock>(GetWidgetFromName(TEXT("ResearchInstantPrice"))))
+            Price->SetText(FText::FromString(bQuote ? FString::Printf(TEXT("%lld"), Gems) : TEXT("—")));
+    }
+}
+
+FString URokResearchScreenWidget::ResearchActionStatus(bool bIgnoreResourceShortage) const
+{
+    const auto* Instance = GetGameInstance();
+    const auto* Net = Instance ? Instance->GetSubsystem<URokGameNetSubsystem>() : nullptr;
+    if (!Net || Net->GetState() != ERokGameNetState::RoleReady) return TEXT("连接服务器后可研究科技。");
+    if (Net->IsSnapshotReplay()) return TEXT("快照回放仅供查看，无法研究。");
+    if (Net->IsResearchWritePending()) return TEXT("正在等待服务器确认。");
+    if (!bAccountResearchSynced || !bResearchQueueSynced) return TEXT("账号科技或队列状态尚未同步。");
+    if (QueueStudyType > 0)
+    {
+        if (QueueStudyType != SelectedStudyType) return TEXT("已有其他科技正在研究或等待领取。");
+        if (QueueFinishTime <= 0) return TEXT("研究已完成，可以领取。");
+        return bConfirmStop ? TEXT("取消仅返还部分资源，再次点击确认取消。") : TEXT("研究进行中，可取消研究。");
+    }
+    FRokResearchRow Row;
+    const int32 Level = AccountLevels.FindRef(SelectedStudyType);
+    if (!Catalog.GetByStudyLevel(SelectedStudyType, Level + 1, Row)) return TEXT("该科技已达最高等级。");
+    if (ViewedConfigLevel != Level + 1) return TEXT("请选择当前等级的下一级进行研究。");
+    for (const auto& Prerequisite : Row.Preconditions)
+        if (Prerequisite.StudyType > 0 && AccountLevels.FindRef(Prerequisite.StudyType) < Prerequisite.Level)
+        {
+            FRokResearchRow Required;
+            const FString Name = Catalog.GetByStudyLevel(Prerequisite.StudyType, 1, Required) ? Required.Name : TEXT("前置科技");
+            return FString::Printf(TEXT("需要 %s 达到 %d 级。"), *Name, Prerequisite.Level);
+        }
+    const auto* City = GetWorld() ? GetWorld()->GetSubsystem<URokServerCitySubsystem>() : nullptr;
+    if (!City || !City->HasAppliedServerCity()) return TEXT("学院状态尚未同步。");
+    const FRokServerBuilding* Academy = City->GetAppliedBuildings().FindByPredicate(
+        [](const FRokServerBuilding& Building) { return Building.Type == 13 && Building.Level > 0; });
+    if (!Academy) return TEXT("请先建造学院。");
+    if (Academy->FinishTime > 0) return TEXT("学院升级中，无法研究。");
+    if (Academy->Level < Row.CampusLevel) return FString::Printf(TEXT("需要学院达到 %d 级。"), Row.CampusLevel);
+    const auto Role = Net->GetRoleInfo();
+    const TCHAR* Names[] = { TEXT("food"), TEXT("wood"), TEXT("stone"), TEXT("gold") };
+    const TCHAR* Labels[] = { TEXT("食物"), TEXT("木材"), TEXT("石料"), TEXT("金币") };
+    const int64 Costs[] = { Row.BaseFood, Row.BaseWood, Row.BaseStone, Row.BaseGold };
+    for (int32 Index = 0; Index < 4; ++Index)
+    {
+        int64 Available = 0;
+        if (!RokSprotoJson::TryGetInt64(Role, Names[Index], Available)) return TEXT("账号资源尚未同步。");
+        if (!bIgnoreResourceShortage && Available < Costs[Index]) return FString::Printf(TEXT("%s不足。"), Labels[Index]);
+    }
+    return FString();
+}
+
+bool URokResearchScreenWidget::GetResearchQuote(int64& Seconds, int64& Gems) const
+{
+    const auto* Instance = GetGameInstance();
+    const auto* Net = Instance ? Instance->GetSubsystem<URokGameNetSubsystem>() : nullptr;
+    auto* Config = Instance ? Instance->GetSubsystem<URokUnityConfigSubsystem>() : nullptr;
+    const auto Role = Net ? Net->GetRoleInfo() : nullptr;
+    const auto* City = GetWorld() ? GetWorld()->GetSubsystem<URokServerCitySubsystem>() : nullptr;
+    FRokResearchRow Row;
+    if (!Role || !Config || !City || !Catalog.GetByStudyLevel(SelectedStudyType, ViewedConfigLevel, Row)) return false;
+    const auto* Academy = City->GetAppliedBuildings().FindByPredicate(
+        [](const FRokServerBuilding& B) { return B.Type == 13 && B.Level > 0; });
+    int32 AcademySpeed = 0;
+    if (!Academy || !Config->GetIntFieldByKey(TEXT("BuildingCampus"), TEXT("ID"), Academy->Level,
+        TEXT("researchSpeedMulti"), AcademySpeed)) return false;
+    int64 Speed = AcademySpeed;
+    // The server attribute, when present, includes technology and other bonuses.
+    RokSprotoJson::TryGetInt64(Role, TEXT("researchSpeedMulti"), Speed);
+    Seconds = FMath::FloorToInt64(Row.BaseSeconds / FMath::Max(0.01, 1.0 + Speed / 1000.0));
+    int64 Inputs[5] = { Seconds, 0, 0, 0, 0 };
+    const TCHAR* Fields[] = { TEXT("food"), TEXT("wood"), TEXT("stone"), TEXT("gold") };
+    const int64 Costs[] = { Row.BaseFood, Row.BaseWood, Row.BaseStone, Row.BaseGold };
+    for (int32 I = 0; I < 4; ++I)
+    {
+        int64 Available = 0;
+        if (!RokSprotoJson::TryGetInt64(Role, Fields[I], Available) || Available < 0) return false;
+        Inputs[I + 1] = FMath::Max<int64>(0, Costs[I] - Available);
+    }
+    const auto* Prices = Config->GetTableRows(TEXT("InstantPrice"));
+    double Total = 0;
+    if (!Prices || !RokInstantPrice::AddQuote(*Prices, Inputs, Total)) return false;
+    Gems = FMath::FloorToInt64(Total);
+    return true;
 }
 
 void URokResearchScreenWidget::ResetDetailAnimation()
@@ -379,8 +560,11 @@ void URokResearchScreenWidget::StartDetailClose()
 void URokResearchScreenWidget::SetDetailVisible(bool bVisible)
 {
     const bool bWasVisible = IsDetailVisible();
-    if (DetailMask) DetailMask->SetVisibility(bVisible
-        ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+    if (DetailMask)
+    {
+        DetailMask->SetRenderOpacity(bVisible ? 1.0f : 0.0f);
+        DetailMask->SetVisibility(bVisible ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+    }
     if (DetailRoot) DetailRoot->SetVisibility(bVisible
         ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
     if (bWasVisible != bVisible) OnDetailVisibilityChanged.Broadcast(bVisible);
@@ -399,6 +583,7 @@ void URokResearchScreenWidget::FinishDetailClose()
     SelectedStudyType = 0;
     ViewedConfigLevel = 1;
     SetDetailVisible(false);
+    if (DetailPages) DetailPages->SetActiveWidget(DetailUpdateRoot);
     if (DetailUpdateRoot) DetailUpdateRoot->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
     if (PowerRoot) PowerRoot->SetVisibility(ESlateVisibility::Collapsed);
     if (PowerBackIcon) PowerBackIcon->SetVisibility(ESlateVisibility::Collapsed);
@@ -501,25 +686,8 @@ void URokResearchScreenWidget::HandleIndexedAction(int32 ActionId)
     if (PendingActionId == INDEX_NONE) PendingActionId = ActionId;
 }
 
-void URokResearchScreenWidget::Place(UCanvasPanel* Parent, UWidget* Child,
-    const FVector2D& Position, const FVector2D& Size, int32 ZOrder)
-{
-    UCanvasPanelSlot* CanvasSlot = Parent->AddChildToCanvas(Child);
-    CanvasSlot->SetPosition(Position);
-    CanvasSlot->SetSize(Size);
-    CanvasSlot->SetZOrder(ZOrder);
-}
-
-UImage* URokResearchScreenWidget::MakeSprite(const FName& Name,
-    const FString& Reference, const FVector2D& Size, bool bUseSourceGray)
-{
-    UImage* Image = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), Name);
-    ApplySprite(Image, Reference, Size, bUseSourceGray);
-    return Image;
-}
-
 bool URokResearchScreenWidget::ApplySprite(UImage* Image,
-    const FString& Reference, const FVector2D& Size, bool bUseSourceGray)
+    const FString& Reference, bool bUseSourceGray)
 {
     const FRokResearchSprite* Sprite = Sprites.Find(Reference);
     if (!Sprite)
@@ -538,12 +706,8 @@ bool URokResearchScreenWidget::ApplySprite(UImage* Image,
         Image->SetVisibility(ESlateVisibility::Collapsed);
         return false;
     }
-    FSlateBrush Brush;
+    FSlateBrush Brush = Image->GetBrush();
     Brush.SetResourceObject(Texture);
-    Brush.ImageSize = Size;
-    Brush.DrawAs = ESlateBrushDrawType::Image;
-    Brush.Tiling = ESlateBrushTileType::NoTile;
-    Brush.ImageType = ESlateBrushImageType::FullColor;
     const float Top = static_cast<float>(Sprite->AtlasSize.Y - Sprite->Rect.Max.Y);
     Brush.SetUVRegion(FBox2f(
         FVector2f(static_cast<float>(Sprite->Rect.Min.X) / Sprite->AtlasSize.X, Top / Sprite->AtlasSize.Y),
@@ -568,88 +732,6 @@ bool URokResearchScreenWidget::ApplySprite(UImage* Image,
     return true;
 }
 
-UCanvasPanel* URokResearchScreenWidget::MakeNineSlice(const FName& Name,
-    const FString& Reference, const FVector2D& Size, const FMargin& SourceMargin)
-{
-    UCanvasPanel* Panel = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), Name);
-    Panel->SetVisibility(ESlateVisibility::HitTestInvisible);
-    const FRokResearchSprite* Base = Sprites.Find(Reference);
-    if (!Base) return Panel;
-    const FRokResearchSprite Template = *Base;
-    const FIntRect Source = Base->Rect;
-    const int32 Left = FMath::RoundToInt(Source.Width() * SourceMargin.Left);
-    const int32 Right = FMath::RoundToInt(Source.Width() * SourceMargin.Right);
-    const int32 Top = FMath::RoundToInt(Source.Height() * SourceMargin.Top);
-    const int32 Bottom = FMath::RoundToInt(Source.Height() * SourceMargin.Bottom);
-    const int32 CenterWidth = Source.Width() - Left - Right;
-    const int32 CenterHeight = Source.Height() - Top - Bottom;
-    const float CenterDestWidth = Size.X - Left - Right;
-    const float CenterDestHeight = Size.Y - Top - Bottom;
-    const FString Stem = Name.ToString();
-    auto AddPatch = [&](const TCHAR* Suffix, int32 X, int32 Y, int32 Width, int32 Height,
-        float DX, float DY, float DW, float DH)
-    {
-        if (DW <= 0 || DH <= 0) return;
-        // Keep a zero-width source center as a constant-U quad, not a 1 px
-        // strip: pb_com_1000_1 has L10/R10 borders on a 20 px sprite. UE's
-        // ElementBatcher accepts a valid BrushUV with SizeUV.X == 0 and still
-        // draws the nonzero destination quad at that atlas seam.
-        if (Width < 0 || Height < 0) return;
-        FRokResearchSprite Patch = Template;
-        Patch.Rect = FIntRect(X, Y, X + Width, Y + Height);
-        Patch.Reference = FString::Printf(TEXT("%s_%s_Sprite"), *Stem, Suffix);
-        Sprites.Add(Patch.Reference, Patch);
-        UImage* Image = MakeSprite(*FString::Printf(TEXT("%s_%s"), *Stem, Suffix),
-            Patch.Reference, FVector2D(DW, DH));
-        Place(Panel, Image, FVector2D(DX, DY), FVector2D(DW, DH));
-    };
-    const int32 X0 = Source.Min.X, X1 = X0 + Left, X2 = Source.Max.X - Right;
-    const int32 Y0 = Source.Min.Y, Y1 = Y0 + Bottom, Y2 = Source.Max.Y - Top;
-    AddPatch(TEXT("TopLeft"), X0, Y2, Left, Top, 0, 0, Left, Top);
-    AddPatch(TEXT("Top"), X1, Y2, CenterWidth, Top, Left, 0, CenterDestWidth, Top);
-    AddPatch(TEXT("TopRight"), X2, Y2, Right, Top, Size.X - Right, 0, Right, Top);
-    AddPatch(TEXT("Left"), X0, Y1, Left, CenterHeight, 0, Top, Left, CenterDestHeight);
-    AddPatch(TEXT("Center"), X1, Y1, CenterWidth, CenterHeight,
-        Left, Top, CenterDestWidth, CenterDestHeight);
-    AddPatch(TEXT("Right"), X2, Y1, Right, CenterHeight,
-        Size.X - Right, Top, Right, CenterDestHeight);
-    AddPatch(TEXT("BottomLeft"), X0, Y0, Left, Bottom,
-        0, Size.Y - Bottom, Left, Bottom);
-    AddPatch(TEXT("Bottom"), X1, Y0, CenterWidth, Bottom,
-        Left, Size.Y - Bottom, CenterDestWidth, Bottom);
-    AddPatch(TEXT("BottomRight"), X2, Y0, Right, Bottom,
-        Size.X - Right, Size.Y - Bottom, Right, Bottom);
-    return Panel;
-}
-
-UTextBlock* URokResearchScreenWidget::MakeText(const FName& Name, const FString& Value,
-    float PixelSize, const FLinearColor& Color, bool bBold)
-{
-    UTextBlock* Text = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), Name);
-    Text->SetText(FText::FromString(Value));
-    Text->SetFont(FCoreStyle::GetDefaultFontStyle(bBold ? TEXT("Bold") : TEXT("Regular"),
-        PixelSize * 72.0f / 96.0f));
-    Text->SetColorAndOpacity(FSlateColor(Color));
-    Text->SetJustification(ETextJustify::Center);
-    Text->SetVisibility(ESlateVisibility::HitTestInvisible);
-    return Text;
-}
-
-URokUnityIndexedButton* URokResearchScreenWidget::MakeButton(const FName& Name, int32 ActionId)
-{
-    URokUnityIndexedButton* Button = WidgetTree->ConstructWidget<URokUnityIndexedButton>(
-        URokUnityIndexedButton::StaticClass(), Name);
-    FSlateBrush EmptyBrush;
-    EmptyBrush.DrawAs = ESlateBrushDrawType::NoDrawType;
-    FButtonStyle Style;
-    Style.SetNormal(EmptyBrush).SetHovered(EmptyBrush).SetPressed(EmptyBrush).SetDisabled(EmptyBrush);
-    Style.SetNormalPadding(FMargin(0)).SetPressedPadding(FMargin(0));
-    Button->SetStyle(Style);
-    Button->ConfigureAction(ActionId);
-    Button->OnIndexedClicked.AddUObject(this, &URokResearchScreenWidget::HandleIndexedAction);
-    return Button;
-}
-
 void URokResearchScreenWidget::SetSelectedType(int32 Type)
 {
     if (Type != EconomyType && Type != MilitaryType) return;
@@ -659,25 +741,12 @@ void URokResearchScreenWidget::SetSelectedType(int32 Type)
         SetDetailVisible(false);
     }
     SelectedType = Type;
-    if (EconomyScroll) EconomyScroll->SetVisibility(Type == EconomyType
-        ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
-    if (MilitaryScroll) MilitaryScroll->SetVisibility(Type == MilitaryType
-        ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
-    if (EconomySelected) EconomySelected->SetVisibility(Type == EconomyType
-        ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
-    if (MilitarySelected) MilitarySelected->SetVisibility(Type == MilitaryType
-        ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
-    for (int32 PageType : { EconomyType, MilitaryType })
-    {
-        const FString Prefix = PageType == EconomyType ? TEXT("ResearchEconomy") : TEXT("ResearchMilitary");
-        const bool bSelected = PageType == Type;
-        if (UWidget* Icon = WidgetTree->FindWidget(*FString::Printf(TEXT("%sIcon"), *Prefix)))
-            Icon->SetVisibility(bSelected ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
-        if (UWidget* Icon = WidgetTree->FindWidget(*FString::Printf(TEXT("%sDarkIcon"), *Prefix)))
-            Icon->SetVisibility(bSelected ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
-        if (UWidget* Dark = WidgetTree->FindWidget(*FString::Printf(TEXT("%sDark"), *Prefix)))
-            Dark->SetVisibility(bSelected ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
-    }
+    if (TreePages)
+        TreePages->SetActiveWidgetIndex(Type == EconomyType ? 0 : 1);
+    if (EconomyTabStyle)
+        EconomyTabStyle->SetActiveWidgetIndex(Type == EconomyType ? 0 : 1);
+    if (MilitaryTabStyle)
+        MilitaryTabStyle->SetActiveWidgetIndex(Type == MilitaryType ? 0 : 1);
     if (WindowTitle) WindowTitle->SetText(FText::FromString(Type == EconomyType
         ? TEXT("经济科技") : TEXT("军事科技")));
 }
@@ -688,66 +757,50 @@ void URokResearchScreenWidget::ShowSelectedDetail()
     const bool bOpeningNewDetail = DetailRoot->GetVisibility() == ESlateVisibility::Collapsed;
     FRokResearchRow Row;
     if (!Catalog.GetByStudyLevel(SelectedStudyType, ViewedConfigLevel, Row)) return;
-    if (DetailIcon) ApplySprite(DetailIcon, Row.IconSource, FVector2D(160, 160));
+    if (DetailIcon) ApplySprite(DetailIcon, Row.IconSource);
     if (DetailTitle) DetailTitle->SetText(FText::FromString(Row.Name));
     if (DetailDescription) DetailDescription->SetText(FText::FromString(Row.Description));
-    if (DetailLevel) DetailLevel->SetText(FText::FromString(FString::Printf(
-        TEXT("账号等级 —   ▷   配置等级 %d/%d"), Row.Level, Row.MaxLevel)));
+    if (DetailLevel) DetailLevel->SetText(FText::FromString(FString::Printf(TEXT("等级%s"),
+        bAccountResearchSynced ? *FString::FromInt(AccountLevels.FindRef(Row.StudyType)) : TEXT("—"))));
+    if (DetailLevelNext) DetailLevelNext->SetText(FText::AsNumber(Row.Level));
     if (DetailProgress) DetailProgress->SetText(FText::FromString(FString::Printf(
-        TEXT("--/%d"), Row.MaxLevel)));
+        TEXT("%s/%d"), bAccountResearchSynced ? *FString::FromInt(AccountLevels.FindRef(Row.StudyType)) : TEXT("--"), Row.MaxLevel)));
     FRokResearchRow Previous;
     const bool bHasPrevious = Row.Level > 1 &&
         Catalog.GetByStudyLevel(Row.StudyType, Row.Level - 1, Previous);
     const bool bHasAttribute = !Row.DescriptionData.IsEmpty();
-    for (const TCHAR* RegionName : { TEXT("ResearchDetailAttrNameRegion"),
-        TEXT("ResearchDetailAttrBeforeRegion"), TEXT("ResearchDetailAttrDeltaRegion") })
-    {
-        if (UWidget* Region = WidgetTree->FindWidget(RegionName))
-            Region->SetVisibility(bHasAttribute ? ESlateVisibility::SelfHitTestInvisible
-                : ESlateVisibility::Collapsed);
-    }
+    if (UWidget* AttributeRow = GetWidgetFromName(TEXT("ResearchDetailAttrRow")))
+        AttributeRow->SetVisibility(bHasAttribute ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
     if (DetailAttrName) DetailAttrName->SetText(FText::FromString(Row.BuffDescription));
     if (DetailAttrBefore) DetailAttrBefore->SetText(FText::FromString(FString::Printf(
-        TEXT("配置前 %s"), bHasPrevious ? *Previous.DescriptionData : TEXT("0.0%"))));
+        TEXT("%s"), bHasPrevious ? *Previous.DescriptionData : TEXT("0.0%"))));
     if (DetailAttrDelta && bHasAttribute)
     {
         const double Before = bHasPrevious ? FCString::Atod(*Previous.DescriptionData) : 0.0;
         const double After = FCString::Atod(*Row.DescriptionData);
         DetailAttrDelta->SetText(FText::FromString(FString::Printf(TEXT("+%.1f%%"), After - Before)));
     }
-    for (const TCHAR* RegionName : { TEXT("ResearchDetailPowerNameRegion"),
-        TEXT("ResearchDetailPowerBeforeRegion"), TEXT("ResearchDetailPowerDeltaRegion") })
-    {
-        if (UWidget* Region = WidgetTree->FindWidget(RegionName))
-            if (UCanvasPanelSlot* CanvasSlot = Cast<UCanvasPanelSlot>(Region->Slot))
-                CanvasSlot->SetPosition(FVector2D(CanvasSlot->GetPosition().X,
-                    bHasAttribute ? 298.7f : 258.7f));
-    }
-    if (UWidget* Panel = WidgetTree->FindWidget(TEXT("ResearchDetailAttrPanel")))
-        if (UCanvasPanelSlot* CanvasSlot = Cast<UCanvasPanelSlot>(Panel->Slot))
-            CanvasSlot->SetSize(FVector2D(536.0f, bHasAttribute ? 100.0f : 60.0f));
     if (DetailPowerBefore) DetailPowerBefore->SetText(FText::FromString(FString::Printf(
-        TEXT("配置前 %lld"), bHasPrevious ? Previous.Power : 0LL)));
+        TEXT("%lld"), bHasPrevious ? Previous.Power : 0LL)));
     if (DetailPowerDelta) DetailPowerDelta->SetText(FText::FromString(FString::Printf(
         TEXT("+%lld"), Row.Power - (bHasPrevious ? Previous.Power : 0LL))));
-    if (DetailCosts)
+    const int64 Values[] = { Row.BaseFood, Row.BaseWood, Row.BaseStone, Row.BaseGold };
+    for (int32 Index = 0; Index < UE_ARRAY_COUNT(Values); ++Index)
     {
-        DetailCosts->SetText(FText::FromString(
-            TEXT("来源配置需求 · 账号资源、研究速度和队列未同步")));
+        const FName Name(*FString::Printf(TEXT("ResearchDetailCostItem_%d"), Index));
+        if (UWidget* Item = GetWidgetFromName(Name))
+            Item->SetVisibility(Values[Index] > 0 ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+        if (DetailCostValues.IsValidIndex(Index) && DetailCostValues[Index]) DetailCostValues[Index]->SetText(FText::AsNumber(Values[Index]));
     }
-    const int64 Values[] = { Row.BaseFood, Row.BaseWood, Row.BaseStone,
-        Row.BaseGold, Row.BaseSeconds, Row.CampusLevel };
-    const TCHAR* Labels[] = { TEXT("食物"), TEXT("木材"), TEXT("石料"),
-        TEXT("金币"), TEXT("基础秒数"), TEXT("学院要求") };
-    for (int32 Index = 0; Index < DetailCostValues.Num() && Index < 6; ++Index)
-        DetailCostValues[Index]->SetText(FText::FromString(FString::Printf(
-            TEXT("%s  %lld"), Labels[Index], Values[Index])));
+    ResearchResult.Reset();
     RefreshPowerRows(Row);
+    if (DetailPages) DetailPages->SetActiveWidget(DetailUpdateRoot);
     if (DetailUpdateRoot) DetailUpdateRoot->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
     if (PowerRoot) PowerRoot->SetVisibility(ESlateVisibility::Collapsed);
     if (PowerBackIcon) PowerBackIcon->SetVisibility(ESlateVisibility::Collapsed);
     if (PowerBackButton) PowerBackButton->SetVisibility(ESlateVisibility::Collapsed);
     SetDetailVisible(true);
+    RefreshAccountState();
     if (bOpeningNewDetail) StartDetailAnimation(EDetailAnimationPhase::DetailOpen);
 }
 
@@ -772,18 +825,25 @@ void URokResearchScreenWidget::ExecuteIndexedAction(int32 ActionId)
         if (Found)
         {
             SelectedStudyType = RequestedStudyType;
-            ViewedConfigLevel = 1;
+            bConfirmStop = false;
+            bConfirmInstant = false;
+            ResearchResult.Reset();
+            ViewedConfigLevel = bAccountResearchSynced ? FMath::Clamp(AccountLevels.FindRef(RequestedStudyType) + 1, 1, Found->MaxLevel) : 1;
             ShowSelectedDetail();
         }
         return;
     }
     if (ActionId == BackAction)
     {
+        bConfirmStop = false;
+        bConfirmInstant = false;
+        ResearchResult.Reset();
         StartDetailClose();
         return;
     }
     if (ActionId == MoreAction)
     {
+        if (DetailPages) DetailPages->SetActiveWidget(PowerRoot);
         if (DetailUpdateRoot) DetailUpdateRoot->SetVisibility(ESlateVisibility::Collapsed);
         if (PowerRoot) PowerRoot->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
         if (PowerBackIcon) PowerBackIcon->SetVisibility(ESlateVisibility::HitTestInvisible);
@@ -794,6 +854,7 @@ void URokResearchScreenWidget::ExecuteIndexedAction(int32 ActionId)
     }
     if (ActionId == PowerBackAction)
     {
+        if (DetailPages) DetailPages->SetActiveWidget(DetailUpdateRoot);
         if (PowerRoot) PowerRoot->SetVisibility(ESlateVisibility::Collapsed);
         if (PowerBackIcon) PowerBackIcon->SetVisibility(ESlateVisibility::Collapsed);
         if (PowerBackButton) PowerBackButton->SetVisibility(ESlateVisibility::Collapsed);
@@ -806,569 +867,231 @@ void URokResearchScreenWidget::ExecuteIndexedAction(int32 ActionId)
         FRokResearchRow Current;
         if (Catalog.GetByStudyLevel(SelectedStudyType, ViewedConfigLevel, Current))
         {
+            bConfirmStop = false;
+            bConfirmInstant = false;
+            ResearchResult.Reset();
             ViewedConfigLevel = FMath::Clamp(ViewedConfigLevel +
                 (ActionId == NextLevelAction ? 1 : -1), 1, Current.MaxLevel);
             ShowSelectedDetail();
         }
         return;
     }
-    if (ActionId == BoundaryAction)
+    if (ActionId == BoundaryAction || ActionId == InstantAction)
     {
-        // ResearchUpdateMediator normally sends account/server technology
-        // requests. This source-config preview only records the local intent.
+        const bool bInstant = ActionId == InstantAction;
+        if (!bInstant) bConfirmInstant = false;
         LastBoundaryActionId = ActionId;
-        if (DetailCosts) DetailCosts->SetText(FText::FromString(
-            TEXT("研究队列、资源与账号等级未同步；当前仅浏览来源配置。")));
-    }
-}
-
-void URokResearchScreenWidget::BuildTree()
-{
-    RootCanvas = WidgetTree->ConstructWidget<UCanvasPanel>(
-        UCanvasPanel::StaticClass(), TEXT("ResearchCanvas"));
-    WidgetTree->RootWidget = RootCanvas;
-    RootCanvas->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-
-    if (!LoadError.IsEmpty())
-    {
-        UTextBlock* Error = MakeText(TEXT("ResearchLoadError"),
-            FString::Printf(TEXT("研究来源数据不可用：%s"), *LoadError), 20.0f,
-            FLinearColor::White);
-        Place(RootCanvas, Error, FVector2D(255, 340), FVector2D(930, 80), 8);
-        return;
-    }
-
-    // Original UI_Win_ResearchMain/img_bg over the Type1 frame.
-    Place(RootCanvas, MakeSprite(TEXT("ResearchBackground"),
-        TEXT("img_research_bg[img_research_bg]"), FVector2D(988.1f, 658.1f)),
-        FVector2D(226.0f, 103.0f), FVector2D(988.1f, 658.1f), 0);
-
-    UBorder* TitleRegion = WidgetTree->ConstructWidget<UBorder>(
-        UBorder::StaticClass(), TEXT("ResearchWindowTitleRegion"));
-    TitleRegion->SetBrushColor(FLinearColor::Transparent);
-    TitleRegion->SetPadding(FMargin(0));
-    TitleRegion->SetVisibility(ESlateVisibility::HitTestInvisible);
-    TitleRegion->SetHorizontalAlignment(HAlign_Center);
-    TitleRegion->SetVerticalAlignment(VAlign_Center);
-    WindowTitle = MakeText(TEXT("ResearchWindowTitle"), TEXT("经济科技"),
-        30.0f, FLinearColor::White);
-    TitleRegion->SetContent(WindowTitle);
-    Place(RootCanvas, TitleRegion, FVector2D(139.5f, 76.4f),
-        FVector2D(1161.1f, 40.0f), 8);
-
-    EconomyScroll = BuildPage(EconomyType);
-    MilitaryScroll = BuildPage(MilitaryType);
-
-    for (int32 Type : { EconomyType, MilitaryType })
-    {
-        const bool bSelected = Type == EconomyType;
-        const float Y = bSelected ? 188.1f : 301.1f;
-        const FString Prefix = Type == EconomyType ? TEXT("ResearchEconomy") : TEXT("ResearchMilitary");
-        UImage* Selection = MakeSprite(*FString::Printf(TEXT("%sSelected"), *Prefix),
-            TEXT("ui_common[btn_com_1008_1]"), FVector2D(145, 103));
-        if (Type == EconomyType) EconomySelected = Selection;
-        else MilitarySelected = Selection;
-        Place(RootCanvas, Selection, FVector2D(1258, Y), FVector2D(145, 103), 5);
-        UImage* Dark = MakeSprite(*FString::Printf(TEXT("%sDark"), *Prefix),
-            TEXT("ui_common[btn_com_1008_2]"), FVector2D(121, 102));
-        Place(RootCanvas, Dark, FVector2D(1258, Y + 0.5f), FVector2D(121, 102), 4);
-        const FString IconRef = Type == EconomyType ? TEXT("ui_page[paging_401]") :
-            TEXT("ui_page[paging_402]");
-        const FString DarkIconRef = Type == EconomyType ? TEXT("ui_page[paging_401_1]") :
-            TEXT("ui_page[paging_402_1]");
-        Place(RootCanvas, MakeSprite(*FString::Printf(TEXT("%sDarkIcon"), *Prefix),
-            DarkIconRef, FVector2D(60, 60)), FVector2D(1282.8f, Y + 21.5f), FVector2D(60, 60), 6);
-        UImage* Icon = MakeSprite(*FString::Printf(TEXT("%sIcon"), *Prefix),
-            IconRef, FVector2D(60, 60));
-        Place(RootCanvas, Icon, FVector2D(1283.4f, Y + 21.5f), FVector2D(60, 60), 7);
-        // Selected/highlight sprites switch together; the opaque hit area
-        // retains the source checkbox bounds even when its art is hidden.
-        const bool bVisible = Type == SelectedType;
-        Selection->SetVisibility(bVisible ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
-        Icon->SetVisibility(bVisible ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
-        Dark->SetVisibility(bVisible ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
-        URokUnityIndexedButton* Hit = MakeButton(Type == EconomyType
-            ? TEXT("ResearchEconomyTab") : TEXT("ResearchMilitaryTab"),
-            Type == EconomyType ? EconomyAction : MilitaryAction);
-        Place(RootCanvas, Hit, FVector2D(1259.0f, Type == EconomyType ? 193.0f : 303.8f),
-            FVector2D(131.0f, 94.8f), 9);
-    }
-
-    UTextBlock* Notice = MakeText(TEXT("ResearchAccountStateNotice"),
-        TEXT("来源配置预览 · 学院、账号研究等级和队列未同步"), 14.0f,
-        FLinearColor::FromSRGBColor(FColor(220, 214, 197)));
-    Place(RootCanvas, Notice, FVector2D(350, 737), FVector2D(740, 23), 6);
-    BuildDetail();
-    SetSelectedType(EconomyType);
-}
-
-UScrollBox* URokResearchScreenWidget::BuildPage(int32 Type)
-{
-    const FString Prefix = Type == EconomyType ? TEXT("ResearchEconomy") : TEXT("ResearchMilitary");
-    UCanvasPanel* Region = WidgetTree->ConstructWidget<UCanvasPanel>(
-        UCanvasPanel::StaticClass(), *FString::Printf(TEXT("%sScrollRegion"), *Prefix));
-    Place(RootCanvas, Region, FVector2D(191.71f, 121.48f), FVector2D(1056.59f, 644.05f), 2);
-    UScrollBox* OutScroll = WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(),
-        *FString::Printf(TEXT("%sScroll"), *Prefix));
-    OutScroll->SetOrientation(EOrientation::Orient_Horizontal);
-    OutScroll->SetScrollBarVisibility(ESlateVisibility::Collapsed);
-    OutScroll->SetAnimateWheelScrolling(false);
-    Place(Region, OutScroll, FVector2D::ZeroVector, FVector2D(1056.59f, 641.05f));
-    USizeBox* Extent = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(),
-        *FString::Printf(TEXT("%sExtent"), *Prefix));
-    Extent->SetWidthOverride(6305.025f);
-    Extent->SetHeightOverride(666.05f);
-    OutScroll->AddChild(Extent);
-    UCanvasPanel* Content = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(),
-        *FString::Printf(TEXT("%sContent"), *Prefix));
-    Content->SetRenderTranslation(FVector2D(0, -12.5f));
-    Extent->SetContent(Content);
-
-    for (int32 ColumnIndex = 1; ColumnIndex <= 15; ++ColumnIndex)
-    {
-        UCanvasPanel* Column = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(),
-            *FString::Printf(TEXT("ResearchColumn_%d_%d"), Type, ColumnIndex));
-        Place(Content, Column, FVector2D((ColumnIndex - 1) * 420.335f, 23.0f),
-            FVector2D(420.335f, 620.05f));
-        int32 ItemIndex = 0;
-        for (const FRokResearchRow& Row : RenderedNodes)
+        ResearchResult.Reset();
+        RefreshAccountState();
+        const FString Status = ResearchActionStatus(bInstant);
+        const bool bIsOwnQueue = QueueStudyType > 0 && QueueStudyType == SelectedStudyType;
+        const bool bStop = bIsOwnQueue && QueueFinishTime > 0;
+        const bool bAward = bIsOwnQueue && QueueFinishTime <= 0;
+        if (!Status.IsEmpty() && !bIsOwnQueue) { ResearchResult = Status; RefreshAccountState(); return; }
+        if (bStop && !bConfirmStop)
         {
-            if (Row.Type == Type && Row.Columns == ColumnIndex)
-                BuildNode(Column, Row, Type, ItemIndex++);
+            bConfirmStop = true;
+            RefreshAccountState();
+            return;
         }
-    }
-    return OutScroll;
-}
-
-void URokResearchScreenWidget::BuildNode(UCanvasPanel* Column,
-    const FRokResearchRow& Row, int32 Type, int32 ItemIndex)
-{
-    static const float EconomyPositions[] = {0, 210, 105, 0, -105, -210, 160};
-    static const float MilitaryPositions[] = {0, 228, 158, 150, 76, 0, -76, -150, -158, -228};
-    const float SourceY = Type == EconomyType
-        ? EconomyPositions[Row.Location] : MilitaryPositions[Row.Location];
-    UCanvasPanel* Node = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(),
-        *FString::Printf(TEXT("ResearchNode_%d"), Row.StudyType));
-    // UI_ResearchItem prefab's third child item has a source-local X offset
-    // of +2 px; this is visible in every three-or-four-node native column.
-    Place(Column, Node, FVector2D(102.16f + (ItemIndex == 2 ? 2.0f : 0.0f),
-        260.02f - SourceY), FVector2D(100, 100), 1);
-
-    const FRokResearchRenderedLine Line = DescribeSourceLine(Row, RenderedNodes);
-    if (!Line.PrimarySprite.IsEmpty() || !Line.SecondarySprite.IsEmpty())
-    {
-        RenderedLines.Add(Line);
-        if (const FRokResearchSprite* Sprite = Sprites.Find(Line.PrimarySprite))
+        auto* Instance = GetGameInstance();
+        auto* Net = Instance ? Instance->GetSubsystem<URokGameNetSubsystem>() : nullptr;
+        if (!Net) { ResearchResult = TEXT("服务器连接尚未就绪。"); RefreshAccountState(); return; }
+        if (bInstant)
         {
-            const FVector2D Size(Sprite->Rect.Width(), Sprite->Rect.Height());
-            float Y = 50.0f - Size.Y * 0.5f;
-            if (Line.SameColumnChildCount == 1 && Line.CrossColumnChildCount == 0)
+            int64 Seconds = 0, Price = 0, Balance = 0;
+            if (!GetResearchQuote(Seconds, Price) || !RokSprotoJson::TryGetInt64(Net->GetRoleInfo(), TEXT("denar"), Balance))
+            { ResearchResult = TEXT("宝石价格或余额尚未同步。"); RefreshAccountState(); return; }
+            if (Balance < Price) { ResearchResult = TEXT("宝石不足。"); RefreshAccountState(); return; }
+            if (!bConfirmInstant || Price != ConfirmedInstantPrice)
             {
-                const FRokResearchRow* Child = RenderedNodes.FindByPredicate(
-                    [&Row](const FRokResearchRow& Candidate)
-                    {
-                        return Candidate.Type == Row.Type && Candidate.Columns == Row.Columns + 1 &&
-                            Candidate.Preconditions.ContainsByPredicate(
-                                [&Row](const FRokResearchPrerequisite& Prerequisite)
-                                { return Prerequisite.StudyType == Row.StudyType; });
-                    });
-                if (Child && Child->Location != Row.Location)
-                    Y = Line.bPrimaryMirroredY ? 52.5f - Size.Y : 47.5f;
+                bConfirmInstant = true; ConfirmedInstantPrice = Price;
+                ResearchResult = FString::Printf(TEXT("预计消耗 %lld 宝石；实际费用以服务器为准。再次点击确认。"), Price);
+                RefreshAccountState(); return;
             }
-            else if (Line.SameColumnChildCount == 1 && Line.CrossColumnChildCount > 0)
-            {
-                // UI_ResearchSubItem_SubView offsets the mixed one-child
-                // branch by half the sprite height after LoadSprite completes.
-                Y = 50.0f - Size.Y;
-            }
-            UImage* Primary = MakeSprite(*FString::Printf(TEXT("ResearchLine_%d_Primary"), Row.StudyType),
-                Line.PrimarySprite, Size);
-            Primary->SetRenderTransformPivot(FVector2D(0.5f));
-            Primary->SetRenderScale(FVector2D(-1.0f, Line.bPrimaryMirroredY ? -1.0f : 1.0f));
-            // The Unity image keeps its X center when LoadSprite changes its
-            // native width; the 127 px starter sprite alone has left 194.5.
-            Place(Node, Primary, FVector2D(258.0f - Size.X * 0.5f, Y), Size, 0);
         }
-        if (const FRokResearchSprite* Sprite = Sprites.Find(Line.SecondarySprite))
+        bConfirmInstant = false;
+        const ERokResearchCommand Command = bInstant ? ERokResearchCommand::Instant : bStop ? ERokResearchCommand::Stop : bAward ? ERokResearchCommand::Award : ERokResearchCommand::Start;
+        TWeakObjectPtr<URokResearchScreenWidget> WeakThis(this);
+        FString Error;
+        bConfirmStop = false;
+        if (!Net->RequestResearchCommand(Command, SelectedStudyType, [WeakThis, Command](const FString& Failure)
         {
-            const FVector2D Size(540.0f,
-                Line.CrossColumnChildCount == 4 ? 446.0f : 5.0f);
-            UImage* Secondary = MakeSprite(*FString::Printf(TEXT("ResearchLine_%d_Secondary"), Row.StudyType),
-                Line.SecondarySprite, Size);
-            Secondary->SetRenderTransformPivot(FVector2D(0.5f));
-            Secondary->SetRenderScale(FVector2D(-1.0f, 1.0f));
-            // img_line2 starts as a 553.2 px image centered 471.1 px from
-            // the node and is resized to 540 px for the cross-column line.
-            Place(Node, Secondary, FVector2D(471.1f - Size.X * 0.5f,
-                49.2f - Size.Y * 0.5f), Size, 0);
-        }
+            if (!WeakThis.IsValid()) return;
+            WeakThis->RefreshAccountState();
+            if (Failure.IsEmpty() && (Command == ERokResearchCommand::Award || Command == ERokResearchCommand::Instant) && WeakThis->IsDetailVisible())
+            {
+                FRokResearchRow Current;
+                if (WeakThis->Catalog.GetByStudyLevel(WeakThis->SelectedStudyType, 1, Current))
+                {
+                    WeakThis->ViewedConfigLevel = FMath::Clamp(
+                        WeakThis->AccountLevels.FindRef(WeakThis->SelectedStudyType) + 1, 1, Current.MaxLevel);
+                    WeakThis->ShowSelectedDetail();
+                }
+            }
+            WeakThis->ResearchResult = Failure.IsEmpty() ? (Command == ERokResearchCommand::Start ? TEXT("研究已开始。") :
+                (Command == ERokResearchCommand::Award || Command == ERokResearchCommand::Instant) ? TEXT("科技已完成。") : TEXT("研究已取消。")) : Failure;
+            WeakThis->RefreshAccountState();
+        }, Error)) ResearchResult = Error;
+        RefreshAccountState();
     }
-
-    const bool bHasPrerequisite = Row.Preconditions.ContainsByPredicate(
-        [](const FRokResearchPrerequisite& Prerequisite) { return Prerequisite.StudyType > 0; });
-    const FString Background = bHasPrerequisite
-        ? TEXT("ui_research[img_research_btnBgDark]")
-        : TEXT("ui_research[img_research_btnBgLight]");
-    Place(Node, MakeSprite(*FString::Printf(TEXT("ResearchNodeBackground_%d"), Row.StudyType),
-        Background, FVector2D(308, 100)), FVector2D(-104, 0), FVector2D(308, 100), 1);
-    Place(Node, MakeSprite(*FString::Printf(TEXT("ResearchNodeIconBackground_%d"), Row.StudyType),
-        TEXT("ui_research[img_research_iconBg]"), FVector2D(104, 104), bHasPrerequisite),
-        FVector2D(-90.6f, -14), FVector2D(104, 104), 2);
-    Place(Node, MakeSprite(*FString::Printf(TEXT("ResearchNodeIcon_%d"), Row.StudyType),
-        Row.IconSource, FVector2D(88, 88), bHasPrerequisite),
-        FVector2D(-82.6f, -6), FVector2D(88, 88), 3);
-
-    UBorder* NameRegion = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(),
-        *FString::Printf(TEXT("ResearchNodeNameRegion_%d"), Row.StudyType));
-    NameRegion->SetBrushColor(FLinearColor::Transparent);
-    NameRegion->SetPadding(FMargin(0));
-    NameRegion->SetHorizontalAlignment(HAlign_Left);
-    NameRegion->SetVerticalAlignment(VAlign_Center);
-    UTextBlock* Name = MakeText(*FString::Printf(TEXT("ResearchNodeName_%d"), Row.StudyType),
-        Row.Name, 18.0f, FLinearColor::White);
-    Name->SetJustification(ETextJustify::Left);
-    NameRegion->SetContent(Name);
-    Place(Node, NameRegion, FVector2D(27.51f, 11.8f), FVector2D(162.65f, 35.57f), 4);
-
-    Place(Node, MakeNineSlice(*FString::Printf(TEXT("ResearchNodeProgressFrame_%d"), Row.StudyType),
-        TEXT("ui_common[pb_com_1000_0]"), FVector2D(168.09f, 38.09f),
-        FMargin(14.0f / 45.0f, 18.0f / 40.0f, 18.0f / 45.0f, 14.0f / 40.0f)),
-        FVector2D(19.44f, 48.5f), FVector2D(168.09f, 38.09f), 3);
-    Place(Node, MakeNineSlice(*FString::Printf(TEXT("ResearchNodeProgressEmpty_%d"), Row.StudyType),
-        TEXT("ui_common[pb_com_1000_1]"), FVector2D(150.57f, 20.75f),
-        FMargin(10.0f / 20.0f, 7.0f / 23.0f, 10.0f / 20.0f, 6.0f / 23.0f)),
-        FVector2D(27.8f, 57.25f), FVector2D(150.57f, 20.75f), 4);
-    UBorder* LevelRegion = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(),
-        *FString::Printf(TEXT("ResearchNodeLevelRegion_%d"), Row.StudyType));
-    LevelRegion->SetBrushColor(FLinearColor::Transparent);
-    LevelRegion->SetPadding(FMargin(0));
-    LevelRegion->SetHorizontalAlignment(HAlign_Center);
-    LevelRegion->SetVerticalAlignment(VAlign_Center);
-    LevelRegion->SetContent(MakeText(*FString::Printf(TEXT("ResearchNodeLevel_%d"), Row.StudyType),
-        FString::Printf(TEXT("--/%d"), Row.MaxLevel), 16.0f, FLinearColor::White));
-    Place(Node, LevelRegion, FVector2D(27.8f, 57.25f), FVector2D(150.57f, 20.75f), 5);
-    Place(Node, MakeButton(*FString::Printf(TEXT("ResearchNodeHit_%d"), Row.StudyType),
-        NodeActionBase + Row.StudyType), FVector2D(-104, 0), FVector2D(308, 100), 9);
 }
 
-void URokResearchScreenWidget::BuildDetail()
+UWidget* URokResearchScreenWidget::GetWidgetFromName(const FName& Name) const
 {
-    // UIManager.AddMask inserts a separate, fixed full-layer overlay below
-    // UI_Win_ResearchUpate and above the ResearchMain window. It remains
-    // active until CloseAnimatorCallback removes the detail window.
-    DetailMask = WidgetTree->ConstructWidget<UCanvasPanel>(
-        UCanvasPanel::StaticClass(), TEXT("ResearchDetailMask"));
-    Place(RootCanvas, DetailMask, FVector2D::ZeroVector, FVector2D(1440, 810), 19);
-    UBorder* MaskShade = WidgetTree->ConstructWidget<UBorder>(
-        UBorder::StaticClass(), TEXT("ResearchDetailMaskShade"));
-    MaskShade->SetBrushColor(FLinearColor(0.0f, 0.0f, 0.0f, 0.8f));
-    MaskShade->SetVisibility(ESlateVisibility::HitTestInvisible);
-    Place(DetailMask, MaskShade, FVector2D::ZeroVector, FVector2D(1440, 810));
-    URokUnityIndexedButton* MaskHit = MakeButton(TEXT("ResearchDetailMaskHit"), BackAction);
-    MaskHit->SetPressAnimationEnabled(false);
-    Place(DetailMask, MaskHit, FVector2D::ZeroVector, FVector2D(1440, 810), 1);
-    DetailMask->SetVisibility(ESlateVisibility::Collapsed);
-
-    DetailRoot = WidgetTree->ConstructWidget<UCanvasPanel>(
-        UCanvasPanel::StaticClass(), TEXT("ResearchDetailRoot"));
-    DetailRoot->SetRenderTransformPivot(FVector2D(0.5f));
-    Place(RootCanvas, DetailRoot, FVector2D::ZeroVector, FVector2D(1440, 810), 20);
-
-    // Unity's frame Images retain raycastTarget and consume clicks over the
-    // two opaque window panels. Our atlas Images are decorative, so add
-    // transparent hit regions at those source rects beneath child buttons.
-    auto AddFrameHit = [this](const TCHAR* Name, const FVector2D& Position,
-        const FVector2D& Size)
+    if (UWidget* Widget = Super::GetWidgetFromName(Name)) return Widget;
+    if (DetailView)
     {
-        UBorder* Hit = WidgetTree->ConstructWidget<UBorder>(
-            UBorder::StaticClass(), Name);
-        Hit->SetBrushColor(FLinearColor::Transparent);
-        Hit->SetVisibility(ESlateVisibility::Visible);
-        Place(DetailRoot, Hit, Position, Size, -1);
-    };
-    AddFrameHit(TEXT("ResearchDetailBodyHitLeft"),
-        FVector2D(187, 94.2f), FVector2D(543, 660.8f));
-    AddFrameHit(TEXT("ResearchDetailBodyHitRight"),
-        FVector2D(710, 94.2f), FVector2D(543, 660.8f));
-    AddFrameHit(TEXT("ResearchDetailHeaderHitLeft"),
-        FVector2D(167, 63), FVector2D(560, 60));
-    AddFrameHit(TEXT("ResearchDetailHeaderHitRight"),
-        FVector2D(713, 63), FVector2D(560, 60));
-
-    const FMargin BodyMargin(493.0f / 524.0f, 278.0f / 659.0f,
-        15.0f / 524.0f, 291.0f / 659.0f);
-    const FMargin HeaderMargin(539.0f / 560.0f, 0.0f,
-        8.0f / 560.0f, 0.0f);
-    UCanvasPanel* Body1 = MakeNineSlice(TEXT("ResearchDetailFrame1"),
-        TEXT("ui_frame[pl_fra_1000]"), FVector2D(543, 660.8f), BodyMargin);
-    UCanvasPanel* Body2 = MakeNineSlice(TEXT("ResearchDetailFrame2"),
-        TEXT("ui_frame[pl_fra_1000]"), FVector2D(543, 660.8f), BodyMargin);
-    Body2->SetRenderTransformPivot(FVector2D(0.5f));
-    Body2->SetRenderScale(FVector2D(-1, 1));
-    Place(DetailRoot, Body1, FVector2D(187, 94.2f), FVector2D(543, 660.8f));
-    Place(DetailRoot, Body2, FVector2D(710, 94.2f), FVector2D(543, 660.8f));
-    UCanvasPanel* Header1 = MakeNineSlice(TEXT("ResearchDetailFrame3"),
-        TEXT("ui_frame[pl_fra_1002]"), FVector2D(560, 60), HeaderMargin);
-    UCanvasPanel* Header2 = MakeNineSlice(TEXT("ResearchDetailFrame4"),
-        TEXT("ui_frame[pl_fra_1002]"), FVector2D(560, 60), HeaderMargin);
-    Header2->SetRenderTransformPivot(FVector2D(0.5f));
-    Header2->SetRenderScale(FVector2D(-1, 1));
-    Place(DetailRoot, Header1, FVector2D(167, 63), FVector2D(560, 60), 1);
-    Place(DetailRoot, Header2, FVector2D(713, 63), FVector2D(560, 60), 1);
-
-    DetailUpdateRoot = WidgetTree->ConstructWidget<UCanvasPanel>(
-        UCanvasPanel::StaticClass(), TEXT("ResearchDetailUpdateRoot"));
-    DetailUpdateRoot->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-    Place(DetailRoot, DetailUpdateRoot, FVector2D::ZeroVector,
-        FVector2D(1440, 810), 2);
-
-    // UI_Win_ResearchUpate/rect/img_update/pl_left source parchment tree.
-    Place(DetailUpdateRoot, MakeSprite(TEXT("ResearchDetailParchmentBacking"),
-        TEXT("ui_common[pl_com_1008]"), FVector2D(441, 620.6f)),
-        FVector2D(194.4f, 114.1f), FVector2D(441, 620.6f), 2);
-    UImage* Parchment = MakeSprite(TEXT("ResearchDetailParchment"),
-        TEXT("ui_research[img_research_paperBg]"), FVector2D(468, 609));
-    Parchment->SetRenderTransformPivot(FVector2D(0.5f));
-    Parchment->SetRenderScale(FVector2D(-1, 1));
-    Place(DetailUpdateRoot, Parchment,
-        FVector2D(184, 118.7f), FVector2D(468, 609), 3);
-    Place(DetailUpdateRoot, MakeSprite(TEXT("ResearchDetailIconBackground"),
-        TEXT("ui_research[img_research_iconBg]"), FVector2D(190, 190)),
-        FVector2D(322, 277.5f), FVector2D(190, 190), 4);
-    DetailIcon = MakeSprite(TEXT("ResearchDetailIcon"),
-        RenderedNodes.IsEmpty() ? TEXT("") : RenderedNodes[0].IconSource,
-        FVector2D(160, 160));
-    Place(DetailUpdateRoot, DetailIcon, FVector2D(337, 292.2f), FVector2D(160, 160), 5);
-    UImage* Chest = MakeSprite(TEXT("ResearchDetailChest"),
-        TEXT("ui_research[img_research_box]"), FVector2D(149, 145));
-    Chest->SetRenderTransformPivot(FVector2D(0.5f));
-    Chest->SetRenderScale(FVector2D(-1, 1));
-    Place(DetailUpdateRoot, Chest,
-        FVector2D(146.5f, 638.7f), FVector2D(149, 145), 5);
-    Place(DetailUpdateRoot, MakeSprite(TEXT("ResearchDetailMoreIcon"),
-        TEXT("ui_common[btn_com_1007]"), FVector2D(38, 38)),
-        FVector2D(237, 215.2f), FVector2D(38, 38), 8);
-    Place(DetailUpdateRoot, MakeButton(TEXT("ResearchDetailMore"), MoreAction),
-        FVector2D(237, 215.2f), FVector2D(38, 38), 9);
-
-    auto TextRegion = [this](UCanvasPanel* Parent, const FName& RegionName,
-        UTextBlock* Text, const FVector2D& Position, const FVector2D& Size,
-        EHorizontalAlignment Alignment, int32 Z)
+        if (UWidget* Widget = DetailView->GetWidgetFromName(Name)) return Widget;
+    }
+    // Keep the audit names for per-study widgets after moving the card into a reusable asset.
+    FString Stem, StudyType;
+    if (Name.ToString().Split(TEXT("_"), &Stem, &StudyType, ESearchCase::CaseSensitive, ESearchDir::FromEnd)
+        && Stem.StartsWith(TEXT("ResearchNode")) && StudyType.IsNumeric())
     {
-        UBorder* Region = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), RegionName);
-        Region->SetBrushColor(FLinearColor::Transparent);
-        Region->SetPadding(FMargin(0));
-        Region->SetHorizontalAlignment(Alignment);
-        Region->SetVerticalAlignment(VAlign_Center);
-        Region->SetContent(Text);
-        Place(Parent, Region, Position, Size, Z);
-    };
+        const FName CardName(*FString::Printf(TEXT("ResearchNode_%s"), *StudyType));
+        if (const auto* Card = Cast<UUserWidget>(Super::GetWidgetFromName(CardName)))
+            return Card->GetWidgetFromName(*Stem);
+    }
+    return nullptr;
+}
 
-    DetailTitle = MakeText(TEXT("ResearchDetailTitle"), TEXT(""), 30,
-        FLinearColor::White);
-    TextRegion(DetailRoot, TEXT("ResearchDetailTitleRegion"), DetailTitle,
-        FVector2D(307.6f, 70), FVector2D(824.7f, 40), HAlign_Center, 8);
-    DetailDescription = MakeText(TEXT("ResearchDetailDescription"), TEXT(""), 20,
-        FLinearColor::White);
-    TextRegion(DetailUpdateRoot, TEXT("ResearchDetailDescriptionRegion"), DetailDescription,
-        FVector2D(245.9f, 500.7f), FVector2D(350.1f, 59.8f), HAlign_Center, 6);
-    const FMargin ResearchPanelMargins(16.0f / 63.0f, 13.0f / 55.0f,
-        15.0f / 63.0f, 13.0f / 55.0f);
-    Place(DetailUpdateRoot, MakeNineSlice(TEXT("ResearchDetailProgressFrame"),
-        TEXT("ui_common[pl_com_1001]"), FVector2D(281.7f, 32), ResearchPanelMargins),
-        FVector2D(283.3f, 584.1f), FVector2D(281.7f, 32), 5);
-    Place(DetailUpdateRoot, MakeNineSlice(TEXT("ResearchDetailProgressBackground"),
-        TEXT("ui_common[pb_com_1000_1]"), FVector2D(264, 24),
-        FMargin(10.0f / 20.0f, 7.0f / 23.0f, 10.0f / 20.0f, 6.0f / 23.0f)),
-        FVector2D(292.1f, 588.1f), FVector2D(264, 24), 6);
-    DetailProgress = MakeText(TEXT("ResearchDetailProgress"), TEXT(""), 18,
-        FLinearColor::White);
-    TextRegion(DetailUpdateRoot, TEXT("ResearchDetailProgressRegion"), DetailProgress,
-        FVector2D(286.9f, 587.4f), FVector2D(274.6f, 25.5f), HAlign_Center, 6);
+bool URokResearchScreenWidget::BindAction(UWidget* Widget, int32 ActionId, bool bAnimatePress)
+{
+    auto* Button = Cast<URokUnityIndexedButton>(Widget);
+    if (!Button) return false;
+    Button->SetPressAnimationEnabled(bAnimatePress);
+    Button->ConfigureAction(ActionId);
+    Button->OnIndexedClicked.RemoveAll(this);
+    Button->OnIndexedClicked.AddUObject(this, &URokResearchScreenWidget::HandleIndexedAction);
+    return true;
+}
 
-    DetailLevel = MakeText(TEXT("ResearchDetailLevel"), TEXT(""), 24,
-        FLinearColor::FromSRGBColor(FColor(230, 217, 180)));
-    TextRegion(DetailUpdateRoot, TEXT("ResearchDetailLevelRegion"), DetailLevel,
-        FVector2D(692.7f, 177.2f), FVector2D(380, 30), HAlign_Left, 6);
-    Place(DetailUpdateRoot, MakeSprite(TEXT("ResearchDetailAttrPanel"),
-        TEXT("ui_common[pl_com_1001]"), FVector2D(536, 100)),
-        FVector2D(656, 246.2f), FVector2D(536, 100), 4);
-    DetailAttrName = MakeText(TEXT("ResearchDetailAttrName"), TEXT(""), 20,
-        FLinearColor::White);
-    TextRegion(DetailUpdateRoot, TEXT("ResearchDetailAttrNameRegion"), DetailAttrName,
-        FVector2D(686.4f, 258.7f), FVector2D(275.8f, 35), HAlign_Left, 6);
-    DetailAttrBefore = MakeText(TEXT("ResearchDetailAttrBefore"), TEXT(""), 20,
-        FLinearColor::White);
-    TextRegion(DetailUpdateRoot, TEXT("ResearchDetailAttrBeforeRegion"), DetailAttrBefore,
-        FVector2D(884, 258.7f), FVector2D(198, 35), HAlign_Right, 6);
-    DetailAttrDelta = MakeText(TEXT("ResearchDetailAttrDelta"), TEXT(""), 20,
-        FLinearColor::FromSRGBColor(FColor(0, 128, 0)));
-    TextRegion(DetailUpdateRoot, TEXT("ResearchDetailAttrDeltaRegion"), DetailAttrDelta,
-        FVector2D(1083, 258.7f), FVector2D(79, 35), HAlign_Right, 6);
-    UTextBlock* PowerName = MakeText(TEXT("ResearchDetailPowerName"), TEXT("战力"), 20,
-        FLinearColor::White);
-    TextRegion(DetailUpdateRoot, TEXT("ResearchDetailPowerNameRegion"), PowerName,
-        FVector2D(686.4f, 298.7f), FVector2D(275.8f, 35), HAlign_Left, 6);
-    DetailPowerBefore = MakeText(TEXT("ResearchDetailPowerBefore"), TEXT(""), 20,
-        FLinearColor::White);
-    TextRegion(DetailUpdateRoot, TEXT("ResearchDetailPowerBeforeRegion"), DetailPowerBefore,
-        FVector2D(884, 298.7f), FVector2D(198, 35), HAlign_Right, 6);
-    DetailPowerDelta = MakeText(TEXT("ResearchDetailPowerDelta"), TEXT(""), 20,
-        FLinearColor::FromSRGBColor(FColor(0, 128, 0)));
-    TextRegion(DetailUpdateRoot, TEXT("ResearchDetailPowerDeltaRegion"), DetailPowerDelta,
-        FVector2D(1083, 298.7f), FVector2D(79, 35), HAlign_Right, 6);
+void URokResearchScreenWidget::BindNodePresentation(bool bBindActions)
+{
+    NodeLevels.Reset();
+    RenderedLines.Reset();
+    for (const FRokResearchRow& Row : RenderedNodes)
+    {
+        const FName CardName(*FString::Printf(TEXT("ResearchNode_%d"), Row.StudyType));
+        auto* Card = Cast<UUserWidget>(Super::GetWidgetFromName(CardName));
+        if (!Card) continue;
+        const FRokResearchRenderedLine Line = DescribeSourceLine(Row, RenderedNodes);
+        if (!Line.PrimarySprite.IsEmpty() || !Line.SecondarySprite.IsEmpty()) RenderedLines.Add(Line);
+        const bool bLocked = Row.Preconditions.ContainsByPredicate(
+            [](const FRokResearchPrerequisite& Prerequisite) { return Prerequisite.StudyType > 0; });
+        if (auto* Icon = Cast<UImage>(Card->GetWidgetFromName(TEXT("ResearchNodeIcon"))))
+            ApplySprite(Icon, Row.IconSource, bLocked);
+        if (auto* Background = Card->GetWidgetFromName(TEXT("ResearchNodeBackground")))
+            Background->SetVisibility(bLocked ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
+        if (auto* Background = Card->GetWidgetFromName(TEXT("ResearchNodeBackgroundLocked")))
+            Background->SetVisibility(bLocked ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+        if (bLocked)
+        {
+            if (auto* Frame = Cast<UImage>(Card->GetWidgetFromName(TEXT("ResearchNodeIconBackground"))))
+                ApplySprite(Frame, TEXT("ui_research[img_research_iconBg]"), true);
+        }
+        if (auto* Name = Cast<UTextBlock>(Card->GetWidgetFromName(TEXT("ResearchNodeName"))))
+            Name->SetText(FText::FromString(Row.Name));
+        if (auto* Level = Cast<UTextBlock>(Card->GetWidgetFromName(TEXT("ResearchNodeLevel"))))
+        {
+            Level->SetText(FText::FromString(FString::Printf(TEXT("%s/%d"), bBindActions ? TEXT("--") : TEXT("0"), Row.MaxLevel)));
+            NodeLevels.Add(Row.StudyType, Level);
+        }
+        if (bBindActions) BindAction(Card->GetWidgetFromName(TEXT("ResearchNodeHit")), NodeActionBase + Row.StudyType);
+    }
+}
 
-    UTextBlock* Boundary = MakeText(TEXT("ResearchDetailUnknownState"),
-        TEXT("账号研究等级与前置条件未同步，当前仅浏览来源配置。"), 22,
-        FLinearColor::FromSRGBColor(FColor(230, 217, 180)));
-    TextRegion(DetailUpdateRoot, TEXT("ResearchDetailUnknownStateRegion"), Boundary,
-        FVector2D(683.7f, 432.2f), FVector2D(484.5f, 105.5f), HAlign_Center, 6);
-
-    // The source unlocked branch uses UI_Model_ResCost here. With no account
-    // state we expose its static configuration values as a read-only panel.
-    Place(DetailUpdateRoot, MakeSprite(TEXT("ResearchDetailCostPanel"),
-        TEXT("ui_common[pl_com_1001]"), FVector2D(536, 142)),
-        FVector2D(656, 550), FVector2D(536, 142), 4);
-    DetailCosts = MakeText(TEXT("ResearchDetailCosts"), TEXT(""), 16,
-        FLinearColor::FromSRGBColor(FColor(230, 217, 180)));
-    TextRegion(DetailUpdateRoot, TEXT("ResearchDetailCostsRegion"), DetailCosts,
-        FVector2D(670, 553), FVector2D(510, 24), HAlign_Center, 6);
+bool URokResearchScreenWidget::BindPresentation()
+{
+    TreePages = Cast<UWidgetSwitcher>(Super::GetWidgetFromName(TEXT("ResearchTreePages")));
+    const auto DetailClass = LoadClass<UUserWidget>(nullptr,
+        TEXT("/Game/RokPrototype/UI/Research/WBP_RokResearchDetail.WBP_RokResearchDetail_C"));
+    if (DetailClass && Super::GetWidgetFromName(TEXT("ResearchDetailHost")))
+    {
+        DetailView = CreateWidget<UUserWidget>(this, DetailClass);
+        SetContentForSlot(TEXT("ResearchDetailHost"), DetailView);
+    }
+    DetailPages = Cast<UWidgetSwitcher>(GetWidgetFromName(TEXT("ResearchDetailPages")));
+    EconomyScroll = Cast<UScrollBox>(GetWidgetFromName(TEXT("ResearchEconomyScroll")));
+    MilitaryScroll = Cast<UScrollBox>(GetWidgetFromName(TEXT("ResearchMilitaryScroll")));
+    WindowTitle = Cast<UTextBlock>(GetWidgetFromName(TEXT("ResearchWindowTitle")));
+    EconomyTabStyle = Cast<UWidgetSwitcher>(GetWidgetFromName(TEXT("ResearchEconomyTabStyle")));
+    MilitaryTabStyle = Cast<UWidgetSwitcher>(GetWidgetFromName(TEXT("ResearchMilitaryTabStyle")));
+    DetailMask = Cast<UCanvasPanel>(GetWidgetFromName(TEXT("ResearchDetailMask")));
+    DetailRoot = Cast<UCanvasPanel>(GetWidgetFromName(TEXT("ResearchDetailRoot")));
+    DetailUpdateRoot = Cast<UCanvasPanel>(GetWidgetFromName(TEXT("ResearchDetailUpdateRoot")));
+    PowerRoot = Cast<UCanvasPanel>(GetWidgetFromName(TEXT("ResearchPowerRoot")));
+    PowerBackIcon = GetWidgetFromName(TEXT("ResearchPowerBackIcon"));
+    PowerBackButton = GetWidgetFromName(TEXT("ResearchPowerBack"));
+    PowerScroll = Cast<UScrollBox>(GetWidgetFromName(TEXT("ResearchPowerScroll")));
+    PowerHeaderDescription = Cast<UTextBlock>(GetWidgetFromName(TEXT("ResearchPowerEffectHeader")));
+    DetailTitle = Cast<UTextBlock>(GetWidgetFromName(TEXT("ResearchDetailTitle")));
+    DetailDescription = Cast<UTextBlock>(GetWidgetFromName(TEXT("ResearchDetailDescription")));
+    DetailLevel = Cast<UTextBlock>(GetWidgetFromName(TEXT("ResearchDetailLevel")));
+    DetailLevelNext = Cast<UTextBlock>(GetWidgetFromName(TEXT("ResearchDetailLevelNextValue")));
+    DetailLevelArrow = Cast<UImage>(GetWidgetFromName(TEXT("ResearchDetailLevelArrow")));
+    DetailIcon = Cast<UImage>(GetWidgetFromName(TEXT("ResearchDetailIcon")));
+    DetailProgress = Cast<UTextBlock>(GetWidgetFromName(TEXT("ResearchDetailProgress")));
+    DetailAttrName = Cast<UTextBlock>(GetWidgetFromName(TEXT("ResearchDetailAttrName")));
+    DetailAttrBefore = Cast<UTextBlock>(GetWidgetFromName(TEXT("ResearchDetailAttrBefore")));
+    DetailAttrDelta = Cast<UTextBlock>(GetWidgetFromName(TEXT("ResearchDetailAttrDelta")));
+    DetailPowerBefore = Cast<UTextBlock>(GetWidgetFromName(TEXT("ResearchDetailPowerBefore")));
+    DetailPowerDelta = Cast<UTextBlock>(GetWidgetFromName(TEXT("ResearchDetailPowerDelta")));
+    if (!TreePages || !EconomyTabStyle || !MilitaryTabStyle || !DetailPages || !DetailView || !DetailRoot || !DetailMask || !DetailUpdateRoot || !PowerRoot
+        || !EconomyScroll || !MilitaryScroll || !PowerScroll)
+    {
+        LoadError = TEXT("Research Widget Blueprints are missing required panels.");
+        return false;
+    }
     DetailCostValues.Reset();
-    for (int32 Index = 0; Index < 6; ++Index)
-    {
-        UTextBlock* Value = MakeText(*FString::Printf(TEXT("ResearchDetailCost_%d"), Index),
-            TEXT(""), 16, FLinearColor::White);
-        TextRegion(DetailUpdateRoot, *FString::Printf(TEXT("ResearchDetailCostRegion_%d"), Index),
-            Value, FVector2D(675 + (Index % 2) * 255, 578 + (Index / 2) * 34),
-            FVector2D(240, 30), HAlign_Left, 6);
-        DetailCostValues.Add(Value);
-    }
-
-    Place(DetailRoot, MakeSprite(TEXT("ResearchDetailCloseIcon"),
-        TEXT("ui_common[btn_com_1000_1]"), FVector2D(69, 69)),
-        FVector2D(1191.5f, 54.5f), FVector2D(69, 69), 12);
-    Place(DetailRoot, MakeButton(TEXT("ResearchDetailBack"), BackAction),
-        FVector2D(1191.5f, 54.5f), FVector2D(69, 69), 13);
-    Place(DetailUpdateRoot, MakeButton(TEXT("ResearchDetailLevelPrev"), PreviousLevelAction),
-        FVector2D(690, 174), FVector2D(38, 38), 10);
-    Place(DetailUpdateRoot, MakeButton(TEXT("ResearchDetailLevelNext"), NextLevelAction),
-        FVector2D(1045, 174), FVector2D(38, 38), 10);
-    UTextBlock* PreviousLabel = MakeText(TEXT("ResearchDetailLevelPrevLabel"),
-        TEXT("◀"), 19, FLinearColor::FromSRGBColor(FColor(230, 217, 180)));
-    UTextBlock* NextLabel = MakeText(TEXT("ResearchDetailLevelNextLabel"),
-        TEXT("▶"), 19, FLinearColor::FromSRGBColor(FColor(230, 217, 180)));
-    Place(DetailUpdateRoot, PreviousLabel, FVector2D(690, 177), FVector2D(38, 30), 11);
-    Place(DetailUpdateRoot, NextLabel, FVector2D(1045, 177), FVector2D(38, 30), 11);
-    UTextBlock* LocalAction = MakeText(TEXT("ResearchDetailBoundaryLabel"),
-        TEXT("研究服务未连接"), 16,
-        FLinearColor::FromSRGBColor(FColor(230, 217, 180)));
-    Place(DetailUpdateRoot, LocalAction, FVector2D(868, 700), FVector2D(200, 30), 8);
-    Place(DetailUpdateRoot, MakeButton(TEXT("ResearchDetailBoundaryButton"), BoundaryAction),
-        FVector2D(868, 697), FVector2D(200, 36), 10);
-    BuildPowerPage();
-    DetailRoot->SetVisibility(ESlateVisibility::Collapsed);
-}
-
-void URokResearchScreenWidget::BuildPowerPage()
-{
-    // ResearchUpateMediator.onMore hides img_update and shows pl_power; its
-    // ListView fills one UI_ResearchPowerItem per configured Study level.
-    PowerRoot = WidgetTree->ConstructWidget<UCanvasPanel>(
-        UCanvasPanel::StaticClass(), TEXT("ResearchPowerRoot"));
-    PowerRoot->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-    Place(DetailRoot, PowerRoot, FVector2D::ZeroVector, FVector2D(1440, 810), 14);
-    Place(PowerRoot, MakeSprite(TEXT("ResearchPowerHeaderBackground"),
-        TEXT("ui_common[pl_com_1012_2]"), FVector2D(964, 43)),
-        FVector2D(238, 128.2f), FVector2D(964, 43));
-
-    auto AddHeader = [this](const FName& RegionName, const FName& TextName,
-        const FString& TextValue, const FVector2D& Position, const FVector2D& Size)
-    {
-        UBorder* Region = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), RegionName);
-        Region->SetBrushColor(FLinearColor::Transparent);
-        Region->SetPadding(FMargin(0));
-        Region->SetHorizontalAlignment(HAlign_Center);
-        Region->SetVerticalAlignment(VAlign_Center);
-        // pl_power's three heading texts share serialized Unity Color32
-        // (217, 212, 186); UI_ResearchPowerItem body text remains white.
-        UTextBlock* Label = MakeText(TextName, TextValue, 24,
-            FLinearColor::FromSRGBColor(FColor(217, 212, 186)));
-        Region->SetContent(Label);
-        Place(PowerRoot, Region, Position, Size, 2);
-        return Label;
-    };
-    AddHeader(TEXT("ResearchPowerLevelHeaderRegion"), TEXT("ResearchPowerLevelHeader"),
-        TEXT("等级"), FVector2D(190.05f, 128.2f), FVector2D(242.5f, 50));
-    PowerHeaderDescription = AddHeader(TEXT("ResearchPowerEffectHeaderRegion"),
-        TEXT("ResearchPowerEffectHeader"), TEXT(""),
-        FVector2D(570, 128.2f), FVector2D(300, 50));
-    AddHeader(TEXT("ResearchPowerValueHeaderRegion"), TEXT("ResearchPowerValueHeader"),
-        TEXT("战力"), FVector2D(950, 128.2f), FVector2D(300, 50));
-
-    PowerScroll = WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(),
-        TEXT("ResearchPowerScroll"));
-    PowerScroll->SetOrientation(EOrientation::Orient_Vertical);
-    PowerScroll->SetScrollBarVisibility(ESlateVisibility::Collapsed);
-    Place(PowerRoot, PowerScroll, FVector2D(201, 173.2f), FVector2D(1038, 564.9f), 2);
-    UVerticalBox* Items = WidgetTree->ConstructWidget<UVerticalBox>(
-        UVerticalBox::StaticClass(), TEXT("ResearchPowerItems"));
-    PowerScroll->AddChild(Items);
+    for (int32 Index = 0; Index < 4; ++Index)
+        DetailCostValues.Add(Cast<UTextBlock>(GetWidgetFromName(*FString::Printf(TEXT("ResearchDetailCost_%d"), Index))));
     PowerRows.Reset();
     PowerLevels.Reset();
     PowerEffects.Reset();
     PowerValues.Reset();
-    // Study.csv's maximum research level in the source catalog is ten. The
-    // reusable rows avoid reconstructing same-name UWidgets on another node.
     for (int32 Level = 1; Level <= 10; ++Level)
     {
-        USizeBox* Extent = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(),
-            *FString::Printf(TEXT("ResearchPowerRowExtent_%d"), Level));
-        Extent->SetWidthOverride(1038);
-        Extent->SetHeightOverride(50);
-        Items->AddChildToVerticalBox(Extent);
-        UCanvasPanel* ItemContent = WidgetTree->ConstructWidget<UCanvasPanel>(
-            UCanvasPanel::StaticClass(),
-            *FString::Printf(TEXT("ResearchPowerItemContent_%d"), Level));
-        Extent->SetContent(ItemContent);
-        UCanvasPanel* Row = WidgetTree->ConstructWidget<UCanvasPanel>(
-            UCanvasPanel::StaticClass(), *FString::Printf(TEXT("ResearchPowerRow_%d"), Level));
-        Place(ItemContent, Row, FVector2D(18, 0), FVector2D(1002, 50));
-        Place(Row, MakeSprite(*FString::Printf(TEXT("ResearchPowerLine_%d"), Level),
-            TEXT("ui_common[pl_com_1005]"), FVector2D(880, 2)),
-            FVector2D(61, 48), FVector2D(880, 2));
-        auto AddCell = [this, Row, Level](const TCHAR* Stem, const FVector2D& Position,
-            const FVector2D& Size)
+        auto* Extent = GetWidgetFromName(*FString::Printf(TEXT("ResearchPowerRowExtent_%d"), Level));
+        auto* Label = Cast<UTextBlock>(GetWidgetFromName(*FString::Printf(TEXT("ResearchPowerLevel_%d"), Level)));
+        auto* Effect = Cast<UTextBlock>(GetWidgetFromName(*FString::Printf(TEXT("ResearchPowerEffect_%d"), Level)));
+        auto* Value = Cast<UTextBlock>(GetWidgetFromName(*FString::Printf(TEXT("ResearchPowerValue_%d"), Level)));
+        if (!Extent || !Label || !Effect || !Value)
         {
-            UBorder* Region = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(),
-                *FString::Printf(TEXT("ResearchPower%sRegion_%d"), Stem, Level));
-            Region->SetBrushColor(FLinearColor::Transparent);
-            Region->SetPadding(FMargin(0));
-            Region->SetHorizontalAlignment(HAlign_Center);
-            Region->SetVerticalAlignment(VAlign_Center);
-            UTextBlock* Value = MakeText(
-                *FString::Printf(TEXT("ResearchPower%s_%d"), Stem, Level),
-                TEXT(""), 24, FLinearColor::White);
-            Region->SetContent(Value);
-            Place(Row, Region, Position, Size, 1);
-            return Value;
-        };
+            LoadError = TEXT("Research detail Widget Blueprint is missing a power row.");
+            return false;
+        }
         PowerRows.Add(Extent);
-        PowerLevels.Add(AddCell(TEXT("Level"), FVector2D(17.25f, 0), FVector2D(157.5f, 50)));
-        PowerEffects.Add(AddCell(TEXT("Effect"), FVector2D(178.6f, 0), FVector2D(644.8f, 50)));
-        PowerValues.Add(AddCell(TEXT("Value"), FVector2D(800, 0), FVector2D(193.5f, 50)));
+        PowerLevels.Add(Label);
+        PowerEffects.Add(Effect);
+        PowerValues.Add(Value);
     }
-    // UI_Model_Window_Type1/btn_back is a root child, outside animated
-    // rect/pl_power. It appears immediately when onMore enables it.
-    PowerBackIcon = MakeSprite(TEXT("ResearchPowerBackIcon"),
-        TEXT("ui_common[btn_com_1000]"), FVector2D(69, 69));
-    Place(DetailRoot, PowerBackIcon,
-        FVector2D(179.5f, 54.5f), FVector2D(69, 69), 15);
-    PowerBackButton = MakeButton(TEXT("ResearchPowerBack"), PowerBackAction);
-    Place(DetailRoot, PowerBackButton,
-        FVector2D(179.5f, 54.5f), FVector2D(69, 69), 16);
-    PowerBackIcon->SetVisibility(ESlateVisibility::Collapsed);
-    PowerBackButton->SetVisibility(ESlateVisibility::Collapsed);
-    PowerRoot->SetVisibility(ESlateVisibility::Collapsed);
+    const TPair<const TCHAR*, int32> Actions[] = {
+        {TEXT("ResearchCloseButton"), CloseAction}, {TEXT("ResearchEconomyTab"), EconomyAction},
+        {TEXT("ResearchMilitaryTab"), MilitaryAction}, {TEXT("ResearchDetailMaskHit"), BackAction},
+        {TEXT("ResearchDetailMore"), MoreAction}, {TEXT("ResearchDetailBack"), BackAction},
+        {TEXT("ResearchPowerBack"), PowerBackAction}, {TEXT("ResearchInstantButton"), InstantAction},
+        {TEXT("ResearchDetailBoundaryButton"), BoundaryAction},
+    };
+    for (const auto& [Name, Action] : Actions)
+    {
+        if (!BindAction(GetWidgetFromName(Name), Action, FCString::Strcmp(Name, TEXT("ResearchDetailMaskHit")) != 0))
+        {
+            LoadError = FString::Printf(TEXT("Research Widget Blueprint is missing button %s."), Name);
+            return false;
+        }
+    }
+    BindNodePresentation(true);
+    if (NodeLevels.Num() != RenderedNodes.Num())
+    {
+        LoadError = TEXT("Research tree Widget Blueprint does not contain all source technology nodes.");
+        return false;
+    }
+    DetailView->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+    SetDetailVisible(false);
+    SetSelectedType(EconomyType);
+    return true;
 }
 
 void URokResearchScreenWidget::RefreshPowerRows(const FRokResearchRow& SelectedRow)

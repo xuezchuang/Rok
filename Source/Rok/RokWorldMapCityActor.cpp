@@ -10,6 +10,7 @@
 #include "Materials/MaterialInterface.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "RokDataPaths.h"
+#include "RokLocalConstructionVisualFactory.h"
 #include "RokWorldMapCityPulse.h"
 #include "RokWorldMapCameraPawn.h"
 #include "Kismet/GameplayStatics.h"
@@ -98,6 +99,11 @@ ARokWorldMapCityActor::ARokWorldMapCityActor()
 void ARokWorldMapCityActor::BeginPlay()
 {
 	Super::BeginPlay();
+	MapCityMaterial = VisualMeshComponent->GetMaterial(0);
+	MapBaseScale = BaseVisualScale;
+	MapSelectionAnchor = SelectionAnchorOffset;
+	MapVisualCenterOffset = BaseVisualCenterOffset;
+	MapScaleCap = AgeLodScaleCap;
 	EnsureFarVisualLoaded();
 }
 
@@ -147,6 +153,66 @@ void ARokWorldMapCityActor::ConfigureSourceVisual(
 			false);
 	}
 	ApplyCameraDxf(InitialDxf);
+}
+
+void ARokWorldMapCityActor::ApplyHomeModel(const FString& ModelId, float ScaleCap, float UnityScale, float Dxf)
+{
+	const FRokLocalSourceBuildingVisual* Source = ModelId.IsEmpty()
+		? nullptr : FRokLocalConstructionVisualFactory::FindBuildingVisual(1, ModelId);
+	const FString TargetModel = Source ? ModelId : FString();
+	if (ActiveHomeModel == TargetModel) return;
+	UStaticMesh* Plane = VisualMeshComponent->GetStaticMesh();
+	const FRotator Rotation = VisualMeshComponent->GetRelativeRotation();
+	const int32 SortPriority = VisualMeshComponent->TranslucencySortPriority;
+	if (!Source)
+	{
+		ConfigureSourceVisual(Plane, MapCityMaterial, Rotation, MapBaseScale, MapSelectionAnchor,
+			MapVisualCenterOffset, Dxf, MapScaleCap, SortPriority);
+		ActiveHomeModel.Reset();
+		return;
+	}
+	const FString AssetName = TEXT("M_WorldPlayerCity_") + ModelId;
+	const FString AssetPath = TEXT("/Game/RokUnityWorldMapPrototype/Materials/") + AssetName + TEXT(".") + AssetName;
+	UMaterialInterface* Material = LoadObject<UMaterialInterface>(nullptr, *AssetPath);
+	if (!Plane || !Material) return;
+	const FVector PlaneSize = Plane->GetBounds().BoxExtent * 2.0;
+	// The verified hall mesh spans the full centered 100 PPU sprite rect.
+	// Runtime texture dimensions can still be placeholders during async loading.
+	const FVector SpriteSize = Source->BoundsHi - Source->BoundsLo;
+	const double CmPerPixel = Source->ChildScale * UnityScale / 100.0;
+	const FVector Scale(SpriteSize.X * CmPerPixel / PlaneSize.X,
+		-SpriteSize.Z * CmPerPixel / PlaneSize.Y, 1.0);
+	const FVector& Child = Source->ChildPosition;
+	const FVector CenterOffset = FVector(-Child.X, Child.Z, Child.Y)
+		.RotateAngleAxis(-45.0, FVector::UpVector) * UnityScale;
+	// CityGlobalMediator positions the exterior 9x9 TownCenter at tile (0,0):
+	// 9 * 0.05 - 0.05 on both Unity grid axes, before the container's yaw.
+	const FVector WorldAnchor = FVector(-0.4, 0.4, 0.01)
+		.RotateAngleAxis(-45.0, FVector::UpVector) * UnityScale;
+	ConfigureSourceVisual(Plane, Material, Rotation, Scale, WorldAnchor,
+		CenterOffset, Dxf, ScaleCap, SortPriority);
+	ActiveHomeModel = TargetModel;
+	UE_LOG(LogTemp, Display, TEXT("Rok world home city uses %s, scale cap %.3f."), *TargetModel, ScaleCap);
+}
+
+void ARokWorldMapCityActor::ApplyDayNightLighting(const FLinearColor& SpriteColor, const FLinearColor& NightLight)
+{
+	const FName LightingParameter(ActiveHomeModel.IsEmpty() ? TEXT("UnitySpriteColor") : TEXT("SpriteColor"));
+	UMaterialInterface* Material = VisualMeshComponent->GetMaterial(0);
+	if (!Material) return;
+	auto* Instance = Cast<UMaterialInstanceDynamic>(Material);
+	if (!Instance)
+	{
+		Instance = VisualMeshComponent->CreateDynamicMaterialInstance(0);
+		if (Instance && !ActiveHomeModel.IsEmpty())
+		{
+			// CityBuildingProxy's own-city tint RS.buildGreen, in Gamma space.
+			Instance->SetVectorParameterValue(TEXT("Color1"), FLinearColor(62.f / 255.f, 125.f / 255.f, 195.f / 255.f));
+		}
+	}
+	if (!Instance) return;
+	Instance->SetVectorParameterValue(LightingParameter, SpriteColor);
+	if (!ActiveHomeModel.IsEmpty()) Instance->SetVectorParameterValue(TEXT("NightLight"), NightLight);
 }
 
 void ARokWorldMapCityActor::ApplyCameraDxf(float Dxf)

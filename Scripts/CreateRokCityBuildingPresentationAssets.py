@@ -3,7 +3,8 @@
 Run in UE 5.8 on L_RokUnityGameAppCity with ROK_CITY_BUILDING_NATIVE_RUN set to the
 verified OutputRuns child (and ROK_CITY_BUILDING_ASSETS_APPLY=1 to create). Same asset
 contract as CreateRokCityResourcePresentationAssets.py (sprite, GPU mask, R/G material,
-tight Sprite.mesh), written under /Game/RokUnity/City/SourceBuildings/<model>. Never
+tight Sprite.mesh), written under /Game/RokUnity/City/SourceBuildings/<model>.
+ROK_CITY_BUILDING_ASSET_MODELS optionally selects a space-separated subset of the run. Never
 saves the map, places actors, or touches the Farm/Wood or Academy assets.
 """
 
@@ -24,6 +25,8 @@ WORLD = resource.WORLD
 CODE = resource.CODE  # Same pinned source R/G Gamma translation as the Farm/Wood slice.
 RUN_ENV = "ROK_CITY_BUILDING_NATIVE_RUN"
 APPLY_ENV = "ROK_CITY_BUILDING_ASSETS_APPLY"
+SKIP_EXISTING_ENV = "ROK_CITY_BUILDING_ASSET_SKIP_EXISTING"
+CONTINUE_ENV = "ROK_CITY_BUILDING_ASSET_CONTINUE"
 REPORT = ROOT / "Saved/RokUnityMigration/CityBuildingPresentationAssets/ue_assets_create.json"
 ACCEPTANCE = "native-source-probed;ue-runtime-render-pending"
 sha = resource.sha
@@ -352,7 +355,15 @@ def verify_mesh(asset, model, manifest, obj_path, material, export_faces=False):
     if not isinstance(asset, unreal.StaticMesh):
         raise RuntimeError(f"Building {model} mesh is not StaticMesh")
     source_count = manifest["source_triangle_count"]
-    zero_count = len(manifest["source_zero_area_triangle_indices"])
+    zero_indices = set(manifest["source_zero_area_triangle_indices"])
+    _, _, expected, source_faces = resource._face_keys(obj_path, manifest, source_axes=True)
+    # _face_keys verifies and snaps to the source pixel lattice. On that grid
+    # collinear faces may disappear in UE even if Unity's floats give them area.
+    for index, face in enumerate(source_faces):
+        (ax, ay), (bx, by), (cx, cy) = (corner[:2] for corner in face)
+        if (bx - ax) * (cy - ay) == (by - ay) * (cx - ax):
+            zero_indices.add(index)
+    zero_count = len(zero_indices)
     source_used, source_unique = resource._nonzero_source_vertex_counts(
         obj_path, set(manifest["source_zero_area_triangle_indices"]))
     actual = {"vertex_count_lod0": int(asset.get_num_vertices(0)),
@@ -361,7 +372,9 @@ def verify_mesh(asset, model, manifest, obj_path, material, export_faces=False):
     build = resource.static_mesh_editor().get_lod_build_settings(asset, 0)
     if not build.get_editor_property("use_full_precision_u_vs") or build.get_editor_property("remove_degenerates"):
         raise RuntimeError(f"Building {model} mesh UV precision/degenerate import flags differ")
-    if (not source_unique <= actual["vertex_count_lod0"] <= source_used or
+    # UE can split vertices at imported normal/tangent seams. Face equivalence
+    # below is the authoritative position/UV check for those split vertices.
+    if (actual["vertex_count_lod0"] < source_unique or
             actual["uv_channel_count_lod0"] != 1 or
             not source_count - zero_count <= actual["triangle_count_lod0"] <= source_count):
         raise RuntimeError(f"Building {model} mesh counts differ: {actual}")
@@ -392,12 +405,30 @@ def verify_mesh(asset, model, manifest, obj_path, material, export_faces=False):
         task.set_editor_property("replace_identical", False)
         if not unreal.Exporter.run_asset_export_task(task) or not output.is_file():
             raise RuntimeError(f"Building {model} mesh face export failed; cannot prove source UV topology")
-        _, _, expected, source_faces = resource._face_keys(obj_path, manifest, source_axes=True)
         _, _, observed, _ = resource._face_keys(output, manifest, source_axes=False)
+        # The OBJ exporter writes six decimals. A float32 UV roundtrip can
+        # cross a rounding boundary while staying within one exported digit.
+        source_uvs = collections.defaultdict(set)
+        for face in source_faces:
+            for corner in face:
+                source_uvs[corner[:3]].add(corner[3:])
+        normalized = collections.Counter()
+        for face, count in observed.items():
+            corners = []
+            for corner in face:
+                position, uv = corner[:3], corner[3:]
+                options = source_uvs[position]
+                if uv not in options:
+                    close = [candidate for candidate in options
+                             if max(abs(a - b) for a, b in zip(uv, candidate)) <= 1.000001e-6]
+                    if len(close) == 1:
+                        uv = close[0]
+                corners.append(position + uv)
+            normalized[tuple(sorted(corners))] += count
+        observed = normalized
         missing = expected - observed
         extra = observed - expected
-        zero_allowed = collections.Counter(
-            source_faces[i] for i in manifest["source_zero_area_triangle_indices"])
+        zero_allowed = collections.Counter(source_faces[i] for i in zero_indices)
         if extra or missing - zero_allowed:
             raise RuntimeError(f"Building {model} imported face positions/UV differ: missing={sum(missing.values())}, extra={sum(extra.values())}")
         if sum(missing.values()) != source_count - actual["triangle_count_lod0"]:
@@ -453,11 +484,36 @@ def create_mesh(path, model, manifest, obj_path, material):
     return asset, True
 
 
+def enable_source_pick_collision(asset):
+    # The player controller's visibility fallback also picks the sprite above
+    # its ground footprint. Use the imported sprite triangles for that trace.
+    editor = resource.static_mesh_editor()
+    body = asset.get_editor_property("body_setup")
+    trace = unreal.CollisionTraceFlag.CTF_USE_COMPLEX_AS_SIMPLE
+    if (body.get_editor_property("collision_trace_flag") != trace or
+            not body.get_editor_property("double_sided_geometry") or
+            not editor.is_section_collision_enabled(asset, 0, 0)):
+        body.set_editor_property("collision_trace_flag", trace)
+        body.set_editor_property("double_sided_geometry", True)
+        editor.enable_section_collision(asset, True, 0, 0)
+        if not unreal.EditorAssetLibrary.save_loaded_asset(asset):
+            raise RuntimeError(f"Building sprite collision save failed: {asset.get_path_name()}")
+
+
 def preflight():
     resource.identity()
     run = native_run()
     catalog, _, models = prepared_contract(run)
+    requested_models = os.environ.get("ROK_CITY_BUILDING_ASSET_MODELS", "").split()
+    if requested_models:
+        missing_models = set(requested_models) - models.keys()
+        if missing_models:
+            raise RuntimeError(f"Requested city buildings are not in the verified run: {sorted(missing_models)}")
+        models = {model: models[model] for model in requested_models}
     plan = []
+    if os.environ.get(SKIP_EXISTING_ENV) == "1":
+        models = {model: data for model, data in models.items() if not all(
+            unreal.EditorAssetLibrary.does_asset_exist(path) for path in data[1]["ue_assets"].values())}
     for model, (record, manifest, _, obj_path) in models.items():
         paths = manifest["ue_assets"]
         existing = {role: unreal.load_asset(path) for role, path in paths.items()}
@@ -486,15 +542,23 @@ def apply():
     catalog, models, plan = preflight()  # Finish identity/source/existing checks before the first write.
     if os.environ.get(APPLY_ENV) != "1":
         raise RuntimeError(f"City building asset creation requires {APPLY_ENV}=1")
-    details = []
+    details, failures = [], []
     for model, (record, manifest, manifest_path, obj_path) in models.items():
-        paths = manifest["ue_assets"]
-        unreal.EditorAssetLibrary.make_directory(paths["sprite"].rsplit("/", 1)[0])
-        sprite, made_sprite = create_texture(paths["sprite"], model, record, "sprite")
-        mask, made_mask = create_texture(paths["mask"], model, record, "mask")
-        material, made_material = create_material(paths["material"], model, catalog, record, sprite, mask)
-        mesh, made_mesh = create_mesh(paths["mesh"], model, manifest, obj_path, material)
-        topology = verify_mesh(mesh, model, manifest, obj_path, material, export_faces=True)
+        try:
+            paths = manifest["ue_assets"]
+            unreal.EditorAssetLibrary.make_directory(paths["sprite"].rsplit("/", 1)[0])
+            sprite, made_sprite = create_texture(paths["sprite"], model, record, "sprite")
+            mask, made_mask = create_texture(paths["mask"], model, record, "mask")
+            material, made_material = create_material(paths["material"], model, catalog, record, sprite, mask)
+            mesh, made_mesh = create_mesh(paths["mesh"], model, manifest, obj_path, material)
+            enable_source_pick_collision(mesh)
+            topology = verify_mesh(mesh, model, manifest, obj_path, material, export_faces=True)
+        except RuntimeError as error:
+            if os.environ.get(CONTINUE_ENV) != "1":
+                raise
+            unreal.log_warning(f"City building import failed for {model}: {error}")
+            failures.append({"model": model, "error": str(error)})
+            continue
         details.append({"model": model, "assets": paths,
                         "created": {"sprite": made_sprite, "mask": made_mask,
                                     "material": made_material, "mesh": made_mesh},
@@ -506,7 +570,7 @@ def apply():
               "source_catalog_sha256": sha(source.CATALOG),
               "native_verified_capture_sha256": sha(source.SUMMARY),
               "scope": "City building source texture/mask/material/tightmesh asset sets only; no actors or map save",
-              "plan": plan, "models": details, "runtime_visual_acceptance": "pending",
+              "plan": plan, "models": details, "failures": failures, "runtime_visual_acceptance": "pending",
               "map_saved": False, "resource_or_academy_assets_modified": False}
     report_path = resource.next_evidence_path(REPORT)
     report["report_path"] = str(report_path)

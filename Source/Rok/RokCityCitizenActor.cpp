@@ -1,107 +1,147 @@
 #include "RokCityCitizenActor.h"
 
-#include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
+#include "Engine/Texture2D.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
-#include "Materials/MaterialInterface.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "RokCityGridMath.h"
+#include "RokSpriteClip.h"
+#include "RokStrategyCameraPawn.h"
 #include "UObject/ConstructorHelpers.h"
 
 ARokCityCitizenActor::ARokCityCitizenActor()
 {
 	PrimaryActorTick.bCanEverTick = true;
-	PrimaryActorTick.bStartWithTickEnabled = true;
-
-	SceneRoot = CreateDefaultSubobject<USceneComponent>(TEXT("SceneRoot"));
-	RootComponent = SceneRoot;
-
-	SpriteMeshComponent = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("CitizenSpritePlane"));
-	SpriteMeshComponent->SetupAttachment(SceneRoot);
-	static ConstructorHelpers::FObjectFinder<UStaticMesh> PlaneMesh(TEXT("/Engine/BasicShapes/Plane.Plane"));
-	if (PlaneMesh.Succeeded())
-	{
-		SpriteMeshComponent->SetStaticMesh(PlaneMesh.Object);
-	}
+	SetRootComponent(CreateDefaultSubobject<USceneComponent>(TEXT("Feet")));
+	SpriteMeshComponent = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Sprite"));
+	SpriteMeshComponent->SetupAttachment(RootComponent);
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> Plane(TEXT("/Engine/BasicShapes/Plane.Plane"));
+	SpriteMeshComponent->SetStaticMesh(Plane.Object);
 	SpriteMeshComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	SpriteMeshComponent->SetCastShadow(false);
 	SpriteMeshComponent->bReceivesDecals = false;
 	SpriteMeshComponent->bUseAsOccluder = false;
 	SpriteMeshComponent->SetCanEverAffectNavigation(false);
+	SpriteMeshComponent->TranslucencySortPriority = 3000; // cm_slg_soldiers, Unity Transparent queue.
+	SpriteMeshComponent->SetVisibility(false);
 }
 
-void ARokCityCitizenActor::ConfigureCitizen(
-	UMaterialInterface* Material,
-	float SizeCm,
-	float SpeedCmPerSecond,
-	const FVector& InHome,
-	int32 InSeed)
+bool ARokCityCitizenActor::ConfigureSprite(const FString& Directory, const FString& Model,
+	const TCHAR* Pose, int32 InSeed)
 {
-	HomeLocation = FVector(InHome.X, InHome.Y, InHome.Z);
-	MoveSpeed = FMath::Max(10.0f, SpeedCmPerSecond);
-	Seed = InSeed;
-	Step = 0;
-	SetActorLocation(HomeLocation);
-	WanderTarget = EvaluateWanderTarget(HomeLocation, WanderRadius, Seed, Step);
-	if (SpriteMeshComponent)
+	Clip = FRokSpriteClip::Load(Directory, Model, Pose);
+	static TWeakObjectPtr<UMaterialInterface> SpriteParent;
+	if (!SpriteParent.IsValid())
 	{
-		if (Material)
-		{
-			SpriteMeshComponent->SetMaterial(0, Material);
-		}
-		const float Size = FMath::Max(10.0f, SizeCm);
-		// The source plane is 100 units wide; the material maps the sprite cell.
-		SpriteMeshComponent->SetRelativeScale3D(FVector(Size / 100.0f, Size / 100.0f, 1.0f));
-		SpriteMeshComponent->SetRelativeLocation(FVector::ZeroVector);
+		SpriteParent = LoadObject<UMaterialInterface>(nullptr,
+			TEXT("/Game/RokUnityWorldMapPrototype/Materials/M_RokWorldEntitySprite.M_RokWorldEntitySprite"));
 	}
-	FaceCamera();
+	if (!Clip || !SpriteParent.IsValid()) return false;
+	SpriteMaterial = SpriteMeshComponent->CreateDynamicMaterialInstance(0, SpriteParent.Get());
+	AnimationElapsed = InSeed * 0.073f;
+	return SpriteMaterial != nullptr;
+}
+
+bool ARokCityCitizenActor::ConfigureWalker(const FString& Model, const FVector& Start, const FVector& End,
+	const FTransform& InCityFrame, int32 InSeed)
+{
+	if (!ConfigureSprite(TEXT("CityLife"), Model, TEXT("walk"), InSeed)) return false;
+	bWalking = true;
+	CityFrame = InCityFrame;
+	RouteStart = Start;
+	RouteEnd = End;
+	SetActorLocation(Start);
+	SetHeading(FVector2D(CityFrame.InverseTransformVector(End - Start)));
+	UpdateSprite();
+	return true;
+}
+
+bool ARokCityCitizenActor::ConfigureSoldier(const FString& Model, const FVector& Position,
+	const FVector2D& Heading, int32 InSeed)
+{
+	if (!ConfigureSprite(TEXT("WorldArmySprites"), Model, TEXT("idle"), InSeed)) return false;
+	TrainingClip = FRokSpriteClip::Load(TEXT("WorldArmySprites"), Model, TEXT("attack"));
+	SetActorLocation(Position);
+	SetHeading(Heading);
+	UpdateSprite();
+	return true;
+}
+
+void ARokCityCitizenActor::SetHeading(const FVector2D& Heading)
+{
+	const double Degrees = FMath::RadiansToDegrees(FMath::Atan2(Heading.X, Heading.Y));
+	Facing = (FMath::RoundToInt(Degrees / 45.0) + 8) % 8;
+}
+
+void ARokCityCitizenActor::SetTraining(bool bInTraining)
+{
+	bTraining = bInTraining;
 }
 
 void ARokCityCitizenActor::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
-
-	if (MoveSpeed <= 0.0f)
+	if (!Clip) return;
+	AnimationElapsed += DeltaSeconds;
+	if (bWalking)
 	{
-		return;
+		const FVector Target = bTowardEnd ? RouteEnd : RouteStart;
+		const FVector Delta = Target - GetActorLocation();
+		const double Distance = Delta.Size();
+		constexpr double WalkSpeed = 105.0;
+		const double Travel = WalkSpeed * DeltaSeconds;
+		if (Distance <= Travel)
+		{
+			SetActorLocation(Target);
+			bTowardEnd = !bTowardEnd;
+			SetHeading(FVector2D(CityFrame.InverseTransformVector(bTowardEnd ? RouteEnd - RouteStart : RouteStart - RouteEnd)));
+		}
+		else
+		{
+			SetActorLocation(GetActorLocation() + Delta * (Travel / Distance));
+		}
 	}
-	FVector Location = GetActorLocation();
-	const FVector ToTarget = WanderTarget - Location;
-	const FVector Planar(ToTarget.X, ToTarget.Y, 0.0f);
-	const float Distance = Planar.Size();
-	if (Distance <= 12.0f)
-	{
-		PickNextTarget();
-		FaceCamera();
-		return;
-	}
-	const FVector Move = Planar / Distance * FMath::Min(Distance, MoveSpeed * DeltaSeconds);
-	SetActorLocation(Location + Move);
-	FaceCamera();
+	UpdateSprite();
 }
 
-void ARokCityCitizenActor::PickNextTarget()
+void ARokCityCitizenActor::UpdateSprite()
 {
-	++Step;
-	WanderTarget = EvaluateWanderTarget(HomeLocation, WanderRadius, Seed, Step);
-}
+	const APlayerController* Controller = GetWorld()->GetFirstPlayerController();
+	const auto* Camera = Controller ? Cast<ARokStrategyCameraPawn>(Controller->GetPawn()) : nullptr;
+	const bool bVisible = Camera && Camera->GetCurrentCityDxf() <= 270.0f;
+	SetActorHiddenInGame(!bVisible);
+	if (!bVisible || !Clip || !SpriteMaterial) return;
 
-void ARokCityCitizenActor::FaceCamera()
-{
-	const UWorld* World = GetWorld();
-	const APlayerController* PlayerController = World ? World->GetFirstPlayerController() : nullptr;
-	const AActor* ViewTarget = PlayerController ? PlayerController->GetViewTarget() : nullptr;
-	if (!ViewTarget)
+	const FRokSpriteClip& ActiveClip = bTraining && TrainingClip ? *TrainingClip : *Clip;
+	const int32 Direction = FMath::Min(Facing, 8 - Facing);
+	const auto& Frames = ActiveClip.Frames[Direction];
+	if (Frames.IsEmpty()) return;
+	UTexture2D* Texture = Frames[FMath::FloorToInt(AnimationElapsed / ActiveClip.FrameSeconds) % Frames.Num()].Get();
+	if (Texture != LastFrame)
 	{
-		return;
+		SpriteMaterial->SetTextureParameterValue(TEXT("Sprite"), Texture);
+		LastFrame = Texture;
 	}
-	const FVector Direction = ViewTarget->GetActorLocation() - GetActorLocation();
-	if (Direction.SizeSquared() <= KINDA_SMALL_NUMBER)
-	{
-		return;
-	}
-	// Plane normal is +Z, so place +Z along the view direction.
-	SetActorRotation(FRotationMatrix::MakeFromZ(Direction.GetSafeNormal()).Rotator());
+
+	FVector ViewLocation;
+	FRotator ViewRotation;
+	Controller->GetPlayerViewPoint(ViewLocation, ViewRotation);
+	const FRotationMatrix View(ViewRotation);
+	const FVector Right = View.GetScaledAxis(EAxis::Y);
+	const FVector Up = View.GetScaledAxis(EAxis::Z);
+	const FVector Forward = View.GetScaledAxis(EAxis::X);
+	const FVector2D Size = ActiveClip.SizeInUnity * FRokCityGridMath::UnityToUnrealScale
+		* FRokSpriteClip::EvaluateUnityUnitScale(Camera->GetCurrentCityDxf());
+	const bool bMirror = !(Facing > 0 && Facing < 4);
+	const double PivotX = bMirror ? 1.0 - ActiveClip.Pivot.X : ActiveClip.Pivot.X;
+	SpriteMeshComponent->SetWorldRotation(FMatrix(Right, Up, Forward, FVector::ZeroVector).ToQuat());
+	SpriteMeshComponent->SetWorldScale3D({(bMirror ? Size.X : -Size.X) / 100.0, -Size.Y / 100.0, 1.0});
+	SpriteMeshComponent->SetRelativeLocation(Right * ((0.5 - PivotX) * Size.X)
+		+ Up * ((0.5 - ActiveClip.Pivot.Y) * Size.Y) - Forward * 8.0);
+	SpriteMeshComponent->SetVisibility(true);
+
 }
 
 FVector ARokCityCitizenActor::EvaluateWanderTarget(

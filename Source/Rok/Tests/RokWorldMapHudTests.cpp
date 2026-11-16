@@ -66,8 +66,19 @@ bool FRokWorldObjectPopupStyleTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Atlas patches use Image, not whole-atlas Box margins"), Corner->GetBrush().DrawAs, ESlateBrushDrawType::Image);
 	auto* Name = Cast<UTextBlock>(Hud->GetWidgetFromName(TEXT("WorldObjectInfoName")));
 	if (!TestNotNull(TEXT("Source popup title"), Name)) return false;
-	TestTrue(TEXT("Dark Unity title on light source paper"), Name->GetColorAndOpacity().GetSpecifiedColor().Equals(FLinearColor(0.13725491f, 0.13725491f, 0.1254902f, 1)));
+	TestTrue(TEXT("Dark Unity title on light source paper"), Name->GetColorAndOpacity().GetSpecifiedColor().Equals(FLinearColor(FColor(35, 35, 32))));
 	TestEqual(TEXT("No HUD-style text shadow on paper"), Name->GetShadowOffset(), FVector2D::ZeroVector);
+	if (auto* PanelSlot = Cast<UCanvasPanelSlot>(Panel->Slot))
+		TestEqual(TEXT("Source card dimensions"), PanelSlot->GetSize(), FVector2D(479, 357));
+	for (const TCHAR* Row : {TEXT("WorldObjectInfoAmount"), TEXT("WorldObjectInfoCollector"), TEXT("WorldObjectInfoAlliance")})
+	{
+		const auto* Value = Cast<UTextBlock>(Hud->GetWidgetFromName(Row));
+		const auto* ValueSlot = Value ? Cast<UCanvasPanelSlot>(Value->Slot) : nullptr;
+		if (TestNotNull(TEXT("Independent dynamic resource value"), ValueSlot))
+			TestEqual(TEXT("Values align at the same right edge"), ValueSlot->GetPosition().X + ValueSlot->GetSize().X, 432.0);
+	}
+	TestNotNull(TEXT("Bookmark action"), Cast<UButton>(Hud->GetWidgetFromName(TEXT("WorldObjectBookmarkButton"))));
+	TestNotNull(TEXT("Share action"), Cast<UButton>(Hud->GetWidgetFromName(TEXT("WorldObjectShareButton"))));
 	return true;
 }
 

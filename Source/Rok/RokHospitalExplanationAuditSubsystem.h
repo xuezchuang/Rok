@@ -33,7 +33,6 @@ private:
     TMap<TWeakObjectPtr<AActor>, TArray<uint8>> BuildingSnapshots;
     TArray<uint8> ProfileSnapshot, ResourceSnapshot;
     TMap<FName, FString> MainTexts;
-    TMap<FName, bool> MainOptions;
     FString ExpectedRichText, Directory, PendingPath;
     TArray<FString> YellowSegments, Failures;
     TArray<TSharedPtr<FJsonValue>> Captures, Actions;

@@ -1,5 +1,7 @@
 #include "RokWorldMapCameraPawn.h"
 
+#include "RokMapPointerGesture.h"
+
 #include "Camera/CameraComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -510,14 +512,22 @@ void ARokWorldMapCameraPawn::UpdateDragPan()
 		return;
 	}
 
-	FVector PreviousGround = FVector::ZeroVector;
-	FVector CurrentGround = FVector::ZeroVector;
-	if (TryIntersectGroundPlaneAtScreen(LastDragScreenPosition, PreviousGround)
-		&& TryIntersectGroundPlaneAtScreen(CurrentScreenPosition, CurrentGround))
-	{
-		PanByUeWorldDelta(FVector2D(PreviousGround.X - CurrentGround.X, PreviousGround.Y - CurrentGround.Y));
-	}
+	PanFromScreenDrag(LastDragScreenPosition, CurrentScreenPosition);
 	LastDragScreenPosition = CurrentScreenPosition;
+}
+
+void ARokWorldMapCameraPawn::PanFromScreenDrag(FVector2D Previous, FVector2D Current)
+{
+	if (!bEnableDragPan || bEnteringPlayerCity || Previous == Current)
+	{
+		return;
+	}
+	FVector PreviousGround, CurrentGround;
+	if (TryIntersectGroundPlaneAtScreen(Previous, PreviousGround)
+		&& TryIntersectGroundPlaneAtScreen(Current, CurrentGround))
+	{
+		PanByUeWorldDelta(FVector2D(PreviousGround - CurrentGround));
+	}
 }
 
 void ARokWorldMapCameraPawn::UpdateMouseWheelZoom()
@@ -808,29 +818,7 @@ bool ARokWorldMapCameraPawn::TryIntersectGroundPlaneAtScreen(
 	const FVector2D& ScreenPosition,
 	FVector& OutGroundPoint) const
 {
-	const APlayerController* PlayerController = Cast<APlayerController>(GetController());
-	if (!PlayerController)
-	{
-		return false;
-	}
-
-	FVector RayOrigin = FVector::ZeroVector;
-	FVector RayDirection = FVector::ZeroVector;
-	if (!PlayerController->DeprojectScreenPositionToWorld(
-		ScreenPosition.X,
-		ScreenPosition.Y,
-		RayOrigin,
-		RayDirection)
-		|| FMath::Abs(RayDirection.Z) <= UE_SMALL_NUMBER)
-	{
-		return false;
-	}
-
-	const float RayDistance = (GetProjection().GroundZ - RayOrigin.Z) / RayDirection.Z;
-	if (RayDistance < 0.0f)
-	{
-		return false;
-	}
-	OutGroundPoint = RayOrigin + RayDirection * RayDistance;
-	return true;
+	const auto* PlayerController = Cast<APlayerController>(GetController());
+	return PlayerController && FRokMapPointerGesture::ProjectToGround(
+		*PlayerController, ScreenPosition, GetProjection().GroundZ, OutGroundPoint);
 }

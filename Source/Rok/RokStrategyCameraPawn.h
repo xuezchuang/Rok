@@ -59,11 +59,14 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category="Rok Camera")
 	bool RequestReturnToWorldMap();
+	bool RequestWorldBarbarianSearch(int32 Level);
 
 	// Unity btn_city: snap back to the city's default framing (city_default dxf
 	// and the home ground target) once the camera is outside the city band.
 	UFUNCTION(BlueprintCallable, Category="Rok Camera")
 	void FrameCityCenter();
+	void FocusCityGroundPoint(const FVector& WorldPoint);
+	void PanFromScreenDrag(FVector2D Previous, FVector2D Current);
 
 	UFUNCTION(BlueprintCallable, Category="Rok Camera")
 	bool RequestReturnToWorldMapAtDisplayCoordinate(
@@ -98,8 +101,12 @@ private:
 	UPROPERTY(EditDefaultsOnly, Category="Rok Camera")
 	float DefaultCameraDistance = 10000.0f;
 
+	// CameraParamLod forward (0, -0.7, 0.7): Unity looks along +Z at 45 degrees down.
+	// Unity (x, y, z) -> UE (-x, z, y) makes that +Y, i.e. yaw 90. The old 112 turned
+	// the whole city about 20 degrees against Unity (checked 2026-11-04 by overlaying
+	// Saved/ClaudeCapture/unity/U1_city_default.png).
 	UPROPERTY(EditDefaultsOnly, Category="Rok Camera")
-	float DefaultCameraYaw = 112.0f;
+	float DefaultCameraYaw = 90.0f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Rok Camera")
 	float DefaultCameraPitch = -45.0f;
@@ -175,9 +182,10 @@ private:
 	void UpdateMouseWheelZoom(float DeltaSeconds);
 	void DriveAutomationWorldMapReturn();
 	void ApplyPlanarMovement(const FVector2D& Movement, float DeltaSeconds);
+	void PanByWorldDelta(const FVector& Delta);
 	void ApplyCityEntryOptions();
 	void ApplyCommandLineCameraDistanceOverride();
 	void ApplyCameraDefaults();
 	bool RequestReturnToWorldMapInternal(
-		const TOptional<FVector2D>& TargetDisplayCoordinate);
+		const TOptional<FVector2D>& TargetDisplayCoordinate, int32 BarbarianLevel = 0, bool bTacticalEntry = false);
 };

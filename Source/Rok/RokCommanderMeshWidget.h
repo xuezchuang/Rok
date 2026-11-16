@@ -16,6 +16,7 @@ class URokCommanderMeshWidget : public UWidget
 	GENERATED_BODY()
 public:
 	bool LoadHero(int32 HeroId);
+	bool LoadQuestGuide(const FString& SourceKey);
 	void SetCivilizationProjection(float AboutOffset) { bCivilizationProjection = true; CivilizationAboutOffset = AboutOffset; }
 	bool PlayStandby();
 	void AdvanceAnimation(float Delta);
@@ -32,7 +33,7 @@ protected:
 	virtual TSharedRef<SWidget> RebuildWidget() override;
 private:
 	friend class SRokCommanderMesh;
-	bool LoadClip(int32 HeroId, const FString& Animation);
+	bool LoadClip(const FString& RelativePath);
 	struct FDraw
 	{
 		FString Identity;
@@ -55,6 +56,7 @@ private:
 	float Time = 0.0f;
 	float CameraX = 0.0f;
 	bool bCivilizationProjection = false;
+	bool bQuestGuideProjection = false;
 	float CivilizationAboutOffset = 0;
 	TSharedPtr<SRokCommanderMesh> MeshWidget;
 };

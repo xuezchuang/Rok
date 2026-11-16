@@ -17,6 +17,7 @@ class URokFoodDepositComponent;
 class URokWoodDepositComponent;
 class URokStoneDepositComponent;
 class URokVillagePresentationComponent;
+class URokWorldStructurePresentationComponent;
 
 UENUM(BlueprintType)
 enum class ERokWorldMapEntityLodBand : uint8
@@ -40,6 +41,22 @@ public:
 	bool Configure(
 		const FRokWorldMapEntityRecord& InRecord,
 		float InitialDxf);
+
+	// A server object keeps its actor when position or resource stock changes.
+	bool ApplyServerUpdate(const FRokWorldMapEntityRecord& InRecord, const FVector& WorldPosition);
+
+	UFUNCTION(BlueprintPure, Category = "Rok|World Map|Entity")
+	FString GetServerObjectId() const
+	{
+		return Record.ServerObjectId > 0 ? LexToString(Record.ServerObjectId) : FString();
+	}
+
+	UFUNCTION(BlueprintPure, Category = "Rok|World Map|Entity")
+	int64 GetServerResourceAmount() const { return Record.ResourceAmount; }
+	int64 GetResourceCapacity() const { return Record.ResourceCapacity; }
+	int64 GetCollectorRoleId() const { return Record.CollectorRoleId; }
+	const FString& GetCollectorName() const { return Record.CollectorName; }
+	const FString& GetResourceAlliance() const { return Record.ResourceAlliance; }
 
 	UFUNCTION(BlueprintPure, Category = "Rok|World Map|Entity")
 	int32 GetSourceId() const { return Record.SourceId; }
@@ -67,6 +84,18 @@ public:
 	{
 		return CurrentLodBand;
 	}
+
+	UFUNCTION(BlueprintPure, Category = "Rok|World Map|Entity")
+	FString GetClosePresentation() const;
+
+	UFUNCTION(BlueprintPure, Category = "Rok|World Map|Entity")
+	FString GetSourceModelId() const { return Record.SourceModelId; }
+
+	UFUNCTION(BlueprintPure, Category = "Rok|World Map|Entity")
+	int32 GetSourceLayerCount() const;
+
+	UFUNCTION(BlueprintPure, Category = "Rok|WorldMap")
+	int32 GetActiveSourceLayerCount() const;
 
 	static ERokWorldMapEntityLodBand ResolveLodBand(
 		float Dxf,
@@ -103,6 +132,9 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<URokVillagePresentationComponent> VillagePresentation;
+
+	UPROPERTY(Transient)
+	TObjectPtr<URokWorldStructurePresentationComponent> StructurePresentation;
 
 	// Per-unit cards from the Unity BarbarianFormation prefab. Each entry
 	// owns the base card plus (for expanding rows) two close-LOD clone

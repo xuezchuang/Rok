@@ -139,6 +139,49 @@ void ARokCitySpriteActor::ConfigureSourceMesh(UStaticMesh* Mesh, UMaterialInterf
 	}
 }
 
+void ARokCitySpriteActor::SetRuntimeSourceMesh(UStaticMesh* Mesh, UMaterialInterface* Material, const FTransform& RelativeTransform)
+{
+	if (!MapSourceMesh)
+	{
+		MapSourceMesh = SpriteMeshComponent->GetStaticMesh();
+		MapSourceMaterial = SpriteMeshComponent->GetMaterial(0);
+		MapSourceTransform = SpriteMeshComponent->GetRelativeTransform();
+		bMapUsesSourceMesh = bUseSourceMesh;
+		if (bUseUnityCameraLod)
+		{
+			MapSourceTransform.SetScale3D(UnityBaseSpriteScale);
+			if (bUseSourceMesh) MapSourceTransform.SetLocation(UnityBaseSourceMeshRelativeLocation);
+		}
+		else if (bSelectionHighlighted)
+		{
+			MapSourceTransform.SetScale3D(SelectionOriginalSpriteScale);
+		}
+	}
+	ConfigureSourceMesh(Mesh, Material, RelativeTransform, ViewSortPriority);
+}
+
+void ARokCitySpriteActor::RestoreMapSourceMesh()
+{
+	if (!MapSourceMesh) return;
+	SpriteMeshComponent->SetStaticMesh(MapSourceMesh);
+	SpriteMeshComponent->SetMaterial(0, MapSourceMaterial);
+	SpriteMeshComponent->SetRelativeTransform(MapSourceTransform);
+	bUseSourceMesh = bMapUsesSourceMesh;
+	UnityBaseSourceMeshRelativeLocation = bUseSourceMesh ? MapSourceTransform.GetLocation() : FVector::ZeroVector;
+	UnityBaseSpriteScale = MapSourceTransform.GetScale3D();
+	if (bUseUnityCameraLod)
+	{
+		ApplyUnityLodScale(CurrentUnityLodScale);
+	}
+	else if (bSelectionHighlighted)
+	{
+		SelectionOriginalSpriteScale = UnityBaseSpriteScale;
+		SpriteMeshComponent->SetRelativeScale3D(UnityBaseSpriteScale * 1.035f);
+	}
+	MapSourceMesh = nullptr;
+	MapSourceMaterial = nullptr;
+}
+
 void ARokCitySpriteActor::ConfigureViewLayer(ERokCityViewLayer InViewLayer, int32 InSortPriority)
 {
 	ViewLayer = InViewLayer;

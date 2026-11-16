@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKBOOK = ROOT / "ref/config-tables/s_AudioInfo.xlsm"
 EXTRACTED = DATA_ROOT / "ConfigTables/AudioInfo.json"
 OUTPUT = DATA_ROOT / "CityAudio/catalog.json"
-EVENT_IDS = (1007, 1008, 4001, 4005, 4037, 4048, 4051)
+EVENT_IDS = (1007, 1008, 4001, 4005, 4014, 4025, 4037, 4048, 4051, 4080)
 BGM_IDS = (1007, 1008)
 ASSET_ROOT = "/Game/RokPrototype/UI/Audio"
 REF_CLIPS = ROOT / "ref/client-unity/Assets/BundleAssets/Souds"
@@ -39,6 +39,7 @@ def build() -> dict:
                     ROOT / "ref/client-unity/Assets/Skyunion/RunTime/AudioService/AudioConfig.cs",
                     ROOT / "ref/client-unity/Assets/Skyunion/RunTime/AudioService/EAudioMaxCountAction.cs",
                     ROOT / "ref/client-unity/Assets/Scripts/Hotfix/MVC/View_Mediator/Setting/GeneralSettingMediator.cs",
+                    ROOT / "ref/client-unity/Assets/Scripts/Hotfix/MVC/View_Mediator/SpeedUp/AddSpeedMediator.cs",
                     ROOT / "ref/client-unity/Assets/Scripts/Hotfix/MVC/RS.cs",
                     Path(__file__)]
     events = []
@@ -49,7 +50,7 @@ def build() -> dict:
         is_bgm = event_id in BGM_IDS
         assert row["group"] == (1 if is_bgm else 4)
         assert row["mode"] == (2 if is_bgm else 0)
-        assert row["maxCount"] == 1 and row["maxCountAction"] == 1
+        assert row["maxCount"] == (-1 if event_id == 4080 else 1) and row["maxCountAction"] == 1
         assert len(clips) == (2 if is_bgm else 1)
         assert len(intervals) == (2 if is_bgm else 1)
         assert all(value >= 0 for value in intervals)

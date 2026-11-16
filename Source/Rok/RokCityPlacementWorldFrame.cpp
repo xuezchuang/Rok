@@ -5,6 +5,7 @@
 #include "RokCitySpriteActor.h"
 #include "RokDataPaths.h"
 #include "RokLocalCitySimulationContext.h"
+#include "RokServerCitySubsystem.h"
 #include "Dom/JsonObject.h"
 #include "Engine/GameViewportClient.h"
 #include "Engine/LocalPlayer.h"
@@ -100,6 +101,12 @@ bool FRokCityPlacementWorldFrame::ResolveForWorld(const UWorld* World,
 {
 	OutFrame = FRokCityPlacementWorldFrame();
 	OutError.Reset();
+	// A live server layout moves source actors off their source footprints; the frame
+	// it resolved before moving them stays valid because the city container never moves.
+	if (const URokServerCitySubsystem* ServerCity = World ? World->GetSubsystem<URokServerCitySubsystem>() : nullptr)
+	{
+		if (ServerCity->GetAppliedFrame(OutFrame)) return true;
+	}
 	FRokLocalCitySimulationContext Context;
 	FRokCityConstructionGrid SourceGrid;
 	int32 SourceGridSize = 0;

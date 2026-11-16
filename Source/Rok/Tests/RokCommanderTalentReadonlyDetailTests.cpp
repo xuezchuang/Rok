@@ -29,7 +29,7 @@ bool FRokCommanderTalentReadonlyDetailTest::RunTest(const FString& Parameters)
         return false;
     }
     Widget->TakeWidget();
-    Widget->OpenCommander();
+    Widget->OpenCommander(true);
     TestEqual(TEXT("Default unowned commander has no selected detail"),
         Widget->GetSelectedCommanderTalentIdForAudit(), INDEX_NONE);
     if (UButton* Unsupported = Cast<UButton>(Widget->GetWidgetFromName(
@@ -131,7 +131,7 @@ bool FRokCommanderTalentReadonlyDetailTest::RunTest(const FString& Parameters)
         Widget->GetSelectedCommanderTalentIdForAudit(), INDEX_NONE);
     TestNull(TEXT("Closed detail is removed"),
         Widget->GetWidgetFromName(TEXT("CommanderTalentDetailFrame")));
-    Widget->OpenCommander();
+    Widget->OpenCommander(true);
     TestEqual(TEXT("Reopening commander keeps detail closed"),
         Widget->GetSelectedCommanderTalentIdForAudit(), INDEX_NONE);
     const TArray<FRokUnityRuntimeHeroState> AfterHeroes = Runtime->GetStarterHeroes();
@@ -162,7 +162,7 @@ bool FRokCommanderTalentMissingCatalogTest::RunTest(const FString& Parameters)
         return false;
     }
     Widget->TakeWidget();
-    Widget->OpenCommander();
+    Widget->OpenCommander(true);
     UButton* Label = Cast<UButton>(Widget->GetWidgetFromName(
         TEXT("CommanderTalentLabel_0")));
     if (TestNotNull(TEXT("Unavailable label remains clickable"), Label))

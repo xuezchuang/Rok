@@ -84,13 +84,17 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRokCommanderGestureTest,
 	"Rok.Ui.Animation.Commander.Gesture", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FRokCommanderGestureTest::RunTest(const FString&)
 {
-	for (int32 HeroId : {1006, 1009})
+	const TPair<int32, float> Gestures[] = {
+		{1000, 3.0f}, {1002, 2.3333333f}, {1003, 3.3333333f}, {1006, 3.0f},
+		{1009, 1.8333334f}, {1017, 3.3333333f}, {2004, 2.3333333f}
+	};
+	for (const auto& [HeroId, ExpectedDuration] : Gestures)
 	{
 		auto* Portrait = NewObject<URokCommanderMeshWidget>();
 		if (!TestTrue(TEXT("Source idle and gesture load"), Portrait->LoadHero(HeroId))) return false;
 		TestTrue(TEXT("First click starts source standby"), Portrait->PlayStandby());
 		const float GestureDuration = Portrait->GetAnimationDuration();
-		TestTrue(TEXT("Exact source gesture duration"), FMath::IsNearlyEqual(GestureDuration, HeroId == 1006 ? 3.0f : 1.8333334f));
+		TestTrue(TEXT("Exact source gesture duration"), FMath::IsNearlyEqual(GestureDuration, ExpectedDuration));
 		Portrait->AdvanceAnimation(GestureDuration * 0.5f);
 		TestFalse(TEXT("Repeated click does not restart gesture"), Portrait->PlayStandby());
 		Portrait->AdvanceAnimation(GestureDuration * 0.5f + 0.01f);

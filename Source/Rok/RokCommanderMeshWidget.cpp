@@ -52,6 +52,9 @@ public:
 		}
 		const float Alpha = FMath::Frac(FrameTime);
 		const FVector2f Size(Geometry.GetLocalSize());
+		const float GuideCenter = (O.BoundsMin.X + O.BoundsMax.X) * 0.5f;
+		const float GuideScale = O.bQuestGuideProjection ? FMath::Min(
+			Size.X / (O.BoundsMax.X - O.BoundsMin.X), Size.Y / ((O.BoundsMax.Y - O.BoundsMin.Y) * 0.62f)) : 0.0f;
 		for (int32 D = 0; D < Frame.Draws.Num(); ++D)
 		{
 			const auto& Draw = Frame.Draws[D];
@@ -65,7 +68,9 @@ public:
 			for (int32 V = 0; V < Draw.Positions.Num(); ++V)
 			{
 				const FVector2f P = bInterpolate ? FMath::Lerp(Draw.Positions[V], NextDraw->Positions[V], Alpha) : Draw.Positions[V];
-				const FVector2f Local = O.bCivilizationProjection
+				const FVector2f Local = O.bQuestGuideProjection
+					? FVector2f(Size.X * 0.5f + (P.X - GuideCenter) * GuideScale, (O.BoundsMax.Y - P.Y) * GuideScale)
+					: O.bCivilizationProjection
 					? RokCommanderCamera::ProjectCivilization(P, Size, O.CivilizationAboutOffset)
 					: RokCommanderCamera::Project(P, Size, O.CameraX);
 				Vertices.Add(FSlateVertex::Make<ESlateVertexRounding::Disabled>(Geometry.GetAccumulatedRenderTransform(), Local, Draw.UVs[V], Color));
@@ -88,12 +93,18 @@ bool URokCommanderMeshWidget::LoadHero(int32 HeroId)
 	bPlayingStandby = false;
 	StandbyFrames.Reset(); StandbyDuration = 0;
 	CameraX = 0;
-	if (!LoadClip(HeroId, TEXT("idle"))) return false;
+	bQuestGuideProjection = false;
+	if (!LoadClip(FString::Printf(TEXT("Commander/hero_%d_idle_mesh.json"), HeroId))) return false;
+	UE_LOG(LogTemp, Display, TEXT("Commander source mesh loaded: hero=%d frames=%d duration=%.6f"), HeroId, Frames.Num(), Duration);
 	const FString StandbyPath = RokDataPaths::Resolve(FString::Printf(TEXT("Commander/hero_%d_standby_mesh.json"), HeroId));
 	if (FPaths::FileExists(StandbyPath))
 	{
 		auto* Clip = NewObject<URokCommanderMeshWidget>(this);
-		if (!Clip->LoadClip(HeroId, TEXT("standby"))) return false;
+		if (!Clip->LoadClip(FString::Printf(TEXT("Commander/hero_%d_standby_mesh.json"), HeroId)))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("Commander %d could not load its optional standby clip."), HeroId);
+			return true;
+		}
 		const int32 TextureOffset = Textures.Num();
 		for (auto& Frame : Clip->Frames)
 			for (auto& Draw : Frame.Draws) Draw.TextureIndex += TextureOffset;
@@ -103,6 +114,15 @@ bool URokCommanderMeshWidget::LoadHero(int32 HeroId)
 		// Per-animation auto-fit would make the whole character jump in size.
 	}
 	return true;
+}
+
+bool URokCommanderMeshWidget::LoadQuestGuide(const FString& SourceKey)
+{
+	bQuestGuideProjection = true;
+	bPlayingStandby = false;
+	StandbyFrames.Reset();
+	StandbyDuration = 0.0f;
+	return LoadClip(FString::Printf(TEXT("QuestGuide/%s_idle_mesh.json"), *SourceKey));
 }
 
 bool URokCommanderMeshWidget::PlayStandby()
@@ -130,11 +150,11 @@ void URokCommanderMeshWidget::AdvanceAnimation(float Delta)
 	if (!bPlayingStandby) Time = FMath::Fmod(Time, Duration);
 }
 
-bool URokCommanderMeshWidget::LoadClip(int32 HeroId, const FString& Animation)
+bool URokCommanderMeshWidget::LoadClip(const FString& RelativePath)
 {
 	Frames.Reset(); Brushes.Reset(); Textures.Reset(); Time = 0;
 	FString Json;
-	const FString Path = RokDataPaths::Resolve(FString::Printf(TEXT("Commander/hero_%d_%s_mesh.json"), HeroId, *Animation));
+	const FString Path = RokDataPaths::Resolve(RelativePath);
 	if (!FFileHelper::LoadFileToString(Json, *Path)) return false;
 	TSharedPtr<FJsonObject> Root;
 	if (!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json), Root) || !Root.IsValid()) return false;
@@ -154,7 +174,7 @@ bool URokCommanderMeshWidget::LoadClip(int32 HeroId, const FString& Animation)
 			const auto& Data = DrawValue->AsObject();
 			if (Data->GetStringField(TEXT("blend")) != TEXT("Normal"))
 			{
-				UE_LOG(LogTemp, Error, TEXT("Commander mesh %d: unsupported source blend mode"), HeroId);
+				UE_LOG(LogTemp, Error, TEXT("Source mesh %s: unsupported source blend mode"), *RelativePath);
 				return false;
 			}
 			FDraw Draw;
@@ -193,7 +213,6 @@ bool URokCommanderMeshWidget::LoadClip(int32 HeroId, const FString& Animation)
 		Frames.Add(MoveTemp(Frame));
 	}
 	SetVisibility(ESlateVisibility::HitTestInvisible);
-	UE_LOG(LogTemp, Display, TEXT("Commander source mesh loaded: hero=%d frames=%d duration=%.6f"), HeroId, Frames.Num(), Duration);
 	return Frames.Num() >= 2;
 }
 

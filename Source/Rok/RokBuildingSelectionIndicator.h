@@ -5,6 +5,7 @@
 #include "RokBuildingSelectionIndicator.generated.h"
 
 class ARokCitySpriteActor;
+class UMaterialInterface;
 class USceneComponent;
 class UStaticMeshComponent;
 
@@ -31,7 +32,9 @@ public:
 	ARokBuildingSelectionIndicator();
 
 	void ShowForBuilding(const ARokCitySpriteActor* BuildingActor);
+	void ShowAtFootprint(const FVector& Center, FIntPoint FootprintSize);
 	void HideIndicator();
+	void ApplySceneGammaCompensation(UMaterialInterface* Template, const FLinearColor& InverseGain);
 
 	static FVector CalculateArrowOffset(
 		FIntPoint FootprintSize,

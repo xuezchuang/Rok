@@ -56,11 +56,16 @@ bool FRokLocalEconomyAuthorityTest::RunTest(const FString&)
 			Buildings->CanStartUpgrade(Hall, Reason));
 		TestFalse(*FString::Printf(TEXT("%s cannot submit a local debit"), CaseName),
 			Buildings->StartUpgrade(Hall, Reason));
+		int64 Gems = 0;
+		TestFalse(*FString::Printf(TEXT("%s cannot quote a local gem debit"), CaseName),
+			Buildings->CanStartLocalInstantUpgrade(Hall, 1, Gems, Reason));
+		TestFalse(*FString::Printf(TEXT("%s cannot submit a local gem debit"), CaseName),
+			Buildings->StartLocalInstantUpgrade(Hall, 1, 1, Reason));
 		TestFalse(*FString::Printf(TEXT("%s has an explicit denial"), CaseName), Reason.IsEmpty());
 		const FRokResourceStock After = Buildings->GetCurrentResources();
 		TestTrue(*FString::Printf(TEXT("%s preserves every wallet balance"), CaseName),
 			Before.Food == After.Food && Before.Wood == After.Wood
-			&& Before.Stone == After.Stone && Before.Gold == After.Gold);
+			&& Before.Stone == After.Stone && Before.Gold == After.Gold && Before.Denar == After.Denar);
 		TestEqual(*FString::Printf(TEXT("%s creates no upgrade queue"), CaseName),
 			Buildings->GetActiveUpgradeCount(), QueuesBefore);
 	};
@@ -119,6 +124,7 @@ bool FRokLocalEconomyAuthorityTest::RunTest(const FString&)
 	TestEqual(TEXT("Local debit wood"), AfterLocal.Wood, Before.Wood - Cost.Wood);
 	TestEqual(TEXT("Local debit stone"), AfterLocal.Stone, Before.Stone - Cost.Stone);
 	TestEqual(TEXT("Local debit gold"), AfterLocal.Gold, Before.Gold - Cost.Gold);
+	TestEqual(TEXT("Timed upgrade leaves gems alone"), AfterLocal.Denar, Before.Denar);
 	TestEqual(TEXT("Local upgrade occupies exactly one queue"),
 		Buildings->GetActiveUpgradeCount(), QueuesBefore + 1);
 	return true;

@@ -8,6 +8,7 @@
 #include "RokMainHudWidget.generated.h"
 
 class AActor;
+class ARokCitySpriteActor;
 class UBorder;
 class UButton;
 class UCanvasPanel;
@@ -15,6 +16,9 @@ class UCanvasPanelSlot;
 class UImage;
 class UMaterialInstanceDynamic;
 class USizeBox;
+class UScaleBox;
+class UScrollBox;
+class UVerticalBox;
 class USoundBase;
 class UTextBlock;
 class UTexture2D;
@@ -25,6 +29,7 @@ class URokUnityFeatureScreenWidget;
 class URokUnityModalWidget;
 class URokPowerGainWidget;
 class URokScoutScreenWidget;
+struct FRokPlayerTopBar;
 
 DECLARE_MULTICAST_DELEGATE(FRokPlacementCancelRequested);
 DECLARE_MULTICAST_DELEGATE(FRokPlacementConfirmRequested);
@@ -38,7 +43,8 @@ public:
 	// Nullable until the HUD tree has been built (or when no feature host exists).
 	URokUnityFeatureScreenWidget* GetFeatureScreenWidgetForPlacement() const { return FeatureScreenWidget.Get(); }
 	bool IsPlacementBlockingModalOpen() const;
-	void SetPlacementPresentation(bool bVisible, bool bGridValid, bool bCanCommit, const FText& Reason);
+	void SetPlacementPresentation(bool bVisible, bool bGridValid, bool bCanCommit,
+		const FText& Reason, bool bCanOpenWorkerQueue = false);
 	FRokPlacementCancelRequested OnPlacementCancelRequested;
 	FRokPlacementConfirmRequested OnPlacementConfirmRequested;
 #if !UE_BUILD_SHIPPING
@@ -61,6 +67,7 @@ public:
 	void AdvanceHudAnimations(float DeltaSeconds);
 	void SetPowerPresentation(int32 Value);
 	void SetWorldMapTacticalVisible(bool bVisible);
+	void SetWorldMapSearchVisible(bool bVisible);
 	void AdvanceWorldMapModuleAnimation(float DeltaSeconds);
 	// Presentation only; does not grant rewards or change runtime task state.
 	void SetTaskRewardPresentation(int32 TaskId, bool bComplete);
@@ -79,15 +86,28 @@ public:
 	void ApplyCityHudBand(bool bInsideCity);
 	void ApplyCityHudButtons(bool bOutside);
 	bool IsCityInViewport();
-	// Unity building "建造" bubble above an upgrading building.
+	// Unity GlobalCityBuidlingMediator.OnBuildBarHud -> UI_Tip_BuildingBar: one bar per
+	// build-queue entry (new builds and upgrades) at the building's Collider root.
+	// ClientUtils.FormatCountDown: HH:MM:SS, prefixed by Language 128004 past a day.
 	static FString FormatRemainingClock(float Seconds);
-	void BuildConstructionBubblePool();
-	void UpdateConstructionBubbles();
+	static FSlateFontInfo MakeUnitySourceFont(int32 Pixels, bool bBold);
+	// RefreshhudView slider value (costTime - leftTime) / costTime; 1 once overdue.
+	static float GetBuildBarProgress(float TotalSeconds, float RemainingSeconds);
+	void BuildConstructionBarPool();
+	void UpdateConstructionBars();
 	UPROPERTY(Transient)
-	TArray<TObjectPtr<UCanvasPanel>> ConstructionBubbles;
+	TArray<TObjectPtr<UCanvasPanel>> ConstructionBars;
 	UPROPERTY(Transient)
-	TArray<TObjectPtr<UTextBlock>> ConstructionBubbleLabels;
-	TArray<TWeakObjectPtr<AActor>> ConstructionBubbleActors;
+	TArray<TObjectPtr<UTextBlock>> ConstructionBarLabels;
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UCanvasPanel>> ConstructionBarFills;
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UImage>> ConstructionBarIcons;
+	TArray<TWeakObjectPtr<AActor>> ConstructionBarActors;
+	UPROPERTY(Transient)
+	FSlateBrush ConstructionBarBuildingBrush;
+	UPROPERTY(Transient)
+	FSlateBrush ConstructionBarLevelUpBrush;
 	// Current city camera dxf, or -1 when no city camera pawn owns this HUD.
 	float GetCityCameraDxf() const;
 #if WITH_DEV_AUTOMATION_TESTS
@@ -95,6 +115,15 @@ public:
 #endif
 #if WITH_DEV_AUTOMATION_TESTS
 	int32 GetFoldSoundRequestsForTesting() const { return FoldSoundRequests; }
+#endif
+
+	// Live Role_RoleInfo values for the top bar (power, resources, VIP, head, coordinates,
+	// age, city name and level). RefreshFromSubsystem calls it while the game net subsystem
+	// is RoleReady; otherwise the local preview values stay.
+	void ApplyServerTopBar(const FRokPlayerTopBar& TopBar);
+#if WITH_DEV_AUTOMATION_TESTS
+	int32 GetShownHeadIdForTesting() const { return ShownHeadId; }
+	int32 GetShownHeadFrameIdForTesting() const { return ShownHeadFrameId; }
 #endif
 
 	UFUNCTION(BlueprintCallable, Category="Rok HUD")
@@ -132,6 +161,9 @@ private:
 	UPROPERTY()
 	TObjectPtr<USizeBox> ExpandedDesignSizeBox;
 
+	UPROPERTY(Transient) TObjectPtr<UScaleBox> CityTopBarLayer;
+	UPROPERTY(Transient) TObjectPtr<USizeBox> CityTopBarSizeBox;
+
 	UPROPERTY()
 	TObjectPtr<UCanvasPanel> ExpandedDesignCanvas;
 
@@ -157,6 +189,20 @@ private:
 	TObjectPtr<UTextBlock> AgeText;
 
 	UPROPERTY()
+	TObjectPtr<UImage> PlayerHeadImage;
+
+	UPROPERTY()
+	TObjectPtr<UImage> VipRedPointImage;
+
+	UPROPERTY()
+	TObjectPtr<UImage> PlayerHeadFrameImage;
+
+	// PlayerHead ids drawn by PlayerHeadImage/PlayerHeadFrameImage (BuildPlayerPowerGroup draws 1000/2000).
+	int32 ShownHeadId = 1000;
+	int32 ShownHeadFrameId = 2000;
+	void ApplyPlayerHeadSprite(UImage* Image, int32 HeadId, const FVector2D& DesiredSize);
+
+	UPROPERTY()
 	TObjectPtr<UTextBlock> RuntimeInfoText;
 
 	UPROPERTY()
@@ -167,6 +213,76 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UImage> TaskRewardImage;
+	UPROPERTY(Transient)
+	TObjectPtr<UScrollBox> TaskScroll;
+	UPROPERTY(Transient)
+	TObjectPtr<UVerticalBox> TaskListBox;
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UImage>> ServerTaskRewardImages;
+	TArray<int32> ServerHudTaskIds;
+	TArray<int32> ServerHudTaskPages;
+	bool bServerTaskRows = false;
+	FString LastServerHudTaskSignature;
+	void RebuildTaskRows(int32 Count, bool bServer);
+	bool ApplyServerTasks();
+	void RefreshNotificationBadges();
+	UCanvasPanel* MakeNotificationBadge(const FName& Name);
+	void SetNotificationCount(const FName& Name, int32 Count);
+
+	UPROPERTY(Transient)
+	TMap<FName, TObjectPtr<UTextBlock>> NotificationTexts;
+	UPROPERTY(Transient)
+	TObjectPtr<UButton> ChargeEventsButton;
+	int32 ChargeEventPage = 101;
+	void HandleServerTaskClicked(int32 RowIndex);
+	void UpdateServerArmyHud();
+	void BuildBarracksIdleMarker();
+	void UpdateBarracksIdleMarker(float DeltaTime);
+	UPROPERTY(Transient) TArray<TObjectPtr<UTextBlock>> BarracksIdleGlyphs;
+	float BarracksIdleMarkerElapsed = 0.0f;
+
+	void BuildCityHarvestPops();
+	void UpdateCityHarvestPops(float DeltaTime);
+	void HandleCityHarvestClicked(int32 Index);
+	void RequestSelectedBuildingHarvest(AActor* BuildingActor);
+	void SubmitCityHarvest(const TMap<int32, int64>& Buildings, AActor* FeedbackAnchor = nullptr);
+	void ShowCityHarvestFeedback(const FText& Message, AActor* SuccessAnchor = nullptr);
+
+	UPROPERTY(Transient) TArray<TObjectPtr<UCanvasPanel>> CityHarvestRoots;
+	UPROPERTY(Transient) TArray<TObjectPtr<UImage>> CityHarvestNormalBackgrounds;
+	UPROPERTY(Transient) TArray<TObjectPtr<UImage>> CityHarvestFullBackgrounds;
+	UPROPERTY(Transient) TArray<TObjectPtr<UImage>> CityHarvestIcons;
+	struct FCityHarvestEntry
+	{
+		int32 Index = 0;
+		int32 Type = 0;
+		int64 GainTime = 0;
+		bool bFull = false;
+		TWeakObjectPtr<ARokCitySpriteActor> Anchor;
+	};
+	TArray<FCityHarvestEntry> CityHarvestEntries;
+	TArray<int32> CityHarvestPopTypes;
+	UPROPERTY(Transient) TObjectPtr<UTextBlock> CityHarvestFeedback;
+	TWeakObjectPtr<ARokCitySpriteActor> CityHarvestFeedbackAnchor;
+	float CityHarvestFeedbackSeconds = 0.0f;
+	float CityHarvestRefreshDelay = 0.0f;
+
+	void BuildServerTrainingPopPool();
+	void UpdateServerTrainingPops();
+	void HandleTrainingPopClicked(int32 Index);
+	UPROPERTY(Transient) TObjectPtr<UCanvasPanel> ArmyQueueGroup;
+	UPROPERTY(Transient) TObjectPtr<UTextBlock> ArmyQueueCountText;
+	UPROPERTY(Transient) TArray<TObjectPtr<UCanvasPanel>> TrainingPopRoots;
+	UPROPERTY(Transient) TArray<TObjectPtr<UCanvasPanel>> TrainingPopFills;
+	UPROPERTY(Transient) TArray<TObjectPtr<UCanvasPanel>> TrainingPopProgressAreas;
+	UPROPERTY(Transient) TArray<TObjectPtr<UCanvasPanel>> TrainingPopReadyAreas;
+	UPROPERTY(Transient) TArray<TObjectPtr<UTextBlock>> TrainingPopLabels;
+	UPROPERTY(Transient) TArray<TObjectPtr<UImage>> TrainingPopIcons;
+	UPROPERTY(Transient) TArray<TObjectPtr<UImage>> TrainingPopReadyIcons;
+	UPROPERTY(Transient) TObjectPtr<UTexture2D> TrainingTroopAtlas;
+	TArray<int32> TrainingPopFamilies;
+	TArray<TWeakObjectPtr<AActor>> TrainingPopAnchors;
+	FString LastServerArmySignature;
 	int32 RewardTaskId = 0;
 	bool bTaskRewardVisible = false;
 	float TaskRewardTime = 0.0f;
@@ -176,6 +292,7 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UCanvasPanel> WorldMapRightModules;
+	UPROPERTY(Transient) TObjectPtr<UCanvasPanel> WorldMapNonResourceModules;
 	bool bWorldMapModulesVisible = false;
 	float WorldMapModuleSeconds = 0.25f;
 
@@ -213,10 +330,16 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<URokUnityFeatureScreenWidget> FeatureScreenWidget;
+
+	UPROPERTY(Transient) TObjectPtr<UTextBlock> ExpeditionUnlockTip;
+	float ExpeditionUnlockTipSeconds = 0.0f;
 	UPROPERTY(Transient)
 	TObjectPtr<UCanvasPanel> PlacementControls;
 	UPROPERTY(Transient)
 	TObjectPtr<UImage> PlacementConfirmIcon;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UImage> PlacementButtonShadow;
 	UPROPERTY(Transient)
 	TObjectPtr<UImage> PlacementCancelIcon;
 	// Unity GameButton ColorTint is applied to the same Image as GrayChildrens.
@@ -245,6 +368,7 @@ private:
 	bool bPlacementControlsVisible = false;
 	bool bPlacementGridValid = false;
 	bool bPlacementCanCommit = false;
+	bool bPlacementCanOpenWorkerQueue = false;
 	FRokUiWindowAnimation PlacementMenuAnimation;
 	FText PlacementReason;
 
@@ -296,9 +420,10 @@ private:
 	float FeatureAlphaStart = 1.0f;
 
 	void BuildWidgetTree();
-	void BuildPlayerPowerGroup();
+	void BuildPlayerPowerGroup(UCanvasPanel* Parent);
 	void BuildPositionGroup();
-	void BuildResourceGroup();
+	void BuildCityTopBar(UCanvasPanel* RootCanvas);
+	void BuildResourceGroup(UCanvasPanel* Parent);
 	void BuildAgeGroup();
 	void BuildTaskGroup();
 	void BuildChatAndMapGroup();
@@ -365,7 +490,7 @@ private:
 		const FName& Name,
 		const FText& Label,
 		const FIntRect& IconRect,
-		bool bShowRedPoint = false,
+		bool bHasNotificationCount = false,
 		UButton** OutButton = nullptr);
 	UButton* MakeTransparentHitButton(const FName& Name);
 	UTexture2D* LoadUiTexture(const TCHAR* TexturePath) const;
@@ -401,6 +526,9 @@ private:
 
 	UFUNCTION()
 	void HandleOpenTasks();
+	int32 PendingTaskBuildingType = 0;
+	bool bPendingTaskBuildCity = false;
+	bool bPendingTaskUpgradeBuilding = false;
 	bool HandleTaskGoTownHallRequested(AActor* BuildingActor);
 
 	UFUNCTION()
@@ -435,6 +563,9 @@ private:
 
 	UFUNCTION()
 	void HandleOpenCharge();
+
+	UFUNCTION()
+	void HandleOpenChargeEvents();
 
 	UFUNCTION()
 	void HandleToggleFeatureBar();

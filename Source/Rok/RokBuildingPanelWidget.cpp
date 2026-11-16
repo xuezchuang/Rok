@@ -24,6 +24,7 @@
 
 namespace
 {
+const TCHAR* UiBuildingMenuAtlasPath = TEXT("/Game/RokPrototype/UI/PlacementAtlases/rok_placement_ui_hud.rok_placement_ui_hud");
 const TCHAR* UiBuildingMenuTitlePath = TEXT("/Game/RokPrototype/UI/BuildingMenu/rok_building_menu_title.rok_building_menu_title");
 const TCHAR* UiBuildingMenuLevelPath = TEXT("/Game/RokPrototype/UI/BuildingMenu/rok_building_menu_level_bg.rok_building_menu_level_bg");
 const TCHAR* UiBuildingMenuShadowPath = TEXT("/Game/RokPrototype/UI/BuildingMenu/rok_building_menu_button_shadow.rok_building_menu_button_shadow");
@@ -317,17 +318,20 @@ void URokBuildingPanelWidget::Refresh()
 
 	const FRokBuildingState State = UpgradeSubsystem->GetBuildingStateForActor(SelectedBuildingActor.Get());
 	const bool bIsDecoration = State.UnityBuildingTypeId >= 51 && State.UnityBuildingTypeId <= 55;
+	const bool bIsBuilderHut = State.Type == ERokBuildingType::BuilderHut;
 	const bool bHasFeatureAction = State.bUpgradeInProgress
 		// TownCenter: BuildingMenuData[129] -> openUI 1001 -> UI.s_GainEffect.
 		|| State.UnityBuildingTypeId == 1
-		|| State.UnityBuildingTypeId == 7
+		// BuildingMenuData 106-109: harvest the selected resource building.
+		|| (State.UnityBuildingTypeId >= 2 && State.UnityBuildingTypeId <= 5 && State.Level >= 1 && State.Level <= 25)
+		|| bIsBuilderHut
 		|| (State.UnityBuildingTypeId >= 9 && State.UnityBuildingTypeId <= 12)
 		// BuildingTypeConfig[13] -> BuildingMenuData[110], levels 1..25.
 		|| (State.UnityBuildingTypeId == 13 && State.Level >= 1 && State.Level <= 25)
 		|| State.UnityBuildingTypeId == 14
 		// BuildingTypeConfig[28] -> BuildingMenuData[137], levels 1..25.
 		|| (State.UnityBuildingTypeId == 28 && State.Level >= 1 && State.Level <= 25);
-	ApplyMenuLayout(bIsDecoration, bHasFeatureAction);
+	ApplyMenuLayout(bIsDecoration, bIsBuilderHut, bHasFeatureAction);
 	ApplyFeatureButtonVisual(State.UnityBuildingTypeId, State.bUpgradeInProgress);
 	if (LastActionMessage.Equals(TEXT("开始升级。")) && !State.bUpgradeInProgress)
 	{
@@ -335,7 +339,7 @@ void URokBuildingPanelWidget::Refresh()
 	}
 
 	TitleText->SetText(State.DisplayName);
-	if (!bIsDecoration)
+	if (!bIsDecoration && !bIsBuilderHut)
 	{
 		LevelText->SetText(FText::Format(
 			NSLOCTEXT("RokBuildings", "UnityBuildingMenuLevel", "等级{0}"),
@@ -349,10 +353,12 @@ void URokBuildingPanelWidget::Refresh()
 
 void URokBuildingPanelWidget::ApplyMenuLayout(
 	bool bIsDecoration,
+	bool bIsBuilderHut,
 	bool bHasFeatureAction)
 {
 	if (bMenuLayoutInitialized
 		&& bShowingDecorationLayout == bIsDecoration
+		&& bShowingBuilderHutLayout == bIsBuilderHut
 		&& bShowingFeatureAction == bHasFeatureAction)
 	{
 		return;
@@ -360,8 +366,11 @@ void URokBuildingPanelWidget::ApplyMenuLayout(
 
 	bMenuLayoutInitialized = true;
 	bShowingDecorationLayout = bIsDecoration;
+	bShowingBuilderHutLayout = bIsBuilderHut;
 	bShowingFeatureAction = bHasFeatureAction;
-	const ESlateVisibility LevelVisibility = bIsDecoration
+	// Unity BuildingTypeConfig[7] defines info and openWorkHouse, with speed-up only while building.
+	const bool bShowLevelAndUpgrade = !bIsDecoration && !bIsBuilderHut;
+	const ESlateVisibility LevelVisibility = !bShowLevelAndUpgrade
 		? ESlateVisibility::Collapsed
 		: ESlateVisibility::HitTestInvisible;
 	if (LevelFrameImage)
@@ -374,7 +383,8 @@ void URokBuildingPanelWidget::ApplyMenuLayout(
 	}
 	if (UpgradeButton)
 	{
-		UpgradeButton->SetVisibility(bIsDecoration ? ESlateVisibility::Collapsed : ESlateVisibility::Visible);
+		UpgradeButton->SetVisibility(bShowLevelAndUpgrade ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+		if (!bShowLevelAndUpgrade) UpgradeButton->SetIsEnabled(false);
 	}
 	if (FeatureButton)
 	{
@@ -386,9 +396,7 @@ void URokBuildingPanelWidget::ApplyMenuLayout(
 		InfoButtonSlot->SetPosition(
 			bIsDecoration
 				? FVector2D(192.35f, BuildingInfoButtonY)
-				: (bHasFeatureAction
-					? FVector2D(92.35f, BuildingInfoButtonY)
-					: FVector2D(142.35f, BuildingInfoButtonY)));
+				: FVector2D(bHasFeatureAction && !bIsBuilderHut ? 92.35f : 142.35f, BuildingInfoButtonY));
 	}
 	if (UpgradeButtonSlot)
 	{
@@ -398,7 +406,7 @@ void URokBuildingPanelWidget::ApplyMenuLayout(
 	}
 	if (FeatureButtonSlot)
 	{
-		FeatureButtonSlot->SetPosition(FVector2D(292.35f, BuildingInfoButtonY));
+		FeatureButtonSlot->SetPosition(FVector2D(bIsBuilderHut ? 242.35f : 292.35f, BuildingInfoButtonY));
 	}
 	if (UWidget* ButtonShadow = WidgetTree->FindWidget(TEXT("ButtonShadow")))
 	{
@@ -426,6 +434,20 @@ void URokBuildingPanelWidget::ApplyFeatureButtonVisual(
 		return;
 	}
 	FeatureButtonImage->SetVisibility(ESlateVisibility::HitTestInvisible);
+	if (UnityBuildingTypeId >= 2 && UnityBuildingTypeId <= 5 && !bUpgradeInProgress)
+	{
+		// Unity ui_hud.tpsheet, BuildingMenuData 106-109. Rects use bottom-left coordinates.
+		const FIntPoint Origins[] = {{531, 755}, {504, 845}, {774, 935}, {441, 745}};
+		const FIntPoint Origin = Origins[UnityBuildingTypeId - 2];
+		UTexture2D* Atlas = LoadUiTexture(UiBuildingMenuAtlasPath);
+		FSlateBrush Brush = MakeImageBrush(Atlas, FVector2D(88.0f));
+		const float Top = 1024.0f - Origin.Y - 88.0f;
+		Brush.SetUVRegion(FBox2f(FVector2f(Origin.X / 1024.0f, Top / 1024.0f),
+			FVector2f((Origin.X + 88.0f) / 1024.0f, (Top + 88.0f) / 1024.0f)));
+		FeatureButtonImage->SetBrush(Brush);
+		if (!Atlas) FeatureButtonImage->SetVisibility(ESlateVisibility::Hidden);
+		return;
+	}
 	if (UnityBuildingTypeId == 13 && !bUpgradeInProgress)
 	{
 		// Source btn_hud_1018; a missing import must not show another feature icon.
@@ -613,9 +635,10 @@ void URokBuildingPanelWidget::UpdateMenuPosition()
 		BuildingMenuSlot->SetSize(FVector2D(
 			BuildingMenuSize.X,
 			FMath::Max(BuildingMenuSize.Y, ButtonY + 148.0f)));
+		const bool bTwoButtonRow = bIsDecoration || bShowingBuilderHutLayout;
 		if (InfoButtonSlot)
 		{
-			InfoButtonSlot->SetPosition(FVector2D(bIsDecoration ? 142.35f : 92.35f, ButtonY));
+			InfoButtonSlot->SetPosition(FVector2D(bTwoButtonRow ? 142.35f : 92.35f, ButtonY));
 		}
 		if (UpgradeButtonSlot)
 		{
@@ -623,7 +646,7 @@ void URokBuildingPanelWidget::UpdateMenuPosition()
 		}
 		if (FeatureButtonSlot)
 		{
-			FeatureButtonSlot->SetPosition(FVector2D(bIsDecoration ? 242.35f : 292.35f, ButtonY));
+			FeatureButtonSlot->SetPosition(FVector2D(bTwoButtonRow ? 242.35f : 292.35f, ButtonY));
 		}
 		if (UWidget* ButtonShadow = WidgetTree->FindWidget(TEXT("ButtonShadow")))
 		{

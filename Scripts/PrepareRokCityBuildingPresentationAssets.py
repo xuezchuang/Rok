@@ -23,14 +23,6 @@ OUTPUT = ROOT / "Saved/RokUnityMigration/CityBuildingPresentationAssets"
 PACKAGE_ROOT = "/Game/RokUnity/City/SourceBuildings/"
 
 
-def unity_imported_size(size, max_size):
-    # Unity 2019 NPOT import with nPOTScale None halves (rounding up) until it fits.
-    result = list(size)
-    while max(result) > max_size:
-        result = [math.ceil(value / 2) for value in result]
-    return result
-
-
 def load_source(run):
     run = run.resolve()
     if run.parent != RUNS.resolve() or not run.is_dir():
@@ -95,15 +87,16 @@ def load_source(run):
             if (native_import["mipmapCount"] != 1 or native_import["filterMode"] != 1 or
                     native_import["wrapMode"] != 1):
                 raise RuntimeError(f"City building {model_id} {role} imported filtering/mip differs")
-        mask_size = unity_imported_size(mask["size"], report["maskImport"]["defaultPlatform"]["maxTextureSize"])
+        # The native import preserves aspect ratio at the configured maximum,
+        # including NPOT decorations whose dimensions are not powers of two.
+        mask_size = proven["imported_mask_size"]
+        max_size = report["maskImport"]["defaultPlatform"]["maxTextureSize"]
         mask_export = model_dir / report["maskExport"]["png"]
         if (report["maskExport"]["png"] != f"{model_id}_mask_imported_gpu_rgba.png" or
                 proven["gpu_mask_export_sha256"] != sha(mask_export) or
                 [report["maskTextureWidth"], report["maskTextureHeight"]] != mask_size or
                 [report["maskExport"]["width"], report["maskExport"]["height"]] != mask_size or
-                proven["imported_mask_size"] != mask_size or
-                [report["spriteTextureWidth"], report["spriteTextureHeight"]] != sprite["size"] or
-                report["maskImport"]["defaultPlatform"]["maxTextureSize"] != 256):
+                max(mask_size) > max_size):
             raise RuntimeError(f"City building Unity GPU-decoded mask/source dimensions differ: {model_id}")
         with Image.open(mask_export) as image:
             if list(image.size) != mask_size or image.mode != "RGBA":
@@ -113,11 +106,10 @@ def load_source(run):
         if (len(uvs) != len(verts) or len(indices) % 3 or
                 proven["sprite_vertex_count"] != len(verts) or
                 proven["sprite_triangle_count"] * 3 != len(indices) or
-                geometry["rect"]["width"] != sprite["size"][0] or
-                geometry["rect"]["height"] != sprite["size"][1] or
-                geometry["pivot"] != {"x": sprite["size"][0] / 2.0,
-                                       "y": sprite["size"][1] / 2.0} or
-                geometry["pixelsPerUnit"] != sprite["importer"]["pixels_to_units"] or
+                geometry["rect"]["width"] != report["spriteTextureWidth"] or
+                geometry["rect"]["height"] != report["spriteTextureHeight"] or
+                geometry["pivot"] != {"x": report["spriteTextureWidth"] / 2.0,
+                                       "y": report["spriteTextureHeight"] / 2.0} or
                 len(geometry["worldVertices"]) != len(verts)):
             raise RuntimeError(f"City building source tight SpriteMesh geometry differs: {model_id}")
         if (any(not math.isfinite(float(v[key])) for v in verts for key in ("x", "y")) or
@@ -160,10 +152,18 @@ def component_transform(geometry):
     child_p = geometry["childLocalPosition"]
     child_q = geometry["childLocalRotation"]
     child_s = geometry["childLocalScale"]
+    x, y, z = (child_s[axis] for axis in ("x", "y", "z"))
+    if not all(map(math.isfinite, (x, y, z))) or x <= 0.0 or y <= 0.0 or z < 0.0:
+        raise RuntimeError("Invalid city building source sprite scale")
+    # The sprite is planar. A collapsed Unity normal axis has no effect on
+    # its vertices, so retain a nonzero UE normal scale for collision.
+    scale = {"uniform_scale": x * 5.0} if x == y == z else {
+        "scale_xyz": [x * 5.0, (z or x) * 5.0, y * 5.0],
+    }
     return {
         "translation_cm": [-child_p["x"] * 500.0, child_p["z"] * 500.0, child_p["y"] * 500.0],
         "rotation_quaternion_xyzw": [-child_q["x"], child_q["z"], child_q["y"], child_q["w"]],
-        "uniform_scale": child_s["x"] * 5.0,
+        **scale,
         "scope": "Source prefab child-local pose relative to root; runtime root/grid pose supplied separately",
     }
 
@@ -182,9 +182,6 @@ def prepare(run):
         obj_path = target / (asset_names(model_id)["mesh"] + ".obj")
         obj_path.write_text(text, encoding="utf-8", newline="\n")
         degenerate = zero_area_faces(geometry)
-        child_s = geometry["childLocalScale"]
-        if max(abs(child_s[key] - child_s["x"]) for key in ("y", "z")) > 1e-6:
-            raise RuntimeError(f"City building child source scale is no longer uniform: {model_id}")
         package = PACKAGE_ROOT + model_id
         names = asset_names(model_id)
         manifest = {

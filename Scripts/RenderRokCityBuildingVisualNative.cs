@@ -27,7 +27,7 @@ public sealed class RenderRokCityBuildingVisualNative : MonoBehaviour
     [Serializable] public sealed class MaterialData { public Rgba color_1, color_2; public float city_transparency; }
     [Serializable] public sealed class CameraData { public string source_row; public float dxf, distance, vertical_fov; public float[] forward; public int width, height; }
     [Serializable] public sealed class LightingData { public float[] neutral_sprite_color, day_sprite_color; public float city_transparency; }
-    [Serializable] public sealed class Contract { public string schema, model, source_catalog_sha256; public NodeData root, sprite_child; public MaterialData material; public CameraData camera; public LightingData lighting; }
+    [Serializable] public sealed class Contract { public string schema, model, source_catalog_sha256, sprite_asset, mask_asset; public NodeData root, sprite_child; public MaterialData material; public CameraData camera; public LightingData lighting; }
     [Serializable] public sealed class InputPackage { public string schema, source_catalog_sha256; public Contract[] models; }
     [Serializable] public sealed class PlatformImport
     {
@@ -99,8 +99,8 @@ public sealed class RenderRokCityBuildingVisualNative : MonoBehaviour
     private static System.Threading.Timer HardWatchdog;
     private static System.Diagnostics.Stopwatch Clock;
     private static volatile string Stage = "not-started";
-    private const int SoftTimeoutSeconds = 45;
-    private const int HardTimeoutSeconds = 120;
+    private const int SoftTimeoutSeconds = 600;
+    private const int HardTimeoutSeconds = 720;
 
     private static void StageLog(string stage)
     {
@@ -287,8 +287,8 @@ public sealed class RenderRokCityBuildingVisualNative : MonoBehaviour
             !Near(contract.camera.distance, 20f) || !Near(contract.camera.vertical_fov, 7.5f))
             throw new Exception("City building visual camera is not source city_default row");
 
-        string spritePath = "Assets/Source/" + contract.model + ".png";
-        string maskPath = "Assets/Source/" + contract.model + "_mask.png";
+        string spritePath = contract.sprite_asset;
+        string maskPath = contract.mask_asset;
         const string materialPath = "Assets/Source/map_building.mat";
         var sprite = AssetDatabase.LoadAssetAtPath<Sprite>(spritePath);
         var mask = AssetDatabase.LoadAssetAtPath<Sprite>(maskPath);
@@ -352,7 +352,10 @@ public sealed class RenderRokCityBuildingVisualNative : MonoBehaviour
         camera.allowMSAA = false;
         var forward = new Vector3(contract.camera.forward[0], contract.camera.forward[1], contract.camera.forward[2]).normalized;
         camera.transform.rotation = Quaternion.LookRotation(forward, Vector3.up);
-        camera.transform.position = -forward * contract.camera.distance;
+        // Unity's city mediator replaces the prefab root position with the grid
+        // position. Center the isolated camera on that root, including prefabs
+        // saved away from the origin, while retaining the serialized pose.
+        camera.transform.position = root.transform.position - forward * contract.camera.distance;
         var target = new RenderTexture(contract.camera.width, contract.camera.height, 24,
             RenderTextureFormat.ARGB32, RenderTextureReadWrite.Default);
         target.Create();

@@ -41,7 +41,8 @@ bool FRokBuildCityEntranceTest::RunTest(const FString&)
 	if (!TestNotNull(TEXT("Source bottom background"), Background)) return false;
 	const auto* BackgroundSlot = Cast<UCanvasPanelSlot>(Background->Slot);
 	if (!TestNotNull(TEXT("Background slot"), BackgroundSlot)) return false;
-	TestEqual(TEXT("Source bg is a 153px bottom strip, not a full drawer"), BackgroundSlot->GetSize(), FVector2D(1462, 153));
+	TestEqual(TEXT("Source bg is a 153px bottom strip"), BackgroundSlot->GetSize().Y, 153.0);
+	TestTrue(TEXT("Drawer strip follows both horizontal edges"), BackgroundSlot->GetAnchors().Maximum.X == 1.0);
 	TestTrue(TEXT("Source bg horizontally extends seven pixels to left"), FMath::IsNearlyEqual(BackgroundSlot->GetPosition().X, -7.0));
 	const UWidget* TopPatch = Screen->GetWidgetFromName(TEXT("BuildCityDrawerBackground_Top"));
 	const UWidget* BottomPatch = Screen->GetWidgetFromName(TEXT("BuildCityDrawerBackground_Bottom"));
@@ -57,9 +58,10 @@ bool FRokBuildCityEntranceTest::RunTest(const FString&)
 	const auto* ListMaskSlot = Cast<UCanvasPanelSlot>(ListMask->Slot);
 	const auto* ScrollSlot = Cast<UCanvasPanelSlot>(Scroll->Slot);
 	if (!TestNotNull(TEXT("Mask canvas slot"), ListMaskSlot) || !TestNotNull(TEXT("Viewport canvas slot"), ScrollSlot)) return false;
-	TestTrue(TEXT("Source mask extends upward by 241.1 without changing bottom"),
+	TestTrue(TEXT("Source mask reserves headroom and clips at the viewport bottom"),
 		FMath::IsNearlyEqual(ScrollSlot->GetPosition().Y, 241.1, 0.001)
-		&& FMath::IsNearlyEqual(ListMaskSlot->GetSize().Y, ScrollSlot->GetSize().Y + 241.1, 0.001));
+		&& ListMaskSlot->GetPosition().X > 0.0
+		&& FMath::IsNearlyZero(ListMaskSlot->GetPosition().Y + ListMaskSlot->GetSize().Y));
 	Screen->AdvanceWindowAnimationForTesting(1.0f / 6.0f);
 	TestTrue(TEXT("Source midpoint alpha"), FMath::IsNearlyEqual(Drawer->GetRenderOpacity(), 0.5f));
 	TestTrue(TEXT("Source midpoint position"), FMath::IsNearlyEqual(Drawer->GetRenderTransform().Translation.Y, 50.0));

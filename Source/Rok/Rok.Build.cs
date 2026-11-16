@@ -30,8 +30,11 @@ public class Rok : ModuleRules
 			"RenderCore",
 			"ImageWrapper",
 			"ImageCore",
+			"MediaAssets",
 			"RokRendering",
-			"ProceduralMeshComponent"
+			"ProceduralMeshComponent",
+			"Sockets",
+			"Networking"
 		});
 	}
 }

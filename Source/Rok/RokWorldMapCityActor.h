@@ -34,6 +34,8 @@ public:
 		int32 SortPriority);
 
 	void ApplyCameraDxf(float Dxf);
+	void ApplyHomeModel(const FString& ModelId, float ScaleCap, float UnityScale, float Dxf);
+	void ApplyDayNightLighting(const FLinearColor& SpriteColor, const FLinearColor& NightLight);
 
 	UFUNCTION(BlueprintPure, Category = "Rok|World Map|City")
 	FVector GetVisualCenterWorldPosition() const;
@@ -114,6 +116,14 @@ private:
 
 	UPROPERTY(VisibleInstanceOnly, Category = "Rok|World Map|City")
 	float AgeLodScaleCap = 7.8f;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInterface> MapCityMaterial;
+	FVector MapBaseScale = FVector::OneVector;
+	FVector MapSelectionAnchor = FVector::ZeroVector;
+	FVector MapVisualCenterOffset = FVector::ZeroVector;
+	float MapScaleCap = 7.8f;
+	FString ActiveHomeModel;
 
 	void EnsureFarVisualLoaded();
 	void ApplyUnityCityLodScale(float LodScale);

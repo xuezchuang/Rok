@@ -24,14 +24,6 @@ constexpr TCHAR BottomMaterialPath[] = TEXT("/Game/RokUnity/City/PlacementPrevie
 // bridge is reflection X plus 1/100, not another 500 multiplier or rotation.
 const FQuat RootToCity = FQuat::Identity;
 
-FQuat UnityRotationToCity(const FQuat& Q)
-{
-	// Conjugation by the Unity XYZ -> city-local XZY reflection.
-	return FQuat(-Q.X, -Q.Z, -Q.Y, Q.W);
-}
-
-FVector UnityPositionToCity(const FVector& P) { return FVector(P.X, P.Z, P.Y); }
-
 void ConfigureNoninteractive(UStaticMeshComponent* Component, int32 SortPriority)
 {
 	Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
@@ -73,22 +65,27 @@ ARokCityPlacementPreviewActor::ARokCityPlacementPreviewActor()
 	SetActorHiddenInGame(true);
 }
 
-bool ARokCityPlacementPreviewActor::InitializePreview(int32 TypeId, int32 VisualCivilization, int32 Age, FString& OutError)
+bool ARokCityPlacementPreviewActor::InitializePreview(int32 TypeId, const FString& ModelId, FString& OutError)
 {
 	OutError.Reset();
 	bInitialized = false;
 	SetActorHiddenInGame(true);
-	const FRokLocalSourceBuildingVisual* Visual = FRokLocalConstructionVisualFactory::FindSourceVisual(TypeId);
-	if (!Visual || VisualCivilization != 101 || Age != 1)
+	const FRokLocalSourceBuildingVisual* Visual = ModelId.IsEmpty() ? nullptr
+		: FRokLocalConstructionVisualFactory::FindBuildingVisual(TypeId, ModelId);
+	if (!Visual)
 	{
-		OutError = TEXT("Only source-visual types at civilization 101 age 1 have verified preview assets");
+		OutError = TEXT("该建筑在当前时代的摆放模型尚未接入。");
 		return false;
 	}
-	UStaticMesh* SourceMesh = LoadExact<UStaticMesh>(Visual->MeshPath);
-	UMaterialInterface* SourceMaterial = LoadExact<UMaterialInterface>(Visual->MaterialPath);
+	UStaticMesh* SourceMesh = nullptr;
+	UMaterialInterface* SourceMaterial = nullptr;
+	if (!FRokLocalConstructionVisualFactory::LoadVerifiedSourceMesh(*Visual, SourceMesh, SourceMaterial, OutError))
+	{
+		return false;
+	}
 	UStaticMesh* SourceBottomMesh = LoadExact<UStaticMesh>(BottomMeshPath);
 	UMaterialInterface* SourceBottomMaterial = LoadExact<UMaterialInterface>(BottomMaterialPath);
-	if (!SourceMesh || !SourceMaterial || !SourceBottomMesh || !SourceBottomMaterial)
+	if (!SourceBottomMesh || !SourceBottomMaterial)
 	{
 		OutError = TEXT("Source tight mesh, source display material, or source move-bottom asset is missing");
 		return false;
@@ -103,28 +100,20 @@ bool ARokCityPlacementPreviewActor::InitializePreview(int32 TypeId, int32 Visual
 	BuildingMesh->SetMaterial(0, SourceMaterial);
 	BottomMesh->SetStaticMesh(SourceBottomMesh);
 	BottomMesh->SetMaterial(0, BottomMaterial);
+	BottomMesh->SetVisibility(false);
 
-	// Preserve native root/child pivot and pose. CityContainer owns the 500x unit scale;
-	// the source OBJ was authored at 100 cm/unit, so component scale divides by 100.
-	const FVector ChildPosition = Visual->ChildPosition;
-	const double ChildScale = Visual->ChildScale;
-	const FQuat ChildUnityRotation(0.3535533845424652, 0.3535533845424652,
-		-0.1464466005563736, 0.8535534739494324);
-	const FQuat ChildCityRotation = UnityRotationToCity(ChildUnityRotation);
-	const FVector ChildCityPosition = RootToCity.RotateVector(UnityPositionToCity(ChildPosition));
-	BuildingMesh->SetRelativeTransform(FTransform(RootToCity * ChildCityRotation,
-		ChildCityPosition, FVector(-ChildScale / 100.0, ChildScale / 100.0, ChildScale / 100.0)));
+	BuildingMesh->SetRelativeTransform(FRokLocalConstructionVisualFactory::GetSourceChildTransform(*Visual));
 	BottomMesh->SetRelativeRotation(RootToCity);
 	bInitialized = true;
 	return true;
 }
 
 void ARokCityPlacementPreviewActor::SetCandidate(const FTransform& CityContainer,
-	const FRokCityConstructionFootprint& Footprint, bool bGridValid)
+	const FRokCityConstructionFootprint& Footprint)
 {
 	FVector2D LocalCenter;
 	FString Error;
-	if (!bInitialized || Footprint.Size != FIntPoint(5, 5) || !CityContainer.IsValid()
+	if (!bInitialized || !CityContainer.IsValid()
 		|| CityContainer.GetScale3D().IsNearlyZero()
 		|| !FRokCityPlacementPreviewMath::GridToLocalCenter(Footprint, LocalCenter, Error))
 	{
@@ -137,8 +126,22 @@ void ARokCityPlacementPreviewActor::SetCandidate(const FTransform& CityContainer
 	CandidateRoot->SetRelativeLocation(FVector(LocalCenter.X, LocalCenter.Y, 0.01));
 	BottomMesh->SetRelativeScale3D(FVector(-double(Footprint.Size.X) / 100.0,
 		double(Footprint.Size.Y) / 100.0, 0.01 / 100.0));
-	BottomMaterial->SetVectorParameterValue(TEXT("Tint"), bGridValid ? FLinearColor::Green : FLinearColor::Red);
 	BottomMaterial->SetVectorParameterValue(TEXT("Tiling"),
 		FLinearColor(Footprint.Size.X, Footprint.Size.Y, 0.0f, 0.0f));
 	SetActorHiddenInGame(false);
+}
+
+void ARokCityPlacementPreviewActor::UpdateFootprintFeedback(bool bDragging, bool bGridValid)
+{
+	// CityGlobalMediator.SetBuildBottomColor shows the tinted grid during movement.
+	BottomMesh->SetVisibility(bDragging || !bGridValid);
+	FootprintTint = bGridValid ? FLinearColor::Green : FLinearColor::Red;
+	SetFootprintLightingCompensation(FootprintCompensation);
+}
+
+void ARokCityPlacementPreviewActor::SetFootprintLightingCompensation(const FLinearColor& Compensation)
+{
+	FootprintCompensation = Compensation;
+	if (BottomMaterial)
+		BottomMaterial->SetVectorParameterValue(TEXT("Tint"), FootprintTint * FootprintCompensation);
 }

@@ -1,4 +1,5 @@
 #include "RokWorldMapEntityActor.h"
+#include "RokWorldStructurePresentationComponent.h"
 
 #include "Components/BoxComponent.h"
 #include "Components/SceneComponent.h"
@@ -179,8 +180,8 @@ bool ARokWorldMapEntityActor::Configure(
 	float InitialDxf)
 {
 	Record = InRecord;
-	DetailTexture = LoadTransientTexture(Record.DetailTexturePath);
-	FarTexture = LoadTransientTexture(Record.FarTexturePath);
+	DetailTexture = LoadSharedTexture(Record.DetailTexturePath);
+	FarTexture = LoadSharedTexture(Record.FarTexturePath);
 	if (!DetailTexture || !FarTexture)
 	{
 		return false;
@@ -217,6 +218,23 @@ bool ARokWorldMapEntityActor::Configure(
 		VillagePresentation->SetupAttachment(SceneRoot);
 		VillagePresentation->RegisterComponent();
 		if (!VillagePresentation->InitializeSource()) return false;
+	}
+	if (Record.bIconOnlyVisual && !Record.SourceModelId.IsEmpty())
+	{
+		StructurePresentation = NewObject<URokWorldStructurePresentationComponent>(this, TEXT("WorldStructurePresentation"));
+		AddInstanceComponent(StructurePresentation);
+		StructurePresentation->SetupAttachment(SceneRoot);
+		StructurePresentation->SetRelativeRotation(FRotator(0, Record.SourceYawDegrees, 0));
+		StructurePresentation->RegisterComponent();
+		if (StructurePresentation->InitializeSource(Record.SourceModelId))
+		{
+			Record.bIconOnlyVisual = false;
+		}
+		else
+		{
+			StructurePresentation->DestroyComponent();
+			StructurePresentation = nullptr;
+		}
 	}
 	BuildFormationUnits();
 	// Composite cards keep the cluster card; formations replace it with
@@ -296,6 +314,49 @@ bool ARokWorldMapEntityActor::Configure(
 	LastAppliedDxf = -1.0f;
 	ApplyDxf(InitialDxf);
 	return true;
+}
+
+bool ARokWorldMapEntityActor::ApplyServerUpdate(
+	const FRokWorldMapEntityRecord& InRecord, const FVector& WorldPosition)
+{
+	if (Record.ServerObjectId <= 0 || Record.ServerObjectId != InRecord.ServerObjectId
+		|| Record.ServerObjectType != InRecord.ServerObjectType
+		|| Record.Kind != InRecord.Kind || Record.SourceId != InRecord.SourceId
+		|| Record.Level != InRecord.Level)
+	{
+		return false;
+	}
+	Record.UnityPosition = InRecord.UnityPosition;
+	Record.ResourceAmount = InRecord.ResourceAmount;
+	Record.ResourceCapacity = InRecord.ResourceCapacity;
+	Record.CollectorRoleId = InRecord.CollectorRoleId;
+	Record.CollectorName = InRecord.CollectorName;
+	Record.ResourceAlliance = InRecord.ResourceAlliance;
+	Record.DisplayName = InRecord.DisplayName;
+	if (!GetActorLocation().Equals(WorldPosition))
+	{
+		SetActorLocation(WorldPosition);
+	}
+	return true;
+}
+
+FString ARokWorldMapEntityActor::GetClosePresentation() const
+{
+	if (StructurePresentation) return TEXT("source_structure");
+	if (!FormationUnitVisuals.IsEmpty()) return TEXT("source_formation");
+	if (FoodDeposit || WoodDeposit || StoneDeposit || VillagePresentation) return TEXT("source_sprites");
+	return Record.bIconOnlyVisual ? TEXT("source_map_icon") : TEXT("source_composite");
+}
+
+int32 ARokWorldMapEntityActor::GetSourceLayerCount() const
+{
+	return StructurePresentation ? StructurePresentation->GetCardCount() + StructurePresentation->GetMeshCount() : FormationUnitVisuals.Num();
+}
+
+int32 ARokWorldMapEntityActor::GetActiveSourceLayerCount() const
+{
+	return StructurePresentation ? StructurePresentation->GetActiveCardCount() + StructurePresentation->GetActiveMeshCount()
+		: (bVisibleBandDetailed ? FormationUnitVisuals.Num() : 0);
 }
 
 FText ARokWorldMapEntityActor::GetSelectionText() const
@@ -624,11 +685,13 @@ void ARokWorldMapEntityActor::ApplyDxf(float Dxf)
 	const bool bShowFar =
 		NewBand == ERokWorldMapEntityLodBand::FarIcon;
 	const bool bShowCompositeDetail =
-		bShowDetailBand && FormationUnitVisuals.IsEmpty() && !FoodDeposit && !WoodDeposit && !StoneDeposit && !VillagePresentation;
+		bShowDetailBand && FormationUnitVisuals.IsEmpty() && !FoodDeposit && !WoodDeposit
+		&& !StoneDeposit && !VillagePresentation && !StructurePresentation;
 	if (FoodDeposit) FoodDeposit->UpdatePresentation(Dxf, bShowDetailBand);
 	if (WoodDeposit) WoodDeposit->UpdatePresentation(Dxf, bShowDetailBand);
 	if (StoneDeposit) StoneDeposit->UpdatePresentation(Dxf, bShowDetailBand);
 	if (VillagePresentation) VillagePresentation->UpdatePresentation(Dxf, bShowDetailBand);
+	if (StructurePresentation) StructurePresentation->UpdatePresentation(Dxf, bShowDetailBand);
 	// MatrixRow.UpdateUnitPositionBarabarianLod: soldier rows expand only
 	// at Unity lod<=1. Troops m_lod_array is [501, 900, 99999], so lod<=1
 	// means dxf <= 900 - the CloseDetail band (1500) alone is not the

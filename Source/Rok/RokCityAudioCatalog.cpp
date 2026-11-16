@@ -10,9 +10,9 @@
 
 namespace
 {
-const TCHAR* ExpectedCatalogHash = TEXT("53a61954423b3d383b3ac68a34ea0be913022e4cfd854c5033baf57ffa6c1d9d");
+const TCHAR* ExpectedCatalogHash = TEXT("d32ea61b81777c58411167aff3660811d03d215bd445babc5d2dc9601d583a90");
 const TCHAR* ExpectedGainPolicy = TEXT("AudioService AudioConfig ignores AudioInfo.volume; multiply source voice once by channel slider, not by table volume");
-constexpr int32 SourceIds[] = {1007, 1008, 4001, 4005, 4037, 4048, 4051};
+constexpr int32 SourceIds[] = {1007, 1008, 4001, 4005, 4014, 4025, 4037, 4048, 4051, 4080};
 
 bool Parse(TConstArrayView<uint8> Bytes, TMap<int32, FRokCityAudioEvent>& OutEvents, FString& Error)
 {
@@ -35,8 +35,8 @@ bool Parse(TConstArrayView<uint8> Bytes, TMap<int32, FRokCityAudioEvent>& OutEve
 		|| !Root->TryGetStringField(TEXT("policy"), Policy) || Policy != TEXT("local_audio_only_no_network_no_account_state")
 		|| !Root->TryGetStringField(TEXT("gain_policy"), GainPolicy) || GainPolicy != ExpectedGainPolicy
 		|| !Root->TryGetNumberField(TEXT("source_table_row_count"), SourceRows) || SourceRows != 650
-		|| !Root->TryGetNumberField(TEXT("event_count"), EventCount) || EventCount != 7
-		|| !Root->TryGetArrayField(TEXT("events"), Rows) || !Rows || Rows->Num() != 7)
+		|| !Root->TryGetNumberField(TEXT("event_count"), EventCount) || EventCount != UE_ARRAY_COUNT(SourceIds)
+		|| !Root->TryGetArrayField(TEXT("events"), Rows) || !Rows || Rows->Num() != EventCount)
 	{
 		Error = TEXT("City audio catalog schema invalid"); return false;
 	}
@@ -68,7 +68,7 @@ bool Parse(TConstArrayView<uint8> Bytes, TMap<int32, FRokCityAudioEvent>& OutEve
 			|| !Row->TryGetArrayField(TEXT("source_interval_seconds"), Intervals) || !Intervals
 			|| !Row->TryGetArrayField(TEXT("clips"), Clips) || !Clips
 			|| !FMath::IsFinite(TableVolume) || !FMath::IsFinite(Event.FadeSeconds)
-			|| Event.SourceMaxCount != 1 || Event.SourceMaxCountAction != 1)
+			|| Event.SourceMaxCount != (Event.Id == 4080 ? -1 : 1) || Event.SourceMaxCountAction != 1)
 		{
 			Error = TEXT("City audio event fields invalid"); return false;
 		}

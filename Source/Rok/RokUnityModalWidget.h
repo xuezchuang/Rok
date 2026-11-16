@@ -234,6 +234,14 @@ private:
 	UPROPERTY()
 	TObjectPtr<UTextBlock> FeedbackText;
 
+	int32 DisplayedUpgradeLevel = 0;
+	uint32 UpgradeViewSerial = 0;
+	bool bUpgradeUsesServer = false;
+	bool bServerUpgradePending = false;
+	TOptional<int64> ConfirmedInstantQuote;
+	float UpgradeButtonRefreshRemaining = 0.0f;
+	bool bUpgradeFeedbackFromAction = false;
+
 	UPROPERTY()
 	TObjectPtr<UEditableTextBox> ChangeNameInput;
 
@@ -342,6 +350,9 @@ private:
 	void BuildChangeName();
 	void BuildResourceInventory();
 	void BuildBuildingInfo();
+	void AddBuildingPreviewGlow(UCanvasPanel* Canvas, TOptional<FVector2D> PreviewCenter = {});
+	void AddBuildingPreview(UCanvasPanel* Canvas, FName ImageName, int32 Type,
+		const FVector2D& PanePosition, const FVector2D& PaneSize, const FVector2D& PreviewCenter);
 	void BuildResourceBuildingInfo(int32 Type, int32 KnownLevel);
 	friend class FRokBuildingLevelDetailsTest;
 	UFUNCTION()
@@ -350,6 +361,9 @@ private:
 	void HandleBuildingLevelBackClicked();
 	void ApplyBuildingPageAnimation();
 	void BuildBuildingUpgrade();
+	void RefreshUpgradeButtons();
+	void SubmitServerUpgrade(bool bImmediately);
+	void ShowUpgradeFeedback(const FText& Text);
 	void BuildBarracksLevelDetails(int32 KnownLevel);
 	void ApplyBarracksLevelPageAnimation();
 	UFUNCTION()
@@ -590,7 +604,7 @@ private:
 	void HandleStartUpgrade();
 
 	UFUNCTION()
-	void HandleInstantUpgradePreview();
+	void HandleInstantUpgrade();
 
 	UFUNCTION()
 	void HandleBuffListMoreClicked();

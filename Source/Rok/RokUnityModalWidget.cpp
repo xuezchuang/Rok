@@ -19,7 +19,6 @@
 #include "RokBarracksUpgradeAttributes.h"
 #include "RokBarracksSourceTextData.h"
 #include "RokBarracksSourceTextWidget.h"
-#include "RokBuildingSourcePreviewWidget.h"
 #include "RokBuildingPreviewGlowWidget.h"
 #include "Materials/MaterialInterface.h"
 
@@ -71,9 +70,6 @@ const TCHAR* PageAtlasPath = TEXT("/Game/RokPrototype/UI/ModalAtlases/rok_modal_
 const TCHAR* Item0AtlasPath = TEXT("/Game/RokPrototype/UI/ModalAtlases/rok_modal_atlas_item0.rok_modal_atlas_item0");
 const TCHAR* Item1AtlasPath = TEXT("/Game/RokPrototype/UI/ModalAtlases/rok_modal_atlas_item1.rok_modal_atlas_item1");
 const TCHAR* Item5AtlasPath = TEXT("/Game/RokPrototype/UI/FullScreenAtlases/rok_fullscreen_item5.rok_fullscreen_item5");
-const TCHAR* BuildStarPath = TEXT("/Game/RokPrototype/UI/ModalAtlases/rok_modal_build_star.rok_modal_build_star");
-const TCHAR* WorkerBuildingPath = TEXT("/Game/RokPrototype/Textures/RuntimeCity/UnityGameApp_build_7_101_1.UnityGameApp_build_7_101_1");
-const TCHAR* FarmBuildingPath = TEXT("/Game/RokPrototype/Textures/RuntimeCity/TestUnity_build_2_101_1.TestUnity_build_2_101_1");
 
 const FIntPoint MainMenuAtlasSize(1024, 1024);
 const FIntPoint CommonAtlasSize(2048, 1024);
@@ -88,7 +84,6 @@ const FIntPoint PageAtlasSize(128, 2048);
 const FIntPoint Item0AtlasSize(512, 512);
 const FIntPoint Item1AtlasSize(256, 1024);
 const FIntPoint Item5AtlasSize(1024, 2048);
-const FIntPoint StarTextureSize(256, 256);
 
 FIntRect SpriteRect(int32 X, int32 Y, int32 Width, int32 Height)
 {
@@ -649,6 +644,9 @@ void URokUnityModalWidget::SetFeatureScreenWidget(
 
 void URokUnityModalWidget::CloseModal()
 {
+	++UpgradeViewSerial;
+	bServerUpgradePending = false;
+	ConfirmedInstantQuote.Reset();
 	ClosePlayerKillTip();
 	ClosePlayerPowerActionTip();
 	WindowAnimation.Reset();
@@ -750,6 +748,12 @@ void URokUnityModalWidget::NativeTick(const FGeometry& MyGeometry, float InDelta
 	Super::NativeTick(MyGeometry, InDeltaTime);
 	UpdateExpandedDesignResolution(MyGeometry.GetLocalSize());
 	AdvanceWindowAnimation(InDeltaTime);
+	UpgradeButtonRefreshRemaining -= InDeltaTime;
+	if (ActiveMode == ERokUnityModalMode::BuildingUpgrade && SelectedBuildingActor.IsValid()
+		&& UpgradeButtonRefreshRemaining <= 0.0f)
+	{
+		RefreshUpgradeButtons();
+	}
 }
 
 void URokUnityModalWidget::BuildWidgetTree()
@@ -6668,6 +6672,26 @@ void URokUnityModalWidget::AdvanceDialogLine()
 }
 
 
+void URokUnityModalWidget::AddBuildingPreviewGlow(UCanvasPanel* Canvas, TOptional<FVector2D> PreviewCenter)
+{
+	RokBuildingPreviewGlow::FData Data;
+	FString Error;
+	if (Data.Load(RokBuildingPreviewGlow::FData::DefaultPath(), Error))
+	{
+		auto* Material = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/RokPrototype/UI/Materials/M_RokBuildingPreviewGlowUI.M_RokBuildingPreviewGlowUI"));
+		auto* Glow = WidgetTree->ConstructWidget<URokBuildingPreviewGlowWidget>(URokBuildingPreviewGlowWidget::StaticClass(), TEXT("BuildingPreviewGlowWidget"));
+		if (Glow->Initialize(Data, Material, Error))
+		{
+			// The extracted geometry is in the native upgrade window's coordinates.
+			const FVector2D Origin = PreviewCenter.IsSet()
+				? PreviewCenter.GetValue() - Data.GetLayers()[0].Center : FVector2D::ZeroVector;
+			PlaceOnCanvas(Canvas, Glow, Origin, FVector2D(1440, 810), 1);
+			Glow->SetPlaybackActive(true);
+		}
+	}
+	if (!Error.IsEmpty()) UE_LOG(LogTemp, Error, TEXT("Building preview glow unavailable: %s"), *Error);
+}
+
 void URokUnityModalWidget::BuildBuildingInfo()
 {
 
@@ -6681,6 +6705,7 @@ void URokUnityModalWidget::BuildBuildingInfo()
 	{
 		State.DisplayName = NSLOCTEXT("RokModal", "BuilderHutPreviewName", "工人小屋");
 		State.Type = ERokBuildingType::BuilderHut;
+		State.UnityBuildingTypeId = 7;
 		State.Level = 1;
 		State.Power = 1;
 	}
@@ -6692,29 +6717,12 @@ void URokUnityModalWidget::BuildBuildingInfo()
 		return;
 	}
 
-	PlaceOnCanvas(ModeCanvas, MakeAtlasBorder(TEXT("BuildingInfoPreviewFrame"), CommonAtlasPath, PreviewFrameRect, CommonAtlasSize, FVector2D(450.0f, 620.2f), PreviewFrameMargin), FVector2D(208.8f, 166.9f), FVector2D(450.0f, 620.2f));
-	PlaceOnCanvas(ModeCanvas, MakeAtlasImage(TEXT("BuildingInfoStarA"), BuildStarPath, SpriteRect(0, 0, 256, 256), StarTextureSize, FVector2D(420.0f)), FVector2D(223.0f, 260.0f), FVector2D(420.0f), 1);
-
-	UTexture2D* BuildingTexture = nullptr;
-	if (State.Type == ERokBuildingType::BuilderHut)
-	{
-		BuildingTexture = LoadUiTexture(WorkerBuildingPath);
-	}
-	if (!BuildingTexture && !State.Icon.IsNull())
-	{
-		BuildingTexture = State.Icon.LoadSynchronous();
-	}
-	if (BuildingTexture)
-	{
-		UImage* BuildingImage = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("BuildingInfoImage"));
-		FSlateBrush Brush;
-		Brush.SetResourceObject(BuildingTexture);
-		Brush.ImageSize = FVector2D(500.0f);
-		Brush.DrawAs = ESlateBrushDrawType::Image;
-		BuildingImage->SetBrush(Brush);
-		BuildingImage->SetVisibility(ESlateVisibility::HitTestInvisible);
-		PlaceOnCanvas(ModeCanvas, BuildingImage, FVector2D(188.8f, 257.0f), FVector2D(500.0f), 2);
-	}
+	const FVector2D PreviewPosition(208.8f, 166.9f);
+	const FVector2D PreviewSize(450.0f, 620.2f);
+	PlaceOnCanvas(ModeCanvas, MakeAtlasBorder(TEXT("BuildingInfoPreviewFrame"), CommonAtlasPath, PreviewFrameRect,
+		CommonAtlasSize, PreviewSize, PreviewFrameMargin), PreviewPosition, PreviewSize);
+	AddBuildingPreview(ModeCanvas, TEXT("BuildingInfoImage"), State.UnityBuildingTypeId,
+		PreviewPosition, PreviewSize, FVector2D(438.8f, 507.0f));
 
 	PlaceOnCanvas(ModeCanvas, MakeAtlasBorder(TEXT("BuildingInfoAttributeFrame"), CommonAtlasPath, AttributeFrameRect, CommonAtlasSize, FVector2D(536.0f, 144.0f), CommonPanelMargin), FVector2D(682.0f, 205.0f), FVector2D(536.0f, 144.0f));
 	const int32 QueueCount = Subsystem ? Subsystem->GetOwnedBuildQueueCount() : 1;
@@ -6769,22 +6777,12 @@ void URokUnityModalWidget::BuildResourceBuildingInfo(int32 Type, int32 KnownLeve
 	BuildingLevelDetailsRoot = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("BuildingLevelDetailsRoot"));
 	PlaceOnCanvas(ModeCanvas, BuildingLevelDetailsRoot, FVector2D::ZeroVector, FVector2D(1440, 900), 3);
 
-	PlaceOnCanvas(BuildingDescriptionRoot, MakeAtlasBorder(TEXT("BuildingInfoPreviewFrame"), CommonAtlasPath, PreviewFrameRect, CommonAtlasSize, FVector2D(450, 620.2f), PreviewFrameMargin), FVector2D(208.8f, 166.9f), FVector2D(450, 620.2f));
-	// A reference preview has no current actor/level/icon. Do not synthesize an owned building.
-	if (SelectedBuildingActor.IsValid())
-	{
-		if (auto* Upgrade = GetUpgradeSubsystem())
-		{
-			const auto State = Upgrade->GetBuildingStateForActor(SelectedBuildingActor.Get());
-			if (auto* Texture = State.Icon.LoadSynchronous())
-			{
-				auto* Icon = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("BuildingInfoImage"));
-				FSlateBrush Brush; Brush.SetResourceObject(Texture); Brush.ImageSize = FVector2D(500);
-				Icon->SetBrush(Brush); Icon->SetVisibility(ESlateVisibility::HitTestInvisible);
-				PlaceOnCanvas(BuildingDescriptionRoot, Icon, FVector2D(188.8f, 257), FVector2D(500), 2);
-			}
-		}
-	}
+	const FVector2D PreviewPosition(208.8f, 166.9f);
+	const FVector2D PreviewSize(450.0f, 620.2f);
+	PlaceOnCanvas(BuildingDescriptionRoot, MakeAtlasBorder(TEXT("BuildingInfoPreviewFrame"), CommonAtlasPath,
+		PreviewFrameRect, CommonAtlasSize, PreviewSize, PreviewFrameMargin), PreviewPosition, PreviewSize);
+	AddBuildingPreview(BuildingDescriptionRoot, TEXT("BuildingInfoImage"), Type,
+		PreviewPosition, PreviewSize, FVector2D(438.8f, 507.0f));
 	PlaceOnCanvas(BuildingDescriptionRoot, MakeAtlasBorder(TEXT("BuildingInfoAttributeFrame"), CommonAtlasPath, AttributeFrameRect, CommonAtlasSize, FVector2D(536, 144), CommonPanelMargin), FVector2D(682, 205), FVector2D(536, 144));
 	for (int32 Column = 1; Column < 4; ++Column)
 	{
@@ -6875,12 +6873,19 @@ void URokUnityModalWidget::BuildBuildingUpgrade()
 	const bool bHasRuntimePreview = !bIsSourcePreview
 		&& UpgradeSubsystem
 		&& UpgradeSubsystem->GetUpgradePreview(SelectedBuildingActor.Get(), Preview);
+	++UpgradeViewSerial;
+	bServerUpgradePending = false;
+	ConfirmedInstantQuote.Reset();
+	bUpgradeFeedbackFromAction = false;
+	bUpgradeUsesServer = !bIsSourcePreview && UpgradeSubsystem && UpgradeSubsystem->UsesServerCity();
+	DisplayedUpgradeLevel = Preview.CurrentState.Level;
 	if (bIsSourcePreview)
 	{
 		// Source-derived farm level-1 -> level-2 preview used by the screenshot
 		// command-line acceptance path. It is not persisted as player state.
 		Preview.CurrentState.DisplayName = NSLOCTEXT("RokModal", "FarmPreviewName", "农场");
 		Preview.CurrentState.Type = ERokBuildingType::Farm;
+		Preview.CurrentState.UnityBuildingTypeId = 2;
 		Preview.CurrentState.Level = 1;
 		Preview.TargetLevel = 2;
 		Preview.CurrentPower = 5;
@@ -6915,81 +6920,12 @@ void URokUnityModalWidget::BuildBuildingUpgrade()
 		PlaceOnCanvas(ModeCanvas, BuildingDescriptionRoot, FVector2D::ZeroVector, FVector2D(1440, 900), 1);
 		UpgradeContentCanvas = BuildingDescriptionRoot;
 	}
-	PlaceOnCanvas(UpgradeContentCanvas, MakeAtlasBorder(TEXT("BuildingUpgradePreviewFrame"), CommonAtlasPath, PreviewFrameRect, CommonAtlasSize, FVector2D(450.0f, 620.0f), PreviewFrameMargin), bDeclaredBarracksPreview ? FVector2D(203.0f, 110.3f) : FVector2D(203.9f, 166.9f), FVector2D(450.0f, 620.0f));
-	if (bDeclaredBarracksPreview)
-	{
-		RokBuildingPreviewGlow::FData GlowData;
-		FString GlowError;
-		if (GlowData.Load(RokBuildingPreviewGlow::FData::DefaultPath(), GlowError))
-		{
-			auto* Material = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/RokPrototype/UI/Materials/M_RokBuildingPreviewGlowUI.M_RokBuildingPreviewGlowUI"));
-			auto* Glow = WidgetTree->ConstructWidget<URokBuildingPreviewGlowWidget>(URokBuildingPreviewGlowWidget::StaticClass(), TEXT("BuildingPreviewGlowWidget"));
-			if (Glow->Initialize(GlowData, Material, GlowError))
-			{
-				// Source coordinates already include the native window ancestry.
-				PlaceOnCanvas(UpgradeContentCanvas, Glow, FVector2D::ZeroVector, FVector2D(1440, 810), 1);
-				Glow->SetPlaybackActive(true);
-			}
-		}
-		if (!GlowError.IsEmpty())
-			UE_LOG(LogTemp, Error, TEXT("Barracks source preview glow unavailable: %s"), *GlowError);
-	}
-	else
-	{
-		UImage* StarA = MakeAtlasImage(TEXT("BuildingUpgradeStarA"), BuildStarPath, SpriteRect(0, 0, 256, 256), StarTextureSize, FVector2D(430.0f));
-		StarA->SetColorAndOpacity(FLinearColor(1.0f, 0.78f, 0.25f, 0.55f));
-		StarA->SetRenderTransformAngle(12.0f);
-		PlaceOnCanvas(UpgradeContentCanvas, StarA, FVector2D(213.0f, 260.0f), FVector2D(430.0f), 1);
-		UImage* StarB = MakeAtlasImage(TEXT("BuildingUpgradeStarB"), BuildStarPath, SpriteRect(0, 0, 256, 256), StarTextureSize, FVector2D(360.0f));
-		StarB->SetColorAndOpacity(FLinearColor(1.0f, 0.68f, 0.16f, 0.32f));
-		StarB->SetRenderTransformAngle(-18.0f);
-		PlaceOnCanvas(UpgradeContentCanvas, StarB, FVector2D(248.0f, 295.0f), FVector2D(360.0f), 1);
-	}
-
-	if (bDeclaredBarracksPreview)
-	{
-		FString Model, Error;
-		if (RokBuildingSourcePreview::ResolveActorModel(SelectedBuildingActor.Get(), Model, Error))
-		{
-			// This texture is the verified raw source of the current scene presentation.
-			// Resolving the scene model does not assign a civilization to the player.
-			UTexture2D* RawTexture = Model == TEXT("build_9_101_1")
-				? LoadUiTexture(TEXT("/Game/RokPrototype/Textures/RuntimeCity/UnityGameApp_build_9_101_1.UnityGameApp_build_9_101_1")) : nullptr;
-			auto* SourcePreview = WidgetTree->ConstructWidget<URokBuildingSourcePreviewWidget>(URokBuildingSourcePreviewWidget::StaticClass(), TEXT("BuildingSourcePreviewWidget"));
-			if (SourcePreview->InitializePreview(Model, RawTexture))
-				PlaceOnCanvas(UpgradeContentCanvas, SourcePreview, SourcePreview->GetSourcePosition(), SourcePreview->GetSourceSize(), 2);
-			else
-				Error = SourcePreview->GetLoadError();
-		}
-		if (!Error.IsEmpty())
-		{
-			UE_LOG(LogTemp, Warning, TEXT("Barracks scene presentation unavailable: %s"), *Error);
-			UTextBlock* Unavailable = MakeModalText(TEXT("BuildingSourcePreviewUnavailable"), 15, FLinearColor::White);
-			Unavailable->SetText(NSLOCTEXT("RokModal", "BuildingSourcePreviewUnavailable", "建筑外观源数据不可用"));
-			PlaceOnCanvas(UpgradeContentCanvas, Unavailable, FVector2D(248.8, 440), FVector2D(358.4, 40), 2);
-		}
-	}
-	else
-	{
-		UTexture2D* BuildingTexture = Preview.CurrentState.Type == ERokBuildingType::Farm
-			? LoadUiTexture(FarmBuildingPath)
-			: nullptr;
-		if (!BuildingTexture && !Preview.CurrentState.Icon.IsNull())
-		{
-			BuildingTexture = Preview.CurrentState.Icon.LoadSynchronous();
-		}
-		if (BuildingTexture)
-		{
-			UImage* BuildingImage = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("BuildingUpgradeImage"));
-			FSlateBrush Brush;
-			Brush.SetResourceObject(BuildingTexture);
-			Brush.ImageSize = FVector2D(500.0f);
-			Brush.DrawAs = ESlateBrushDrawType::Image;
-			BuildingImage->SetBrush(Brush);
-			BuildingImage->SetVisibility(ESlateVisibility::HitTestInvisible);
-			PlaceOnCanvas(UpgradeContentCanvas, BuildingImage, FVector2D(177.9f, 257.0f), FVector2D(500.0f), 2);
-		}
-	}
+	const FVector2D PreviewPosition = bDeclaredBarracksPreview ? FVector2D(203.0f, 110.3f) : FVector2D(203.9f, 166.9f);
+	const FVector2D PreviewSize(450.0f, 620.0f);
+	PlaceOnCanvas(UpgradeContentCanvas, MakeAtlasBorder(TEXT("BuildingUpgradePreviewFrame"), CommonAtlasPath,
+		PreviewFrameRect, CommonAtlasSize, PreviewSize, PreviewFrameMargin), PreviewPosition, PreviewSize);
+	AddBuildingPreview(UpgradeContentCanvas, TEXT("BuildingUpgradeImage"), Preview.CurrentState.UnityBuildingTypeId,
+		PreviewPosition, PreviewSize, bDeclaredBarracksPreview ? FVector2D(428.0f, 462.0f) : FVector2D(428.9f, 507.0f));
 	if (bDeclaredBarracksPreview)
 	{
 		// Unity btn_BuildLevelInfo has a 60x60 GameButton hitbox and an inset 38x38 btn_com_1007 glyph.
@@ -7086,12 +7022,29 @@ void URokUnityModalWidget::BuildBuildingUpgrade()
 			int32 Current = 0;
 			int32 Next = 0;
 		};
-		const FUpgradeStatRow Rows[3] = {
-			{NSLOCTEXT("RokModal", "FoodPerHour", "每小时食物产量"), Preview.CurrentProducePerHour, Preview.NextProducePerHour},
-			{NSLOCTEXT("RokModal", "FoodCapacity", "食物最大收取量"), Preview.CurrentGatherMax, Preview.NextGatherMax},
-			{NSLOCTEXT("RokModal", "UpgradePower", "战力"), Preview.CurrentPower, Preview.NextPower},
-		};
-		for (int32 Index = 0; Index < 3; ++Index)
+		TArray<FUpgradeStatRow> Rows;
+		const int32 Type = Preview.CurrentState.UnityBuildingTypeId;
+		auto* Catalog = GetGameInstance() ? GetGameInstance()->GetSubsystem<URokUnityGameplayCatalogSubsystem>() : nullptr;
+		FRokUnityCatalogBuildingType BuildingType;
+		if (Type >= 9 && Type <= 12 && Catalog && Catalog->GetBuildingType(Type, BuildingType))
+		{
+			const FText Labels[] = {
+				NSLOCTEXT("RokModal", "InfantryTrainingCapacity", "步兵单位训练容量"),
+				NSLOCTEXT("RokModal", "CavalryTrainingCapacity", "骑兵单位训练容量"),
+				NSLOCTEXT("RokModal", "ArcherTrainingCapacity", "弓兵单位训练容量"),
+				NSLOCTEXT("RokModal", "SiegeTrainingCapacity", "攻城单位训练容量")
+			};
+			Rows.Add({Labels[Type - 9], BuildingType.GetTrainingCapacity(Preview.CurrentState.Level),
+				BuildingType.GetTrainingCapacity(Preview.TargetLevel)});
+		}
+		else if (Preview.CurrentProducePerHour > 0 || Preview.NextProducePerHour > 0)
+		{
+			Rows.Add({NSLOCTEXT("RokModal", "ProductionPerHour", "每小时产量"),
+				Preview.CurrentProducePerHour, Preview.NextProducePerHour});
+			Rows.Add({NSLOCTEXT("RokModal", "ProductionCapacity", "最大收取量"), Preview.CurrentGatherMax, Preview.NextGatherMax});
+		}
+		Rows.Add({NSLOCTEXT("RokModal", "UpgradePower", "战力"), Preview.CurrentPower, Preview.NextPower});
+		for (int32 Index = 0; Index < Rows.Num(); ++Index)
 		{
 			const float Y = 263.0f + Index * 54.0f;
 			UTextBlock* Label = MakeModalText(*FString::Printf(TEXT("UpgradeStatLabel_%d"), Index), 20, FLinearColor(0.33f, 0.29f, 0.23f, 1.0f));
@@ -7142,10 +7095,15 @@ void URokUnityModalWidget::BuildBuildingUpgrade()
 		++CostVisualIndex;
 	}
 
-	UButton* InstantButton = MakeTextAtlasButton(TEXT("InstantUpgradeButton"), CommonAtlasPath, InstantUpgradeButtonRect, CommonAtlasSize, FVector2D(274.0f, 84.0f), NSLOCTEXT("RokModal", "InstantUpgrade", "立即升级"), 26, FLinearColor::White, FText::AsNumber(1));
-	InstantButton->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleInstantUpgradePreview);
+	const FText InstantPrice = bIsSourcePreview ? FText::AsNumber(1)
+		: NSLOCTEXT("RokModal", "InstantPricePending", "费用待同步");
+	UButton* InstantButton = MakeTextAtlasButton(TEXT("InstantUpgradeButton"), CommonAtlasPath, InstantUpgradeButtonRect, CommonAtlasSize, FVector2D(274.0f, 84.0f), NSLOCTEXT("RokModal", "InstantUpgrade", "立即升级"), 26, FLinearColor::White, InstantPrice);
+	InstantButton->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleInstantUpgrade);
 	PlaceOnCanvas(UpgradeContentCanvas, InstantButton, FVector2D(660.0f, 650.0f), FVector2D(274.0f, 84.0f), 3);
-	PlaceOnCanvas(UpgradeContentCanvas, MakeAtlasImage(TEXT("InstantUpgradeGem"), CommonAtlasPath, GemCurrencyRect, CommonAtlasSize, FVector2D(28.0f)), FVector2D(768.0f, 691.0f), FVector2D(28.0f), 5);
+	if (bIsSourcePreview)
+	{
+		PlaceOnCanvas(UpgradeContentCanvas, MakeAtlasImage(TEXT("InstantUpgradeGem"), CommonAtlasPath, GemCurrencyRect, CommonAtlasSize, FVector2D(28.0f)), FVector2D(768.0f, 691.0f), FVector2D(28.0f), 5);
+	}
 
 	UButton* TimedButton = MakeTextAtlasButton(TEXT("TimedUpgradeButton"), CommonAtlasPath, TimedUpgradeButtonRect, CommonAtlasSize, FVector2D(274.0f, 84.0f), NSLOCTEXT("RokModal", "TimedUpgrade", "升级"), 26, FLinearColor::White, FText::Format(NSLOCTEXT("RokModal", "Seconds", "{0}秒"), FText::AsNumber(Preview.BuildSeconds)));
 	// Source-only screenshot previews stay visually faithful while the handler
@@ -7159,7 +7117,9 @@ void URokUnityModalWidget::BuildBuildingUpgrade()
 		&& !Preview.bCanStartTimedUpgrade && !Preview.FailureReason.IsEmpty();
 	FeedbackText->SetText(bShowUpgradeFailure ? FText::FromString(Preview.FailureReason) : FText::GetEmpty());
 	FeedbackText->SetVisibility(bShowUpgradeFailure ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
-	PlaceOnCanvas(UpgradeContentCanvas, FeedbackText, FVector2D(670.0f, 608.0f), FVector2D(536.0f, 34.0f), 4);
+	FeedbackText->SetWrapTextAt(536.0f);
+	PlaceOnCanvas(UpgradeContentCanvas, FeedbackText, FVector2D(670.0f, 592.0f), FVector2D(536.0f, 56.0f), 4);
+	if (!bIsSourcePreview) RefreshUpgradeButtons();
 	if (bDeclaredBarracksPreview)
 	{
 		BuildBarracksLevelDetails(Preview.CurrentState.Level);
@@ -8036,8 +7996,104 @@ void URokUnityModalWidget::ShowProfileBoundaryFeedback(
 		LogAction);
 }
 
+void URokUnityModalWidget::RefreshUpgradeButtons()
+{
+	UpgradeButtonRefreshRemaining = 0.2f;
+	URokBuildingUpgradeSubsystem* Subsystem = GetUpgradeSubsystem();
+	AActor* Building = SelectedBuildingActor.Get();
+	FString TimedFailure, InstantFailure;
+	const bool bCanEvaluate = Subsystem && Building && !bServerUpgradePending;
+	int64 Quote = -1;
+	bool bTimedEnabled = false;
+	bool bInstantEnabled = false;
+	if (bCanEvaluate && bUpgradeUsesServer)
+	{
+		bTimedEnabled = Subsystem->CanStartServerUpgrade(Building, false, TimedFailure, DisplayedUpgradeLevel);
+		int64 Estimate = 0;
+		if (Subsystem->GetServerInstantUpgradeQuote(Building, Estimate)) Quote = Estimate;
+		if (Subsystem->CanStartServerUpgrade(Building, true, InstantFailure, DisplayedUpgradeLevel))
+		{
+			bInstantEnabled = Quote >= 0;
+			if (!bInstantEnabled) InstantFailure = TEXT("立即升级费用尚未同步。");
+		}
+	}
+	else if (bCanEvaluate)
+	{
+		bInstantEnabled = Subsystem->CanStartLocalInstantUpgrade(Building, DisplayedUpgradeLevel, Quote, InstantFailure);
+		if (Subsystem->GetBuildingStateForActor(Building).Level == DisplayedUpgradeLevel)
+		{
+			bTimedEnabled = Subsystem->CanStartUpgrade(Building, TimedFailure);
+		}
+		else
+		{
+			TimedFailure = TEXT("建筑等级已变化，请重新打开升级界面。");
+		}
+	}
+	if (auto* Price = Cast<UTextBlock>(GetWidgetFromName(TEXT("InstantUpgradeButtonSecondary"))))
+	{
+		const FText PriceFormat = bUpgradeUsesServer ? NSLOCTEXT("RokModal", "InstantGemEstimate", "约 {0} 宝石")
+			: NSLOCTEXT("RokModal", "InstantGemPrice", "{0} 宝石");
+		Price->SetText(Quote >= 0 ? FText::Format(PriceFormat, FText::AsNumber(Quote))
+			: NSLOCTEXT("RokModal", "InstantPricePending", "费用待同步"));
+	}
+	if (auto* TimedButton = Cast<UButton>(GetWidgetFromName(TEXT("TimedUpgradeButton"))))
+	{
+		TimedButton->SetIsEnabled(bTimedEnabled);
+	}
+	if (auto* InstantButton = Cast<UButton>(GetWidgetFromName(TEXT("InstantUpgradeButton"))))
+	{
+		InstantButton->SetIsEnabled(bInstantEnabled);
+	}
+	if (FeedbackText && !bUpgradeFeedbackFromAction)
+	{
+		const FString& Failure = !bInstantEnabled && !InstantFailure.IsEmpty() ? InstantFailure : TimedFailure;
+		FeedbackText->SetText(FText::FromString(Failure));
+		FeedbackText->SetVisibility(Failure.IsEmpty() ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
+	}
+}
+
+void URokUnityModalWidget::ShowUpgradeFeedback(const FText& Text)
+{
+	if (!FeedbackText) return;
+	bUpgradeFeedbackFromAction = true;
+	FeedbackText->SetText(Text);
+	FeedbackText->SetVisibility(ESlateVisibility::HitTestInvisible);
+}
+
+void URokUnityModalWidget::SubmitServerUpgrade(bool bImmediately)
+{
+	URokBuildingUpgradeSubsystem* Subsystem = GetUpgradeSubsystem();
+	if (!Subsystem || !SelectedBuildingActor.IsValid() || bServerUpgradePending) return;
+	FString Failure;
+	const uint32 ViewSerial = UpgradeViewSerial;
+	const TWeakObjectPtr<URokUnityModalWidget> WeakThis(this);
+	if (!Subsystem->StartServerUpgrade(SelectedBuildingActor.Get(), DisplayedUpgradeLevel, bImmediately,
+		[WeakThis, ViewSerial](const FString& Result)
+		{
+			URokUnityModalWidget* Widget = WeakThis.Get();
+			if (!Widget || Widget->ActiveMode != ERokUnityModalMode::BuildingUpgrade
+				|| Widget->UpgradeViewSerial != ViewSerial) return;
+			Widget->bServerUpgradePending = false;
+			if (Result.IsEmpty()) Widget->CloseModal();
+			else Widget->ShowUpgradeFeedback(FText::FromString(Result));
+		}, Failure))
+	{
+		ShowUpgradeFeedback(FText::FromString(Failure));
+		return;
+	}
+	bServerUpgradePending = true;
+	ShowUpgradeFeedback(NSLOCTEXT("RokModal", "UpgradePending", "正在等待服务器确认升级。"));
+	RefreshUpgradeButtons();
+}
+
 void URokUnityModalWidget::HandleStartUpgrade()
 {
+	ConfirmedInstantQuote.Reset();
+	if (bUpgradeUsesServer)
+	{
+		SubmitServerUpgrade(false);
+		return;
+	}
 	URokBuildingUpgradeSubsystem* Subsystem = GetUpgradeSubsystem();
 	if (!Subsystem || !SelectedBuildingActor.IsValid())
 	{
@@ -8063,12 +8119,50 @@ void URokUnityModalWidget::HandleStartUpgrade()
 	}
 }
 
-void URokUnityModalWidget::HandleInstantUpgradePreview()
+void URokUnityModalWidget::HandleInstantUpgrade()
 {
-	UE_LOG(LogTemp, Log, TEXT("Rok modal UI: immediate upgrade requires migrated Gem/Denar state; no currency was spent."));
-	if (FeedbackText)
+	if (bServerUpgradePending) return;
+	auto* Subsystem = GetUpgradeSubsystem();
+	AActor* Building = SelectedBuildingActor.Get();
+	if (!Subsystem || !Building)
 	{
-		FeedbackText->SetText(NSLOCTEXT("RokModal", "GemStateNotMigrated", "钻石状态尚未迁移，本次未扣除货币"));
-		FeedbackText->SetVisibility(ESlateVisibility::HitTestInvisible);
+		ShowUpgradeFeedback(NSLOCTEXT("RokModal", "SourcePreviewNoMutation", "配置预览，不会写入玩家状态"));
+		return;
+	}
+
+	FString Failure;
+	int64 Quote = 0;
+	const bool bCanUpgrade = bUpgradeUsesServer
+		? Subsystem->CanStartServerUpgrade(Building, true, Failure, DisplayedUpgradeLevel)
+			&& Subsystem->GetServerInstantUpgradeQuote(Building, Quote)
+		: Subsystem->CanStartLocalInstantUpgrade(Building, DisplayedUpgradeLevel, Quote, Failure);
+	if (!bCanUpgrade)
+	{
+		ConfirmedInstantQuote.Reset();
+		ShowUpgradeFeedback(Failure.IsEmpty() ? NSLOCTEXT("RokModal", "InstantPricePending", "费用待同步") : FText::FromString(Failure));
+		return;
+	}
+	if (!ConfirmedInstantQuote.IsSet() || ConfirmedInstantQuote.GetValue() != Quote)
+	{
+		ConfirmedInstantQuote = Quote;
+		const FText Format = bUpgradeUsesServer
+			? NSLOCTEXT("RokModal", "ConfirmServerInstantUpgradeEstimate", "预计消耗 {0} 宝石，实际费用由服务器结算。再次点击确认。")
+			: NSLOCTEXT("RokModal", "ConfirmLocalInstantUpgrade", "消耗所需资源和 {0} 宝石。再次点击确认。");
+		ShowUpgradeFeedback(FText::Format(Format, FText::AsNumber(Quote)));
+		return;
+	}
+
+	ConfirmedInstantQuote.Reset();
+	if (bUpgradeUsesServer)
+	{
+		SubmitServerUpgrade(true);
+	}
+	else if (Subsystem->StartLocalInstantUpgrade(Building, DisplayedUpgradeLevel, Quote, Failure))
+	{
+		CloseModal();
+	}
+	else
+	{
+		ShowUpgradeFeedback(FText::FromString(Failure));
 	}
 }

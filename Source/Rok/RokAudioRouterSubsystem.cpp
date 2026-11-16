@@ -99,22 +99,20 @@ void URokAudioRouterSubsystem::Tick(float DeltaTime)
 	}
 }
 
-bool URokAudioRouterSubsystem::PlaySfxTracked(USoundBase* Sound, UAudioComponent*& OutComponent)
+bool URokAudioRouterSubsystem::PlaySfxTracked(USoundBase* Sound, UAudioComponent*& OutComponent, bool bAllowAutomation)
 {
 	OutComponent = nullptr;
 	UWorld* World = GetTickableGameObjectWorld();
-	if (!bInitialized || !Sound || !World || IsAudioDeviceSuppressedForAutomation()
+	if (!bInitialized || !Sound || !World || (!bAllowAutomation && IsAudioDeviceSuppressedForAutomation())
 		|| !World->bAllowAudioPlayback || World->IsNetMode(NM_DedicatedServer)) return false;
 	UAudioComponent* Component = UGameplayStatics::CreateSound2D(World, Sound, SfxVolume,
 		1.0f, 0.0f, nullptr, false, true);
 	if (!Component) return false;
-	// AudioInfo's bounded UI events each have maxCount=1 and StopPrevious.
-	// The interval field is not a one-shot throttle: AudioService destroys a
-	// non-looping handler before its interval branch (see UpdateHandler).
+	// AudioInfo uses maxCount=1 and StopPrevious for bounded one-shots.
 	for (const TPair<int32, FRokCityAudioEvent>& Pair : SourceEvents)
 	{
 		const FRokCityAudioEvent& Event = Pair.Value;
-		if (!Event.bMusic && Event.ClipObjectPaths.Num() == 1
+		if (!Event.bMusic && Event.SourceMaxCount == 1 && Event.ClipObjectPaths.Num() == 1
 			&& Event.ClipObjectPaths[0] == Sound->GetPathName())
 		{
 			if (TWeakObjectPtr<UAudioComponent>* Prior = LastSfxBySourceEvent.Find(Event.Id))
@@ -137,6 +135,24 @@ bool URokAudioRouterSubsystem::PlaySfx(USoundBase* Sound)
 {
 	UAudioComponent* Component = nullptr;
 	return PlaySfxTracked(Sound, Component);
+}
+
+bool URokAudioRouterSubsystem::PlaySourceSfx(int32 EventId)
+{
+	const FRokCityAudioEvent* Event = SourceEvents.Find(EventId);
+	if (!Event || Event->bMusic || Event->ClipObjectPaths.Num() != 1) return false;
+	bool bAllowAutomation = false;
+#if WITH_DEV_AUTOMATION_TESTS
+	bAllowAutomation = bSourceSfxPlaybackForTesting;
+#endif
+	if (!bAllowAutomation && IsAudioDeviceSuppressedForAutomation()) return false;
+	USoundBase* Sound = LoadObject<USoundBase>(nullptr, *Event->ClipObjectPaths[0]);
+	UAudioComponent* Component = nullptr;
+	const bool bPlayed = PlaySfxTracked(Sound, Component, bAllowAutomation);
+#if WITH_DEV_AUTOMATION_TESTS
+	if (bPlayed && bAllowAutomation) ++SourceSfxCountsForTesting.FindOrAdd(EventId);
+#endif
+	return bPlayed;
 }
 
 bool URokAudioRouterSubsystem::PlaySourceSfx4005()

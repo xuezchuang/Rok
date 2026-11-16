@@ -266,7 +266,7 @@ int32 FRokCityConstructionGrid::GetAgeForTownHallLevel(int32 TownHallLevel) cons
 
 bool FRokCityConstructionGrid::CheckFootprint(int32 Age, const FRokCityConstructionFootprint& Footprint,
 	TConstArrayView<FRokCityConstructionFootprint> LocalFootprints, FString& OutError,
-	TArray<int32>* OutCellIndices) const
+	TArray<int32>* OutCellIndices, bool bIncludeInitialOccupancy) const
 {
 	if (OutCellIndices) OutCellIndices->Reset();
 	const FRokCityConstructionAge* GridAge = Ages.Find(Age);
@@ -287,7 +287,7 @@ bool FRokCityConstructionGrid::CheckFootprint(int32 Age, const FRokCityConstruct
 	}
 	for (const FRokCityConstructionInitialOccupant& Initial : InitialOccupancy)
 	{
-		if (Initial.Footprint.IsValid() && Footprint.Overlaps(Initial.Footprint))
+		if (bIncludeInitialOccupancy && Initial.Footprint.IsValid() && Footprint.Overlaps(Initial.Footprint))
 		{
 			OutError = TEXT("位置已被初始建筑占用。");
 			return false;
@@ -297,7 +297,7 @@ bool FRokCityConstructionGrid::CheckFootprint(int32 Age, const FRokCityConstruct
 	{
 		if (Local.IsValid() && Footprint.Overlaps(Local))
 		{
-			OutError = TEXT("位置已被本地建筑或在建预约占用。");
+			OutError = TEXT("位置已被建筑或在建预约占用。");
 			return false;
 		}
 	}
@@ -405,4 +405,13 @@ bool FRokLocalConstructionLedger::Find(uint64 Id, FRokLocalConstructionTicket& O
 		if (Ticket.Id == Id) { OutTicket = Ticket; return true; }
 	}
 	return false;
+}
+
+bool FRokLocalConstructionLedger::GetRemainingSeconds(uint64 Id, double Now, double& OutSeconds) const
+{
+	OutSeconds = 0.0;
+	FRokLocalConstructionTicket Ticket;
+	if (!FMath::IsFinite(Now) || !Find(Id, Ticket) || Ticket.bCompleted) return false;
+	OutSeconds = FMath::Max(0.0, Ticket.FinishesAt - Now);
+	return true;
 }

@@ -2,6 +2,8 @@
 
 #include "Camera/CameraComponent.h"
 #include "RokCityViewTypes.h"
+#include "RokMapPointerGesture.h"
+#include "RokPlayerController.h"
 #include "Components/SceneComponent.h"
 #include "Engine/LocalPlayer.h"
 #include "Engine/Scene.h"
@@ -84,7 +86,8 @@ void ARokStrategyCameraPawn::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
-	if (!bCityPlacementDragInputSuspended)
+	const auto* RokController = Cast<ARokPlayerController>(GetController());
+	if (!bCityPlacementDragInputSuspended && (!RokController || !RokController->IsCityCameraInputBlocked()))
 	{
 		UpdateKeyboardPan(DeltaSeconds);
 		UpdateEdgePan(DeltaSeconds);
@@ -230,7 +233,8 @@ void ARokStrategyCameraPawn::ApplyCityCameraProjection(
 
 bool ARokStrategyCameraPawn::RequestReturnToWorldMap()
 {
-	return RequestReturnToWorldMapInternal(TOptional<FVector2D>());
+	// CityGlobalMediator.ExitCity uses map_tactical for the HUD button.
+	return RequestReturnToWorldMapInternal({}, 0, true);
 }
 
 bool ARokStrategyCameraPawn::RequestReturnToWorldMapAtDisplayCoordinate(
@@ -251,8 +255,13 @@ bool ARokStrategyCameraPawn::RequestReturnToWorldMapAtDisplayCoordinate(
 	return RequestReturnToWorldMapInternal(TargetDisplayCoordinate);
 }
 
+bool ARokStrategyCameraPawn::RequestWorldBarbarianSearch(int32 Level)
+{
+	return Level >= 1 && Level <= 25 && RequestReturnToWorldMapInternal({}, Level);
+}
+
 bool ARokStrategyCameraPawn::RequestReturnToWorldMapInternal(
-	const TOptional<FVector2D>& TargetDisplayCoordinate)
+	const TOptional<FVector2D>& TargetDisplayCoordinate, int32 BarbarianLevel, bool bTacticalEntry)
 {
 	if (bWorldMapTravelRequested || WorldMapLevel.IsNull())
 	{
@@ -260,9 +269,14 @@ bool ARokStrategyCameraPawn::RequestReturnToWorldMapInternal(
 	}
 
 	bWorldMapTravelRequested = true;
-	FString Options = FString::Printf(
-		TEXT("RokWorldEntryDxf=%.3f"),
-		WorldMapEntryDxf);
+	const float EntryDxf = bTacticalEntry || BarbarianLevel > 0
+		? FRokCityViewMath::GetCameraDxfById(FRokCityViewMath::MakeDefaultCameraKeys(), TEXT("map_tactical"), 1509.0f)
+		: WorldMapEntryDxf;
+	FString Options = FString::Printf(TEXT("RokWorldEntryDxf=%.3f"), EntryDxf);
+	if (BarbarianLevel > 0)
+	{
+		Options += FString::Printf(TEXT("?RokTaskBarbarianLevel=%d"), BarbarianLevel);
+	}
 	if (TargetDisplayCoordinate.IsSet())
 	{
 		const FVector2D Target = TargetDisplayCoordinate.GetValue();
@@ -283,7 +297,7 @@ bool ARokStrategyCameraPawn::RequestReturnToWorldMapInternal(
 		Display,
 		TEXT("Rok main-city return to world map requested: level=%s entry_dxf=%.3f target=%s."),
 		*WorldMapLevel.ToSoftObjectPath().ToString(),
-		WorldMapEntryDxf,
+		EntryDxf,
 		TargetDisplayCoordinate.IsSet()
 			? *TargetDisplayCoordinate.GetValue().ToString()
 			: TEXT("none"));
@@ -410,7 +424,7 @@ bool ARokStrategyCameraPawn::ApplyZoomInput(
 			CurrentDxf,
 			RequestedDxf,
 			WorldMapReturnThresholdDxf)
-		&& RequestReturnToWorldMap())
+		&& RequestReturnToWorldMapInternal({}))
 	{
 		return true;
 	}
@@ -467,15 +481,42 @@ void ARokStrategyCameraPawn::ApplyPlanarMovement(const FVector2D& Movement, floa
 	const FVector Right = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
 	const FVector Delta = (Forward * Movement.Y + Right * Movement.X) * MoveSpeed * DeltaSeconds;
 
-	FVector Location = GetActorLocation() + FVector(Delta.X, Delta.Y, 0.0f);
-	Location.X = FMath::Clamp(Location.X, -MapExtent, MapExtent);
-	Location.Y = FMath::Clamp(Location.Y, -MapExtent, MapExtent);
-	SetActorLocation(Location);
+	PanByWorldDelta(Delta);
+}
 
-	// Zoom re-derives the camera position from the ground target, so panning
-	// must move that target too; otherwise the next wheel notch snapped the
-	// camera back to the city centre.
-	CurrentCameraTarget = FVector(Location.X, Location.Y, DefaultCameraTarget.Z);
+void ARokStrategyCameraPawn::PanFromScreenDrag(FVector2D Previous, FVector2D Current)
+{
+	const auto* PlayerController = Cast<APlayerController>(GetController());
+	if (!PlayerController || bCityPlacementDragInputSuspended || bWorldMapTravelRequested)
+	{
+		return;
+	}
+
+	FVector PreviousGround, CurrentGround;
+	if (FRokMapPointerGesture::ProjectToGround(*PlayerController, Previous, CurrentCameraTarget.Z, PreviousGround)
+		&& FRokMapPointerGesture::ProjectToGround(*PlayerController, Current, CurrentCameraTarget.Z, CurrentGround))
+	{
+		PanByWorldDelta(PreviousGround - CurrentGround);
+	}
+}
+
+void ARokStrategyCameraPawn::PanByWorldDelta(const FVector& Delta)
+{
+	// Clamp the point on the ground, not the offset camera behind it.
+	const FVector OldTarget = CurrentCameraTarget;
+	CurrentCameraTarget.X = FMath::Clamp(OldTarget.X + Delta.X, -MapExtent, MapExtent);
+	CurrentCameraTarget.Y = FMath::Clamp(OldTarget.Y + Delta.Y, -MapExtent, MapExtent);
+	AddActorWorldOffset(CurrentCameraTarget - OldTarget);
+}
+
+void ARokStrategyCameraPawn::FocusCityGroundPoint(const FVector& WorldPoint)
+{
+	if (WorldPoint.ContainsNaN() || !FMath::IsFinite(CurrentCameraDistance) || CurrentCameraDistance <= 0.0f)
+	{
+		return;
+	}
+	CurrentCameraTarget = WorldPoint;
+	SetActorLocation(CurrentCameraTarget - GetActorForwardVector() * CurrentCameraDistance);
 }
 
 void ARokStrategyCameraPawn::FrameCityCenter()

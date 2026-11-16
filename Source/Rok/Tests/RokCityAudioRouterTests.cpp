@@ -18,7 +18,22 @@ bool FRokCityAudioRouterSourceTest::RunTest(const FString&)
 	{
 		AddError(Error); return false;
 	}
-	TestEqual(TEXT("Only seven bounded source events"), Events.Num(), 7);
+	TestEqual(TEXT("Ten source events"), Events.Num(), 10);
+	const FRokCityAudioEvent* SpeedUp = Events.Find(4014);
+	if (TestNotNull(TEXT("Speed-up event"), SpeedUp))
+		TestEqual(TEXT("Unity speed-up response clip"), SpeedUp->ClipNames[0], FString(TEXT("Sound_Ui_Speedup")));
+	const FRokCityAudioEvent* Start = Events.Find(4025);
+	const FRokCityAudioEvent* Complete = Events.Find(4080);
+	if (TestNotNull(TEXT("Construction start event"), Start))
+	{
+		TestEqual(TEXT("Unity construction start clip"), Start->ClipNames[0], FString(TEXT("Sound_Ui_BuildingStartLevelup")));
+		TestEqual(TEXT("Unity construction start replaces the previous voice"), Start->SourceMaxCount, 1);
+	}
+	if (TestNotNull(TEXT("Construction completion event"), Complete))
+	{
+		TestEqual(TEXT("Unity construction completion clip"), Complete->ClipNames[0], FString(TEXT("sfx_buildingUp")));
+		TestEqual(TEXT("Unity permits overlapping completion voices"), Complete->SourceMaxCount, -1);
+	}
 	const FRokCityAudioEvent* Day = Events.Find(1007);
 	const FRokCityAudioEvent* Night = Events.Find(1008);
 	const FRokCityAudioEvent* Feedback = Events.Find(4005);

@@ -2,11 +2,21 @@
 
 #include "Misc/AutomationTest.h"
 #include "Camera/CameraComponent.h"
+#include "Components/Button.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
+#include "GameFramework/PlayerInput.h"
+#include "InputKeyEventArgs.h"
+#include "Misc/ScopeExit.h"
+#include "Materials/Material.h"
+#include "UObject/UObjectIterator.h"
+#include "../RokMainHudWidget.h"
+#include "../RokPlayerController.h"
 #include "../RokStrategyCameraPawn.h"
+#include "../RokUnityFeatureScreenWidget.h"
 #include "../RokWorldMapCameraPawn.h"
 #include "../RokWorldMapCityActor.h"
 #include "../RokWorldMapCityPulse.h"
@@ -392,6 +402,24 @@ bool FRokCityCameraFramingTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("City min is below the default and the default is below the max"),
 		ARokStrategyCameraPawn::GetCityMinDxf() < ARokStrategyCameraPawn::GetDefaultCityDxf()
 		&& ARokStrategyCameraPawn::GetDefaultCityDxf() < ARokStrategyCameraPawn::GetCityMaxDxf());
+
+	// CameraParamLod forward is (0, -0.7, 0.7) for every key; Unity (x, y, z) maps to
+	// UE (-x, z, y). A yaw of 112 here rotated the whole city ~20 degrees against Unity.
+	const ARokStrategyCameraPawn* Pawn = GetDefault<ARokStrategyCameraPawn>();
+	const FFloatProperty* YawProperty = FindFProperty<FFloatProperty>(
+		ARokStrategyCameraPawn::StaticClass(), TEXT("DefaultCameraYaw"));
+	const FFloatProperty* PitchProperty = FindFProperty<FFloatProperty>(
+		ARokStrategyCameraPawn::StaticClass(), TEXT("DefaultCameraPitch"));
+	if (TestNotNull(TEXT("Default yaw property"), YawProperty)
+		&& TestNotNull(TEXT("Default pitch property"), PitchProperty))
+	{
+		const FRotator Rotation(PitchProperty->GetPropertyValue_InContainer(Pawn),
+			YawProperty->GetPropertyValue_InContainer(Pawn), 0.0f);
+		const FVector UnityForward(0.0, -0.7, 0.7);
+		const FVector Expected = FVector(-UnityForward.X, UnityForward.Z, UnityForward.Y).GetSafeNormal();
+		TestTrue(TEXT("Camera forward matches Unity CameraParamLod forward"),
+			Rotation.Vector().Equals(Expected, 1.0e-4));
+	}
 	return true;
 }
 
@@ -487,6 +515,54 @@ bool FRokCityCameraWheelZoomTest::RunTest(const FString& Parameters)
 
 	Instance->Shutdown();
 	GEngine->DestroyWorldContext(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRokCityCameraCommanderWheelTest, "Rok.WorldMap.City.CommanderWheel",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FRokCityCameraCommanderWheelTest::RunTest(const FString&)
+{
+	UGameInstance* Instance = NewObject<UGameInstance>(GEngine);
+	Instance->InitializeStandalone(TEXT("RokCityCameraCommanderWheelTest"));
+	UWorld* World = Instance->GetWorld();
+	ON_SCOPE_EXIT { Instance->Shutdown(); GEngine->DestroyWorldContext(World); };
+	auto* Controller = World->SpawnActor<ARokPlayerController>();
+	auto* Pawn = World->SpawnActor<ARokStrategyCameraPawn>();
+	Controller->Possess(Pawn);
+	Controller->PlayerInput = NewObject<UPlayerInput>(Controller);
+
+	auto* Hud = NewObject<URokMainHudWidget>(World);
+	if (!TestTrue(TEXT("City HUD initializes"), Hud->Initialize())) return false;
+	Hud->TakeWidget();
+	auto* Feature = Hud->GetFeatureScreenWidgetForPlacement();
+	const auto* HudProperty = FindFProperty<FObjectPropertyBase>(ARokPlayerController::StaticClass(), TEXT("MainHudWidget"));
+	if (!TestNotNull(TEXT("City HUD property"), HudProperty) || !TestNotNull(TEXT("Real feature host"), Feature)) return false;
+	HudProperty->SetObjectPropertyValue_InContainer(Controller, Hud);
+
+	auto Wheel = [&](const FKey& Key)
+	{
+		constexpr float Step = 1.0f / 60.0f;
+		const auto Device = FInputDeviceId::CreateFromInternalId(0);
+		const uint64 Timestamp = FPlatformTime::Cycles64();
+		Controller->PlayerInput->InputKey(FInputKeyEventArgs(nullptr, Device, Key, IE_Pressed, Timestamp));
+		Controller->PlayerInput->InputKey(FInputKeyEventArgs(nullptr, Device, Key, IE_Released, Timestamp));
+		Controller->PlayerInput->ProcessInputStack({}, Step, false);
+		TestTrue(TEXT("Controller received the wheel notch"), Controller->WasInputKeyJustPressed(Key));
+		Pawn->Tick(Step);
+	};
+
+	Feature->OpenCommander();
+	TestTrue(TEXT("Commander blocks map input"), Controller->IsCityCameraInputBlocked());
+	const float Before = Pawn->GetCurrentCityDxf();
+	Wheel(EKeys::MouseScrollUp);
+	TestEqual(TEXT("Commander blocks zoom-in behind it"), Pawn->GetCurrentCityDxf(), Before);
+	Wheel(EKeys::MouseScrollDown);
+	TestEqual(TEXT("Commander blocks zoom-out behind it"), Pawn->GetCurrentCityDxf(), Before);
+	Feature->CloseScreen();
+	TestFalse(TEXT("Closing commander restores map input"), Controller->IsCityCameraInputBlocked());
+	Wheel(EKeys::MouseScrollUp);
+	TestTrue(TEXT("City zoom resumes"), Pawn->GetCurrentCityDxf() < Before);
 	return true;
 }
 
@@ -672,6 +748,80 @@ bool FRokWorldMapCityLodTest::RunTest(const FString& Parameters)
 				3000.0f,
 				AgeOneLodCap),
 			0.0001f));
+	return true;
+}
+
+namespace
+{
+class FWorldMapExitButtonReplay final : public IAutomationLatentCommand
+{
+public:
+	explicit FWorldMapExitButtonReplay(FAutomationTestBase& InTest) : Test(InTest) {}
+
+	bool Update() override
+	{
+		if (FPlatformTime::Seconds() > Deadline)
+		{
+			Test.AddError(TEXT("City exit replay timed out waiting for the HUD or world population"));
+			return true;
+		}
+		if (!bClicked)
+		{
+			for (TObjectIterator<URokMainHudWidget> It; It; ++It)
+			{
+				if (!It->IsInViewport()) continue;
+				if (auto* Button = Cast<UButton>(It->GetWidgetFromName(TEXT("WorldGlobeButton"))))
+				{
+					bClicked = true;
+					Button->OnClicked.Broadcast();
+					break;
+				}
+			}
+			return false;
+		}
+
+		for (const FWorldContext& Context : GEngine->GetWorldContexts())
+		{
+			UWorld* World = Context.World();
+			const auto* Game = World ? World->GetAuthGameMode<ARokWorldMapGameMode>() : nullptr;
+			if (!Game || Game->GetServerPopulation().EntityActors == 0) continue;
+			const auto* Controller = World->GetFirstPlayerController();
+			const auto* Camera = Controller ? Cast<ARokWorldMapCameraPawn>(Controller->GetPawn()) : nullptr;
+			if (Test.TestNotNull(TEXT("World camera"), Camera))
+			{
+				Test.TestEqual(TEXT("Exit button opens the tactical camera"), Camera->GetCurrentDxf(), 1509.0f);
+			}
+			TActorIterator<ARokWorldMapCityActor> City(World);
+			if (Test.TestTrue(TEXT("Home city is present"), bool(City)))
+			{
+				auto* Material = City->GetVisualMeshComponent()->GetMaterial(0);
+				FLinearColor Light;
+				Test.TestTrue(TEXT("Level five city uses the classical hall"),
+					Material && GetNameSafe(Material->GetBaseMaterial()) == TEXT("M_WorldPlayerCity_build_1_101_2"));
+				Test.TestTrue(TEXT("Classical hall has source-sized bounds even on first load"),
+					City->GetVisualBoundsExtent().X > 1000.0);
+				Test.TestTrue(TEXT("Server night clock lights city windows"),
+					Material && Material->GetVectorParameterValue(FMaterialParameterInfo(TEXT("NightLight")), Light)
+					&& Light.R > 0.0f);
+			}
+			return true;
+		}
+		return false;
+	}
+
+private:
+	FAutomationTestBase& Test;
+	const double Deadline = FPlatformTime::Seconds() + 30.0;
+	bool bClicked = false;
+};
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRokWorldMapExitButtonReplayTest, "Rok.WorldMap.City.ExitButtonReplay",
+	EAutomationTestFlags::ClientContext | EAutomationTestFlags::EngineFilter)
+
+bool FRokWorldMapExitButtonReplayTest::RunTest(const FString&)
+{
+	ADD_LATENT_AUTOMATION_COMMAND(FWorldMapExitButtonReplay(*this));
 	return true;
 }
 

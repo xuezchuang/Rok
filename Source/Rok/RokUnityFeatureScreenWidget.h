@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "RokTaskRewardPreviewData.h"
+#include "RokServerHeroSubsystem.h"
 #include "RokTaskChapterConfigPreviewData.h"
 #include "RokTaskChapterRewardPreviewData.h"
 #include "RokExpeditionStagePreviewData.h"
@@ -18,12 +19,16 @@
 #include "Styling/SlateBrush.h"
 #include "Types/SlateEnums.h"
 #include "Templates/Function.h"
+#include "RokHospitalTreatment.h"
 #include "RokUnityFeatureScreenWidget.generated.h"
 
 class UBorder;
 class UCanvasPanel;
 class UEditableTextBox;
 class UImage;
+class UMediaPlayer;
+class UMediaTexture;
+class UScrollBox;
 class UProgressBar;
 class USlider;
 class USizeBox;
@@ -33,6 +38,7 @@ class UWidget;
 class AActor;
 class URokClientSettingsSubsystem;
 class URokCommanderMeshWidget;
+struct FRokServerTaskSnapshot;
 class URokTrainArmyMeshWidget;
 class URokHelpWidget;
 class URokHospitalExplanationWidget;
@@ -125,14 +131,17 @@ enum class ERokUnityFeatureScreenMode : uint8
 	Charge,
 	Help,
 	Research,
+	GatherArmy,
 };
 
 /** Per-row quest screen state. Explicit state replaces the old "row 0 is the
  * main task" claim inference; rows without authoritative server task state
  * stay NotSynced instead of fabricating account progress. */
+enum class ERokTaskClaim : uint8;
+
 struct FRokTaskRowState
 {
-	enum class EPage : uint8 { MainTask, SideTask };
+	enum class EPage : uint8 { MainTask, SideTask, DailyTask, ChapterTask };
 	enum class EState : uint8 { Unfinished, Finished, Received, NotSynced };
 	enum class EIntent : uint8 { Go, Claim, Inspect };
 
@@ -164,7 +173,9 @@ public:
 	void OpenMailLocalUnreadFixture();
 	/** Explicit local, read-only selected-mail reward preview; never account mail. */
 	void OpenMailReadOnlyRewardFixture(const TMap<int32, FRokMailRewardPayload>& PayloadByMailIndex, int32 InitialMailIndex = 0);
-	void OpenTasks(bool bUseTestFixtureState = false);
+	void OpenTasks(bool bUseTestFixtureState = false, int32 PageIndex = INDEX_NONE);
+	UFUNCTION(BlueprintCallable, Category = "Rok Tasks")
+	void OpenServerTasksPage(int32 PageIndex);
 #if !UE_BUILD_SHIPPING
 	int32 GetTaskCompletedAnimationFixtureCallbacksForAudit() const { return TaskCompletedAnimationFixtureCallbacks; }
 	float GetTaskCompletedAnimationElapsedForAudit() const { return TaskCompletedAnimationElapsed; }
@@ -175,32 +186,45 @@ public:
 		const FRokTaskRowState& Row, const FRokUnityRuntimeTaskState& Task,
 		const FRokUnityRuntimePlayerProfileState& Profile, bool bRuntimeLoaded,
 		UWorld* World, AActor*& OutActor, FName& OutFailure);
-	void OpenCommander();
+	UFUNCTION(BlueprintCallable, Category = "Rok Commander")
+	void OpenCommander(bool bUseLocalRosterFixture = false);
+	UFUNCTION(BlueprintCallable, Category = "Rok Items")
 	void OpenItems(bool bUseTestFixtureState = false);
+	UFUNCTION(BlueprintCallable, Category = "Rok Commander")
+	void SelectCommanderHero(int32 HeroId);
+	UFUNCTION(BlueprintCallable, Category = "Rok Items")
+	void SelectItemsCategory(int32 Category);
+	UFUNCTION(BlueprintCallable, Category = "Rok Items")
+	void SelectItemsStack(int64 ItemIndex);
 	void OpenAlliance(bool bOpenJoinedPreview = false);
 	void OpenVip(bool bUseTestFixtureState = false);
 	void OpenChat(bool bUseTestFixtureState = false);
 	void OpenWorldPositionSearch();
 	void OpenMapMarkers();
-	void OpenResourceSearch();
+	void OpenResourceSearch(int32 BarbarianLevel = 0);
+	bool IsResourceSearchOpen() const { return ActiveMode == ERokUnityFeatureScreenMode::ResourceSearch; }
 	void OpenExpedition();
+	bool OpenGatherArmy(int64 TargetId, double Distance, double ResourceRadius, FString& Error,
+		TOptional<bool> AttackStationAfterBattle = {});
+	FSimpleDelegate OnExpeditionStoreRequested;
 #if !UE_BUILD_SHIPPING
 	bool IsExpeditionModeForAudit() const { return ActiveMode == ERokUnityFeatureScreenMode::Expedition; }
 	int32 GetSelectedExpeditionStageIdForAudit() const { return SelectedExpeditionStageId; }
 	bool IsExpeditionPreviewForAudit() const { return bExpeditionPreview; }
+	bool IsExpeditionStaging() const { return IsExpeditionModeForAudit() && bExpeditionTaskConfigVisible; }
 	bool IsExpeditionTaskConfigVisibleForAudit() const { return bExpeditionTaskConfigVisible; }
 	FName GetExpeditionAnimationPhaseForAudit() const { return ExpeditionAnimationPhase; }
 	float GetExpeditionAnimationElapsedForAudit() const { return ExpeditionAnimationElapsed; }
 	int32 GetExpeditionLastBoundaryActionIdForAudit() const { return ExpeditionLastBoundaryActionId; }
 	int32 GetExpeditionRenderedStageCountForAudit() const { return ExpeditionRows.Num(); }
-	bool IsExpeditionAccountStateKnownForAudit() const { return false; }
+	bool IsExpeditionAccountStateKnownForAudit() const { return bExpeditionProgressKnown; }
 #endif
 	void OpenGemShop();
 	void OpenCharge(int32 InitialPageType = 107);
-	void OpenBuildCity();
+	void OpenBuildCity(int32 GuideBuildingType = 0);
 	/** Card-to-city handoff; a listener owns transient placement and final validation. */
 	FRokBuildCityPlacementRequested OnBuildCityPlacementRequested;
-	void OpenWorkerQueue(AActor* BuildingActor = nullptr);
+	void OpenWorkerQueue(AActor* BuildingActor = nullptr, int32 RequiredSeconds = 0);
 	void OpenSettingsHub();
 	void OpenGeneralSettings();
 	void OpenNotificationSettings();
@@ -208,21 +232,39 @@ public:
 	void OpenHelp();
 	int32 GetLanguageDraftIdForAudit() const { return LanguageDraftId; }
 	void OpenAccountSettings();
+	UFUNCTION(BlueprintCallable, Category = "Rok Army")
 	void OpenArmyStatistics();
+	UFUNCTION(BlueprintCallable, Category = "Rok Army")
+	void OpenArmyStatisticsPage(int32 PageIndex);
 	void OpenStore();
 	void OpenTrainArmy(AActor* BuildingActor = nullptr, int32 ArmyType = 1);
+	UFUNCTION(BlueprintCallable, Category = "Rok Army")
+	void OpenTrainArmyPreview(int32 ArmyType);
+	UFUNCTION(BlueprintCallable, Category = "Rok Army")
+	void OpenTrainArmyServerBuilding(int32 BuildingIndex, int32 ArmyType);
 	void OpenSpeedUp(AActor* QueueActor = nullptr, int32 QueueType = 20102);
 	void OpenHospital(AActor* BuildingActor = nullptr);
+	void OpenTaskCityTarget(int32 BuildingType, bool bOpenBuildCity = false, bool bUpgradeBuilding = false);
 	/** Read-only source technology tree; null actor is an explicit reference preview. */
 	void OpenResearch(AActor* AcademyActor = nullptr);
 	bool IsHospitalExplanationVisibleForAudit() const { return bHospitalExplanationVisible; }
 	URokHospitalExplanationWidget* GetHospitalExplanationForAudit() const { return HospitalExplanationWidget; }
+	const TArray<FRokTaskRewardPreviewRow>& GetConfiguredRewardPreview(int32 GroupId);
+	FSlateBrush MakeRewardQualityBrush(int32 Quality, FVector2D Size) const;
 	void OpenCityManager();
+	UFUNCTION(BlueprintCallable, Category = "Rok Army")
 	void OpenArmyShow();
+	UFUNCTION(BlueprintCallable, Category = "Rok Tasks")
 	void CloseScreen();
 	/** User dismissal; CloseScreen remains the synchronous routing API. */
 	void RequestCloseScreen();
 	bool IsScreenOpen() const { return ActiveMode != ERokUnityFeatureScreenMode::None; }
+	bool IsWorkerQueueOpen() const
+	{
+		return ActiveMode == ERokUnityFeatureScreenMode::WorkerQueue
+			|| (ActiveMode == ERokUnityFeatureScreenMode::SpeedUp && bSpeedUpFromWorkerQueue);
+	}
+	bool IsHospitalOpen() const { return ActiveMode == ERokUnityFeatureScreenMode::Hospital; }
 #if !UE_BUILD_SHIPPING
 	void SampleBuildCityAnimationForCapture(float ElapsedSeconds);
 	bool IsBuildCityModeForAudit() const { return ActiveMode == ERokUnityFeatureScreenMode::BuildCity; }
@@ -263,6 +305,9 @@ public:
 	bool IsTaskDetailLocalProjectionForAudit() const { return ActiveMode == ERokUnityFeatureScreenMode::Tasks && SelectedTaskPage == 1 && bTaskMainLocalProjectionRendered; }
 	bool IsTaskDetailLocalConditionMetForAudit() const { return IsTaskDetailLocalProjectionForAudit() && bTaskMainLocalConditionMet; }
 	int32 GetTaskDetailDisplayedCurrentForAudit() const { return ActiveMode == ERokUnityFeatureScreenMode::Tasks && SelectedTaskPage == 1 ? TaskMainDisplayedCurrent : 0; }
+	int32 GetVisibleTaskIdForAudit(int32 RowIndex) const
+	{ return ActiveMode == ERokUnityFeatureScreenMode::Tasks && VisibleTaskStates.IsValidIndex(RowIndex)
+		? VisibleTaskStates[RowIndex].TaskId : INDEX_NONE; }
 	int32 GetSelectedTaskPageForAudit() const { return ActiveMode == ERokUnityFeatureScreenMode::Tasks ? SelectedTaskPage : INDEX_NONE; }
 	int32 GetSelectedTaskChapterGroupIdForAudit() const { return ActiveMode == ERokUnityFeatureScreenMode::Tasks && SelectedTaskPage == 0 ? SelectedTaskChapterGroupId : INDEX_NONE; }
 	bool IsSelectedTaskChapterMetadataKnownForAudit() const { return ActiveMode == ERokUnityFeatureScreenMode::Tasks && SelectedTaskPage == 0 && bSelectedTaskChapterMetadataKnown; }
@@ -289,6 +334,7 @@ public:
 #endif
 #if WITH_DEV_AUTOMATION_TESTS
 	void FlushPendingActionForTesting();
+	void RefreshWorkerQueueForTesting() { if (ActiveMode == ERokUnityFeatureScreenMode::WorkerQueue) UpdateWorkerQueuePresentation(); }
 	int32 GetSelectedCommanderIdForAudit() const { return SelectedCommanderId; }
 	int32 GetSelectedCommanderTalentIdForAudit() const { return VisibleCommanderTalentIds.IsValidIndex(SelectedCommanderTalentIndex) ? VisibleCommanderTalentIds[SelectedCommanderTalentIndex] : INDEX_NONE; }
 	int32 GetSelectedCommanderSkillDetailIdForAudit() const { return VisibleCommanderSkillIds.IsValidIndex(SelectedCommanderSkillDetailIndex) ? VisibleCommanderSkillIds[SelectedCommanderSkillDetailIndex] : INDEX_NONE; }
@@ -298,6 +344,10 @@ public:
 	void RebuildArmyShowPresentationForTesting() { if (ActiveMode == ERokUnityFeatureScreenMode::ArmyShow) RebuildModeContent(); }
 	void AdvanceCommanderRosterAnimationForTesting(float DeltaSeconds) { AdvanceCommanderRosterAnimation(DeltaSeconds); }
 	void RefreshTaskDetailProjectionForTesting() { RefreshTaskMainProjection(); }
+	void RefreshServerTasksForTesting() { RefreshServerTaskPresentation(); }
+	void RefreshServerArmyForTesting() { RefreshServerArmyPresentation(); }
+	void RefreshServerPlayerAssetsForTesting() { RefreshServerPlayerAssetsPresentation(); }
+	int64 GetSelectedItemsStackIndexForAudit() const { return SelectedItemsStackIndex; }
 	const FRokUiWindowAnimation& GetWindowAnimationForTesting() const { return WindowAnimation; }
 	const FRokChatDrawerAnimation& GetChatAnimationForTesting() const { return ChatDrawerAnimation; }
 #endif
@@ -383,6 +433,18 @@ private:
 	TObjectPtr<UTextBlock> WorkerQueuePrimaryProgressText;
 
 	UPROPERTY()
+	TObjectPtr<UTextBlock> WorkerQueueSecondaryTitleText;
+
+	UPROPERTY()
+	TObjectPtr<UTextBlock> WorkerQueueSecondaryNoteText;
+
+	UPROPERTY()
+	TObjectPtr<UProgressBar> WorkerQueueSecondaryProgress;
+
+	UPROPERTY()
+	TObjectPtr<UTextBlock> WorkerQueueSecondaryProgressText;
+
+	UPROPERTY()
 	TObjectPtr<UTextBlock> GeneralSettingsGraphicsValueText;
 
 	UPROPERTY()
@@ -406,6 +468,13 @@ private:
 	UPROPERTY()
 	TObjectPtr<UTextBlock> ResourceSearchLevelValueText;
 
+	UPROPERTY(Transient) TObjectPtr<UTextBlock> ResourceSearchMonsterTip;
+	UPROPERTY(Transient) TObjectPtr<UImage> ResourceSearchGuide;
+	UPROPERTY(Transient) TObjectPtr<UTexture2D> TaskGuideTexture;
+	uint32 ResourceSearchRequestSerial = 0;
+	bool bResourceSearchPending = false;
+	bool bResourceSearchTaskGuide = false;
+
 	ERokUnityFeatureScreenMode ActiveMode = ERokUnityFeatureScreenMode::None;
 	ERokUnityFeatureScreenMode AnimatedMode = ERokUnityFeatureScreenMode::None;
 	FRokUiWindowAnimation WindowAnimation;
@@ -422,7 +491,6 @@ private:
 	FRokResourceSearchAnimation ResourceSearchAnimation;
 	float BuildCityEntranceTime = 1.0f / 3.0f;
 	float BuildCityCardAnimationTime = 10;
-	bool bBuildCityInitialScrollPending = false;
 #if !UE_BUILD_SHIPPING
 	bool bFreezeBuildCityAnimationForCapture = false;
 #endif
@@ -448,6 +516,8 @@ private:
 	float ActivityCalendarScrollOffset = 0.0f;
 	int32 SelectedMailTab = 0;
 	int32 SelectedMailIndex = 0;
+	int64 SelectedBattleReport = 0;
+	uint64 ShownBattleReportRevision = 0;
 	bool bReferenceMailCaptureState = false;
 	bool bReadOnlyMailRewardFixtureState = false;
 	bool bLocalMailUnreadFixtureState = false;
@@ -471,21 +541,45 @@ private:
 	FString TaskChapterRewardLoadError;
 	FString TaskChapterLoadError;
 	float TaskProjectionRefreshAccumulator = 0.0f;
+	FString LastServerTaskSignature;
+	bool bLastServerTaskAvailable = false;
+	bool bLastServerTaskLoaded = false;
 	bool bTaskMainLocalProjectionRendered = false;
 	bool bTaskMainLocalConditionMet = false;
 	int32 TaskMainDisplayedCurrent = 0;
 	int32 SelectedCommanderId = 2007;
+	bool bCommanderServerSelectionInitialized = false;
+	bool bSelectedCommanderServerOwned = false;
 	UPROPERTY(Transient)
 	TObjectPtr<URokCommanderMeshWidget> CommanderAnimatedPortrait;
 	int32 CommanderAnimatedPortraitHeroId = INDEX_NONE;
+	UPROPERTY(Transient) TObjectPtr<UImage> CommanderSceneImage;
+	UPROPERTY(Transient) TObjectPtr<UMediaPlayer> CommanderScenePlayer;
+	UPROPERTY(Transient) TObjectPtr<UMediaTexture> CommanderSceneVideo;
+	FName CommanderSceneName;
+	void ShowCommanderScene(const FString& Scene);
+	void StopCommanderSceneMotion();
+	void UpdateCommanderSceneMotion();
+	UPROPERTY(Transient) TObjectPtr<UCanvasPanel> CommanderChrome;
+	UPROPERTY(Transient) TMap<FString, TObjectPtr<UTexture2D>> CommanderPreviewTextures;
+	UTexture2D* LoadCommanderPreviewTexture(const FString& RelativePath);
+	bool bCommanderLocalRosterFixture = false;
+	bool bCommanderBiographyOpen = false;
 	int32 SelectedCommanderSkillIndex = 0;
 	int32 SelectedCommanderSkillDetailIndex = INDEX_NONE;
 	int32 SelectedCommanderTalentIndex = INDEX_NONE;
+	int32 CommanderTalentPage = 1;
+	bool bCommanderTalentOpen = false;
+	TArray<FRokHeroTalentNode> CommanderTalentNodes;
+	TOptional<FRokHeroCommand> CommanderConfirmation;
+	FRokHeroCommandCost CommanderConfirmationCost;
+	FString LastCommanderInventorySignature;
 	TArray<int32> VisibleCommanderTalentIds;
 	int32 SelectedCommanderSortType = 0;
 	bool bCommanderSortMenuOpen = false;
 	int32 SelectedItemsCategory = 0;
 	int32 SelectedItemsIndex = 0;
+	int64 SelectedItemsStackIndex = 0;
 	int32 SelectedItemsUseCount = 1;
 	int32 AlliancePreviewState = 0;
 	RokAllianceFlagLocalPreview::FDraft AllianceCreateFlagDraft;
@@ -520,6 +614,21 @@ private:
 	int32 SelectedAllianceTechnologyLevelKey = 1;
 	int32 SelectedVipPreviewLevel = 0;
 	bool bVipTestFixtureState = false;
+	struct FVipPresentation
+	{
+		int64 Points = INDEX_NONE;
+		int64 LoginDays = INDEX_NONE;
+		int32 CurrentLevel = INDEX_NONE;
+		int32 LevelThreshold = 0;
+		int32 TodayPoints = INDEX_NONE;
+		TOptional<bool> DailyClaimed;
+		TOptional<bool> FreeChestClaimed;
+		uint32 PurchasedLevels = 0;
+		bool bClaimPending = false;
+
+		bool operator==(const FVipPresentation&) const = default;
+	};
+	FVipPresentation LastVipPresentation;
 	bool bVipDailyPointHelpVisible = false;
 	UPROPERTY(Transient) TObjectPtr<UCanvasPanel> VipDailyPointHelpTipRoot;
 	int32 SelectedChatChannel = 0;
@@ -534,7 +643,35 @@ private:
 	int32 SelectedResourceSearchType = 0;
 	int32 ResourceSearchBarbarianLevel = 1;
 	int32 ResourceSearchResourceLevel = 1;
+	struct FExpeditionTeam
+	{
+		int32 HeroId = 0;
+		TMap<int32, int32> Soldiers;
+	};
+
 	int32 SelectedExpeditionStageId = 0;
+	float ExpeditionMapOffset = 0.0f;
+	bool bExpeditionProgressKnown = false;
+	TMap<int32, int32> ExpeditionStageStars;
+	TMap<int32, FExpeditionTeam> ExpeditionTeams;
+	FExpeditionTeam ExpeditionDraft;
+	int32 ExpeditionDraftSlot = INDEX_NONE;
+	bool bExpeditionChoosingHero = false;
+	TArray<int32> ExpeditionVisibleHeroChoices;
+	TArray<int32> ExpeditionDraftSoldierIds;
+	int32 ExpeditionDraftCapacity = 0;
+	int64 GatherArmyTargetId = 0;
+	uint64 GatherArmyAoiGeneration = 0;
+	double GatherArmyDistance = 0;
+	double GatherArmyResourceRadius = 0;
+	int32 GatherArmyDeputy = 0;
+	bool bGatherPickingDeputy = false;
+	bool bGatherSubmitting = false;
+	TOptional<bool> GatherArmyAttackStation;
+	int32 GatherArmyActionCost = 0;
+	uint32 GatherArmyComposerSerial = 0;
+	TMap<int32, int32> GatherArmyAvailable;
+	UPROPERTY(Transient) TMap<FString, TObjectPtr<UTexture2D>> ExpeditionTextures;
 	TArray<FRokExpeditionStagePreviewRow> ExpeditionRows;
 	FString ExpeditionLoadError;
 	bool bExpeditionPreview = false;
@@ -549,13 +686,19 @@ private:
 	TWeakObjectPtr<UCanvasPanel> ExpeditionCenterFlagMes;
 	int32 SelectedChargePageType = 107;
 	int32 SelectedBuildCityCategory = 0;
+	int32 BuildCityGuideTypeId = 0;
+	bool bBuildCityGuideNeedsScroll = false;
 	int32 SelectedBuildCityTypeId = 0;
 	int32 SelectedArmyStatisticsPage = 0;
+	float ServerArmyRefreshAccumulator = 0.0f;
+	FString LastServerArmySignature;
+	bool bLastServerArmyAvailable = false;
 	int32 SelectedStoreCategory = 0;
 	int32 SelectedStorePage = 0;
 	int32 SelectedStoreItemIndex = 0;
 	int32 SelectedStoreQuantity = 1;
 	int32 SelectedTrainArmyType = 1;
+	int32 SelectedServerTrainBuildingIndex = 0;
 	int32 SelectedTrainTier = 1;
 	int32 SelectedTrainCount = 1;
 	int32 TrainArmyBaseCapacity = 0;
@@ -594,12 +737,37 @@ private:
 	double TaskCompletedAnimationStartedAtSeconds = 0.0;
 	int32 TaskCompletedAnimationFixtureCallbacks = 0;
 	bool bItemsTestFixtureState = false;
+	float ServerPlayerAssetsRefreshAccumulator = 0.0f;
+	FString LastServerHeroSignature;
+	FString LastServerInventorySignature;
+	bool bLastServerHeroAvailable = false;
+	bool bLastServerHeroKnown = false;
+	bool bLastServerInventoryAvailable = false;
+	bool bLastServerInventoryKnown = false;
 	int32 PendingActionId = INDEX_NONE;
 	double ActivityPreviewSecondsRemaining = 91824.0;
 	int32 LastRenderedActivitySecond = INDEX_NONE;
 	float SpeedUpRefreshAccumulator = 0.0f;
 	float WorkerQueueRefreshAccumulator = 0.0f;
 	bool bWorkerQueueRenderedBusy = false;
+	bool bWorkerQueueRenderedServer = false;
+	int32 WorkerQueueRenderedPrimaryState = INDEX_NONE;
+	int32 WorkerQueueRenderedSecondaryState = INDEX_NONE;
+	int32 WorkerRequiredSeconds = 0;
+	int32 WorkerHirePrice = 0;
+	bool bWorkerHireUsesItem = false;
+	bool bWorkerHireAffordable = false;
+	bool bWorkerQueueCanWrite = false;
+	bool bWorkerQueueRenderedItemsKnown = false;
+	bool bWorkerQueueRenderedRenew = false;
+	int32 ServerSpeedUpQueueIndex = 0;
+	int32 ServerSpeedUpBuildingIndex = 0;
+	bool bSpeedUpFromWorkerQueue = false;
+	bool bServerSpeedUpPending = false;
+	TArray<bool> ServerSpeedUpItemCostsGems;
+	UPROPERTY()
+	TObjectPtr<UCanvasPanel> ServerSpeedUpConfirmation;
+	int32 ServerSpeedUpConfirmIndex = INDEX_NONE;
 
 	void BuildWidgetTree();
 	void RebuildModeContent(bool bOpening = false);
@@ -614,14 +782,29 @@ private:
 	void BuildActivityCenter();
 	void BuildActivityCalendarReadonly();
 	void BuildMail();
+	void BuildBattleReportMail(UScrollBox* List);
+	void SelectBattleReport(int64 EmailIndex);
+	void RefreshBattleReportMail();
 	void BuildTasks();
 	bool BeginTaskCompletedRowAnimation(UCanvasPanel* Row, TFunction<void()> OnComplete);
 	void AdvanceTaskCompletedRowAnimation();
 	void ResetTaskCompletedRowAnimation();
 	void BuildTaskChapter();
+	void BuildServerTaskChapter(const FRokServerTaskSnapshot& Snapshot);
+	void BuildServerTaskChapterGuide(const FRokTaskChapterPreviewRow& Metadata);
 	void RefreshTaskMainProjection();
+	void RefreshServerTaskPresentation();
+	void SubmitTaskClaim(ERokTaskClaim Kind, int32 Id);
+	int64 TaskRewardCivilization = 0;
+	TMap<int32, TArray<FRokTaskRewardPreviewRow>> ServerTaskRewardCache;
+	TMultiMap<int32, TSharedPtr<FJsonObject>> TaskRewardRowsByGroup;
 	void BuildCommander();
+	void BuildCommanderProgression(const FRokServerHeroEntry* Hero);
+	bool HandleCommanderProgressionAction(int32 ActionId);
+	void PrepareCommanderCommand(FRokHeroCommand Request);
+	void ConfirmCommanderCommand();
 	void BuildItems();
+	void RefreshServerPlayerAssetsPresentation();
 	void BuildAlliance();
 	void BuildAllianceWelcome();
 	void BuildAllianceJoinList();
@@ -637,17 +820,44 @@ private:
 	void BuildAllianceOfficeReference();
 	void BuildAllianceTechnologyReference();
 	void BuildVip();
+	FVipPresentation ReadVipPresentation() const;
+	void RefreshVipPresentation();
+	void RequestVipClaim(bool bFreeChest);
 	void BuildVipDailyPointHelpTip();
 	void BuildChat();
 	void BuildWorldPositionSearch();
 	void BuildMapMarkers();
 	void BuildResourceSearch();
+	FText GetResourceSearchLock(int32 Type) const;
+	void SubmitResourceSearch();
 	void BuildExpedition();
+	void BuildExpeditionMap(const FRokExpeditionStagePreviewRow& Stage);
+	void BuildExpeditionTask(const FRokExpeditionStagePreviewRow& Stage);
+	void BuildArmyComposer();
+	void RefillGatherArmy();
+	bool HandleGatherArmyAction(int32 ActionId);
+	void FinishGatherArmy(int32 ArmyIndex, const FString& Error);
+	void RefreshExpeditionAccount();
+	bool CanChallengeExpedition(const FRokExpeditionStagePreviewRow& Stage) const;
+	bool HandleExpeditionAction(int32 ActionId);
+	void OpenExpeditionArmySlot(int32 Slot);
+	TMap<int32, int32> GetExpeditionAvailableSoldiers(int32 Slot) const;
+	int32 GetExpeditionDraftCapacity() const;
+	void UpdateExpeditionArmySummary();
+	UFUNCTION() void HandleExpeditionArmySliderChanged(float Value);
+	UImage* AddExpeditionArt(UCanvasPanel* Canvas, FName Name, const FString& Asset,
+		FVector2D Position, FVector2D Size, int32 Layer = 0);
+	void AddExpeditionHeroHead(UCanvasPanel* Canvas, int32 HeroId, FName Name,
+		FVector2D Position, FVector2D Size, int32 Layer);
 	void AdvanceExpeditionAnimation(float DeltaSeconds);
 	void BuildGemShop();
 	void BuildCharge();
 	void BuildBuildCity();
 	void BuildWorkerQueue();
+	void HandleWorkerQueueAction(int32 ActionId);
+	void BuildServerBuildingSpeedUp();
+	void UpdateServerBuildingSpeedUp();
+	void HandleServerSpeedUpItem(int32 Index, bool bConfirmed = false);
 	void BuildSettingsHub();
 	void BuildGeneralSettings();
 	void BuildGraphicsSettingsCard(UCanvasPanel* Content, float GraphicsValue, float FrameValue, bool bEnabled);
@@ -659,6 +869,17 @@ private:
 	int32 LanguageDraftId = 40;
 	void BuildAccountSettings();
 	void BuildArmyStatistics();
+	void RefreshServerArmyPresentation();
+	void RefreshTrainArmyAction();
+	void SubmitTrainArmy(TOptional<int64> ConfirmedGems = {});
+	void OpenTrainArmyInstantConfirmation();
+	void CloseTrainArmyInstantConfirmation(bool bConfirm);
+	UPROPERTY(Transient)
+	TObjectPtr<UCanvasPanel> TrainArmyInstantConfirmation;
+	int64 TrainArmyInstantPrice = -1;
+	int64 TrainArmyConfirmationPrice = -1;
+	bool bTrainActionReceives = false;
+	bool bTrainCanStart = false;
 	void BuildStore();
 	void BuildTrainArmy();
 	void BuildTrainArmyQuantityControls();
@@ -680,7 +901,20 @@ private:
 	bool bHospitalExplanationVisible = false;
 	UPROPERTY(Transient) TObjectPtr<URokHospitalExplanationWidget> HospitalExplanationWidget;
 	UPROPERTY(Transient) TObjectPtr<URokResearchScreenWidget> ResearchScreenWidget;
-	TMap<TWeakObjectPtr<UWidget>, ESlateVisibility> HospitalHiddenControls;
+	UPROPERTY(Transient) TObjectPtr<UCanvasPanel> HospitalMainContent;
+	UPROPERTY(Transient) TObjectPtr<UCanvasPanel> HospitalConfirmation;
+	UPROPERTY(Transient) TMap<int32, TObjectPtr<URokHospitalQuantity>> HospitalQuantities;
+	FRokHospitalState HospitalState;
+	FRokHospitalQuote HospitalQuote;
+	TMap<int32, int32> HospitalCounts;
+	TMap<int32, int32> HospitalSelectedCounts;
+	bool bHospitalCanCollect = false;
+	float HospitalRefreshAccumulator = 0;
+	int64 HospitalConfirmationPrice = 0;
+	void RefreshHospital();
+	void UpdateHospitalActions();
+	void OpenHospitalInstantConfirmation();
+	void SubmitHospitalTreatment(bool bImmediately);
 	void BuildCityManager();
 	void BuildArmyShow();
 	void AdvanceArmyShowPanelAnimation(float DeltaSeconds);
@@ -690,7 +924,11 @@ private:
 		const FVector2D& Position,
 		const FVector2D& Size,
 		const FText& Title,
-		const FVector2D& ClosePosition);
+		const FVector2D& ClosePosition,
+		UCanvasPanel* Parent = nullptr,
+		int32 CloseAction = 1,
+		float BodyInset = 0.0f,
+		int32 SourceTitlePixels = 0);
 	void BuildActivityFrame();
 	void BuildFeedback();
 	void UpdateExpandedDesignResolution(const FVector2D& RootSize);

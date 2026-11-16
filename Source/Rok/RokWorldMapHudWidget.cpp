@@ -1,4 +1,7 @@
 #include "RokWorldMapHudWidget.h"
+
+#include "Components/ProgressBar.h"
+#include "RokServerArmySubsystem.h"
 #include "RokDataPaths.h"
 #include "RokPowerGainWidget.h"
 #include "RokMainInterfaceModuleAnimation.h"
@@ -6,6 +9,7 @@
 #include "RokUiAnimatedButton.h"
 #include "RokAudioRouterSubsystem.h"
 
+#include "Blueprint/SlateBlueprintLibrary.h"
 #include "Blueprint/WidgetLayoutLibrary.h"
 #include "Blueprint/WidgetTree.h"
 #include "Camera/CameraComponent.h"
@@ -13,6 +17,7 @@
 #include "Components/Button.h"
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
+#include "Components/CheckBox.h"
 #include "Components/Image.h"
 #include "Components/ScaleBox.h"
 #include "Components/ScrollBox.h"
@@ -32,6 +37,9 @@
 #include "Misc/Parse.h"
 #include "Misc/Paths.h"
 #include "RokMainHudWidget.h"
+#include "HAL/PlatformApplicationMisc.h"
+#include "RokGameNetSubsystem.h"
+#include "RokPlayerTopBar.h"
 #include "RokUnityRuntimeStateSubsystem.h"
 #include "RokWorldMapCameraPawn.h"
 #include "RokWorldMapCityActor.h"
@@ -59,14 +67,9 @@ const TCHAR* VipAtlasPath =
 	TEXT("/Game/RokPrototype/UI/MainHudAtlases/rok_hud_atlas_vip.rok_hud_atlas_vip");
 const TCHAR* MapAtlasPath =
 	TEXT("/Game/RokPrototype/UI/MainHudAtlases/rok_hud_atlas_map.rok_hud_atlas_map");
-const TCHAR* FoodIconPath =
-	TEXT("/Game/RokPrototype/UI/Processed/rok_food_icon.rok_food_icon");
-const TCHAR* WoodIconPath =
-	TEXT("/Game/RokPrototype/UI/Processed/rok_wood_icon.rok_wood_icon");
-const TCHAR* StoneIconPath =
-	TEXT("/Game/RokPrototype/UI/Processed/rok_stone_icon.rok_stone_icon");
-const TCHAR* GoldIconPath =
-	TEXT("/Game/RokPrototype/UI/Processed/rok_gold_icon.rok_gold_icon");
+const TCHAR* ResourceIconAtlasPath =
+	TEXT("/Game/RokPrototype/UI/MainHudAtlases/rok_hud_atlas_map_icon.rok_hud_atlas_map_icon");
+const FIntPoint ResourceIconAtlasSize(1024, 2048);
 
 const FIntPoint MainMenuAtlasSize(1024, 1024);
 const FIntPoint CommonAtlasSize(2048, 1024);
@@ -113,8 +116,8 @@ constexpr float UnityReferenceHeight = 810.0f;
 const FVector2D MiniMapContentSize(193.88f, 138.16f);
 const FVector2D MiniMapContentOffset(18.0f, 11.0f);
 const FVector2D SelfMarkerSize(100.0f, 100.0f);
-const FVector2D WorldObjectInfoSize(390.0f, 270.0f);
-const FVector2D WorldObjectInfoPanelSize(390.0f, 250.0f);
+const FVector2D WorldObjectInfoPanelSize(479.0f, 357.0f);
+const FVector2D WorldBarbarianPanelSize(486.0f, 434.0f);
 
 FText FormatCompactNumber(int64 Value)
 {
@@ -158,49 +161,93 @@ TSharedRef<SWidget> URokWorldMapSelectionInputWidget::RebuildWidget()
 }
 
 FReply URokWorldMapSelectionInputWidget::NativeOnMouseButtonDown(
-	const FGeometry& InGeometry,
-	const FPointerEvent& InMouseEvent)
+	const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
 {
-	if (InMouseEvent.GetEffectingButton() != EKeys::LeftMouseButton)
+	const TSharedPtr<SWidget> SlateWidget = GetCachedWidget();
+	if (InMouseEvent.GetEffectingButton() != EKeys::LeftMouseButton || !GetMapController() || !SlateWidget)
 	{
-		return Super::NativeOnMouseButtonDown(
-			InGeometry,
-			InMouseEvent);
+		return Super::NativeOnMouseButtonDown(InGeometry, InMouseEvent);
 	}
 
-	if (OwningHud.IsValid())
+	MapPointer.Begin(GetViewportPosition(InMouseEvent));
+	return FReply::Handled().CaptureMouse(SlateWidget.ToSharedRef());
+}
+
+FReply URokWorldMapSelectionInputWidget::NativeOnMouseButtonDoubleClick(
+	const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
+{
+	return InMouseEvent.GetEffectingButton() == EKeys::LeftMouseButton
+		? NativeOnMouseButtonDown(InGeometry, InMouseEvent)
+		: Super::NativeOnMouseButtonDoubleClick(InGeometry, InMouseEvent);
+}
+
+FReply URokWorldMapSelectionInputWidget::NativeOnMouseMove(
+	const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
+{
+	if (MapPointer.IsActive() && InMouseEvent.IsMouseButtonDown(EKeys::LeftMouseButton))
 	{
-		if (ARokWorldMapPlayerController* WorldMapController =
-				Cast<ARokWorldMapPlayerController>(
-					OwningHud->GetOwningPlayer()))
+		if (auto* Controller = GetMapController())
 		{
-			float MouseX = 0.0f;
-			float MouseY = 0.0f;
-			if (WorldMapController->GetMousePosition(MouseX, MouseY))
+			UpdateMapPointer(*Controller, GetViewportPosition(InMouseEvent));
+			return FReply::Handled();
+		}
+	}
+	return Super::NativeOnMouseMove(InGeometry, InMouseEvent);
+}
+
+FReply URokWorldMapSelectionInputWidget::NativeOnMouseButtonUp(
+	const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
+{
+	if (!MapPointer.IsActive() || InMouseEvent.GetEffectingButton() != EKeys::LeftMouseButton)
+	{
+		return Super::NativeOnMouseButtonUp(InGeometry, InMouseEvent);
+	}
+
+	if (auto* Controller = GetMapController())
+	{
+		const FVector2D Position = GetViewportPosition(InMouseEvent);
+		UpdateMapPointer(*Controller, Position);
+		if (MapPointer.EndAsClick())
+		{
+			const bool bSelected = Controller->SelectWorldMapActorAtScreenPosition(Position);
+			if (FParse::Param(FCommandLine::Get(), TEXT("RokWorldMapDebugHud")))
 			{
-				const bool bSelected =
-					WorldMapController->SelectWorldMapActorAtScreenPosition(
-					FVector2D(MouseX, MouseY));
-				if (FParse::Param(
-						FCommandLine::Get(),
-						TEXT("RokWorldMapDebugHud")))
-				{
-					UE_LOG(
-						LogTemp,
-						Display,
-						TEXT("Rok world-map selection surface click: screen=(%.2f,%.2f) selected=%s."),
-						MouseX,
-						MouseY,
-						bSelected ? TEXT("true") : TEXT("false"));
-				}
-			}
-			else
-			{
-				WorldMapController->ClearWorldMapSelection();
+				UE_LOG(LogTemp, Display, TEXT("Rok world-map selection surface click: screen=(%.2f,%.2f) selected=%s."),
+					Position.X, Position.Y, bSelected ? TEXT("true") : TEXT("false"));
 			}
 		}
 	}
-	return FReply::Handled();
+	MapPointer.Cancel();
+	return FReply::Handled().ReleaseMouseCapture();
+}
+
+void URokWorldMapSelectionInputWidget::NativeOnMouseCaptureLost(const FCaptureLostEvent& CaptureLostEvent)
+{
+	MapPointer.Cancel();
+	Super::NativeOnMouseCaptureLost(CaptureLostEvent);
+}
+
+ARokWorldMapPlayerController* URokWorldMapSelectionInputWidget::GetMapController() const
+{
+	return OwningHud.IsValid() ? Cast<ARokWorldMapPlayerController>(OwningHud->GetOwningPlayer()) : nullptr;
+}
+
+FVector2D URokWorldMapSelectionInputWidget::GetViewportPosition(const FPointerEvent& Event) const
+{
+	FVector2D PixelPosition, WidgetPosition;
+	USlateBlueprintLibrary::AbsoluteToViewport(this, Event.GetScreenSpacePosition(), PixelPosition, WidgetPosition);
+	return PixelPosition;
+}
+
+void URokWorldMapSelectionInputWidget::UpdateMapPointer(ARokWorldMapPlayerController& Controller, FVector2D Position)
+{
+	MapPointer.Update(Position, [&Controller](FVector2D Previous, FVector2D Current)
+	{
+		if (auto* Camera = Cast<ARokWorldMapCameraPawn>(Controller.GetPawn()))
+		{
+			Camera->PanFromScreenDrag(Previous, Current);
+		}
+	});
 }
 
 void URokWorldMapMiniMapInputWidget::SetOwningHud(
@@ -451,6 +498,14 @@ void URokWorldMapHudWidget::NativeConstruct()
 	Super::NativeConstruct();
 	SetVisibility(ESlateVisibility::SelfHitTestInvisible);
 	RefreshRuntimeValues();
+	const UWorld* World = GetWorld();
+	const int32 TaskLevel = World ? FCString::Atoi(World->URL.GetOption(TEXT("RokTaskBarbarianLevel="), TEXT("0"))) : 0;
+	if (FeatureScreenWidget && TaskLevel >= 1 && TaskLevel <= 25)
+	{
+		OpenFeatureScreen();
+		FeatureScreenWidget->OpenResourceSearch(TaskLevel);
+		return;
+	}
 
 	FString RequestedUi;
 	if (FParse::Value(
@@ -531,16 +586,22 @@ void URokWorldMapHudWidget::NativeTick(
 		UpdateZoomPresentation(CameraPawn->GetCurrentDxf());
 	}
 	UpdatePlayerMarkerProjection();
-	ApplyEntityFilter();
 	UpdateEntityBadges();
 	UpdateWorldObjectInfoProjection();
+	UpdateGatherRoute();
+	UpdateAttackMarchRoutes();
 	UpdateMiniMapMarkers();
 
 	RefreshAccumulator += InDeltaTime;
 	if (RefreshAccumulator >= 0.2f)
 	{
 		RefreshAccumulator = 0.0f;
+		ReconcileEntityBadges();
+		ApplyEntityFilter();
 		RefreshRuntimeValues();
+		TryOpenFocusedWorldTarget();
+		RefreshWorldMarchQueue();
+		RefreshSelectedWorldObjectValues();
 	}
 }
 
@@ -602,11 +663,20 @@ void URokWorldMapHudWidget::BuildWidgetTree()
 		SelectionInputSlot->SetZOrder(-100);
 	}
 
+	// The search overlay keeps the map and resources visible while hiding HUD controls.
+	UCanvasPanel* Design = ExpandedDesignCanvas;
+	WorldMapChrome = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("WorldMapChrome"));
+	auto* ChromeSlot = Design->AddChildToCanvas(WorldMapChrome);
+	ChromeSlot->SetAnchors(FAnchors(0, 0, 1, 1));
+	ChromeSlot->SetOffsets(FMargin(0));
+	WorldMapChrome->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+	ExpandedDesignCanvas = WorldMapChrome;
 	BuildPlayerIdentity();
 	BuildCoordinatePanel();
 	BuildMiniMap();
 	BuildRelationFilters();
 	BuildBottomControls();
+	ExpandedDesignCanvas = Design;
 	if (const UGameInstance* GameInstance = GetGameInstance())
 	{
 		const URokWorldMapEntitySubsystem* EntitySubsystem =
@@ -622,6 +692,8 @@ void URokWorldMapHudWidget::BuildWidgetTree()
 	BuildEntityBadges();
 	BuildWorldObjectInfo();
 	BuildServerListOverlay();
+	BuildWorldMarchQueue();
+	BuildGatherPanel();
 
 	ModalWidget = WidgetTree->ConstructWidget<URokUnityModalWidget>(
 		URokUnityModalWidget::StaticClass(),
@@ -673,9 +745,15 @@ void URokWorldMapHudWidget::UpdateZoomPresentation(float Dxf)
 	// OpenLodUi rows CurAge/Events/HotTask/Features/PlayerResources/Mail:
 	// tactical UI ends at dispatch (2997), independently of world icon LOD (3000).
 	bTacticalPresentation = FMath::IsFinite(Dxf) && Dxf >= 0.0f && Dxf <= 2997.0f;
+	const bool bSearching = FeatureScreenWidget && FeatureScreenWidget->IsResourceSearchOpen();
+	if (WorldMapChrome)
+		WorldMapChrome->SetVisibility(bSearching ? ESlateVisibility::Collapsed : ESlateVisibility::SelfHitTestInvisible);
+	if (WorldMarchQueueRoot)
+		WorldMarchQueueRoot->SetRenderOpacity(bSearching || (GatherRoot && GatherRoot->IsVisible()) ? 0.0f : 1.0f);
 	if (TacticalHudWidget)
 	{
-		TacticalHudWidget->SetWorldMapTacticalVisible(bTacticalPresentation);
+		TacticalHudWidget->SetWorldMapTacticalVisible(bTacticalPresentation || bSearching);
+		TacticalHudWidget->SetWorldMapSearchVisible(bSearching);
 	}
 	// OpenLodUi LodMenu/Server begin in Strategic, after TacticsToStrategy2.
 	const bool bShowStrategic = FMath::IsFinite(Dxf) && Dxf > 5400.0f;
@@ -1267,9 +1345,6 @@ void URokWorldMapHudWidget::BuildRelationFilters()
 		NSLOCTEXT("RokWorldMapHud", "SpecialMarker", "特殊")}, {SpriteRect(984,714,37,37)});
 	UpdateFilterLegend();
 
-	// Unity renders the march queue inside the army command HUD
-	// (UI_Pop_WorldArmyCmdView), not as a floating world-map label; the
-	// queue UI arrives with the march-command slice.
 }
 
 void URokWorldMapHudWidget::UpdateFilterLegend()
@@ -1704,12 +1779,35 @@ void URokWorldMapHudWidget::BuildSelfMarker()
 void URokWorldMapHudWidget::BuildEntityBadges()
 {
 	EntityBadges.Reset();
-	const UWorld* World = GetWorld();
-	if (!World || !LevelBadgeTexture)
+	ReconcileEntityBadges();
+	UE_LOG(
+		LogTemp,
+		Display,
+		TEXT("Rok world entity badges built: count=%d"),
+		EntityBadges.Num());
+}
+
+void URokWorldMapHudWidget::ReconcileEntityBadges()
+{
+	UWorld* World = GetWorld();
+	if (!World || !ExpandedDesignCanvas || !LevelBadgeTexture)
 	{
 		return;
 	}
-	TArray<FString> BadgeLevelSummary;
+	for (int32 Index = EntityBadges.Num() - 1; Index >= 0; --Index)
+	{
+		const FEntityBadgeEntry& Entry = EntityBadges[Index];
+		const ARokWorldMapEntityActor* Entity = Entry.Entity.Get();
+		if (!IsValid(Entity) || Entity->GetEntityLevel() <= 0
+			|| Entry.ServerObjectId != Entity->GetServerObjectId())
+		{
+			if (Entry.Root)
+			{
+				Entry.Root->RemoveFromParent();
+			}
+			EntityBadges.RemoveAtSwap(Index);
+		}
+	}
 	for (TActorIterator<ARokWorldMapEntityActor> EntityIterator(World);
 		EntityIterator;
 		++EntityIterator)
@@ -1719,23 +1817,34 @@ void URokWorldMapHudWidget::BuildEntityBadges()
 		{
 			continue;
 		}
-		BadgeLevelSummary.Add(FString::Printf(
-			TEXT("%d:%d"),
-			EntityActor->GetSourceId(),
-			EntityActor->GetEntityLevel()));
+		const FString ServerObjectId = EntityActor->GetServerObjectId();
+		FEntityBadgeEntry* Existing = EntityBadges.FindByPredicate(
+			[EntityActor, &ServerObjectId](const FEntityBadgeEntry& Entry)
+			{
+				return Entry.Entity.Get() == EntityActor
+					&& Entry.ServerObjectId == ServerObjectId;
+			});
+		if (Existing)
+		{
+			if (Existing->LevelText)
+			{
+				Existing->LevelText->SetText(FText::AsNumber(
+					EntityActor->GetEntityLevel()));
+			}
+			continue;
+		}
+		const uint64 BadgeId = ++NextEntityBadgeId;
 
 		UCanvasPanel* BadgeRoot =
 			WidgetTree->ConstructWidget<UCanvasPanel>(
 				UCanvasPanel::StaticClass(),
-				FName(*FString::Printf(TEXT("WorldMapEntityBadge_%d"),
-					EntityActor->GetSourceId())));
+				FName(*FString::Printf(TEXT("WorldMapEntityBadge_%llu"), BadgeId)));
 		BadgeRoot->SetVisibility(ESlateVisibility::Collapsed);
 		BadgeRoot->SetRenderTransformPivot(FVector2D::ZeroVector);
 
 		UImage* BadgeImage = WidgetTree->ConstructWidget<UImage>(
 			UImage::StaticClass(),
-			FName(*FString::Printf(TEXT("WorldMapEntityBadgeBg_%d"),
-				EntityActor->GetSourceId())));
+			FName(*FString::Printf(TEXT("WorldMapEntityBadgeBg_%llu"), BadgeId)));
 		FSlateBrush BadgeBrush;
 		BadgeBrush.SetResourceObject(LevelBadgeTexture);
 		BadgeBrush.ImageSize = FVector2D(60.0f, 33.0f);
@@ -1748,8 +1857,7 @@ void URokWorldMapHudWidget::BuildEntityBadges()
 			FVector2D(60.0f, 33.0f));
 
 		UTextBlock* LevelText = MakeHudText(
-			FName(*FString::Printf(TEXT("WorldMapEntityBadgeLevel_%d"),
-				EntityActor->GetSourceId())),
+			FName(*FString::Printf(TEXT("WorldMapEntityBadgeLevel_%llu"), BadgeId)),
 			18,
 			FLinearColor(0.184f, 0.176f, 0.153f, 1.0f),
 			true);
@@ -1764,7 +1872,18 @@ void URokWorldMapHudWidget::BuildEntityBadges()
 
 		FEntityBadgeEntry Entry;
 		Entry.Entity = EntityActor;
+		Entry.ServerObjectId = ServerObjectId;
 		Entry.Root = BadgeRoot;
+		Entry.LevelText = LevelText;
+		if (IsResourceEntityKind(EntityActor->GetEntityKind()) && !ServerObjectId.IsEmpty())
+		{
+			// Unity MapTouchHandler / ui_map[img_map_state_collect1].
+			Entry.GatheringIcon = MakeAtlasImage(
+				*FString::Printf(TEXT("WorldMapGatheringIcon_%llu"), BadgeId),
+				MapAtlasPath, SpriteRect(449, 96, 46, 46), MapAtlasSize, FVector2D(54));
+			Entry.GatheringIcon->SetVisibility(ESlateVisibility::Collapsed);
+			PlaceOnCanvas(BadgeRoot, Entry.GatheringIcon, FVector2D(5, -144), FVector2D(54));
+		}
 		UCanvasPanelSlot* BadgeSlot = PlaceOnCanvas(
 			ExpandedDesignCanvas,
 			BadgeRoot,
@@ -1777,12 +1896,6 @@ void URokWorldMapHudWidget::BuildEntityBadges()
 		}
 		EntityBadges.Add(MoveTemp(Entry));
 	}
-	UE_LOG(
-		LogTemp,
-		Display,
-		TEXT("Rok world entity badges built: count=%d levels=%s"),
-		EntityBadges.Num(),
-		*FString::Join(BadgeLevelSummary, TEXT(",")));
 }
 
 float URokWorldMapHudWidget::EvaluateCityTitleOffset(float Dxf)
@@ -1875,6 +1988,9 @@ void URokWorldMapHudWidget::UpdateEntityBadges()
 	}
 	FRokWorldMapProjection Projection;
 	ResolveProjection(Projection);
+	const auto* Instance = GetGameInstance();
+	const auto* Net = Instance ? Instance->GetSubsystem<URokGameNetSubsystem>() : nullptr;
+	const int64 RoleId = Net ? Net->GetRoleId() : 0;
 	for (FEntityBadgeEntry& Entry : EntityBadges)
 	{
 		ARokWorldMapEntityActor* EntityActor = Entry.Entity.Get();
@@ -1929,6 +2045,9 @@ void URokWorldMapHudWidget::UpdateEntityBadges()
 				ScreenPosition.Y / CurrentRootSize.Y, VerticalFov)
 			: 1.0f;
 		Entry.Root->SetRenderScale(FVector2D(BadgeScale, BadgeScale));
+		if (Entry.GatheringIcon)
+			Entry.GatheringIcon->SetVisibility(RoleId > 0 && EntityActor->GetCollectorRoleId() == RoleId
+				? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
 		if (UCanvasPanelSlot* BadgeSlot = Entry.CanvasSlot.Get())
 		{
 			// UI_Tip_WorldObjectRssLevel img_bg is anchored 30 UI units
@@ -1939,6 +2058,31 @@ void URokWorldMapHudWidget::UpdateEntityBadges()
 		}
 		Entry.Root->SetVisibility(
 			ESlateVisibility::HitTestInvisible);
+	}
+}
+
+void URokWorldMapHudWidget::AddWorldPopupFrame(UCanvasPanel* Panel, const FVector2D& PanelSize, const TCHAR* Prefix)
+{
+	// UI_Pop_WorldObjectInfo/bg -> ui_common/img_com_PopBg (58x55),
+	// Unity border L/B/R/T = 25/25/18/21. Slate Box uses the entire
+	// texture's dimensions even with a UV region, so use atlas image patches
+	// as in RokUnityFeatureScreenWidget rather than stretching atlas-sized corners.
+	const int32 SourceX[] = {0, 25, 40, 58};
+	const int32 SourceY[] = {55, 34, 25, 0}; // top down in Unity's bottom-origin atlas
+	const float DestX[] = {0, 25, static_cast<float>(PanelSize.X) - 18, static_cast<float>(PanelSize.X)};
+	const float DestY[] = {0, 21, static_cast<float>(PanelSize.Y) - 25, static_cast<float>(PanelSize.Y)};
+	for (int32 Row = 0; Row < 3; ++Row)
+	{
+		for (int32 Col = 0; Col < 3; ++Col)
+		{
+			const FVector2D Size(DestX[Col + 1] - DestX[Col], DestY[Row + 1] - DestY[Row]);
+			PlaceOnCanvas(Panel, MakeAtlasImage(
+				*FString::Printf(TEXT("%s_%d_%d"), Prefix, Row, Col), CommonAtlasPath,
+				SpriteRect(WorldObjectPopBackgroundRect.Min.X + SourceX[Col],
+					WorldObjectPopBackgroundRect.Min.Y + SourceY[Row + 1],
+					SourceX[Col + 1] - SourceX[Col], SourceY[Row] - SourceY[Row + 1]),
+				CommonAtlasSize, Size), FVector2D(DestX[Col], DestY[Row]), Size);
+		}
 	}
 }
 
@@ -1962,7 +2106,7 @@ void URokWorldMapHudWidget::BuildWorldObjectInfo()
 		ExpandedDesignCanvas,
 		WorldObjectInfoRoot,
 		FVector2D(525.0f, 250.0f),
-		WorldObjectInfoSize);
+		WorldObjectInfoPanelSize);
 	if (WorldObjectInfoCanvasSlot.IsValid())
 	{
 		WorldObjectInfoCanvasSlot->SetZOrder(90);
@@ -1971,36 +2115,9 @@ void URokWorldMapHudWidget::BuildWorldObjectInfo()
 	UCanvasPanel* Panel = WidgetTree->ConstructWidget<UCanvasPanel>(
 		UCanvasPanel::StaticClass(), TEXT("WorldObjectInfoPanel"));
 	Panel->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-	// UI_Pop_WorldObjectInfo/bg -> ui_common/img_com_PopBg (58x55),
-	// Unity border L/B/R/T = 25/25/18/21. Slate Box uses the entire
-	// texture's dimensions even with a UV region, so use atlas image patches
-	// as in RokUnityFeatureScreenWidget rather than stretching atlas-sized corners.
-	const int32 SourceX[] = {0, 25, 40, 58};
-	const int32 SourceY[] = {55, 34, 25, 0}; // top down in Unity's bottom-origin atlas
-	const float DestX[] = {0, 25, static_cast<float>(WorldObjectInfoPanelSize.X) - 18, static_cast<float>(WorldObjectInfoPanelSize.X)};
-	const float DestY[] = {0, 21, static_cast<float>(WorldObjectInfoPanelSize.Y) - 25, static_cast<float>(WorldObjectInfoPanelSize.Y)};
-	for (int32 Row = 0; Row < 3; ++Row)
-	{
-		for (int32 Col = 0; Col < 3; ++Col)
-		{
-			const FVector2D Size(DestX[Col + 1] - DestX[Col], DestY[Row + 1] - DestY[Row]);
-			PlaceOnCanvas(Panel, MakeAtlasImage(
-				*FString::Printf(TEXT("WorldObjectInfoPatch_%d_%d"), Row, Col), CommonAtlasPath,
-				SpriteRect(WorldObjectPopBackgroundRect.Min.X + SourceX[Col],
-					WorldObjectPopBackgroundRect.Min.Y + SourceY[Row + 1],
-					SourceX[Col + 1] - SourceX[Col], SourceY[Row] - SourceY[Row + 1]),
-				CommonAtlasSize, Size), FVector2D(DestX[Col], DestY[Row]), Size);
-		}
-	}
-	WorldObjectInfoPanelCanvasSlot = PlaceOnCanvas(
-		WorldObjectInfoRoot,
-		Panel,
-		FVector2D::ZeroVector,
-		WorldObjectInfoPanelSize);
-	if (WorldObjectInfoPanelCanvasSlot.IsValid())
-	{
-		WorldObjectInfoPanelCanvasSlot->SetZOrder(0);
-	}
+	WorldResourceInfoPanel = Panel;
+	AddWorldPopupFrame(Panel, WorldObjectInfoPanelSize, TEXT("WorldObjectInfoPatch"));
+	PlaceOnCanvas(WorldObjectInfoRoot, Panel, FVector2D::ZeroVector, WorldObjectInfoPanelSize);
 
 	UCanvasPanel* PanelContent =
 		WidgetTree->ConstructWidget<UCanvasPanel>(
@@ -2020,50 +2137,48 @@ void URokWorldMapHudWidget::BuildWorldObjectInfo()
 		InputBlockerSlot->SetZOrder(-1);
 	}
 
-	WorldObjectInfoIcon =
-		WidgetTree->ConstructWidget<UImage>(
-			UImage::StaticClass(),
-			TEXT("WorldObjectInfoIcon"));
+	// UI_Pop_WorldObjectInfo and UI_Item_WorldObjInfoTCollect.
+	const FLinearColor Ink(FColor(35, 35, 32));
+	auto AddText = [&](FName Name, int32 FontSize, const FVector2D& Position, const FVector2D& Size,
+		ETextJustify::Type Justification, bool bBold, FLinearColor Color)
+	{
+		auto* Text = MakeHudText(Name, FontSize, Color, bBold);
+		Text->SetFont(URokMainHudWidget::MakeUnitySourceFont(FontSize, bBold));
+		Text->SetShadowOffset(FVector2D::ZeroVector);
+		Text->SetJustification(Justification);
+		PlaceOnCanvas(PanelContent, Text, Position, Size);
+		return Text;
+	};
+
+	WorldObjectInfoCoordinateText = AddText(TEXT("WorldObjectInfoCoordinate"), 20,
+		FVector2D(118, 11), FVector2D(243, 28), ETextJustify::Center, false,
+		FLinearColor(FColor(57, 56, 53)));
+	WorldObjectInfoNameText = AddText(TEXT("WorldObjectInfoName"), 24,
+		FVector2D(88, 44), FVector2D(303, 31), ETextJustify::Center, true, Ink);
+
+	PlaceOnCanvas(PanelContent, MakeAtlasImage(TEXT("WorldObjectResourceStatsBackground"), CommonAtlasPath,
+		SpriteRect(436, 165, 63, 55), CommonAtlasSize, FVector2D(383, 100)), FVector2D(73, 80), FVector2D(383, 100));
+	PlaceOnCanvas(PanelContent, MakeAtlasImage(TEXT("WorldObjectResourceFrame"), ResourceIconAtlasPath,
+		SpriteRect(729, 1878, 168, 169), ResourceIconAtlasSize, FVector2D(120)), FVector2D(5, 68), FVector2D(120));
+	WorldObjectInfoIcon = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("WorldObjectInfoIcon"));
 	WorldObjectInfoIcon->SetVisibility(ESlateVisibility::HitTestInvisible);
-	PlaceOnCanvas(
-		PanelContent,
-		WorldObjectInfoIcon,
-		FVector2D(25.0f, 31.0f),
-		FVector2D(78.0f, 78.0f));
+	PlaceOnCanvas(PanelContent, WorldObjectInfoIcon, FVector2D(15, 78), FVector2D(100));
 
-	WorldObjectInfoNameText = MakeHudText(
-		TEXT("WorldObjectInfoName"),
-		24,
-		FLinearColor(0.13725491f, 0.13725491f, 0.1254902f, 1.0f),
-		true);
-	WorldObjectInfoNameText->SetShadowOffset(FVector2D::ZeroVector);
-	PlaceOnCanvas(
-		PanelContent,
-		WorldObjectInfoNameText,
-		FVector2D(116.0f, 24.0f),
-		FVector2D(190.0f, 36.0f));
-
-	WorldObjectInfoLevelText = MakeHudText(
-		TEXT("WorldObjectInfoLevel"),
-		19,
-		FLinearColor(0.13725491f, 0.13725491f, 0.1254902f, 1.0f));
-	WorldObjectInfoLevelText->SetShadowOffset(FVector2D::ZeroVector);
-	PlaceOnCanvas(
-		PanelContent,
-		WorldObjectInfoLevelText,
-		FVector2D(116.0f, 62.0f),
-		FVector2D(244.0f, 28.0f));
-
-	WorldObjectInfoCoordinateText = MakeHudText(
-		TEXT("WorldObjectInfoCoordinate"),
-		17,
-		FLinearColor(0.22352941f, 0.21960784f, 0.20784314f, 1.0f));
-	WorldObjectInfoCoordinateText->SetShadowOffset(FVector2D::ZeroVector);
-	PlaceOnCanvas(
-		PanelContent,
-		WorldObjectInfoCoordinateText,
-		FVector2D(116.0f, 91.0f),
-		FVector2D(244.0f, 26.0f));
+	const FText Labels[] = {
+		NSLOCTEXT("RokWorldMapHud", "ResourceReserve", "储量"),
+		NSLOCTEXT("RokWorldMapHud", "ResourceCollector", "采集者"),
+		NSLOCTEXT("RokWorldMapHud", "ResourceAlliance", "所属联盟")};
+	const FName ValueNames[] = {TEXT("WorldObjectInfoAmount"), TEXT("WorldObjectInfoCollector"), TEXT("WorldObjectInfoAlliance")};
+	TObjectPtr<UTextBlock>* Values[] = {&WorldObjectInfoAmountText, &WorldObjectInfoCollectorText, &WorldObjectInfoAllianceText};
+	for (int32 Row = 0; Row < UE_ARRAY_COUNT(Labels); ++Row)
+	{
+		const float Y = 85.0f + 30.0f * Row;
+		AddText(*FString::Printf(TEXT("WorldObjectResourceLabel_%d"), Row), 20,
+			FVector2D(130, Y), FVector2D(110, 29), ETextJustify::Left, true, Ink)->SetText(Labels[Row]);
+		*Values[Row] = AddText(ValueNames[Row], 20, FVector2D(244, Y), FVector2D(188, 29),
+			ETextJustify::Right, true, Ink);
+		(*Values[Row])->SetTextOverflowPolicy(ETextOverflowPolicy::Ellipsis);
+	}
 
 	// UI_Pop_WorldObjectInfo: 60x60 transparent hit rect, centered 38x38
 	// img_descinfo / img_descBack. No BtnAnimation on these two source buttons.
@@ -2085,8 +2200,23 @@ void URokWorldMapHudWidget::BuildWorldObjectInfo()
 	PlaceOnCanvas(
 		PanelContent,
 		DetailsButton,
-		FVector2D(316.5f, 18.5f),
+		FVector2D(12, 17),
 		FVector2D(60));
+
+	auto* Bookmark = MakeAtlasButton(TEXT("WorldObjectBookmarkButton"), MapAtlasPath,
+		SpriteRect(617, 188, 54, 67), MapAtlasSize, FVector2D(54, 67));
+	Bookmark->SetToolTipText(NSLOCTEXT("RokWorldMapHud", "ResourceBookmark", "地图标记"));
+	Bookmark->OnClicked.AddDynamic(this, &URokWorldMapHudWidget::HandleWorldObjectBookmarkClicked);
+	PlaceOnCanvas(PanelContent, Bookmark, FVector2D(365, -5), FVector2D(54, 67));
+	auto* Share = MakeAtlasButton(TEXT("WorldObjectShareButton"), MapAtlasPath,
+		SpriteRect(729, 198, 54, 67), MapAtlasSize, FVector2D(54, 67));
+	Share->SetToolTipText(NSLOCTEXT("RokWorldMapHud", "ResourceShare", "复制坐标"));
+	Share->OnClicked.AddDynamic(this, &URokWorldMapHudWidget::HandleWorldObjectShareClicked);
+	PlaceOnCanvas(PanelContent, Share, FVector2D(419, -5), FVector2D(54, 67));
+	PlaceOnCanvas(PanelContent, MakeAtlasImage(TEXT("WorldObjectShareIcon"), MapAtlasPath,
+		SpriteRect(481, 7, 32, 32), MapAtlasSize, FVector2D(32)), FVector2D(430, 6), FVector2D(32));
+
+	BuildWorldGatherProgress(PanelContent);
 
 	UButton* GatherButton =
 		WidgetTree->ConstructWidget<URokUiAnimatedButton>(
@@ -2109,17 +2239,20 @@ void URokWorldMapHudWidget::BuildWorldObjectInfo()
 	UTextBlock* GatherText = MakeHudText(
 		TEXT("WorldObjectInfoGatherButtonText"),
 		32,
-		FLinearColor(0.039215688f, 0.105882354f, 0.18039216f, 1),
+		FLinearColor(FColor(10, 27, 46)),
 		true);
+	GatherText->SetFont(URokMainHudWidget::MakeUnitySourceFont(32, true));
 	GatherText->SetShadowOffset(FVector2D::ZeroVector);
 	GatherText->SetText(
 		NSLOCTEXT("RokWorldMapHud", "WorldObjectGather", "采集"));
 	GatherText->SetJustification(ETextJustify::Center);
 	GatherButton->SetContent(GatherText);
+	WorldGatherActionButton = GatherButton;
+	WorldGatherActionText = GatherText;
 	PlaceOnCanvas(
 		PanelContent,
 		GatherButton,
-		FVector2D(94.0f, 128.0f),
+		FVector2D(138.5f, 237.0f),
 		FVector2D(202.0f, 84.0f));
 
 	WorldObjectInfoDetailsRoot =
@@ -2137,9 +2270,9 @@ void URokWorldMapHudWidget::BuildWorldObjectInfo()
 	auto* Back = MakeInfoIconButton(TEXT("WorldObjectDescriptionBack"), SpriteRect(1171, 489, 38, 38));
 	Back->OnClicked.AddDynamic(this, &URokWorldMapHudWidget::HandleWorldObjectDetailsClicked);
 	Back->SetToolTipText(NSLOCTEXT("RokWorldMapHud", "ResourceDescriptionBack", "返回"));
-	PlaceOnCanvas(WorldObjectInfoDetailsRoot, Back, FVector2D(315.5f, 5), FVector2D(60));
+	PlaceOnCanvas(WorldObjectInfoDetailsRoot, Back, FVector2D(403.5f, 5), FVector2D(60));
 	auto* DescriptionScroll = WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("WorldObjectDescriptionScroll"));
-	PlaceOnCanvas(WorldObjectInfoDetailsRoot, DescriptionScroll, FVector2D(22, 58), FVector2D(346, 174));
+	PlaceOnCanvas(WorldObjectInfoDetailsRoot, DescriptionScroll, FVector2D(22, 58), FVector2D(435, 272));
 	// UI_Pop_WorldObjectInfo/lbl_desc: 20pt regular, rich text enabled.
 	// Preserve Language.cn <b> spans rather than stripping emphasis.
 	auto* DetailsText = WidgetTree->ConstructWidget<URichTextBlock>(
@@ -2175,20 +2308,21 @@ void URokWorldMapHudWidget::BuildWorldObjectInfo()
 	PlaceOnCanvas(
 		PanelContent,
 		WorldObjectInfoFeedbackText,
-		FVector2D(18.0f, 216.0f),
-		FVector2D(354.0f, 28.0f));
+		FVector2D(18.0f, 324.0f),
+		FVector2D(443.0f, 28.0f));
 
+	BuildBarbarianInfo();
 	WorldObjectInfoArrow = MakeAtlasImage(
 		TEXT("WorldObjectInfoArrow"),
 		CommonAtlasPath,
 		WorldObjectPopArrowRect,
 		CommonAtlasSize,
-		FVector2D(24.0f, 30.0f));
+		FVector2D(12.0f, 15.0f));
 	WorldObjectInfoArrowCanvasSlot = PlaceOnCanvas(
 		WorldObjectInfoRoot,
 		WorldObjectInfoArrow,
-		FVector2D(183.0f, 240.0f),
-		FVector2D(24.0f, 30.0f));
+		FVector2D::ZeroVector,
+		FVector2D(12.0f, 15.0f));
 	if (WorldObjectInfoArrowCanvasSlot.IsValid())
 	{
 		WorldObjectInfoArrowCanvasSlot->SetZOrder(1);
@@ -2340,12 +2474,10 @@ void URokWorldMapHudWidget::UpdatePlayerMarkerProjection()
 		SelfMarkerRoot->SetVisibility(ESlateVisibility::Collapsed);
 		return;
 	}
-	// The converted city card is not centred on the actor root (its visual
-	// centre sits +345/+624 cm away), so anchoring the plate at the root put it
-	// about 20 m from the visible city. Unity anchors at the entity's ground
-	// position, which is the card base here; use the card's visual centre, then
-	// apply the source CastleTitle offset along the ground plane.
-	const FVector TitleAnchor = PlayerCity->GetVisualCenterWorldPosition();
+	// GlobalViewLevelMediator positions tactical titles at the map object's
+	// ground coordinates. The art's pivot and LOD do not move that anchor.
+	const FVector TitleAnchor = bPortraitBand
+		? PlayerCity->GetVisualCenterWorldPosition() : PlayerCity->GetActorLocation();
 	const float TitleOffsetCm =
 		EvaluateCityTitleOffset(MarkerCamera->GetCurrentDxf())
 		* TitleProjection.GetSafeUeScale();
@@ -2360,7 +2492,6 @@ void URokWorldMapHudWidget::UpdatePlayerMarkerProjection()
 	}
 	// MapElementUI.WorldToUIPos: below 3000 CastleTitle offsets Unity z
 	// only (UE Y). At/above 3000 it offsets both Unity z and y (UE Y/Z).
-	// The anchor is the card's declared visual centre (not computed bounds).
 	const UCameraComponent* TitleCamera = MarkerCamera->GetCameraComponent();
 	const float TitleVerticalFov = FMath::RadiansToDegrees(2*FMath::Atan(
 		FMath::Tan(FMath::DegreesToRadians(TitleCamera->FieldOfView)*0.5f) / TitleCamera->AspectRatio));
@@ -2456,41 +2587,35 @@ void URokWorldMapHudWidget::UpdateWorldObjectInfoProjection()
 			/ CurrentRootSize.X,
 		WidgetPosition.Y * CurrentExpandedDesignSize.Y
 			/ CurrentRootSize.Y);
-	const bool bPlaceAbove =
-		DesignPosition.Y >= WorldObjectInfoSize.Y + 24.0f;
-	const FVector2D DesiredTopLeft(
-		DesignPosition.X - WorldObjectInfoSize.X * 0.5f,
-		bPlaceAbove
-			? DesignPosition.Y - WorldObjectInfoSize.Y - 8.0f
-			: DesignPosition.Y + 8.0f);
-	const FVector2D ClampedTopLeft = ClampMarkerTopLeft(
-		DesiredTopLeft,
-		WorldObjectInfoSize,
-		CurrentExpandedDesignSize,
-		12.0f);
+	// ChangeWinPos places the card toward the viewport centre, beside a point
+	// in the middle band and above/below points close to a vertical edge.
+	const FVector2D PanelSize = WorldObjectInfoCanvasSlot->GetSize();
+	const FVector2D Half = PanelSize * 0.5f;
+	const bool bPlaceAbove = DesignPosition.Y > CurrentExpandedDesignSize.Y - Half.Y;
+	const bool bPlaceBelow = DesignPosition.Y < Half.Y;
+	const bool bOnLeft = DesignPosition.X < CurrentExpandedDesignSize.X * 0.5f - 1.0f;
+	FVector2D DesiredTopLeft = DesignPosition - Half;
+	if (bPlaceAbove || bPlaceBelow)
+	{
+		DesiredTopLeft.Y = bPlaceAbove ? DesignPosition.Y - PanelSize.Y - 50.0f : DesignPosition.Y + 50.0f;
+	}
+	else
+	{
+		DesiredTopLeft.X = bOnLeft ? DesignPosition.X + 50.0f : DesignPosition.X - PanelSize.X - 50.0f;
+	}
+	const FVector2D ClampedTopLeft = ClampMarkerTopLeft(DesiredTopLeft, PanelSize,
+		CurrentExpandedDesignSize, 12.0f);
 	WorldObjectInfoCanvasSlot->SetPosition(ClampedTopLeft);
 
-	const float ArrowX = FMath::Clamp(
-		DesignPosition.X - ClampedTopLeft.X - 12.0f,
-		18.0f,
-		WorldObjectInfoSize.X - 42.0f);
-	if (WorldObjectInfoPanelCanvasSlot.IsValid())
+	if (WorldObjectInfoArrowCanvasSlot.IsValid() && WorldObjectInfoArrow)
 	{
-		WorldObjectInfoPanelCanvasSlot->SetPosition(
-			bPlaceAbove
-				? FVector2D::ZeroVector
-				: FVector2D(0.0f, 20.0f));
-	}
-	if (WorldObjectInfoArrowCanvasSlot.IsValid())
-	{
-		WorldObjectInfoArrowCanvasSlot->SetPosition(FVector2D(
-			ArrowX,
-			bPlaceAbove ? 240.0f : 0.0f));
-	}
-	if (WorldObjectInfoArrow)
-	{
-		WorldObjectInfoArrow->SetRenderTransformAngle(
-			bPlaceAbove ? 0.0f : 180.0f);
+		const FVector2D LocalPoint = DesignPosition - ClampedTopLeft;
+		const bool bVertical = bPlaceAbove || bPlaceBelow;
+		const FVector2D ArrowCenter = bVertical
+			? FVector2D(FMath::Clamp(LocalPoint.X, 18.0, PanelSize.X - 18.0), bPlaceAbove ? PanelSize.Y + 5.0 : -5.0)
+			: FVector2D(bOnLeft ? -5.0 : PanelSize.X + 5.0, FMath::Clamp(LocalPoint.Y, 18.0, PanelSize.Y - 18.0));
+		WorldObjectInfoArrowCanvasSlot->SetPosition(ArrowCenter - FVector2D(6.0, 7.5));
+		WorldObjectInfoArrow->SetRenderTransformAngle(bVertical ? (bPlaceAbove ? 0.0f : 180.0f) : (bOnLeft ? 90.0f : -90.0f));
 	}
 	if (bWorldObjectProjectionDebugPending
 		&& FParse::Param(
@@ -2570,6 +2695,53 @@ void URokWorldMapHudWidget::UpdateMiniMapMarkers()
 
 void URokWorldMapHudWidget::RefreshRuntimeValues()
 {
+	FRokPlayerTopBar ServerTopBar;
+	bool bServerTopBar = false;
+	if (const UGameInstance* GameInstance = GetGameInstance())
+	{
+		const URokGameNetSubsystem* Net =
+			GameInstance->GetSubsystem<URokGameNetSubsystem>();
+		if (Net && Net->GetState() == ERokGameNetState::RoleReady)
+		{
+			FString Error;
+			bServerTopBar = RokPlayerTopBar::FromRoleInfo(
+				Net->GetRoleInfo(), ServerTopBar, Error);
+		}
+	}
+	if (bServerTopBar)
+	{
+		bDisplayingServerTopBar = true;
+		SetPowerPresentation(static_cast<int32>(FMath::Clamp<int64>(
+			ServerTopBar.Power, 0, MAX_int32)));
+		if (PowerText)
+		{
+			PowerText->SetToolTipText(FText::GetEmpty());
+		}
+		if (VipText)
+		{
+			VipText->SetText(FText::FromString(ServerTopBar.VipText));
+		}
+		if (SelfCityNameText)
+		{
+			SelfCityNameText->SetText(FText::FromString(ServerTopBar.Name));
+		}
+		if (SelfCityLevelText)
+		{
+			SelfCityLevelText->SetText(FText::AsNumber(FMath::Max(1, ServerTopBar.Level)));
+		}
+	}
+	else if (bDisplayingServerTopBar)
+	{
+		bDisplayingServerTopBar = false;
+		if (SelfCityNameText)
+		{
+			SelfCityNameText->SetText(NSLOCTEXT("RokWorldMapHud", "SelfCityName", "主城"));
+		}
+		if (SelfCityLevelText)
+		{
+			SelfCityLevelText->SetText(FText::AsNumber(ReadInitialCityHallLevel()));
+		}
+	}
 	const ARokWorldMapCameraPawn* CameraPawn =
 		Cast<ARokWorldMapCameraPawn>(GetOwningPlayerPawn());
 	if (CoordinateText && CameraPawn)
@@ -2582,7 +2754,7 @@ void URokWorldMapHudWidget::RefreshRuntimeValues()
 			FMath::FloorToInt(DisplayCoordinate.Y))));
 	}
 
-	if (PowerText || VipText)
+	if (!bServerTopBar && (PowerText || VipText))
 	{
 		FRokUnityRuntimePlayerProfileState ProfileState;
 		bool bHasProfileState = false;
@@ -2772,43 +2944,42 @@ bool URokWorldMapHudWidget::IsWorldObjectInfoOpen() const
 			!= ESlateVisibility::Collapsed;
 }
 
-const TCHAR* URokWorldMapHudWidget::ResolveWorldObjectIconPath(
-	const FString& EntityKind) const
-{
-	FString NormalizedKind = EntityKind;
-	NormalizedKind.TrimStartAndEndInline();
-	NormalizedKind.ToLowerInline();
-	if (NormalizedKind == TEXT("food"))
-	{
-		return FoodIconPath;
-	}
-	if (NormalizedKind == TEXT("wood"))
-	{
-		return WoodIconPath;
-	}
-	if (NormalizedKind == TEXT("stone"))
-	{
-		return StoneIconPath;
-	}
-	if (NormalizedKind == TEXT("gold"))
-	{
-		return GoldIconPath;
-	}
-	return nullptr;
-}
-
 void URokWorldMapHudWidget::ShowWorldObjectInfo(AActor* Actor)
 {
+	PendingWorldTargetId.Reset();
+	if (WorldSearchResultGuide) WorldSearchResultGuide->RemoveFromParent();
 	ARokWorldMapEntityActor* EntityActor =
 		Cast<ARokWorldMapEntityActor>(Actor);
-	if (!EntityActor
-		|| !IsResourceEntityKind(EntityActor->GetEntityKind()))
+	const bool bBarbarian = EntityActor && EntityActor->GetEntityKind() == TEXT("barbarian");
+	if (!EntityActor || (!bBarbarian && !IsResourceEntityKind(EntityActor->GetEntityKind())))
 	{
 		HideWorldObjectInfo();
 		return;
 	}
 
 	SelectedWorldObjectActor = EntityActor;
+	SelectedWorldObjectServerId = EntityActor->GetServerObjectId();
+	if (WorldResourceInfoPanel) WorldResourceInfoPanel->SetVisibility(bBarbarian
+		? ESlateVisibility::Collapsed : ESlateVisibility::SelfHitTestInvisible);
+	if (WorldBarbarianInfoPanel) WorldBarbarianInfoPanel->SetVisibility(bBarbarian
+		? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+	if (WorldObjectInfoCanvasSlot.IsValid())
+		WorldObjectInfoCanvasSlot->SetSize(bBarbarian ? WorldBarbarianPanelSize : WorldObjectInfoPanelSize);
+	if (bBarbarian)
+	{
+		const auto* Army = GetGameInstance() ? GetGameInstance()->GetSubsystem<URokServerArmySubsystem>() : nullptr;
+		FRokBarbarianAttackInfo Info;
+		if (BarbarianStay) BarbarianStay->SetIsChecked(Army
+			&& Army->GetBarbarianAttackInfo(FCString::Atoi64(*SelectedWorldObjectServerId), Info) && Info.bSituStation);
+		SetBarbarianDetailsExpanded(false);
+		BarbarianDisplayedRewardGroup = INDEX_NONE;
+		WorldObjectAnimation.Open(ERokUiWindowAnimationStyle::WorldObject);
+		AdvanceWorldObjectAnimation(0.0f);
+		WorldObjectInfoRoot->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+		RefreshBarbarianInfo(*EntityActor);
+		UpdateWorldObjectInfoProjection();
+		return;
+	}
 	if (WorldObjectDescriptionText)
 	{
 		FString Json;
@@ -2843,56 +3014,17 @@ void URokWorldMapHudWidget::ShowWorldObjectInfo(AActor* Actor)
 		WorldObjectInfoNameText->SetText(
 			FText::FromString(EntityActor->GetDisplayName()));
 	}
-	if (WorldObjectInfoLevelText)
-	{
-		WorldObjectInfoLevelText->SetText(FText::Format(
-			NSLOCTEXT(
-				"RokWorldMapHud",
-				"WorldObjectLevel",
-				"等级 {0}"),
-			FText::AsNumber(EntityActor->GetEntityLevel())));
-	}
-	if (WorldObjectInfoCoordinateText)
-	{
-		FVector2D DisplayPosition = EntityActor->GetUnityPosition();
-		FRokWorldMapProjection Projection;
-		if (ResolveProjection(Projection))
-		{
-			DisplayPosition = Projection.UnityToDisplay(
-				EntityActor->GetUnityPosition());
-		}
-		WorldObjectInfoCoordinateText->SetText(FText::FromString(
-			FString::Printf(
-				TEXT("#1  X:%d Y:%d"),
-				FMath::FloorToInt(DisplayPosition.X),
-				FMath::FloorToInt(DisplayPosition.Y))));
-	}
 	if (WorldObjectInfoIcon)
 	{
-		const TCHAR* IconPath = ResolveWorldObjectIconPath(
-			EntityActor->GetEntityKind());
-		if (IconPath)
-		{
-			if (UTexture2D* IconTexture = LoadUiTexture(IconPath))
-			{
-				WorldObjectInfoIcon->SetBrushFromTexture(
-					IconTexture,
-					true);
-				WorldObjectInfoIcon->SetVisibility(
-					ESlateVisibility::HitTestInvisible);
-			}
-			else
-			{
-				WorldObjectInfoIcon->SetVisibility(
-					ESlateVisibility::Collapsed);
-			}
-		}
-		else
-		{
-			WorldObjectInfoIcon->SetVisibility(
-				ESlateVisibility::Collapsed);
-		}
+		const FString& Kind = EntityActor->GetEntityKind();
+		const FIntRect Rect = Kind.Equals(TEXT("food"), ESearchCase::IgnoreCase) ? SpriteRect(865, 349, 80, 80)
+			: Kind.Equals(TEXT("wood"), ESearchCase::IgnoreCase) ? SpriteRect(1085, 489, 80, 80)
+			: Kind.Equals(TEXT("stone"), ESearchCase::IgnoreCase) ? SpriteRect(947, 431, 80, 80)
+			: SpriteRect(865, 431, 80, 80);
+		WorldObjectInfoIcon->SetBrush(MakeAtlasBrush(LoadUiTexture(CommonAtlasPath), Rect, CommonAtlasSize, FVector2D(100)));
+		WorldGatherProgressIcon->SetBrush(MakeAtlasBrush(LoadUiTexture(CommonAtlasPath), Rect, CommonAtlasSize, FVector2D(60)));
 	}
+	RefreshSelectedWorldObjectValues();
 	if (WorldObjectInfoRoot)
 	{
 		WorldObjectAnimation.Open(ERokUiWindowAnimationStyle::WorldObject);
@@ -2911,9 +3043,88 @@ void URokWorldMapHudWidget::ShowWorldObjectInfo(AActor* Actor)
 		EntityActor->GetEntityLevel());
 }
 
+void URokWorldMapHudWidget::RefreshSelectedWorldObjectValues()
+{
+	ARokWorldMapEntityActor* EntityActor = SelectedWorldObjectActor.Get();
+	if (!IsValid(EntityActor)
+		|| (EntityActor && EntityActor->GetServerObjectId() != SelectedWorldObjectServerId))
+	{
+		if (IsWorldObjectInfoOpen())
+		{
+			HideWorldObjectInfo();
+		}
+		return;
+	}
+	if (EntityActor->GetEntityKind() == TEXT("barbarian"))
+	{
+		RefreshBarbarianInfo(*EntityActor);
+		return;
+	}
+	const FText None = NSLOCTEXT("RokWorldMapHud", "NoResourceOwner", "无");
+	const FText Unknown = NSLOCTEXT("RokWorldMapHud", "UnknownResourceValue", "—");
+	const auto* Instance = GetGameInstance();
+	const auto* Army = Instance ? Instance->GetSubsystem<URokServerArmySubsystem>() : nullptr;
+	const FRokGatherPointState Gathering = Army ? Army->GetGatherPointState(SelectedWorldObjectServerId) : FRokGatherPointState();
+	if (WorldGatherActionButton)
+	{
+		const bool bOccupied = EntityActor->GetCollectorRoleId() > 0;
+		const bool bRecallPending = SelectedRecallTargetId > 0 && LexToString(SelectedRecallTargetId) == SelectedWorldObjectServerId;
+		WorldGatherActionButton->SetVisibility(!bOccupied || Gathering.bOwned
+			? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+		WorldGatherActionButton->SetIsEnabled(!bRecallPending && (!Gathering.bOwned || Gathering.bCanRecall));
+		WorldGatherActionText->SetText(Gathering.bOwned
+			? NSLOCTEXT("RokGather", "Recall", "召回")
+			: NSLOCTEXT("RokWorldMapHud", "WorldObjectGather", "采集"));
+	}
+	if (WorldGatherProgressRoot)
+	{
+		WorldGatherProgressRoot->SetVisibility(Gathering.bOwned ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+		if (Gathering.bOwned)
+		{
+			WorldGatherProgressBar->SetPercent(Gathering.Goal > 0 && Gathering.Gathered >= 0
+				? static_cast<float>(static_cast<double>(Gathering.Gathered) / Gathering.Goal) : 0.0f);
+			FText Goal = Gathering.Goal >= 0 ? FText::AsNumber(Gathering.Goal) : Unknown;
+			if (Gathering.bGoalApproximate)
+				Goal = FText::Format(NSLOCTEXT("RokGather", "ApproximateGoal", "约{0}"), Goal);
+			WorldGatherProgressText->SetText(FText::Format(NSLOCTEXT("RokGather", "Progress", "采集量:{0}/{1}"),
+				Gathering.Gathered >= 0 ? FText::AsNumber(Gathering.Gathered) : Unknown, Goal));
+		}
+	}
+	if (WorldObjectInfoAmountText)
+	{
+		const int64 Amount = Gathering.Remaining >= 0 ? Gathering.Remaining
+			: (EntityActor->GetServerResourceAmount() > 0 ? EntityActor->GetServerResourceAmount() : EntityActor->GetResourceCapacity());
+		WorldObjectInfoAmountText->SetText(Amount >= 0 ? FText::AsNumber(Amount) : Unknown);
+	}
+	if (WorldObjectInfoCollectorText)
+	{
+		const FString& Collector = EntityActor->GetCollectorName();
+		WorldObjectInfoCollectorText->SetText(EntityActor->GetCollectorRoleId() <= 0 ? None
+			: (Collector.IsEmpty() ? Unknown : FText::FromString(Collector)));
+	}
+	if (WorldObjectInfoAllianceText)
+	{
+		const FString& Alliance = EntityActor->GetResourceAlliance();
+		WorldObjectInfoAllianceText->SetText(Alliance.IsEmpty() ? None
+			: FText::FromString(FString::Printf(TEXT("[%s]"), *Alliance)));
+	}
+	if (WorldObjectInfoCoordinateText)
+	{
+		FVector2D DisplayPosition = EntityActor->GetUnityPosition();
+		FRokWorldMapProjection Projection;
+		if (ResolveProjection(Projection))
+		{
+			DisplayPosition = Projection.UnityToDisplay(DisplayPosition);
+		}
+		WorldObjectInfoCoordinateText->SetText(FText::FromString(FString::Printf(
+			TEXT("X:%d,Y:%d"), FMath::FloorToInt(DisplayPosition.X), FMath::FloorToInt(DisplayPosition.Y))));
+	}
+}
+
 void URokWorldMapHudWidget::HideWorldObjectInfo()
 {
 	SelectedWorldObjectActor.Reset();
+	SelectedWorldObjectServerId.Reset();
 	bWorldObjectProjectionDebugPending = false;
 	if (WorldObjectAnimation.IsClosing()) return;
 	if (IsWorldObjectInfoOpen() && WorldObjectAnimation.GetStyle() == ERokUiWindowAnimationStyle::WorldObject)
@@ -3007,21 +3218,68 @@ void URokWorldMapHudWidget::HandleWorldObjectDetailsClicked()
 
 void URokWorldMapHudWidget::HandleWorldObjectGatherClicked()
 {
-	ARokWorldMapEntityActor* EntityActor =
-		SelectedWorldObjectActor.Get();
-	if (WorldObjectInfoFeedbackText)
+	PlayResourceClickSound();
+	ARokWorldMapEntityActor* EntityActor = SelectedWorldObjectActor.Get();
+	int64 TargetId = 0;
+	if (!EntityActor || !LexTryParseString(TargetId, *SelectedWorldObjectServerId) || TargetId <= 0)
 	{
-		WorldObjectInfoFeedbackText->SetText(NSLOCTEXT(
-			"RokWorldMapHud",
-			"WorldObjectGatherBoundary",
-			"世界资源状态未同步，暂不能发起采集"));
+		if (WorldObjectInfoFeedbackText)
+		{
+			WorldObjectInfoFeedbackText->SetText(NSLOCTEXT(
+				"RokWorldMapHud", "GatherNeedsLiveResource", "请选择服务器上的资源点"));
+		}
+		return;
 	}
-	UE_LOG(
-		LogTemp,
-		Display,
-		TEXT("Rok world-map gather boundary: source_id=%d kind=%s; no march command or resource state was mutated."),
-		EntityActor ? EntityActor->GetSourceId() : 0,
-		EntityActor ? *EntityActor->GetEntityKind() : TEXT("<none>"));
+	auto* Instance = GetGameInstance();
+	auto* Army = Instance ? Instance->GetSubsystem<URokServerArmySubsystem>() : nullptr;
+	if (Army && Army->GetGatherPointState(SelectedWorldObjectServerId).bOwned)
+	{
+		if (SelectedRecallTargetId == TargetId) return;
+		FString Error;
+		const auto OnResult = [WeakThis = TWeakObjectPtr<URokWorldMapHudWidget>(this), TargetId](const FString& Failure)
+		{
+			auto* Hud = WeakThis.Get();
+			if (!Hud) return;
+			Hud->SelectedRecallTargetId = 0;
+			if (Hud->SelectedWorldObjectServerId != LexToString(TargetId)) return;
+			if (Failure.IsEmpty()) Hud->ClearWorldObjectSelection();
+			else if (Hud->WorldObjectInfoFeedbackText) Hud->WorldObjectInfoFeedbackText->SetText(FText::FromString(Failure));
+			Hud->RefreshSelectedWorldObjectValues();
+		};
+		if (Army->RequestGatherRecall(SelectedWorldObjectServerId, OnResult, Error))
+		{
+			SelectedRecallTargetId = TargetId;
+			WorldObjectInfoFeedbackText->SetText(NSLOCTEXT("RokGather", "RecallPending", "正在召回…"));
+			RefreshSelectedWorldObjectValues();
+		}
+		else if (WorldObjectInfoFeedbackText)
+		{
+			WorldObjectInfoFeedbackText->SetText(FText::FromString(Error));
+		}
+		return;
+	}
+	if (EntityActor->GetCollectorRoleId() <= 0) OpenGatherPanel(EntityActor, TargetId);
+}
+
+void URokWorldMapHudWidget::HandleWorldObjectBookmarkClicked()
+{
+	PlayResourceClickSound();
+	ClearWorldObjectSelection();
+	HandleOpenMapMarkersClicked();
+}
+
+void URokWorldMapHudWidget::HandleWorldObjectShareClicked()
+{
+	const auto* Target = SelectedWorldObjectActor.Get();
+	if (!Target) return;
+	const bool bBarbarian = Target->GetEntityKind() == TEXT("barbarian");
+	const auto* Coordinate = bBarbarian ? BarbarianCoordinate.Get() : WorldObjectInfoCoordinateText.Get();
+	if (!Coordinate) return;
+	FPlatformApplicationMisc::ClipboardCopy(*Coordinate->GetText().ToString());
+	if (!bBarbarian && WorldObjectInfoFeedbackText)
+	{
+		WorldObjectInfoFeedbackText->SetText(NSLOCTEXT("RokWorldMapHud", "ResourceCoordinateCopied", "已复制坐标"));
+	}
 	PlayResourceClickSound();
 }
 

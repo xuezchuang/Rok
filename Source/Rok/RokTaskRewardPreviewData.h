@@ -7,11 +7,14 @@ struct FRokTaskRewardPreviewRow
 {
 	int32 PackageRowId = 0;
 	int32 CurrencyId = 0;
+	int32 Quality = 1;
+	FText TopLabel;
 	int64 Quantity = 0;
 	int32 LocaleId = 0;
 	FString DisplayName;
 	FString IconKey;
-	FIntRect IconRect;
+	FString AtlasPath;
+	FIntRect IconRect = FIntRect(0, 0, 0, 0);
 	FIntPoint IconAtlasSize = FIntPoint::ZeroValue;
 };
 

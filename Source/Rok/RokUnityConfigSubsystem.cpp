@@ -144,13 +144,27 @@ bool URokUnityConfigSubsystem::LoadTable(FName TableName)
 	}
 
 	const FRokUnityConfigTableInfo* Info = TableInfos.Find(TableName);
-	if (!Info)
+	// These generated tables ship alongside the manifest's original core set.
+	const bool bPackagedExtra = TableName == TEXT("ItemPackageShow") || TableName == TEXT("Item")
+		|| TableName == TEXT("InstantPrice") || TableName == TEXT("TaskActivityReward")
+		|| TableName == TEXT("Hero") || TableName == TEXT("HeroLevel") || TableName == TEXT("HeroStar")
+		|| TableName == TEXT("HeroSkillLevel") || TableName == TEXT("HeroSkillEffect")
+		|| TableName == TEXT("HeroTalentGainTree") || TableName == TEXT("HeroTalentMastery")
+		|| TableName == TEXT("SystemOpen") || TableName == TEXT("ItemPackage") || TableName == TEXT("ActivityCalendar") || TableName == TEXT("ActivityTargetType")
+		|| TableName == TEXT("RechargeFund") || TableName == TEXT("RechargeFirst")
+		|| TableName == TEXT("ExpeditionBattle") || TableName == TEXT("MonsterTroops")
+		|| TableName == TEXT("BuildingTownCenter") || TableName == TEXT("BuildingCampus") || TableName == TEXT("CityAgeSize") || TableName == TEXT("BuildingModelData")
+		|| TableName == TEXT("Arms")
+		|| TableName == TEXT("Config") || TableName == TEXT("ResourceGatherType") || TableName == TEXT("Study")
+		|| TableName == TEXT("Monster") || TableName == TEXT("Mail") || TableName == TEXT("Civilization");
+	if (!Info && !bPackagedExtra)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("Rok Unity config table is unknown: %s"), *TableName.ToString());
 		return false;
 	}
 
-	const FString TablePath = ResolveProjectRelativePath(Info->JsonPath);
+	const FString TablePath = Info ? ResolveProjectRelativePath(Info->JsonPath)
+		: RokDataPaths::Resolve(FString::Printf(TEXT("ConfigTables/%s.json"), *TableName.ToString()));
 	FString JsonText;
 	if (!FFileHelper::LoadFileToString(JsonText, *TablePath))
 	{
@@ -167,7 +181,8 @@ bool URokUnityConfigSubsystem::LoadTable(FName TableName)
 	}
 
 	const TArray<TSharedPtr<FJsonValue>>* Rows = nullptr;
-	if (!RootObject->TryGetArrayField(TEXT("rows"), Rows) || !Rows)
+	if ((!Info && JsonNameField(RootObject, TEXT("table_name")) != TableName)
+		|| !RootObject->TryGetArrayField(TEXT("rows"), Rows) || !Rows)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("Rok Unity config table has no rows: %s"), *TablePath);
 		return false;

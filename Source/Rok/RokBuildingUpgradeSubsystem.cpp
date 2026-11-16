@@ -1,4 +1,5 @@
 #include "RokBuildingUpgradeSubsystem.h"
+#include "RokInstantPrice.h"
 
 #include "Engine/Texture2D.h"
 #include "Engine/GameInstance.h"
@@ -15,6 +16,9 @@
 #include "RokCitySpriteActor.h"
 #include "RokCityPlacementWorldFrame.h"
 #include "RokLocalConstructionVisualFactory.h"
+#include "RokGameNetSubsystem.h"
+#include "RokServerCitySubsystem.h"
+#include "RokServerInventorySubsystem.h"
 
 namespace
 {
@@ -174,7 +178,7 @@ bool FRokUnityBuildingLevelConfig::ParseSourceEconomy(const TSharedPtr<FJsonObje
 		|| !ReadRequired(TEXT("wood"), 0, Wood)
 		|| !ReadRequired(TEXT("stone"), 0, Stone)
 		|| !ReadRequired(TEXT("coin"), 0, Gold)
-		|| !ReadRequired(TEXT("buildingTime"), 1, Seconds)
+		|| !ReadRequired(TEXT("buildingTime"), Level == 1 ? 0 : 1, Seconds)
 		|| !ReadRequired(TEXT("power"), 0, ParsedPower)
 		|| ParsedType != TypeId || ParsedLevel != Level) return false;
 	Cost.Food = Food;
@@ -340,6 +344,64 @@ void URokBuildingUpgradeSubsystem::Tick(float DeltaTime)
 	}
 }
 
+namespace
+{
+URokGameNetSubsystem* GetGameNet(const UWorld* World)
+{
+	UGameInstance* Instance = World ? World->GetGameInstance() : nullptr;
+	return Instance ? Instance->GetSubsystem<URokGameNetSubsystem>() : nullptr;
+}
+
+bool CheckServerBuildQueue(const URokServerCitySubsystem& City, int32 Duration, FString& OutFailure)
+{
+	const FRokServerBuildQueueSnapshot Snapshot = City.GetBuildQueueSnapshot();
+	if (Snapshot.Queues.ContainsByPredicate([Duration](const FRokServerBuildQueueView& Queue)
+	{
+		return Queue.State == ERokServerBuildQueueState::Idle
+			&& (Queue.LeaseRemainingSeconds < 0.0 || Queue.LeaseRemainingSeconds >= Duration);
+	}))
+	{
+		return true;
+	}
+	OutFailure = TEXT("没有可用的建造队列。");
+	return false;
+}
+
+bool CheckServerBuildResources(const URokGameNetSubsystem& Net, const FRokResourceCost& Cost, FString& OutFailure)
+{
+	const TSharedPtr<FJsonObject> Role = Net.GetRoleInfo();
+	const TCHAR* Fields[] = {TEXT("food"), TEXT("wood"), TEXT("stone"), TEXT("gold")};
+	const int32 Amounts[] = {Cost.Food, Cost.Wood, Cost.Stone, Cost.Gold};
+	for (int32 Index = 0; Index < UE_ARRAY_COUNT(Fields); ++Index)
+	{
+		if (Amounts[Index] <= 0) continue;
+		int64 Balance = 0;
+		if (!RokSprotoJson::TryGetInt64(Role, Fields[Index], Balance))
+		{
+			OutFailure = TEXT("服务器资源尚未同步。");
+			return false;
+		}
+		if (Balance < Amounts[Index])
+		{
+			OutFailure = TEXT("建造所需资源不足。");
+			return false;
+		}
+	}
+	return true;
+}
+}
+
+bool URokBuildingUpgradeSubsystem::UsesServerCity() const
+{
+	const UWorld* World = GetWorld();
+	const URokServerCitySubsystem* City = World ? World->GetSubsystem<URokServerCitySubsystem>() : nullptr;
+	const URokGameNetSubsystem* Net = GetGameNet(World);
+	// A disconnect leaves the server layout in this world. Keep its local ledger
+	// isolated until the player enters a fresh offline city.
+	return (City && City->HasAppliedServerCity()) || (Net
+		&& Net->GetState() != ERokGameNetState::Offline && Net->GetState() != ERokGameNetState::Failed);
+}
+
 bool URokBuildingUpgradeSubsystem::CanUseLocalCitySimulation(FString& OutFailureReason) const
 {
 	if (!LocalCityContext.ValidateWorld(GetWorld(), OutFailureReason)) return false;
@@ -364,6 +426,11 @@ FRokLocalEconomyAuthoritySnapshot URokBuildingUpgradeSubsystem::GetLocalEconomyA
 
 bool URokBuildingUpgradeSubsystem::CanUseLocalEconomy(FString& OutFailureReason) const
 {
+	if (UsesServerCity())
+	{
+		OutFailureReason = TEXT("当前城市由服务器管理。");
+		return false;
+	}
 	const FRokLocalEconomyAuthoritySnapshot Snapshot = GetLocalEconomyAuthoritySnapshot();
 	if (!Snapshot.bRuntimeLoaded)
 	{
@@ -400,17 +467,39 @@ bool URokBuildingUpgradeSubsystem::PreviewLocalConstructionEntry(
 {
 	FRokLocalConstructionRequest Request;
 	Request.UnityBuildingTypeId = UnityBuildingTypeId;
-	return EvaluateLocalConstruction(Request, false, OutPreview);
+	return EvaluateConstruction(Request, false, false, OutPreview);
 }
 
 bool URokBuildingUpgradeSubsystem::PreviewLocalConstruction(
 	const FRokLocalConstructionRequest& Request, FRokLocalConstructionPreview& OutPreview) const
 {
-	return EvaluateLocalConstruction(Request, true, OutPreview);
+	return EvaluateConstruction(Request, true, false, OutPreview);
 }
 
-bool URokBuildingUpgradeSubsystem::EvaluateLocalConstruction(
-	const FRokLocalConstructionRequest& Request, bool bCheckPosition,
+bool URokBuildingUpgradeSubsystem::PreviewConstructionEntry(
+	int32 UnityBuildingTypeId, FRokLocalConstructionPreview& OutPreview) const
+{
+	FRokLocalConstructionRequest Request;
+	Request.UnityBuildingTypeId = UnityBuildingTypeId;
+	return EvaluateConstruction(Request, false, UsesServerCity(), OutPreview);
+}
+
+FString URokBuildingUpgradeSubsystem::GetCityConstructionModelId(int32 UnityBuildingTypeId, int32 TownHallLevel, int32 CivilizationId) const
+{
+	FRokCityConstructionModel Model;
+	ConstructionSources.GetModel(UnityBuildingTypeId, CivilizationId > 0 ? CivilizationId : LocalCityContext.GetVisualCivilization(),
+		ConstructionGrid.GetAgeForTownHallLevel(TownHallLevel), Model);
+	return Model.ModelId;
+}
+
+bool URokBuildingUpgradeSubsystem::PreviewConstruction(
+	const FRokLocalConstructionRequest& Request, FRokLocalConstructionPreview& OutPreview) const
+{
+	return EvaluateConstruction(Request, true, UsesServerCity(), OutPreview);
+}
+
+bool URokBuildingUpgradeSubsystem::EvaluateConstruction(
+	const FRokLocalConstructionRequest& Request, bool bCheckPosition, bool bServer,
 	FRokLocalConstructionPreview& OutPreview) const
 {
 	OutPreview = FRokLocalConstructionPreview();
@@ -420,9 +509,19 @@ bool URokBuildingUpgradeSubsystem::EvaluateLocalConstruction(
 		OutPreview.FailureReason = TEXT("建造源格图、模型、本地上下文或建筑配置尚未完整加载。");
 		return false;
 	}
-	if (!CanUseLocalCitySimulation(OutPreview.FailureReason)) return false;
-	OutPreview.bContextVerified = true;
 	UWorld* World = GetWorld();
+	const URokServerCitySubsystem* City = bServer && World ? World->GetSubsystem<URokServerCitySubsystem>() : nullptr;
+	const URokGameNetSubsystem* Net = bServer ? GetGameNet(World) : nullptr;
+	if (bServer)
+	{
+		if (!City || !City->HasAppliedServerCity() || !Net)
+		{
+			OutPreview.FailureReason = TEXT("服务器城市尚未同步。");
+			return false;
+		}
+	}
+	else if (!CanUseLocalCitySimulation(OutPreview.FailureReason)) return false;
+	OutPreview.bContextVerified = true;
 	UGameInstance* Instance = World ? World->GetGameInstance() : nullptr;
 	auto* Catalog = Instance ? Instance->GetSubsystem<URokUnityGameplayCatalogSubsystem>() : nullptr;
 	if (!Catalog || (!Catalog->IsCatalogLoaded() && !Catalog->LoadCatalog()))
@@ -433,13 +532,13 @@ bool URokBuildingUpgradeSubsystem::EvaluateLocalConstruction(
 	FRokUnityCatalogBuildingType BuildingType;
 	const FRokLocalSourceBuildingVisual* SourceVisual =
 		FRokLocalConstructionVisualFactory::FindSourceVisual(Request.UnityBuildingTypeId);
-	if ((!SourceVisual && Request.UnityBuildingTypeId != 13)
+	if ((!City && !SourceVisual && Request.UnityBuildingTypeId != 13)
 		|| !Catalog->GetBuildingType(Request.UnityBuildingTypeId, BuildingType))
 	{
-		OutPreview.FailureReason = TEXT("当前仅开放农场、木材厂、统帅厅和研究院的本地源建造类型。");
+		OutPreview.FailureReason = TEXT("该建筑尚未开放本地建造。");
 		return true;
 	}
-	if (SourceVisual && BuildingType.DisplayNameZhCn.IsEmpty())
+	if (!City && SourceVisual && BuildingType.DisplayNameZhCn.IsEmpty())
 	{
 		OutPreview.FailureReason = TEXT("本地源建筑的源中文名称配置缺失。");
 		return false;
@@ -447,7 +546,7 @@ bool URokBuildingUpgradeSubsystem::EvaluateLocalConstruction(
 	const TMap<int32, FRokUnityBuildingLevelConfig>* Levels = UnityBuildingLevelConfigs.Find(Request.UnityBuildingTypeId);
 	const FRokUnityBuildingLevelConfig* LevelOne = Levels ? Levels->Find(1) : nullptr;
 	if (!LevelOne || !LevelOne->bPrerequisitesValid || LevelOne->Prerequisites.Num() != 3
-		|| BuildingType.Width <= 0 || BuildingType.Length <= 0 || LevelOne->BuildSeconds <= 0)
+		|| BuildingType.Width <= 0 || BuildingType.Length <= 0 || (!City && LevelOne->BuildSeconds <= 0))
 	{
 		OutPreview.FailureReason = TEXT("该建筑一级源配置不完整。");
 		return false;
@@ -456,12 +555,12 @@ bool URokBuildingUpgradeSubsystem::EvaluateLocalConstruction(
 	OutPreview.Cost = LevelOne->Cost;
 	OutPreview.BuildSeconds = LevelOne->BuildSeconds;
 	OutPreview.Power = LevelOne->Power;
-	if (SourceVisual && !LevelOne->bSourceEconomyValid)
+	if (!LevelOne->bSourceEconomyValid)
 	{
 		OutPreview.FailureReason = TEXT("本地源建筑一级源费用或建造时长配置无效。");
 		return false;
 	}
-	if (SourceVisual && SourceVisual->bProducesResource)
+	if (!City && SourceVisual && SourceVisual->bProducesResource)
 	{
 		const TMap<int32, FRokUnityBuildingProduceConfig>* ProduceLevels =
 			UnityBuildingProduceConfigs.Find(Request.UnityBuildingTypeId);
@@ -474,7 +573,17 @@ bool URokBuildingUpgradeSubsystem::EvaluateLocalConstruction(
 		}
 	}
 	TMap<int32, int32> CompletedLevels;
-	if (!GetKnownCompletedBuildingLevels(CompletedLevels))
+	if (City)
+	{
+		for (const FRokServerBuilding& Building : City->GetAppliedBuildings())
+		{
+			if (Building.Level < 0) continue;
+			OutPreview.ExistingCount += Building.Type == Request.UnityBuildingTypeId ? 1 : 0;
+			int32& Highest = CompletedLevels.FindOrAdd(Building.Type);
+			Highest = FMath::Max(Highest, Building.Level);
+		}
+	}
+	else if (!GetKnownCompletedBuildingLevels(CompletedLevels))
 	{
 		OutPreview.FailureReason = TEXT("已拥有建筑状态尚未同步。");
 		return false;
@@ -496,13 +605,16 @@ bool URokBuildingUpgradeSubsystem::EvaluateLocalConstruction(
 	}
 	const int32 HallLevel = CompletedLevels.FindRef(1);
 	OutPreview.CountLimit = BuildingType.GetCountLimit(HallLevel);
-	for (const auto& Pair : UnityInitialBuildings)
+	if (!City)
 	{
-		OutPreview.ExistingCount += Pair.Value.TypeId == Request.UnityBuildingTypeId ? 1 : 0;
-	}
-	for (const FRokLocalConstructionTicket& Ticket : LocalConstructionLedger.GetTickets())
-	{
-		OutPreview.ExistingCount += Ticket.TypeId == Request.UnityBuildingTypeId ? 1 : 0;
+		for (const auto& Pair : UnityInitialBuildings)
+		{
+			OutPreview.ExistingCount += Pair.Value.TypeId == Request.UnityBuildingTypeId ? 1 : 0;
+		}
+		for (const FRokLocalConstructionTicket& Ticket : LocalConstructionLedger.GetTickets())
+		{
+			OutPreview.ExistingCount += Ticket.TypeId == Request.UnityBuildingTypeId ? 1 : 0;
+		}
 	}
 	if (OutPreview.ExistingCount >= OutPreview.CountLimit)
 	{
@@ -512,7 +624,19 @@ bool URokBuildingUpgradeSubsystem::EvaluateLocalConstruction(
 	const int32 ActualAge = ConstructionGrid.GetAgeForTownHallLevel(HallLevel);
 	OutPreview.ResolvedAge = ActualAge;
 	OutPreview.VisualCivilization = LocalCityContext.GetVisualCivilization();
-	if (!LocalCityContext.SupportsAge(ActualAge))
+	if (City)
+	{
+		int64 Country = 0;
+		if (!RokSprotoJson::TryGetInt64(Net->GetRoleInfo(), TEXT("country"), Country)
+			|| Country <= 0 || Country > MAX_int32)
+		{
+			OutPreview.FailureReason = TEXT("服务器文明尚未同步。");
+			return true;
+		}
+		OutPreview.VisualCivilization = static_cast<int32>(Country);
+	}
+	OutPreview.GridSize = ConstructionGrid.GetSizeForAge(ActualAge);
+	if (OutPreview.GridSize <= 0 || (!City && !LocalCityContext.SupportsAge(ActualAge)))
 	{
 		OutPreview.FailureReason = TEXT("源等级已到新城市年龄，但本地地图的年龄视觉转换尚未验证。");
 		return true;
@@ -525,38 +649,87 @@ bool URokBuildingUpgradeSubsystem::EvaluateLocalConstruction(
 	}
 	FRokCityConstructionModel Model;
 	if (!ConstructionSources.GetModel(Request.UnityBuildingTypeId, OutPreview.VisualCivilization, ActualAge, Model)
-		|| !Model.bHasBuildingTypeConfig || !Model.HasVisualSource())
+		|| Model.ModelId.IsEmpty() || !Model.bHasBuildingTypeConfig || (!City && !Model.HasVisualSource()))
 	{
 		OutPreview.FailureReason = TEXT("对应本地视觉变体与年龄的源模型不完整。");
 		return true;
 	}
 	OutPreview.SourceModelId = Model.ModelId;
-	if (int64(GetActiveUpgradeCount()) + LocalConstructionLedger.GetActiveCount() >= GetOwnedBuildQueueCount())
+	if (City)
+	{
+		if (!FRokLocalConstructionVisualFactory::FindBuildingVisual(Request.UnityBuildingTypeId, Model.ModelId))
+		{
+			OutPreview.FailureReason = TEXT("该建筑在当前时代的城内模型尚未接入。");
+			return true;
+		}
+	}
+	else if (int64(GetActiveUpgradeCount()) + LocalConstructionLedger.GetActiveCount() >= GetOwnedBuildQueueCount())
 	{
 		OutPreview.FailureReason = TEXT("建造队列已满。");
 		return true;
 	}
-	if (!CanAfford(OutPreview.Cost))
+	if (!City && !CanAfford(OutPreview.Cost))
 	{
 		OutPreview.FailureReason = TEXT("建造资源不足。");
 		return true;
 	}
 	if (bCheckPosition)
 	{
-		TArray<FRokCityConstructionFootprint> LocalFootprints;
-		for (const FRokLocalConstructionTicket& Ticket : LocalConstructionLedger.GetTickets())
+		TArray<FRokCityConstructionFootprint> Occupied;
+		if (City)
 		{
-			LocalFootprints.Add(Ticket.Footprint);
+			for (const FRokServerBuilding& Building : City->GetAppliedBuildings())
+			{
+				// BuildingLogic.checkBuildingPut excludes walls and guard towers.
+				if (Building.Level < 0 || Building.Type == 6 || Building.Type == 8) continue;
+				FRokUnityCatalogBuildingType Type;
+				if (!Catalog->GetBuildingType(Building.Type, Type) || Type.Width <= 0 || Type.Length <= 0)
+				{
+					OutPreview.FailureReason = TEXT("服务器建筑的占地配置尚未同步。");
+					return false;
+				}
+				Occupied.Add({Building.Pos, FIntPoint(Type.Width, Type.Length)});
+			}
+		}
+		else
+		{
+			for (const FRokLocalConstructionTicket& Ticket : LocalConstructionLedger.GetTickets())
+			{
+				Occupied.Add(Ticket.Footprint);
+			}
 		}
 		const FRokCityConstructionFootprint Footprint{Request.Grid, OutPreview.Footprint};
 		OutPreview.bPositionEvaluated = true;
-		if (!ConstructionGrid.CheckFootprint(ActualAge, Footprint, LocalFootprints,
-			OutPreview.FailureReason, &OutPreview.SourceCellIndices))
+		if (!ConstructionGrid.CheckFootprint(ActualAge, Footprint, Occupied,
+			OutPreview.FailureReason, &OutPreview.SourceCellIndices, !City))
 		{
 			return true;
 		}
 	}
 	OutPreview.bSourceEligible = true;
+	if (City)
+	{
+		if (!bCheckPosition) return true;
+		const bool bCanWrite = Net->CanRequestCityWrite(OutPreview.FailureReason);
+		if (!bCanWrite && !Net->IsSnapshotReplay()) return true;
+		// Unity's placement button opens the worker window for a valid tile when
+		// the timed build cannot use either worker. The server write stays gated.
+		FString QueueFailure;
+		OutPreview.bNeedsWorkerQueue = OutPreview.BuildSeconds > 0
+			&& !CheckServerBuildQueue(*City, OutPreview.BuildSeconds, QueueFailure);
+		if (OutPreview.bNeedsWorkerQueue)
+		{
+			OutPreview.FailureReason = MoveTemp(QueueFailure);
+			return true;
+		}
+		if (!bCanWrite || !CheckServerBuildResources(*Net, OutPreview.Cost, OutPreview.FailureReason))
+		{
+			return true;
+		}
+		FRokCityPlacementWorldFrame Frame;
+		OutPreview.bCanCommit = FRokCityPlacementWorldFrame::ResolveForWorld(World, Frame, OutPreview.FailureReason);
+		return true;
+	}
 	if (bCheckPosition && SourceVisual
 		&& OutPreview.VisualCivilization == 101 && ActualAge == 1)
 	{
@@ -572,6 +745,36 @@ bool URokBuildingUpgradeSubsystem::EvaluateLocalConstruction(
 	if (OutPreview.bCanCommit) OutPreview.FailureReason.Reset();
 	else OutPreview.FailureReason = TEXT("源入口条件满足；尚未选择或验证可提交的本地视觉占地。");
 	return true;
+}
+
+bool URokBuildingUpgradeSubsystem::StartServerConstruction(const FRokLocalConstructionRequest& Request,
+	TFunction<void(const FString&)> OnResult, FString& OutFailureReason)
+{
+	FRokLocalConstructionPreview Preview;
+	if (!EvaluateConstruction(Request, true, true, Preview) || !Preview.bCanCommit)
+	{
+		OutFailureReason = Preview.FailureReason.IsEmpty() ? TEXT("服务器建造条件尚未满足。") : Preview.FailureReason;
+		return false;
+	}
+	const FRokLocalSourceBuildingVisual* Visual = FRokLocalConstructionVisualFactory::FindBuildingVisual(
+		Request.UnityBuildingTypeId, Preview.SourceModelId);
+	UStaticMesh* Mesh = nullptr;
+	UMaterialInterface* Material = nullptr;
+	if (!Visual || !FRokLocalConstructionVisualFactory::LoadVerifiedSourceMesh(*Visual, Mesh, Material, OutFailureReason))
+	{
+		if (OutFailureReason.IsEmpty()) OutFailureReason = TEXT("该建筑的城内模型尚未就绪。");
+		return false;
+	}
+	URokGameNetSubsystem* Net = GetGameNet(GetWorld());
+	const URokServerCitySubsystem* City = GetWorld()->GetSubsystem<URokServerCitySubsystem>();
+	TArray<FRokServerBuilding> LatestBuildings;
+	if (!RokServerCity::ParseBuildings(Net->GetCollection(TEXT("Build_BuildingInfo"), TEXT("buildingInfo")),
+		LatestBuildings, OutFailureReason) || LatestBuildings != City->GetAppliedBuildings())
+	{
+		OutFailureReason = TEXT("城市正在同步，请稍后确认位置。");
+		return false;
+	}
+	return Net->RequestCreateBuilding(Request.UnityBuildingTypeId, Request.Grid, MoveTemp(OnResult), OutFailureReason);
 }
 
 bool URokBuildingUpgradeSubsystem::StartLocalConstruction(
@@ -663,6 +866,25 @@ ARokCitySpriteActor* URokBuildingUpgradeSubsystem::GetLocalConstructionActor(uin
 bool URokBuildingUpgradeSubsystem::IsLocalConstructionPending(uint64 LocalConstructionId) const
 {
 	return PendingLocalConstructionActors.Contains(LocalConstructionId);
+}
+
+bool URokBuildingUpgradeSubsystem::GetPendingLocalConstructionClock(
+	const AActor* Actor, float& OutRemainingSeconds, float& OutTotalSeconds) const
+{
+	OutRemainingSeconds = 0.0f;
+	OutTotalSeconds = 0.0f;
+	if (!Actor || !GetWorld()) return false;
+	for (const TPair<uint64, TWeakObjectPtr<ARokCitySpriteActor>>& Pair : PendingLocalConstructionActors)
+	{
+		FRokLocalConstructionTicket Ticket;
+		double Remaining = 0.0;
+		if (Pair.Value.Get() != Actor || !LocalConstructionLedger.Find(Pair.Key, Ticket)
+			|| !LocalConstructionLedger.GetRemainingSeconds(Pair.Key, GetWorld()->GetTimeSeconds(), Remaining)) continue;
+		OutRemainingSeconds = static_cast<float>(Remaining);
+		OutTotalSeconds = static_cast<float>(Ticket.FinishesAt - Ticket.StartedAt);
+		return true;
+	}
+	return false;
 }
 
 bool URokBuildingUpgradeSubsystem::GetLocalConstructionCompletionFailure(
@@ -914,11 +1136,7 @@ bool URokBuildingUpgradeSubsystem::TryPeekExistingBuildingStateForActor(
 
 bool URokBuildingUpgradeSubsystem::StartUpgrade(AActor* Actor, FString& OutFailureReason)
 {
-	if (!CanStartUpgrade(Actor, OutFailureReason))
-	{
-		return false;
-	}
-	if (!CanUseLocalEconomy(OutFailureReason)) return false;
+	if (!CanUseLocalEconomy(OutFailureReason) || !CanStartUpgrade(Actor, OutFailureReason)) return false;
 
 	FRokBuildingState& State = GetOrCreateBuildingState(Actor);
 	RefreshUpgradeCompletion(State);
@@ -1001,8 +1219,229 @@ FRokResourceCost URokBuildingUpgradeSubsystem::GetNextUpgradeCost(AActor* Actor)
 	return GetNextUpgradeCost(GetOrCreateBuildingState(Actor));
 }
 
+namespace
+{
+bool CalculateInstantUpgradePrice(UGameInstance* Instance, const FRokUnityBuildingLevelConfig& Target,
+	const int64 (&Balances)[4], bool bUseServerInventory, int64& OutGems)
+{
+	auto* Config = Instance ? Instance->GetSubsystem<URokUnityConfigSubsystem>() : nullptr;
+	const auto* Prices = Config ? Config->GetTableRows(TEXT("InstantPrice")) : nullptr;
+	if (!Prices || !Target.bSourceEconomyValid) return false;
+
+	const int32 Costs[] = {Target.Cost.Food, Target.Cost.Wood, Target.Cost.Stone, Target.Cost.Gold};
+	int64 Deficits[] = {Target.BuildSeconds, 0, 0, 0, 0};
+	for (int32 Index = 0; Index < UE_ARRAY_COUNT(Costs); ++Index)
+	{
+		Deficits[Index + 1] = FMath::Max<int64>(0, Costs[Index] - Balances[Index]);
+	}
+	double Total = 0;
+	if (!RokInstantPrice::AddQuote(*Prices, Deficits, Total)) return false;
+
+	const int32 LevelRow = Target.TypeId * 100 + Target.Level;
+	int32 ItemId = 0, ItemCount = 0;
+	if (!Config->GetIntFieldByKey(TEXT("BuildingLevelData"), TEXT("ID"), LevelRow, TEXT("itemType1"), ItemId)
+		|| !Config->GetIntFieldByKey(TEXT("BuildingLevelData"), TEXT("ID"), LevelRow, TEXT("itemCnt"), ItemCount)
+		|| ItemId < 0 || ItemCount < 0 || ((ItemId > 0) != (ItemCount > 0))) return false;
+	if (ItemCount > 0)
+	{
+		int64 Remaining = ItemCount;
+		// Offline city simulation has no owned item stacks. Its quote includes the full item shortfall.
+		if (bUseServerInventory)
+		{
+			const auto* Inventory = Instance->GetSubsystem<URokServerInventorySubsystem>();
+			const auto Items = Inventory ? Inventory->GetSnapshot() : FRokServerInventorySnapshot();
+			if (!Items.bItemsKnown || !Items.bRowsComplete) return false;
+			for (const auto& Stack : Items.Stacks)
+			{
+				if (Stack.ItemId == ItemId) Remaining -= FMath::Min(Remaining, Stack.Overlay);
+			}
+		}
+		int32 Price = 0;
+		if (Remaining > 0 && (!Config->GetIntFieldByKey(TEXT("Item"), TEXT("ID"), ItemId, TEXT("shopPrice"), Price)
+			|| Price <= 0)) return false;
+		Total += double(Remaining) * Price;
+	}
+	if (!FMath::IsFinite(Total) || Total < 0 || Total > MAX_int32) return false;
+	OutGems = FMath::FloorToInt64(Total);
+	return true;
+}
+}
+
+bool URokBuildingUpgradeSubsystem::GetServerInstantUpgradeQuote(AActor* Actor, int64& OutGems) const
+{
+	OutGems = 0;
+	const UWorld* World = GetWorld();
+	const auto* City = World ? World->GetSubsystem<URokServerCitySubsystem>() : nullptr;
+	const auto* Building = City ? City->FindBuildingForActor(Actor) : nullptr;
+	const auto* Net = GetGameNet(World);
+	if (!Building || !Net) return false;
+	const auto* Levels = UnityBuildingLevelConfigs.Find(Building->Type);
+	const auto* Target = Levels ? Levels->Find(Building->Level + 1) : nullptr;
+	if (!Target || !Target->bSourceEconomyValid) return false;
+
+	const auto Role = Net->GetRoleInfo();
+	const TCHAR* Fields[] = {TEXT("food"), TEXT("wood"), TEXT("stone"), TEXT("gold")};
+	const int32 Costs[] = {Target->Cost.Food, Target->Cost.Wood, Target->Cost.Stone, Target->Cost.Gold};
+	int64 Balances[4] = {};
+	for (int32 Index = 0; Index < UE_ARRAY_COUNT(Costs); ++Index)
+	{
+		if (Costs[Index] > 0
+			&& (!RokSprotoJson::TryGetInt64(Role, Fields[Index], Balances[Index]) || Balances[Index] < 0)) return false;
+	}
+	// RoleInfo has no buildSpeedMulti. Estimate from configured time; the server settles the charge.
+	return CalculateInstantUpgradePrice(World->GetGameInstance(), *Target, Balances, true, OutGems);
+}
+
+bool URokBuildingUpgradeSubsystem::EvaluateLocalInstantUpgrade(const FRokBuildingState& State, int32 ExpectedLevel,
+	int64& OutGems, FRokResourceCost& OutResourceDebit, FString& OutFailureReason) const
+{
+	if (State.Level != ExpectedLevel)
+	{
+		OutFailureReason = TEXT("建筑等级已变化，请重新打开升级界面。");
+		return false;
+	}
+	const auto* Target = FindUnityBuildingConfig(State, State.Level + 1);
+	const int64 Balances[] = {CurrentResources.Food, CurrentResources.Wood, CurrentResources.Stone, CurrentResources.Gold};
+	const bool bHasPrice = Target && CalculateInstantUpgradePrice(GetWorld()->GetGameInstance(), *Target,
+		Balances, false, OutGems);
+	if (!CanUpgradeLocalBuilding(State, OutFailureReason)) return false;
+	if (!bHasPrice)
+	{
+		OutFailureReason = TEXT("立即升级费用暂不可用。");
+		return false;
+	}
+	if (OutGems > CurrentResources.Denar)
+	{
+		OutFailureReason = FString::Printf(TEXT("宝石不足，需要 %lld，当前 %d。"), OutGems, CurrentResources.Denar);
+		return false;
+	}
+	OutResourceDebit.Food = FMath::Min(Target->Cost.Food, CurrentResources.Food);
+	OutResourceDebit.Wood = FMath::Min(Target->Cost.Wood, CurrentResources.Wood);
+	OutResourceDebit.Stone = FMath::Min(Target->Cost.Stone, CurrentResources.Stone);
+	OutResourceDebit.Gold = FMath::Min(Target->Cost.Gold, CurrentResources.Gold);
+	OutFailureReason.Reset();
+	return true;
+}
+
+bool URokBuildingUpgradeSubsystem::CanStartLocalInstantUpgrade(AActor* Actor, int32 ExpectedLevel,
+	int64& OutGems, FString& OutFailureReason)
+{
+	OutGems = -1;
+	if (!Actor)
+	{
+		OutFailureReason = TEXT("请先选择建筑。");
+		return false;
+	}
+	if (!CanUseLocalEconomy(OutFailureReason)) return false;
+	FRokResourceCost ResourceDebit;
+	return EvaluateLocalInstantUpgrade(GetOrCreateBuildingState(Actor), ExpectedLevel, OutGems, ResourceDebit, OutFailureReason);
+}
+
+bool URokBuildingUpgradeSubsystem::StartLocalInstantUpgrade(AActor* Actor, int32 ExpectedLevel,
+	int64 ExpectedGems, FString& OutFailureReason)
+{
+	if (!Actor)
+	{
+		OutFailureReason = TEXT("请先选择建筑。");
+		return false;
+	}
+	if (!CanUseLocalEconomy(OutFailureReason)) return false;
+
+	FRokBuildingState& State = GetOrCreateBuildingState(Actor);
+	int64 Gems = -1;
+	FRokResourceCost ResourceDebit;
+	if (!EvaluateLocalInstantUpgrade(State, ExpectedLevel, Gems, ResourceDebit, OutFailureReason)) return false;
+	if (Gems != ExpectedGems)
+	{
+		OutFailureReason = TEXT("立即升级费用已变化，请重新确认。");
+		return false;
+	}
+	if (!CompleteLocalUpgrade(State))
+	{
+		OutFailureReason = TEXT("建筑状态已变化，请重新打开升级界面。");
+		return false;
+	}
+	// Completion queues its notification for Tick, so observers see the updated wallet and level together.
+	SpendResources(ResourceDebit);
+	CurrentResources.Denar -= static_cast<int32>(Gems);
+	return true;
+}
+
+bool URokBuildingUpgradeSubsystem::CanStartServerUpgrade(AActor* Actor, bool bImmediately,
+	FString& OutFailureReason, int32 ExpectedLevel) const
+{
+	const UWorld* World = GetWorld();
+	const URokServerCitySubsystem* City = World ? World->GetSubsystem<URokServerCitySubsystem>() : nullptr;
+	const URokGameNetSubsystem* Net = GetGameNet(World);
+	if (!Net || !City)
+	{
+		OutFailureReason = TEXT("服务器城市尚未同步。");
+		return false;
+	}
+	if (!Net->CanRequestCityWrite(OutFailureReason)) return false;
+	const FRokServerBuilding* Building = City->FindBuildingForActor(Actor);
+	if (!Building)
+	{
+		OutFailureReason = TEXT("建筑状态尚未同步。");
+		return false;
+	}
+	if (ExpectedLevel > 0 && Building->Level != ExpectedLevel)
+	{
+		OutFailureReason = TEXT("建筑等级已变化，请重新打开升级界面。");
+		return false;
+	}
+	if (Building->FinishTime > 0)
+	{
+		OutFailureReason = TEXT("该建筑正在升级。");
+		return false;
+	}
+	const auto* Levels = UnityBuildingLevelConfigs.Find(Building->Type);
+	const auto* Target = Levels ? Levels->Find(Building->Level + 1) : nullptr;
+	if (!Target || !Target->bPrerequisitesValid)
+	{
+		OutFailureReason = TEXT("没有可用的下一等级配置。");
+		return false;
+	}
+	TMap<int32, int32> CompletedLevels;
+	for (const FRokServerBuilding& Row : City->GetAppliedBuildings())
+	{
+		int32& Highest = CompletedLevels.FindOrAdd(Row.Type);
+		Highest = FMath::Max(Highest, Row.Level);
+	}
+	FRokUnityBuildingPrerequisite Missing;
+	int32 CurrentLevel = 0;
+	if (!Target->CheckPrerequisites(CompletedLevels, Missing, CurrentLevel))
+	{
+		OutFailureReason = FString::Printf(TEXT("需要 %d 级%s（当前 %d 级）。"), Missing.Level,
+			*GetBuildingTypeText(MapUnityBuildingTypeId(Missing.TypeId)).ToString(), CurrentLevel);
+		return false;
+	}
+	if (bImmediately)
+	{
+		int64 Gems = 0;
+		if (!RokSprotoJson::TryGetInt64(Net->GetRoleInfo(), TEXT("denar"), Gems))
+		{
+			OutFailureReason = TEXT("服务器宝石余额尚未同步。");
+			return false;
+		}
+		return true;
+	}
+	return CheckServerBuildQueue(*City, Target->BuildSeconds, OutFailureReason)
+		&& CheckServerBuildResources(*Net, Target->Cost, OutFailureReason);
+}
+
+bool URokBuildingUpgradeSubsystem::StartServerUpgrade(AActor* Actor, int32 ExpectedLevel, bool bImmediately,
+	TFunction<void(const FString&)> OnResult, FString& OutFailureReason)
+{
+	if (!CanStartServerUpgrade(Actor, bImmediately, OutFailureReason, ExpectedLevel)) return false;
+	const FRokServerBuilding* Building = GetWorld()->GetSubsystem<URokServerCitySubsystem>()->FindBuildingForActor(Actor);
+	return GetGameNet(GetWorld())->RequestBuildingUpgrade(Building->Index, Building->Level, bImmediately,
+		MoveTemp(OnResult), OutFailureReason);
+}
+
 bool URokBuildingUpgradeSubsystem::CanStartUpgrade(AActor* Actor, FString& OutFailureReason)
 {
+	if (UsesServerCity()) return CanStartServerUpgrade(Actor, false, OutFailureReason);
 	if (!Actor)
 	{
 		OutFailureReason = TEXT("No building selected.");
@@ -1012,20 +1451,45 @@ bool URokBuildingUpgradeSubsystem::CanStartUpgrade(AActor* Actor, FString& OutFa
 
 	FRokBuildingState& State = GetOrCreateBuildingState(Actor);
 	RefreshUpgradeCompletion(State);
+	if (!CanUpgradeLocalBuilding(State, OutFailureReason)) return false;
+	if (int64(GetActiveUpgradeCount()) + LocalConstructionLedger.GetActiveCount() >= GetMaxConcurrentUpgrades())
+	{
+		OutFailureReason = FString::Printf(TEXT("没有可用的建造队列（%d/%d）。"), GetActiveUpgradeCount(), GetMaxConcurrentUpgrades());
+		return false;
+	}
+
+	const FRokResourceCost Cost = GetNextUpgradeCost(State);
+	if (!CanAfford(Cost))
+	{
+		OutFailureReason = FString::Printf(
+			TEXT("资源不足，需要食物 %d、木材 %d、石料 %d、金币 %d。"),
+			Cost.Food,
+			Cost.Wood,
+			Cost.Stone,
+			Cost.Gold);
+		return false;
+	}
+
+	OutFailureReason.Reset();
+	return true;
+}
+
+bool URokBuildingUpgradeSubsystem::CanUpgradeLocalBuilding(const FRokBuildingState& State, FString& OutFailureReason) const
+{
 	if (State.Type == ERokBuildingType::Unknown)
 	{
-		OutFailureReason = TEXT("Selected actor is not a recognized RoK building.");
+		OutFailureReason = TEXT("未识别到可升级的建筑。");
 		return false;
 	}
 	const int32 MaxLevel = GetMaxBuildingLevelForState(State);
 	if (State.Level >= MaxLevel)
 	{
-		OutFailureReason = FString::Printf(TEXT("Building is already at max level %d."), MaxLevel);
+		OutFailureReason = FString::Printf(TEXT("该建筑已达到最高等级 %d。"), MaxLevel);
 		return false;
 	}
 	if (State.bUpgradeInProgress)
 	{
-		OutFailureReason = TEXT("Upgrade already in progress.");
+		OutFailureReason = TEXT("该建筑正在升级。");
 		return false;
 	}
 	if (!CheckUpgradePrerequisites(State, OutFailureReason))
@@ -1042,25 +1506,6 @@ bool URokBuildingUpgradeSubsystem::CanStartUpgrade(AActor* Actor, FString& OutFa
 		if (!ValidateLocalResourceLevelTransition(State, ConstructionId, CurrentProduction,
 			NextProduction, NextAggregateRate, OutFailureReason)) return false;
 	}
-	if (int64(GetActiveUpgradeCount()) + LocalConstructionLedger.GetActiveCount() >= GetMaxConcurrentUpgrades())
-	{
-		OutFailureReason = FString::Printf(TEXT("Construction queue is full (%d/%d)."), GetActiveUpgradeCount(), GetMaxConcurrentUpgrades());
-		return false;
-	}
-
-	const FRokResourceCost Cost = GetNextUpgradeCost(State);
-	if (!CanAfford(Cost))
-	{
-		OutFailureReason = FString::Printf(
-			TEXT("Not enough resources. Need Food %d, Wood %d, Stone %d, Gold %d."),
-			Cost.Food,
-			Cost.Wood,
-			Cost.Stone,
-			Cost.Gold);
-		return false;
-	}
-
-	OutFailureReason.Reset();
 	return true;
 }
 
@@ -1279,74 +1724,115 @@ FRokBuildingState& URokBuildingUpgradeSubsystem::GetOrCreateBuildingState(AActor
 	return BuildingStates.Add(Key, NewState);
 }
 
+void URokBuildingUpgradeSubsystem::ApplyServerBuilding(AActor* Actor, int32 TypeId, int32 Level, const FIntPoint& Grid)
+{
+	if (!Actor || TypeId <= 0)
+	{
+		return;
+	}
+	FRokBuildingState& State = GetOrCreateBuildingState(Actor);
+	State.UnityBuildingTypeId = TypeId;
+	State.Type = MapUnityBuildingTypeId(TypeId);
+	State.UnityGridX = Grid.X;
+	State.UnityGridY = Grid.Y;
+	State.Level = FMath::Max(1, Level);
+	State.bUpgradeInProgress = false;
+	State.UpgradeFinishesAt = 0.0f;
+	if (const FRokUnityBuildingLevelConfig* Config = FindUnityBuildingConfig(State, State.Level))
+	{
+		State.Power = Config->Power;
+	}
+	if (State.UnityInitId == 0)
+	{
+		const UGameInstance* Instance = GetWorld() ? GetWorld()->GetGameInstance() : nullptr;
+		const URokUnityGameplayCatalogSubsystem* Catalog = Instance
+			? Instance->GetSubsystem<URokUnityGameplayCatalogSubsystem>() : nullptr;
+		FRokUnityCatalogBuildingType BuildingType;
+		if (Catalog && Catalog->IsCatalogLoaded() && Catalog->GetBuildingType(TypeId, BuildingType)
+			&& !BuildingType.DisplayNameZhCn.IsEmpty())
+		{
+			State.DisplayName = FText::FromString(BuildingType.DisplayNameZhCn);
+		}
+	}
+	State.Icon = ResolveIcon(State.Type);
+	const TCHAR* Prefixes[] = {TEXT("UnityBuildingLevel_"), TEXT("UnityGridX_"), TEXT("UnityGridY_")};
+	Actor->Tags.RemoveAll([&Prefixes](const FName& Tag)
+	{
+		const FString Text = Tag.ToString();
+		for (const TCHAR* Prefix : Prefixes)
+		{
+			if (Text.StartsWith(Prefix)) return true;
+		}
+		return false;
+	});
+	Actor->Tags.AddUnique(FName(*FString::Printf(TEXT("UnityBuildingLevel_%d"), State.Level)));
+	Actor->Tags.AddUnique(FName(*FString::Printf(TEXT("UnityGridX_%d"), Grid.X)));
+	Actor->Tags.AddUnique(FName(*FString::Printf(TEXT("UnityGridY_%d"), Grid.Y)));
+}
+
 bool URokBuildingUpgradeSubsystem::RefreshUpgradeCompletion(FRokBuildingState& State)
 {
-	if (!State.bUpgradeInProgress)
-	{
-		return false;
-	}
-
 	const float Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
-	if (Now >= State.UpgradeFinishesAt)
-	{
-		const bool bLocalResource = State.UnityInitId == 0
-			&& (State.UnityBuildingTypeId == 2 || State.UnityBuildingTypeId == 3);
-		uint64 ConstructionId = 0;
-		FRokLocalProductionSource CurrentProduction;
-		FRokLocalProductionSource NextProduction;
-		int32 NextAggregateRate = 0;
-		if (bLocalResource)
-		{
-			// BuildingResourcesProxy.GetCurrencyNum/UpdateSingleRss use the current
-			// level row with retained gain-info num/changeTime after completion.
-			FString Failure;
-			if (!ValidateLocalResourceLevelTransition(State, ConstructionId, CurrentProduction,
-				NextProduction, NextAggregateRate, Failure))
-			{
-				UE_LOG(LogTemp, Warning, TEXT("Local resource upgrade %s held: %s"),
-					*State.BuildingKey.ToString(), *Failure);
-				return false;
-			}
-			if (!LocalProductionLedger.TransitionLevel(ConstructionId, CurrentProduction, NextProduction, Failure))
-			{
-				UE_LOG(LogTemp, Warning, TEXT("Local resource upgrade %s held: %s"),
-					*State.BuildingKey.ToString(), *Failure);
-				return false;
-			}
-		}
-		FRokLocalBuildingUpgradeCompleted Completed;
-		Completed.BuildingKey = State.BuildingKey;
-		Completed.UnityInitId = State.UnityInitId;
-		Completed.UnityBuildingTypeId = State.UnityBuildingTypeId;
-		Completed.PreviousLevel = State.Level;
-		const FRokUnityBuildingLevelConfig* PreviousConfig = FindUnityBuildingConfig(State, State.Level);
-		Completed.PreviousPower = PreviousConfig ? PreviousConfig->Power : State.Power;
-		State.bUpgradeInProgress = false;
-		State.UpgradeStartedAt = 0.0f;
-		State.UpgradeFinishesAt = 0.0f;
-		State.Level += 1;
-		if (const FRokUnityBuildingLevelConfig* LevelConfig = FindUnityBuildingConfig(State, State.Level))
-		{
-			State.Power = LevelConfig->Power;
-		}
-		if (const FRokUnityBuildingProduceConfig* ProduceConfig = FindUnityBuildingProduceConfig(State, State.Level))
-		{
-			State.ProducePerHour = ProduceConfig->ProducePerHour;
-			State.GatherMin = ProduceConfig->GatherMin;
-			State.GatherMax = ProduceConfig->GatherMax;
-		}
-		if (bLocalResource)
-		{
-			if (State.UnityBuildingTypeId == 2) ProductionRates.FoodPerHour = NextAggregateRate;
-			else ProductionRates.WoodPerHour = NextAggregateRate;
-		}
-		Completed.CurrentLevel = State.Level;
-		Completed.CurrentPower = State.Power;
-		PendingCompletedUpgrades.Add(Completed);
-		return true;
-	}
+	return State.bUpgradeInProgress && Now >= State.UpgradeFinishesAt && CompleteLocalUpgrade(State);
+}
 
-	return false;
+bool URokBuildingUpgradeSubsystem::CompleteLocalUpgrade(FRokBuildingState& State)
+{
+	const bool bLocalResource = State.UnityInitId == 0
+		&& (State.UnityBuildingTypeId == 2 || State.UnityBuildingTypeId == 3);
+	uint64 ConstructionId = 0;
+	FRokLocalProductionSource CurrentProduction;
+	FRokLocalProductionSource NextProduction;
+	int32 NextAggregateRate = 0;
+	if (bLocalResource)
+	{
+		// BuildingResourcesProxy.GetCurrencyNum/UpdateSingleRss use the current
+		// level row with retained gain-info num/changeTime after completion.
+		FString Failure;
+		if (!ValidateLocalResourceLevelTransition(State, ConstructionId, CurrentProduction,
+			NextProduction, NextAggregateRate, Failure))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("Local resource upgrade %s held: %s"),
+				*State.BuildingKey.ToString(), *Failure);
+			return false;
+		}
+		if (!LocalProductionLedger.TransitionLevel(ConstructionId, CurrentProduction, NextProduction, Failure))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("Local resource upgrade %s held: %s"),
+				*State.BuildingKey.ToString(), *Failure);
+			return false;
+		}
+	}
+	FRokLocalBuildingUpgradeCompleted Completed;
+	Completed.BuildingKey = State.BuildingKey;
+	Completed.UnityInitId = State.UnityInitId;
+	Completed.UnityBuildingTypeId = State.UnityBuildingTypeId;
+	Completed.PreviousLevel = State.Level;
+	const FRokUnityBuildingLevelConfig* PreviousConfig = FindUnityBuildingConfig(State, State.Level);
+	Completed.PreviousPower = PreviousConfig ? PreviousConfig->Power : State.Power;
+	State.bUpgradeInProgress = false;
+	State.UpgradeStartedAt = 0.0f;
+	State.UpgradeFinishesAt = 0.0f;
+	State.Level += 1;
+	if (const FRokUnityBuildingLevelConfig* LevelConfig = FindUnityBuildingConfig(State, State.Level))
+	{
+		State.Power = LevelConfig->Power;
+	}
+	if (const FRokUnityBuildingProduceConfig* ProduceConfig = FindUnityBuildingProduceConfig(State, State.Level))
+	{
+		State.ProducePerHour = ProduceConfig->ProducePerHour;
+		State.GatherMin = ProduceConfig->GatherMin;
+		State.GatherMax = ProduceConfig->GatherMax;
+	}
+	if (bLocalResource)
+	{
+		if (State.UnityBuildingTypeId == 2) ProductionRates.FoodPerHour = NextAggregateRate;
+		else ProductionRates.WoodPerHour = NextAggregateRate;
+	}
+	Completed.CurrentLevel = State.Level;
+	Completed.CurrentPower = State.Power;
+	PendingCompletedUpgrades.Add(Completed);
+	return true;
 }
 
 FName URokBuildingUpgradeSubsystem::MakeBuildingKey(AActor* Actor) const
@@ -1632,13 +2118,13 @@ const FRokUnityBuildingProduceConfig* URokBuildingUpgradeSubsystem::FindUnityBui
 	const int32 TypeId = State.UnityBuildingTypeId > 0
 		? State.UnityBuildingTypeId
 		: GetUnityBuildingTypeId(State.Type);
-	if (TypeId <= 0 || TargetLevel <= 0)
-	{
-		return nullptr;
-	}
+	return GetBuildingProduceConfig(TypeId, TargetLevel);
+}
 
+const FRokUnityBuildingProduceConfig* URokBuildingUpgradeSubsystem::GetBuildingProduceConfig(int32 TypeId, int32 Level) const
+{
 	const TMap<int32, FRokUnityBuildingProduceConfig>* Levels = UnityBuildingProduceConfigs.Find(TypeId);
-	return Levels ? Levels->Find(TargetLevel) : nullptr;
+	return Levels ? Levels->Find(Level) : nullptr;
 }
 
 bool URokBuildingUpgradeSubsystem::LoadUnityBuildingLevelConfig()

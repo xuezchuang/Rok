@@ -53,6 +53,11 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category="Rok Audio")
 	bool PlaySfx(USoundBase* Sound);
+	bool PlaySourceSfx(int32 EventId);
+#if WITH_DEV_AUTOMATION_TESTS
+	void SetSourceSfxPlaybackForTesting(bool bEnabled) { bSourceSfxPlaybackForTesting = bEnabled; }
+	uint32 GetSourceSfxCountForTesting(int32 EventId) const { return SourceSfxCountsForTesting.FindRef(EventId); }
+#endif
 
 	/** Unity slider feedback ID 4005; call before changing either channel value. */
 	UFUNCTION(BlueprintCallable, Category="Rok Audio")
@@ -90,7 +95,7 @@ private:
 	void HandleSfxVolumeChanged(float Volume);
 	void HandleSfxFinished(UAudioComponent* Component);
 	void HandleBgmFinished(UAudioComponent* Component);
-	bool PlaySfxTracked(USoundBase* Sound, UAudioComponent*& OutComponent);
+	bool PlaySfxTracked(USoundBase* Sound, UAudioComponent*& OutComponent, bool bAllowAutomation = false);
 	bool StartBgmClip(int32 ClipIndex);
 	void RetireCurrentBgm(float FadeSeconds);
 	void ApplyMusicVolume();
@@ -123,4 +128,8 @@ private:
 	int32 TotalBgmNaturallyFinishedCount = 0;
 	bool bSourceEventsLoaded = false;
 	bool bInitialized = false;
+#if WITH_DEV_AUTOMATION_TESTS
+	bool bSourceSfxPlaybackForTesting = false;
+	TMap<int32, uint32> SourceSfxCountsForTesting;
+#endif
 };

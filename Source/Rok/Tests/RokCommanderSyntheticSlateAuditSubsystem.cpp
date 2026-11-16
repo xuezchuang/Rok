@@ -112,7 +112,7 @@ FString SortLabel(int32 SortType)
     case 1: return TEXT("星级 ▼");
     case 2: return TEXT("等级 ▼");
     case 3: return TEXT("战力 ▼");
-    default: return TEXT("品质 ▼");
+    default: return TEXT("稀有度 ▼");
     }
 }
 }
@@ -814,7 +814,7 @@ void URokCommanderSyntheticSlateAuditSubsystem::Tick(float DeltaTime)
     case 20:
     {
         bool bOptions = true;
-        const TCHAR* ExpectedLabels[] = {TEXT("品质"), TEXT("星级"), TEXT("等级"), TEXT("战力")};
+        const TCHAR* ExpectedLabels[] = {TEXT("稀有度"), TEXT("星级"), TEXT("等级"), TEXT("战力")};
         for (int32 Index = 0; Index < 4; ++Index)
         {
             const UTextBlock* Text = Cast<UTextBlock>(Screen->GetWidgetFromName(
