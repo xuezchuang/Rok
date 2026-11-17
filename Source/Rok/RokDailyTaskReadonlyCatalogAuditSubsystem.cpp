@@ -1,4 +1,5 @@
 #include "RokDailyTaskReadonlyCatalogAuditSubsystem.h"
+#include "RokUiWidgets.h"
 
 #include "RokBuildingUpgradeSubsystem.h"
 #include "RokDataPaths.h"
@@ -630,7 +631,7 @@ TSharedRef<FJsonObject> URokDailyTaskReadonlyCatalogAuditSubsystem::State() cons
     Json->SetNumberField(TEXT("camera_scale_y"), Camera.GetScale3D().Y);
     Json->SetNumberField(TEXT("camera_scale_z"), Camera.GetScale3D().Z);
     auto Widgets = MakeShared<FJsonObject>();
-    Widgets->SetObjectField(TEXT("TaskEntryButton"), WidgetState(Hud.IsValid() ? Hud->GetWidgetFromName(TEXT("TaskEntryButton")) : nullptr));
+    Widgets->SetObjectField(TEXT("TaskEntryButton"), WidgetState(Hud.IsValid() ? RokUiFind::Find(Hud, TEXT("TaskEntryButton")) : nullptr));
     for (const TCHAR* Name : {TEXT("FeatureModeCanvas"), TEXT("FeatureFrameClose"), TEXT("TaskPage_2"),
         TEXT("TaskDailyCatalogScroll"), TEXT("TaskDailyCatalogHeader")})
         Widgets->SetObjectField(Name, WidgetState(Screen.IsValid() ? Screen->GetWidgetFromName(Name) : nullptr));
@@ -664,7 +665,7 @@ bool URokDailyTaskReadonlyCatalogAuditSubsystem::Ready(int32 Phase) const
         || !Server.IsValid() || !Server->IsLocalOnlyRun() || Server->GetHttpDispatchAttemptCount() != 0
         || Server->GetSuppressedLocalRequestCount() != 0 || Modal->IsModalOpen()) return false;
     if (Phase == 0 || Phase == 4)
-        return !Screen->IsScreenOpen() && Visible(Hud->GetWidgetFromName(TEXT("TaskEntryButton")));
+        return !Screen->IsScreenOpen() && Visible(RokUiFind::Find(Hud, TEXT("TaskEntryButton")));
     const UWidget* Mode = Screen->GetWidgetFromName(TEXT("FeatureModeCanvas"));
     if (!Screen->IsScreenOpen() || !Mode || !Visible(Mode)
         || !FMath::IsNearlyEqual(Mode->GetRenderOpacity(), 1.0, .01)
@@ -1075,7 +1076,7 @@ void URokDailyTaskReadonlyCatalogAuditSubsystem::Tick(float DeltaTime)
             Capture(TEXT("00_city_hud"), 2);
         }
         break;
-    case 2: if (Boundary() && Click(Cast<UButton>(Hud->GetWidgetFromName(TEXT("TaskEntryButton"))), TEXT("open_tasks_from_hud"))) Enter(3); break;
+    case 2: if (Boundary() && Click(Cast<UButton>(RokUiFind::Find(Hud, TEXT("TaskEntryButton"))), TEXT("open_tasks_from_hud"))) Enter(3); break;
     case 3: if (Boundary() && Stable(1)) Capture(TEXT("01_tasks_main"), 4); break;
     case 4: if (Boundary() && Click(Cast<UButton>(Screen->GetWidgetFromName(TEXT("TaskPage_2"))), TEXT("open_daily_page_302"))) Enter(5); break;
     case 5: if (Boundary() && Stable(2)) Capture(TEXT("02_daily_top"), 6); break;

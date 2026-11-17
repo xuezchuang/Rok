@@ -16,10 +16,13 @@
 #include "Components/SizeBox.h"
 #include "Components/TextBlock.h"
 #include "Engine/GameInstance.h"
+#include "UObject/UnrealType.h"
 #include "RokGameNetSubsystem.h"
 #include "RokMainHudWidget.h"
 #include "RokServerArmySubsystem.h"
 #include "RokUiAnimatedButton.h"
+#include "RokUiTextBlock.h"
+#include "RokUiWidgets.h"
 #include "RokUnityFeatureScreenWidget.h"
 #include "RokUnityGameplayCatalogSubsystem.h"
 #include "RokWorldMapCameraPawn.h"
@@ -94,6 +97,13 @@ void URokWorldMapHudWidget::BuildWorldGatherProgress(UCanvasPanel* Panel)
 void URokWorldMapHudWidget::BuildWorldMarchQueue()
 {
 	AttackRouteDestinationTexture = LoadTransientUiTexture(RokDataPaths::Resolve(TEXT("WorldMarch/troop_line_mine_end.png")));
+	static const TSoftClassPtr<URokUiPageWidget> MarchPage(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokWorldMarchQueue.WBP_RokWorldMarchQueue_C")));
+	if (auto* Page = AddWorldHudPage(ExpandedDesignCanvas, MarchPage, TEXT("WorldMarchQueuePage"), 85))
+	{
+		BindWorldMarchQueue(*Page);
+		return;
+	}
 	// Unity MainInterfaceMediator.RefreshTroopsDispatchNum and UI_Item_MainIFArm.
 	WorldMarchQueueRoot = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("WorldMarchQueue"));
 	WorldMarchQueueRoot->SetVisibility(ESlateVisibility::Collapsed);
@@ -122,15 +132,95 @@ void URokWorldMapHudWidget::BuildWorldMarchQueue()
 	PlaceOnCanvas(WorldMarchQueueRoot, WorldMarchQueueList, {0, 31}, FVector2D::ZeroVector, FAnchors(0, 0, 1, 1));
 }
 
+void URokWorldMapHudWidget::BindWorldMarchQueue(URokUiPageWidget& Page)
+{
+	WorldMarchQueueRoot = Page.Get<UCanvasPanel>(TEXT("WorldMarchQueue"));
+	WorldMarchQueueList = Page.Get<UScrollBox>(TEXT("WorldMarchQueueList"));
+	WorldMarchQueueArrow = Page.Get<UImage>(TEXT("WorldMarchQueueArrow"));
+	WorldMarchQueueCount = Page.Get<UTextBlock>(TEXT("WorldMarchQueueCount"));
+	static const TSoftClassPtr<URokUiPageWidget> ListLayoutClass(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokHudListLayout.WBP_RokHudListLayout_C")));
+	if (auto* Layout = CreateWorldHudPage(ListLayoutClass, NAME_None))
+	{
+		if (const auto* Row = Layout->Get<UCanvasPanel>(TEXT("WorldMarchRow")))
+		{
+			if (const auto* RowLayoutSlot = Cast<UCanvasPanelSlot>(Row->Slot))
+			{
+				WorldMarchRowHeight = RowLayoutSlot->GetSize().Y;
+			}
+		}
+		if (const auto* Viewport = Layout->Get<UCanvasPanel>(TEXT("WorldMarchViewport")))
+		{
+			if (const auto* ViewportLayoutSlot = Cast<UCanvasPanelSlot>(Viewport->Slot))
+			{
+				WorldMarchViewportHeight = ViewportLayoutSlot->GetSize().Y;
+			}
+		}
+	}
+	if (WorldMarchQueueArrow)
+	{
+		WorldMarchQueueArrowClosedAngle = WorldMarchQueueArrow->GetRenderTransformAngle();
+	}
+	BindWorldHudButton(Page, TEXT("WorldMarchQueueToggle"),
+		GET_FUNCTION_NAME_CHECKED(URokWorldMapHudWidget, HandleWorldMarchQueueToggle));
+}
+
 void URokWorldMapHudWidget::HandleWorldMarchQueueToggle()
 {
 	bWorldMarchQueueExpanded = !bWorldMarchQueueExpanded;
 	RefreshWorldMarchQueue();
 }
 
+URokWorldMapHudWidget::FWorldMarchRowLayout URokWorldMapHudWidget::BuildWorldMarchRowLayout(
+	UCanvasPanel* Row, const FString& Suffix)
+{
+	static const TSoftClassPtr<URokUiPageWidget> RowClass(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokWorldMarchRow.WBP_RokWorldMarchRow_C")));
+	if (auto* Page = AddWorldHudPage(Row, RowClass, NAME_None))
+	{
+		const FWorldMarchRowLayout Layout{
+			Page->Get<UImage>(TEXT("WorldMarchRarityFrame")),
+			Page->Get<UImage>(TEXT("WorldMarchPortrait")),
+			Page->Get<UImage>(TEXT("WorldMarchSelectionFrame")),
+			Page->Get<UImage>(TEXT("WorldMarchStatusIcon"))
+		};
+		if (Layout.RarityFrame && Layout.Portrait && Layout.SelectionFrame && Layout.Status)
+		{
+			// Preserve the desired size of the artwork in the centered button content slot.
+			CastChecked<UCanvasPanelSlot>(Page->Slot)->SetAutoSize(true);
+			return Layout;
+		}
+		Page->RemoveFromParent();
+	}
+
+	const auto Name = [this, &Suffix](const TCHAR* Stem)
+	{
+		return Suffix.IsEmpty() ? FName(Stem)
+			: MakeUniqueObjectName(WidgetTree, UImage::StaticClass(), FName(*(FString(Stem) + Suffix)));
+	};
+	FWorldMarchRowLayout Layout;
+	Layout.RarityFrame = MakeAtlasImage(Name(TEXT("WorldMarchRarityFrame")), HeroUi,
+		FIntRect(1, 53, 135, 205), HeroUiSize, {78, 86});
+	PlaceOnCanvas(Row, Layout.RarityFrame, {12, 0}, {78, 86});
+	Layout.Portrait = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), Name(TEXT("WorldMarchPortrait")));
+	FSlateBrush PortraitBrush;
+	PortraitBrush.ImageType = ESlateBrushImageType::FullColor;
+	PortraitBrush.ImageSize = FVector2D(73, 81);
+	Layout.Portrait->SetBrush(PortraitBrush);
+	Layout.Portrait->SetVisibility(ESlateVisibility::Collapsed);
+	PlaceOnCanvas(Row, Layout.Portrait, {14.5, 2}, {73, 81});
+	Layout.SelectionFrame = MakeAtlasImage(Name(TEXT("WorldMarchSelectionFrame")), HeroUi,
+		FIntRect(1905, 356, 2046, 511), HeroUiSize, {86, 90});
+	PlaceOnCanvas(Row, Layout.SelectionFrame, {8, -3}, {86, 90});
+	Layout.Status = MakeAtlasImage(Name(TEXT("WorldMarchStatusIcon")), MapUi,
+		FIntRect(305, 120, 351, 166), MapUiSize, {29, 29});
+	PlaceOnCanvas(Row, Layout.Status, {70, 58}, {29, 29});
+	return Layout;
+}
+
 void URokWorldMapHudWidget::RefreshWorldMarchQueue()
 {
-	if (!WorldMarchQueueRoot) return;
+	if (!WorldMarchQueueRoot || !WorldMarchQueueList || !WorldMarchQueueArrow || !WorldMarchQueueCount) return;
 	const auto* Instance = GetGameInstance();
 	const auto* Army = Instance ? Instance->GetSubsystem<URokServerArmySubsystem>() : nullptr;
 	const auto* Catalog = Instance ? Instance->GetSubsystem<URokUnityGameplayCatalogSubsystem>() : nullptr;
@@ -153,9 +243,15 @@ void URokWorldMapHudWidget::RefreshWorldMarchQueue()
 
 	WorldMarchQueueRoot->SetVisibility(bTacticalPresentation ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
 	WorldMarchQueueList->SetVisibility(bWorldMarchQueueExpanded ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
-	WorldMarchQueueArrow->SetRenderTransformAngle(bWorldMarchQueueExpanded ? 180.0f : 0.0f);
-	CastChecked<UCanvasPanelSlot>(WorldMarchQueueRoot->Slot)->SetSize(
-		{102, 31.0 + (bWorldMarchQueueExpanded ? 86.0 * FMath::Min(3, Snapshot.Marches.Num()) : 0.0)});
+	WorldMarchQueueArrow->SetRenderTransformAngle(WorldMarchQueueArrowClosedAngle + (bWorldMarchQueueExpanded ? 180.0f : 0.0f));
+	if (auto* QueueSlot = Cast<UCanvasPanelSlot>(WorldMarchQueueRoot->Slot))
+	{
+		const auto* ListSlot = Cast<UCanvasPanelSlot>(WorldMarchQueueList->Slot);
+		const double HeaderHeight = ListSlot ? ListSlot->GetOffsets().Top : 31.0;
+		QueueSlot->SetSize({QueueSlot->GetSize().X,
+			HeaderHeight + (bWorldMarchQueueExpanded
+				? FMath::Min(WorldMarchViewportHeight, WorldMarchRowHeight * Snapshot.Marches.Num()) : 0.0)});
+	}
 
 	int32 HighlightedArmy = SelectedMarchArmyIndex;
 	if (IsWorldObjectInfoOpen())
@@ -184,7 +280,7 @@ void URokWorldMapHudWidget::RefreshWorldMarchQueue()
 	{
 		const FString Suffix = LexToString(March.ArmyIndex);
 		auto* RowSize = WidgetTree->ConstructWidget<USizeBox>();
-		RowSize->SetHeightOverride(86.0f);
+		RowSize->SetHeightOverride(WorldMarchRowHeight);
 		WorldMarchQueueList->AddChild(RowSize);
 		auto* Button = WidgetTree->ConstructWidget<URokUnityIndexedButton>(URokUnityIndexedButton::StaticClass(),
 			MakeUniqueObjectName(WidgetTree, URokUnityIndexedButton::StaticClass(), FName(*(TEXT("WorldMarchArmy_") + Suffix))));
@@ -201,27 +297,42 @@ void URokWorldMapHudWidget::RefreshWorldMarchQueue()
 		auto* Row = WidgetTree->ConstructWidget<UCanvasPanel>();
 		Row->SetVisibility(ESlateVisibility::HitTestInvisible);
 		Button->SetContent(Row);
+		const FWorldMarchRowLayout Layout = BuildWorldMarchRowLayout(Row, TEXT("_") + Suffix);
+		const auto SetAtlas = [this](UImage* Image, const TCHAR* TexturePath, const FIntRect& Rect, const FIntPoint& AtlasSize)
+		{
+			UTexture2D* Texture = LoadUiTexture(TexturePath);
+			if (Texture)
+			{
+				FSlateBrush Brush = Image->GetBrush();
+				const FSlateBrush Atlas = MakeAtlasBrush(Texture, Rect, AtlasSize, Brush.ImageSize);
+				Brush.SetResourceObject(Texture);
+				Brush.SetUVRegion(static_cast<FBox2f>(Atlas.GetUVRegion()));
+				Image->SetBrush(Brush);
+			}
+			Image->SetVisibility(Texture ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+		};
+
 		FRokUnityCatalogHero Hero;
 		const bool bHasHero = Catalog && Catalog->GetHero(March.MainHeroId, Hero);
 		const bool bHeadAtlasFrame = Hero.Rare == 4 || Hero.Rare == 5;
 		const FIntRect Frame = Hero.Rare == 5 ? FIntRect(593, 1895, 727, 2047)
 			: Hero.Rare == 4 ? FIntRect(729, 1895, 863, 2047) : FIntRect(1, 53, 135, 205);
-		auto* RarityFrame = MakeAtlasImage(NAME_None, bHeadAtlasFrame ? HeadAtlas : HeroUi, Frame,
-			bHeadAtlasFrame ? HeadAtlasSize : HeroUiSize, {78, 86});
-		if (Hero.Rare == 3) RarityFrame->SetColorAndOpacity(FLinearColor(0.55f, 0.78f, 1.0f));
-		if (Hero.Rare == 2) RarityFrame->SetColorAndOpacity(FLinearColor(0.62f, 1.0f, 0.70f));
-		PlaceOnCanvas(Row, RarityFrame, {12, 0}, {78, 86});
+		SetAtlas(Layout.RarityFrame, bHeadAtlasFrame ? HeadAtlas : HeroUi, Frame,
+			bHeadAtlasFrame ? HeadAtlasSize : HeroUiSize);
+		const FLinearColor FrameTint = Layout.RarityFrame->GetColorAndOpacity();
+		if (Hero.Rare == 3) Layout.RarityFrame->SetColorAndOpacity(FrameTint * FLinearColor(0.55f, 0.78f, 1.0f));
+		if (Hero.Rare == 2) Layout.RarityFrame->SetColorAndOpacity(FrameTint * FLinearColor(0.62f, 1.0f, 0.70f));
 		if (bHasHero && Hero.IconAtlas == TEXT("hero_head") && Hero.IconWidth > 0 && Hero.IconHeight > 0)
 		{
-			PlaceOnCanvas(Row, MakeAtlasImage(NAME_None, HeadAtlas,
-				FIntRect(Hero.IconX, Hero.IconY, Hero.IconX + Hero.IconWidth, Hero.IconY + Hero.IconHeight),
-				HeadAtlasSize, {73, 81}), {14.5, 2}, {73, 81});
+			SetAtlas(Layout.Portrait, HeadAtlas,
+				FIntRect(Hero.IconX, Hero.IconY, Hero.IconX + Hero.IconWidth, Hero.IconY + Hero.IconHeight), HeadAtlasSize);
 		}
-		if (HighlightedArmy == March.ArmyIndex)
+		else
 		{
-			PlaceOnCanvas(Row, MakeAtlasImage(NAME_None, HeroUi, FIntRect(1905, 356, 2046, 511), HeroUiSize, {86, 90}),
-				{8, -3}, {86, 90});
+			Layout.Portrait->SetVisibility(ESlateVisibility::Collapsed);
 		}
+		Layout.SelectionFrame->SetVisibility(HighlightedArmy == March.ArmyIndex && Layout.SelectionFrame->GetBrush().GetResourceObject()
+			? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
 		FIntPoint StatusOrigin(305, 120); // rest
 		FText Status = NSLOCTEXT("RokGather", "ArmyStationed", "驻扎");
 		switch (March.Phase)
@@ -257,11 +368,95 @@ void URokWorldMapHudWidget::RefreshWorldMarchQueue()
 		default:
 			break;
 		}
-		PlaceOnCanvas(Row, MakeAtlasImage(NAME_None, MapUi, FIntRect(StatusOrigin, StatusOrigin + FIntPoint(46, 46)),
-			MapUiSize, {29, 29}), {70, 58}, {29, 29});
+		SetAtlas(Layout.Status, MapUi, FIntRect(StatusOrigin, StatusOrigin + FIntPoint(46, 46)), MapUiSize);
 		Button->SetToolTipText(bHasHero ? FText::Format(NSLOCTEXT("RokGather", "ArmyTooltip", "{0} · {1}"),
 			FText::FromString(Hero.DisplayNameZhCn.IsEmpty() ? Hero.DisplayNameEn : Hero.DisplayNameZhCn), Status) : Status);
 	}
+}
+
+void URokWorldMapHudWidget::BuildWorldOverlayArt()
+{
+	static const TSoftClassPtr<URokUiPageWidget> ArtClass(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokWorldOverlayArt.WBP_RokWorldOverlayArt_C")));
+	const FName Required[] = {TEXT("GatherRouteDot"), TEXT("AttackRouteDot"), TEXT("AttackRouteDestination"),
+		TEXT("SearchResultGuide"), TEXT("MarchMarker"), TEXT("BattleMarker")};
+	if (auto* Page = CreateWorldHudPage(ArtClass, TEXT("WorldOverlayArt")))
+	{
+		for (FName Name : Required)
+		{
+			if (auto* Art = Page->Get<UImage>(Name); Art && Cast<UCanvasPanelSlot>(Art->Slot))
+			{
+				WorldOverlayImages.Add(Name, Art);
+			}
+		}
+		auto* Root = Cast<UCanvasPanel>(Page->GetRootWidget());
+		if (Root && WorldOverlayImages.Num() == UE_ARRAY_COUNT(Required))
+		{
+			WorldOverlayArtPage = Page;
+			WorldOverlayArtRoot = Root;
+			return;
+		}
+		WorldOverlayImages.Reset();
+	}
+
+	WorldOverlayArtRoot = WidgetTree->ConstructWidget<UCanvasPanel>();
+	const auto Add = [this](UImage* Art, FVector2D Position, FVector2D Size, FVector2D Alignment, int32 ZOrder)
+	{
+		Art->SetVisibility(ESlateVisibility::HitTestInvisible);
+		PlaceOnCanvas(WorldOverlayArtRoot, Art, Position, Size, FAnchors(), Alignment)->SetZOrder(ZOrder);
+		WorldOverlayImages.Add(Art->GetFName(), Art);
+	};
+
+	auto* GatherDot = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("GatherRouteDot"));
+	GatherDot->SetBrush(FSlateColorBrush(FLinearColor(0.94f, 0.96f, 1.0f, 0.96f)));
+	GatherDot->SetRenderTransformAngle(45.0f);
+	Add(GatherDot, FVector2D::ZeroVector, {5.4f, 5.4f}, FVector2D(0.5f), 0);
+
+	auto* AttackDot = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("AttackRouteDot"));
+	const FVector2D DotSize(8, 5.5);
+	AttackDot->SetBrush(FSlateRoundedBoxBrush(AttackRouteGreen,
+		FLinearColor(0.027f, 0.16f, 0.08f, 0.92f), 1.f, DotSize));
+	Add(AttackDot, FVector2D::ZeroVector, DotSize, FVector2D(0.5f), 5);
+
+	auto* Cross = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("AttackRouteDestination"));
+	Cross->SetColorAndOpacity(AttackRouteGreen);
+	Add(Cross, FVector2D::ZeroVector, {43, 34}, FVector2D(0.5f), 5);
+
+	auto* SearchGuide = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("SearchResultGuide"));
+	SearchGuide->SetRenderTransformAngle(180.0f);
+	Add(SearchGuide, {7.5, -190}, {49, 149}, FVector2D::ZeroVector, 0);
+
+	Add(MakeAtlasImage(TEXT("MarchMarker"), MapUi, FIntRect(257, 72, 303, 118), MapUiSize, {44, 44}),
+		{-22, -32}, {44, 44}, FVector2D::ZeroVector, 71);
+	Add(MakeAtlasImage(TEXT("BattleMarker"), MapUi, FIntRect(960, 285, 1006, 331), MapUiSize, {44, 44}),
+		{-22, -72}, {44, 44}, FVector2D::ZeroVector, 71);
+}
+
+const UImage& URokWorldMapHudWidget::GetWorldOverlayArt(FName Name) const
+{
+	return *WorldOverlayImages.FindChecked(Name);
+}
+
+void URokWorldMapHudWidget::ApplyWorldOverlayArt(UImage& Image, const UImage& Art) const
+{
+	Image.SetBrush(Art.GetBrush());
+	Image.SetColorAndOpacity(Art.GetColorAndOpacity());
+	Image.SetRenderTransform(Art.GetRenderTransform());
+	Image.SetRenderTransformPivot(Art.GetRenderTransformPivot());
+
+	const auto* ArtSlot = CastChecked<UCanvasPanelSlot>(Art.Slot);
+	auto* ImageSlot = CastChecked<UCanvasPanelSlot>(Image.Slot);
+	ImageSlot->SetLayout(ArtSlot->GetLayout());
+	ImageSlot->SetAutoSize(ArtSlot->GetAutoSize());
+	ImageSlot->SetZOrder(ArtSlot->GetZOrder());
+}
+
+UImage* URokWorldMapHudWidget::AddWorldOverlayImage(UCanvasPanel* Parent, FName Name, const UImage& Art)
+{
+	auto* Image = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), Name);
+	Parent->AddChildToCanvas(Image);
+	ApplyWorldOverlayArt(*Image, Art);
+	return Image;
 }
 
 void URokWorldMapHudWidget::UpdateAttackMarchRoutes()
@@ -277,6 +472,10 @@ void URokWorldMapHudWidget::UpdateAttackMarchRoutes()
 		const FVector2D Scale = CurrentExpandedDesignSize / CurrentRootSize
 			/ FMath::Max(UE_SMALL_NUMBER, UWidgetLayoutLibrary::GetViewportScale(this));
 		const FBox2D View(FVector2D::ZeroVector, CurrentExpandedDesignSize);
+		const auto& DotArt = GetWorldOverlayArt(TEXT("AttackRouteDot"));
+		const auto& CrossArt = GetWorldOverlayArt(TEXT("AttackRouteDestination"));
+		const FVector2D DotOffset = CastChecked<UCanvasPanelSlot>(DotArt.Slot)->GetPosition();
+		const FVector2D CrossOffset = CastChecked<UCanvasPanelSlot>(CrossArt.Slot)->GetPosition();
 		const auto Project = [&](const FVector2D& Map, FVector2D& Screen)
 		{
 			if (!Controller->ProjectWorldLocationToScreen(Projection.UnityToUe(Map), Screen, true)) return false;
@@ -317,19 +516,14 @@ void URokWorldMapHudWidget::UpdateAttackMarchRoutes()
 							{
 								if (!AttackRouteDots.IsValidIndex(DotsShown))
 								{
-									const FVector2D DotSize(8, 5.5);
-									auto* Dot = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(),
-										*FString::Printf(TEXT("WorldAttackRouteDot_%d"), DotsShown));
-									Dot->SetBrush(FSlateRoundedBoxBrush(AttackRouteGreen,
-										FLinearColor(0.027f, 0.16f, 0.08f, 0.92f), 1.f, DotSize));
-									PlaceOnCanvas(ExpandedDesignCanvas, Dot, FVector2D::ZeroVector,
-										DotSize, FAnchors(), FVector2D(0.5f))->SetZOrder(5);
-									AttackRouteDots.Add(Dot);
+									AttackRouteDots.Add(AddWorldOverlayImage(ExpandedDesignCanvas,
+											*FString::Printf(TEXT("WorldAttackRouteDot_%d"), DotsShown), DotArt));
 								}
 								auto* Dot = AttackRouteDots[DotsShown++].Get();
 								Dot->SetVisibility(ESlateVisibility::HitTestInvisible);
-								CastChecked<UCanvasPanelSlot>(Dot->Slot)->SetPosition(From + Direction * Distance);
-								Dot->SetRenderTransformAngle(FMath::RadiansToDegrees(FMath::Atan2(Delta.Y, Delta.X)));
+								CastChecked<UCanvasPanelSlot>(Dot->Slot)->SetPosition(From + Direction * Distance + DotOffset);
+								Dot->SetRenderTransformAngle(DotArt.GetRenderTransformAngle()
+									+ FMath::RadiansToDegrees(FMath::Atan2(Delta.Y, Delta.X)));
 							}
 						}
 						DistanceToDot = Spacing - FMath::Fmod(Length + Spacing - DistanceToDot, Spacing);
@@ -342,17 +536,14 @@ void URokWorldMapHudWidget::UpdateAttackMarchRoutes()
 			if (!AttackRouteDestinations.IsValidIndex(DestinationsShown))
 			{
 				if (!AttackRouteDestinationTexture) continue;
-				auto* Cross = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(),
-					*FString::Printf(TEXT("WorldAttackRouteDestination_%d"), DestinationsShown));
-				Cross->SetBrushFromTexture(AttackRouteDestinationTexture);
-				Cross->SetColorAndOpacity(AttackRouteGreen);
-				PlaceOnCanvas(ExpandedDesignCanvas, Cross, FVector2D::ZeroVector,
-					{43, 34}, FAnchors(), FVector2D(0.5f))->SetZOrder(5);
+				auto* Cross = AddWorldOverlayImage(ExpandedDesignCanvas,
+					*FString::Printf(TEXT("WorldAttackRouteDestination_%d"), DestinationsShown), CrossArt);
+				if (!Cross->GetBrush().GetResourceObject()) Cross->SetBrushFromTexture(AttackRouteDestinationTexture);
 				AttackRouteDestinations.Add(Cross);
 			}
 			auto* Cross = AttackRouteDestinations[DestinationsShown++].Get();
 			Cross->SetVisibility(ESlateVisibility::HitTestInvisible);
-			CastChecked<UCanvasPanelSlot>(Cross->Slot)->SetPosition(From);
+			CastChecked<UCanvasPanelSlot>(Cross->Slot)->SetPosition(From + CrossOffset);
 		}
 	}
 	for (int32 Index = DotsShown; Index < AttackRouteDots.Num(); ++Index)
@@ -361,6 +552,45 @@ void URokWorldMapHudWidget::UpdateAttackMarchRoutes()
 		AttackRouteDestinations[Index]->SetVisibility(ESlateVisibility::Collapsed);
 }
 
+
+void URokWorldMapHudWidget::BuildWorldDamageArt()
+{
+	static const TSoftClassPtr<URokUiPageWidget> ArtClass(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokWorldDamageNumbers.WBP_RokWorldDamageNumbers_C")));
+	const FName Names[] = {TEXT("ArmyDamage"), TEXT("TargetDamage")};
+	if (auto* Page = CreateWorldHudPage(ArtClass, TEXT("WorldDamageArt")))
+	{
+		auto* Root = Cast<UCanvasPanel>(Page->GetRootWidget());
+		for (FName Name : Names)
+		{
+			auto* Text = Page->Get<UTextBlock>(Name);
+			if (Text && Cast<UCanvasPanelSlot>(Text->Slot))
+			{
+				// The templates are never mounted, so resolve their runtime fonts here.
+				if (auto* RokText = Cast<URokUiTextBlock>(Text)) RokText->ApplyFontRole();
+				WorldDamageArt.Add(Text);
+			}
+		}
+		if (Root && WorldDamageArt.Num() == UE_ARRAY_COUNT(Names))
+		{
+			WorldDamageArtPage = Page;
+			WorldDamageArtRoot = Root;
+			return;
+		}
+		WorldDamageArt.Reset();
+	}
+
+	WorldDamageArtRoot = WidgetTree->ConstructWidget<UCanvasPanel>();
+	const FLinearColor Colors[] = {FLinearColor(1.0f, 0.38f, 0.29f), FLinearColor(1.0f, 0.80f, 0.45f)};
+	for (int32 Side = 0; Side < UE_ARRAY_COUNT(Names); ++Side)
+	{
+		auto* Label = MakeHudText(Names[Side], 26, Colors[Side]);
+		Label->SetJustification(ETextJustify::Center);
+		Label->SetText(FText::Format(NSLOCTEXT("RokBattle", "DamageNumber", "−{0}"), FText::AsNumber(100)));
+		PlaceOnCanvas(WorldDamageArtRoot, Label, {Side == 0 ? -112.0 : 7.0, -60.0}, {105, 35})->SetZOrder(72);
+		WorldDamageArt.Add(Label);
+	}
+}
 
 void URokWorldMapHudWidget::UpdateAttackMarchMarkers(const FRokServerArmySnapshot& Snapshot)
 {
@@ -393,20 +623,18 @@ void URokWorldMapHudWidget::UpdateAttackMarchMarkers(const FRokServerArmySnapsho
 			if (ScreenPosition.X < 0 || ScreenPosition.Y < 0
 				|| ScreenPosition.X > CurrentRootSize.X || ScreenPosition.Y > CurrentRootSize.Y) continue;
 
+			const auto& Art = GetWorldOverlayArt(bBattle ? TEXT("BattleMarker") : TEXT("MarchMarker"));
 			if (!AttackMarchMarkers.IsValidIndex(Shown))
 			{
-				auto* Marker = MakeAtlasImage(*FString::Printf(TEXT("WorldAttackMarchMarker_%d"), Shown),
-					MapUi, FIntRect(257, 72, 303, 118), MapUiSize, {44, 44});
-				PlaceOnCanvas(ExpandedDesignCanvas, Marker, FVector2D::ZeroVector, {44, 44})->SetZOrder(71);
-				AttackMarchMarkers.Add(Marker);
+				AttackMarchMarkers.Add(AddWorldOverlayImage(ExpandedDesignCanvas,
+					*FString::Printf(TEXT("WorldAttackMarchMarker_%d"), Shown), Art));
 			}
 			auto* Marker = AttackMarchMarkers[Shown++].Get();
-			const FIntPoint Origin = bBattle ? FIntPoint(960, 285) : FIntPoint(257, 72);
-			Marker->SetBrush(MakeAtlasBrush(LoadUiTexture(MapUi),
-				FIntRect(Origin, Origin + FIntPoint(46, 46)), MapUiSize, {44, 44}));
+			ApplyWorldOverlayArt(*Marker, Art);
 			Marker->SetVisibility(ESlateVisibility::HitTestInvisible);
 			const FVector2D DesignPosition = ScreenPosition * CurrentExpandedDesignSize / CurrentRootSize;
-			CastChecked<UCanvasPanelSlot>(Marker->Slot)->SetPosition(DesignPosition - FVector2D(22, bBattle ? 72 : 32));
+			CastChecked<UCanvasPanelSlot>(Marker->Slot)->SetPosition(
+				DesignPosition + CastChecked<UCanvasPanelSlot>(Art.Slot)->GetPosition());
 			if (!bBattle || !Net) continue;
 			const int64 Objects[] = {March.MapObjectId, March.TargetObjectId};
 			for (int32 Side = 0; Side < UE_ARRAY_COUNT(Objects); ++Side)
@@ -416,17 +644,33 @@ void URokWorldMapHudWidget::UpdateAttackMarchMarkers(const FRokServerArmySnapsho
 				if (!Net->GetRecentBattleDamage(Objects[Side], Damage, Age)) continue;
 				if (!AttackDamageLabels.IsValidIndex(DamageShown))
 				{
-					auto* Label = MakeHudText(*FString::Printf(TEXT("WorldAttackDamage_%d"), DamageShown), 26, FLinearColor::White);
-					Label->SetJustification(ETextJustify::Center);
-					PlaceOnCanvas(ExpandedDesignCanvas, Label, FVector2D::ZeroVector, {105, 35})->SetZOrder(72);
+					auto* Label = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(),
+						*FString::Printf(TEXT("WorldAttackDamage_%d"), DamageShown));
+					ExpandedDesignCanvas->AddChildToCanvas(Label);
 					AttackDamageLabels.Add(Label);
 				}
+				const UTextBlock& DamageArt = *WorldDamageArt[Side];
 				auto* Label = AttackDamageLabels[DamageShown++].Get();
+				Label->SetFont(DamageArt.GetFont());
+				Label->SetColorAndOpacity(DamageArt.GetColorAndOpacity());
+				Label->SetShadowOffset(DamageArt.GetShadowOffset());
+				Label->SetShadowColorAndOpacity(DamageArt.GetShadowColorAndOpacity());
+				static const auto* Justification = FindFProperty<FByteProperty>(UTextBlock::StaticClass(), TEXT("Justification"));
+				Label->SetJustification(Justification
+					? static_cast<ETextJustify::Type>(Justification->GetPropertyValue_InContainer(&DamageArt)) : ETextJustify::Center);
+				Label->SetAutoWrapText(DamageArt.GetAutoWrapText());
+				Label->SetWrapTextAt(DamageArt.GetWrapTextAt());
+				Label->SetRenderTransform(DamageArt.GetRenderTransform());
+				Label->SetRenderTransformPivot(DamageArt.GetRenderTransformPivot());
 				Label->SetVisibility(ESlateVisibility::HitTestInvisible);
-				Label->SetColorAndOpacity(Side == 0 ? FLinearColor(1.0f, 0.38f, 0.29f) : FLinearColor(1.0f, 0.80f, 0.45f));
-				Label->SetRenderOpacity(FMath::Clamp(1.5 - Age, 0.0, 1.0));
+				Label->SetRenderOpacity(DamageArt.GetRenderOpacity() * FMath::Clamp(1.5 - Age, 0.0, 1.0));
 				Label->SetText(FText::Format(NSLOCTEXT("RokBattle", "DamageNumber", "−{0}"), FText::AsNumber(Damage)));
-				CastChecked<UCanvasPanelSlot>(Label->Slot)->SetPosition(DesignPosition + FVector2D(Side == 0 ? -112 : 7, -60 - Age * 28));
+				const auto* ArtSlot = CastChecked<UCanvasPanelSlot>(DamageArt.Slot);
+				auto* LabelSlot = CastChecked<UCanvasPanelSlot>(Label->Slot);
+				LabelSlot->SetLayout(ArtSlot->GetLayout());
+				LabelSlot->SetAutoSize(ArtSlot->GetAutoSize());
+				LabelSlot->SetZOrder(ArtSlot->GetZOrder());
+				LabelSlot->SetPosition(DesignPosition + ArtSlot->GetPosition() - FVector2D(0, Age * 28));
 			}
 		}
 	}
@@ -503,18 +747,27 @@ void URokWorldMapHudWidget::TryOpenFocusedWorldTarget()
 			Controller->SelectWorldMapActor(Entry.Entity.Get(), !bWaitForBarbarianClick);
 			if (bPendingWorldTargetFromSearch && Entry.Root)
 			{
+				const auto& Art = GetWorldOverlayArt(TEXT("SearchResultGuide"));
 				if (!WorldSearchResultGuide)
 				{
-					if (auto* Texture = LoadTransientUiTexture(RokDataPaths::Resolve(TEXT("WorldSearch/finger001.png"))))
+					UTexture2D* Texture = Cast<UTexture2D>(Art.GetBrush().GetResourceObject());
+					if (!Texture) Texture = LoadTransientUiTexture(RokDataPaths::Resolve(TEXT("WorldSearch/finger001.png")));
+					if (Texture)
 					{
-						WorldSearchResultGuide = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("WorldSearchResultGuide"));
+						WorldSearchResultGuide = AddWorldOverlayImage(Entry.Root, TEXT("WorldSearchResultGuide"), Art);
 						WorldSearchResultGuide->SetBrushFromTexture(Texture);
-						WorldSearchResultGuide->SetRenderTransformAngle(180.0f);
 						WorldSearchResultGuide->SetVisibility(ESlateVisibility::HitTestInvisible);
 					}
 				}
-				if (WorldSearchResultGuide)
-					PlaceOnCanvas(Entry.Root, WorldSearchResultGuide, FVector2D(7.5, -190), FVector2D(49, 149));
+				else
+				{
+					Entry.Root->AddChildToCanvas(WorldSearchResultGuide);
+					const auto* ArtSlot = CastChecked<UCanvasPanelSlot>(Art.Slot);
+					auto* GuideSlot = CastChecked<UCanvasPanelSlot>(WorldSearchResultGuide->Slot);
+					GuideSlot->SetLayout(ArtSlot->GetLayout());
+					GuideSlot->SetAutoSize(ArtSlot->GetAutoSize());
+					GuideSlot->SetZOrder(ArtSlot->GetZOrder());
+				}
 			}
 			return;
 		}
@@ -523,6 +776,31 @@ void URokWorldMapHudWidget::TryOpenFocusedWorldTarget()
 
 void URokWorldMapHudWidget::BuildBarbarianInfo()
 {
+	static const TSoftClassPtr<URokUiPageWidget> BarbarianPage(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokWorldBarbarianInfo.WBP_RokWorldBarbarianInfo_C")));
+	if (auto* Page = AddWorldHudPage(WorldObjectInfoRoot, BarbarianPage, TEXT("WorldBarbarianInfoPage")))
+	{
+		BindBarbarianInfo(*Page);
+		static const TSoftClassPtr<URokUiPageWidget> RewardGridClass(FSoftObjectPath(
+			TEXT("/Game/RokUI/Hud/WBP_RokWorldBarbarianRewardGrid.WBP_RokWorldBarbarianRewardGrid_C")));
+		if (auto* Grid = CreateWorldHudPage(RewardGridClass, NAME_None))
+		{
+			for (int32 Index = 0; Index < 6; ++Index)
+			{
+				const auto* Cell = Grid->Get<UCanvasPanel>(FName(*FString::Printf(TEXT("RewardCell_%d"), Index)));
+				const auto* CellLayoutSlot = Cell ? Cast<UCanvasPanelSlot>(Cell->Slot) : nullptr;
+				if (!CellLayoutSlot)
+				{
+					BarbarianRewardCells.Reset();
+					break;
+				}
+				const FVector2D Position = CellLayoutSlot->GetPosition();
+				BarbarianRewardCells.Emplace(Position, Position + CellLayoutSlot->GetSize());
+			}
+		}
+		return;
+	}
+
 	// UI_Pop_WorldObjectMonster and UI_Item_WorldObjInfoTDrop, scaled into the 1440-wide HUD.
 	const FVector2D Size(486, 434);
 	const FLinearColor Ink(0.025f, 0.022f, 0.018f);
@@ -533,8 +811,8 @@ void URokWorldMapHudWidget::BuildBarbarianInfo()
 	PlaceOnCanvas(WorldBarbarianInfoPanel, MakeTransparentHitButton(TEXT("WorldBarbarianInputBlocker")),
 		FVector2D::ZeroVector, Size);
 
-	BarbarianNormalPage = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass());
-	BarbarianDetailsPage = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass());
+	BarbarianNormalPage = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("WorldBarbarianNormal"));
+	BarbarianDetailsPage = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("WorldBarbarianDetailPage"));
 	PlaceOnCanvas(WorldBarbarianInfoPanel, BarbarianNormalPage, FVector2D::ZeroVector, Size);
 	PlaceOnCanvas(WorldBarbarianInfoPanel, BarbarianDetailsPage, FVector2D::ZeroVector, Size);
 	SetBarbarianDetailsExpanded(false);
@@ -562,11 +840,11 @@ void URokWorldMapHudWidget::BuildBarbarianInfo()
 	PlaceOnCanvas(BarbarianNormalPage, BarbarianPortrait, {30, 82}, {164, 176});
 	AddText(BarbarianNormalPage, TEXT("WorldBarbarianRewardTitle"), 20, true, {214, 96}, {234, 26})
 		->SetText(NSLOCTEXT("RokBattle", "BarbarianRewards", "可能掉落"));
-	BarbarianRewards = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass());
+	BarbarianRewards = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("WorldBarbarianRewards"));
 	BarbarianRewards->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
 	PlaceOnCanvas(BarbarianNormalPage, BarbarianRewards, {214, 122}, {234, 152});
 
-	BarbarianTimer = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass());
+	BarbarianTimer = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("WorldBarbarianTimer"));
 	PlaceOnCanvas(BarbarianNormalPage, BarbarianTimer, {53, 250}, {145, 29});
 	auto* Hourglass = MakeAtlasImage(TEXT("WorldBarbarianHourglass"), Common,
 		FIntRect(340, 32, 382, 78), CommonSize, {27, 30});
@@ -624,13 +902,41 @@ void URokWorldMapHudWidget::BuildBarbarianInfo()
 	PlaceOnCanvas(BarbarianNormalPage, BarbarianStay, {100, 390}, {300, 34});
 }
 
+void URokWorldMapHudWidget::BindBarbarianInfo(URokUiPageWidget& Page)
+{
+	WorldBarbarianInfoPanel = Page.Get<UCanvasPanel>(TEXT("WorldBarbarianInfo"));
+	BarbarianNormalPage = Page.Get<UCanvasPanel>(TEXT("WorldBarbarianNormal"));
+	BarbarianDetailsPage = Page.Get<UCanvasPanel>(TEXT("WorldBarbarianDetailPage"));
+	BarbarianCoordinate = Page.Get<UTextBlock>(TEXT("WorldBarbarianCoordinate"));
+	BarbarianTitle = Page.Get<UTextBlock>(TEXT("WorldBarbarianTitle"));
+	BarbarianPortrait = Page.Get<UImage>(TEXT("WorldBarbarianPortrait"));
+	BarbarianRewards = Page.Get<UCanvasPanel>(TEXT("WorldBarbarianRewards"));
+	BarbarianTimer = Page.Get<UCanvasPanel>(TEXT("WorldBarbarianTimer"));
+	BarbarianTimeRemaining = Page.Get<UTextBlock>(TEXT("WorldBarbarianTimeRemaining"));
+	BarbarianDescription = Page.Get<UTextBlock>(TEXT("WorldBarbarianDescription"));
+	BarbarianCost = Page.Get<UTextBlock>(TEXT("WorldBarbarianCost"));
+	BarbarianAttackButton = Page.Get<UButton>(TEXT("WorldBarbarianAttack"));
+	BarbarianAttackLabel = Page.Get<UTextBlock>(TEXT("WorldBarbarianAttackLabel"));
+	BarbarianFeedback = Page.Get<UTextBlock>(TEXT("WorldBarbarianFeedback"));
+	BarbarianStay = Page.Get<UCheckBox>(TEXT("WorldBarbarianStay"));
+	BindWorldHudButton(Page, TEXT("WorldBarbarianDetails"),
+		GET_FUNCTION_NAME_CHECKED(URokWorldMapHudWidget, HandleBarbarianDetailsClicked));
+	BindWorldHudButton(Page, TEXT("WorldBarbarianDetailsBack"),
+		GET_FUNCTION_NAME_CHECKED(URokWorldMapHudWidget, HandleBarbarianDetailsBackClicked));
+	BindWorldHudButton(Page, TEXT("WorldBarbarianShare"),
+		GET_FUNCTION_NAME_CHECKED(URokWorldMapHudWidget, HandleWorldObjectShareClicked));
+	BindWorldHudButton(Page, TEXT("WorldBarbarianAttack"),
+		GET_FUNCTION_NAME_CHECKED(URokWorldMapHudWidget, HandleBarbarianAttackClicked));
+	SetBarbarianDetailsExpanded(false);
+}
+
 void URokWorldMapHudWidget::SetBarbarianDetailsExpanded(bool bExpanded)
 {
 	BarbarianNormalPage->SetVisibility(bExpanded ? ESlateVisibility::Collapsed : ESlateVisibility::SelfHitTestInvisible);
 	BarbarianDetailsPage->SetVisibility(bExpanded ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
 	if (bExpanded)
 	{
-		if (auto* Scroll = Cast<UScrollBox>(GetWidgetFromName(TEXT("WorldBarbarianDescriptionScroll"))))
+		if (auto* Scroll = Cast<UScrollBox>(RokUiFind::Find(this, TEXT("WorldBarbarianDescriptionScroll"))))
 			Scroll->ScrollToStart();
 	}
 }
@@ -645,6 +951,44 @@ void URokWorldMapHudWidget::HandleBarbarianDetailsBackClicked()
 {
 	PlayResourceClickSound();
 	SetBarbarianDetailsExpanded(false);
+}
+
+URokWorldMapHudWidget::FBarbarianRewardLayout URokWorldMapHudWidget::BuildBarbarianRewardLayout(
+	UCanvasPanel* Cell, int32 Index)
+{
+	static const TSoftClassPtr<URokUiPageWidget> RewardClass(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokWorldBarbarianReward.WBP_RokWorldBarbarianReward_C")));
+	if (auto* Page = AddWorldHudPage(Cell, RewardClass, NAME_None))
+	{
+		const FBarbarianRewardLayout Layout{
+			Page->Get<UImage>(TEXT("WorldBarbarianRewardFrame")),
+			Page->Get<UImage>(TEXT("WorldBarbarianRewardIcon")),
+			Page->Get<UTextBlock>(TEXT("WorldBarbarianRewardValue")),
+			Page->Get<UTextBlock>(TEXT("WorldBarbarianRewardCount"))
+		};
+		if (Layout.Frame && Layout.Icon && Layout.Value && Layout.Count)
+		{
+			Page->LegacyIndex = FString::Printf(TEXT("_%d"), Index);
+			return Layout;
+		}
+		Page->RemoveFromParent();
+	}
+
+	const FString Prefix = FString::Printf(TEXT("WorldBarbarianReward_%d"), Index);
+	FBarbarianRewardLayout Layout;
+	Layout.Frame = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), *(Prefix + TEXT("Frame")));
+	Layout.Frame->SetVisibility(ESlateVisibility::HitTestInvisible);
+	PlaceOnCanvas(Cell, Layout.Frame, {0, 0}, {74, 74});
+	Layout.Icon = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), *(Prefix + TEXT("Icon")));
+	Layout.Icon->SetVisibility(ESlateVisibility::HitTestInvisible);
+	PlaceOnCanvas(Cell, Layout.Icon, {5, 5}, {64, 64});
+	Layout.Value = MakeHudText(*(Prefix + TEXT("Value")), 12, FLinearColor::White);
+	Layout.Value->SetJustification(ETextJustify::Center);
+	PlaceOnCanvas(Cell, Layout.Value, {3, 3}, {68, 18});
+	Layout.Count = MakeHudText(*(Prefix + TEXT("Count")), 15, FLinearColor::White);
+	Layout.Count->SetJustification(ETextJustify::Right);
+	PlaceOnCanvas(Cell, Layout.Count, {3, 54}, {65, 18});
+	return Layout;
 }
 
 void URokWorldMapHudWidget::RefreshBarbarianInfo(const ARokWorldMapEntityActor& Target)
@@ -680,22 +1024,23 @@ void URokWorldMapHudWidget::RefreshBarbarianInfo(const ARokWorldMapEntityActor& 
 			const FString Prefix = FString::Printf(TEXT("WorldBarbarianReward_%d"), Index);
 			auto* Cell = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), *Prefix);
 			Cell->SetToolTipText(FText::FromString(Reward.DisplayName));
-			PlaceOnCanvas(BarbarianRewards, Cell, {79.0 * (Index % 3), 78.0 * (Index / 3)}, {74, 74});
-			auto* Frame = WidgetTree->ConstructWidget<UImage>();
-			Frame->SetBrush(FeatureScreenWidget->MakeRewardQualityBrush(Reward.Quality, {74, 74}));
-			Frame->SetVisibility(ESlateVisibility::HitTestInvisible);
-			PlaceOnCanvas(Cell, Frame, {0, 0}, {74, 74});
-			if (!Reward.AtlasPath.IsEmpty())
-				PlaceOnCanvas(Cell, MakeAtlasImage(*(Prefix + TEXT("Icon")), *Reward.AtlasPath,
-					Reward.IconRect, Reward.IconAtlasSize, {64, 64}), {5, 5}, {64, 64});
-			auto* Top = MakeHudText(*(Prefix + TEXT("Value")), 12, FLinearColor::White);
-			Top->SetJustification(ETextJustify::Center);
-			Top->SetText(Reward.TopLabel);
-			PlaceOnCanvas(Cell, Top, {3, 3}, {68, 18});
-			auto* Count = MakeHudText(*(Prefix + TEXT("Count")), 15, FLinearColor::White);
-			Count->SetJustification(ETextJustify::Right);
-			Count->SetText(FText::AsNumber(Reward.Quantity));
-			PlaceOnCanvas(Cell, Count, {3, 54}, {65, 18});
+			const FVector2D RewardDesignSize(74.0, 74.0);
+			const FVector2D LegacyPosition(79.0 * (Index % 3), 78.0 * (Index / 3));
+			const FBox2D CellBounds = BarbarianRewardCells.IsValidIndex(Index) ? BarbarianRewardCells[Index]
+				: FBox2D(LegacyPosition, LegacyPosition + RewardDesignSize);
+			PlaceOnCanvas(BarbarianRewards, Cell, CellBounds.Min, RewardDesignSize);
+			Cell->SetRenderTransformPivot(FVector2D::ZeroVector);
+			Cell->SetRenderScale(CellBounds.GetSize() / RewardDesignSize);
+			const FBarbarianRewardLayout Layout = BuildBarbarianRewardLayout(Cell, Index);
+			Layout.Frame->SetBrush(FeatureScreenWidget->MakeRewardQualityBrush(Reward.Quality, RewardDesignSize));
+			UTexture2D* Atlas = Reward.AtlasPath.IsEmpty() ? nullptr : LoadUiTexture(*Reward.AtlasPath);
+			if (Atlas)
+			{
+				Layout.Icon->SetBrush(MakeAtlasBrush(Atlas, Reward.IconRect, Reward.IconAtlasSize, {64, 64}));
+			}
+			Layout.Icon->SetVisibility(Atlas ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+			Layout.Value->SetText(Reward.TopLabel);
+			Layout.Count->SetText(FText::AsNumber(Reward.Quantity));
 		}
 		const bool bCommonPortrait = Info.HeadIcon == TEXT("ui_common[icon_com_monster]");
 		BarbarianPortrait->SetBrush(MakeAtlasBrush(LoadUiTexture(bCommonPortrait ? Common : MapIconUi),
@@ -738,6 +1083,37 @@ void URokWorldMapHudWidget::HandleBarbarianAttackClicked()
 		OpenGatherPanel(Target, TargetId, BarbarianStay->IsChecked());
 }
 
+URokWorldMapHudWidget::FAttackArmyChoiceLayout URokWorldMapHudWidget::BuildAttackArmyChoiceLayout(int32 ArmyIndex)
+{
+	static const TSoftClassPtr<URokUiPageWidget> ChoiceClass(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokWorldAttackArmyChoice.WBP_RokWorldAttackArmyChoice_C")));
+	if (auto* Page = CreateWorldHudPage(ChoiceClass, NAME_None))
+	{
+		auto* Button = Page->Get<URokUnityIndexedButton>(TEXT("WorldAttackArmy"));
+		auto* Label = Page->Get<UTextBlock>(TEXT("WorldAttackArmyCaption"));
+		if (Button && Label)
+		{
+			Page->LegacySuffix = FString::Printf(TEXT("_%d"), ArmyIndex);
+			return {Page, Button, Label};
+		}
+	}
+
+	const FName Key(*FString::Printf(TEXT("WorldAttackArmy_%d"), ArmyIndex));
+	auto* Button = WidgetTree->ConstructWidget<URokUnityIndexedButton>(URokUnityIndexedButton::StaticClass(), Key);
+	if (auto* Atlas = LoadUiTexture(Common))
+	{
+		FButtonStyle Style;
+		const FSlateBrush Background = MakeAtlasBrush(Atlas, FIntRect(1098, 571, 1300, 652), CommonSize, {130, 68});
+		Style.SetNormal(Background).SetHovered(Background).SetPressed(Background);
+		Button->SetStyle(Style);
+	}
+	const FName LabelName = ArmyIndex == 0 ? FName(TEXT("WorldAttackArmyCaption")) : NAME_None;
+	auto* Label = MakeHudText(LabelName, 17, FLinearColor::White, true);
+	Label->SetJustification(ETextJustify::Center);
+	Button->SetContent(Label);
+	return {Button, Button, Label};
+}
+
 void URokWorldMapHudWidget::RefreshAttackArmyChoices()
 {
 	AttackArmyChoices->ClearChildren();
@@ -751,24 +1127,28 @@ void URokWorldMapHudWidget::RefreshAttackArmyChoices()
 		FRokUnityCatalogHero Hero;
 		const FString Name = Catalog && Catalog->GetHero(March.MainHeroId, Hero) ? Hero.DisplayNameZhCn : TEXT("部队");
 		const FString Caption = FString::Printf(TEXT("%s\n%s 名士兵"), *Name, *FText::AsNumber(March.Count).ToString());
-		const FName Key(*FString::Printf(TEXT("WorldAttackArmy_%d"), March.ArmyIndex));
-		auto* Row = WidgetTree->ConstructWidget<URokUnityIndexedButton>(URokUnityIndexedButton::StaticClass(), Key);
-		Row->ConfigureAction(March.ArmyIndex);
-		Row->OnIndexedClicked.AddUObject(this, &URokWorldMapHudWidget::SelectAttackArmy);
+		const FAttackArmyChoiceLayout Choice = BuildAttackArmyChoiceLayout(March.ArmyIndex);
+		Choice.Button->ConfigureAction(March.ArmyIndex);
+		Choice.Button->OnIndexedClicked.AddUObject(this, &URokWorldMapHudWidget::SelectAttackArmy);
 		if (auto* Atlas = LoadUiTexture(Common))
 		{
-			FButtonStyle Style;
+			FButtonStyle Style = Choice.Button->GetStyle();
 			const FSlateBrush Background = MakeAtlasBrush(Atlas,
 				March.ArmyIndex == GatherExistingArmyIndex ? FIntRect(1766, 586, 2040, 670) : FIntRect(1098, 571, 1300, 652),
 				CommonSize, {130, 68});
-			Style.SetNormal(Background).SetHovered(Background).SetPressed(Background);
-			Row->SetStyle(Style);
+			const auto ApplyState = [&Background, Atlas](FSlateBrush Brush)
+			{
+				Brush.SetResourceObject(Atlas);
+				Brush.SetUVRegion(static_cast<FBox2f>(Background.GetUVRegion()));
+				return Brush;
+			};
+			Style.SetNormal(ApplyState(Style.Normal))
+				.SetHovered(ApplyState(Style.Hovered))
+				.SetPressed(ApplyState(Style.Pressed));
+			Choice.Button->SetStyle(Style);
 		}
-		auto* Label = MakeHudText(NAME_None, 17, FLinearColor::White, true);
-		Label->SetJustification(ETextJustify::Center);
-		Label->SetText(FText::FromString(Caption));
-		Row->SetContent(Label);
-		AttackArmyChoices->AddChild(Row);
+		Choice.Label->SetText(FText::FromString(Caption));
+		AttackArmyChoices->AddChild(Choice.Root);
 	}
 }
 
@@ -796,21 +1176,31 @@ void URokWorldMapHudWidget::BuildGatherPanel()
 	Overlay->SetOffsets(FMargin(0));
 	Overlay->SetZOrder(200);
 
-	auto* Back = MakeTransparentHitButton(TEXT("WorldGatherDispatchDismiss"));
-	Back->OnClicked.AddDynamic(this, &URokWorldMapHudWidget::HandleGatherCloseClicked);
-	auto* BackSlot = GatherRoot->AddChildToCanvas(Back);
-	BackSlot->SetAnchors(FAnchors(0, 0, 1, 1));
-	BackSlot->SetOffsets(FMargin(0));
+	static const TSoftClassPtr<URokUiPageWidget> GatherPageClass(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokWorldGatherDispatch.WBP_RokWorldGatherDispatch_C")));
+	auto* GatherPage = AddWorldHudPage(GatherRoot, GatherPageClass, TEXT("WorldGatherDispatchPage"), 1);
+	if (!GatherPage)
+	{
+		auto* Back = MakeTransparentHitButton(TEXT("WorldGatherDispatchDismiss"));
+		Back->OnClicked.AddDynamic(this, &URokWorldMapHudWidget::HandleGatherCloseClicked);
+		auto* BackSlot = GatherRoot->AddChildToCanvas(Back);
+		BackSlot->SetAnchors(FAnchors(0, 0, 1, 1));
+		BackSlot->SetOffsets(FMargin(0));
+	}
 
 	// The path is a preview drawn between the actual city and resource point.
+	const auto& DotArt = GetWorldOverlayArt(TEXT("GatherRouteDot"));
 	for (int32 Index = 0; Index < 64; ++Index)
 	{
-		auto* Dot = WidgetTree->ConstructWidget<UImage>();
-		Dot->SetBrush(FSlateColorBrush(FLinearColor(0.94f, 0.96f, 1.0f, 0.96f)));
-		Dot->SetRenderTransformAngle(45.0f);
+		auto* Dot = AddWorldOverlayImage(GatherRoot, *FString::Printf(TEXT("WorldGatherRouteDot_%d"), Index), DotArt);
 		Dot->SetVisibility(ESlateVisibility::Collapsed);
-		PlaceOnCanvas(GatherRoot, Dot, FVector2D::ZeroVector, {5.4f, 5.4f}, FAnchors(), FVector2D(0.5f));
 		GatherRouteDots.Add(Dot);
+	}
+
+	if (GatherPage)
+	{
+		BindGatherPanel(*GatherPage);
+		return;
 	}
 
 	const FAnchors Right(1, 0);
@@ -874,6 +1264,23 @@ void URokWorldMapHudWidget::BuildGatherPanel()
 	GatherCreateLabel = Label;
 	Create->OnClicked.AddDynamic(this, &URokWorldMapHudWidget::HandleGatherCreateClicked);
 	PlaceOnCanvas(Card, Create, {22, 101}, {202, 81});
+}
+
+void URokWorldMapHudWidget::BindGatherPanel(URokUiPageWidget& Page)
+{
+	GatherQueueShade = Page.Get<UImage>(TEXT("WorldGatherQueueShade"));
+	GatherQueueCount = Page.Get<UTextBlock>(TEXT("WorldGatherQueueCount"));
+	GatherFeedback = Page.Get<UTextBlock>(TEXT("WorldGatherCreateTip"));
+	GatherCreateButton = Page.Get<UButton>(TEXT("WorldGatherCreateArmy"));
+	GatherCreateLabel = Page.Get<UTextBlock>(TEXT("WorldGatherCreateLabel"));
+	GatherNewSelected = Page.Get<UImage>(TEXT("WorldGatherNewTroopSelected"));
+	AttackArmyChoices = Page.Get<UScrollBox>(TEXT("WorldAttackArmyChoices"));
+	BindWorldHudButton(Page, TEXT("WorldGatherDispatchDismiss"),
+		GET_FUNCTION_NAME_CHECKED(URokWorldMapHudWidget, HandleGatherCloseClicked));
+	BindWorldHudButton(Page, TEXT("WorldGatherSelectNew"),
+		GET_FUNCTION_NAME_CHECKED(URokWorldMapHudWidget, HandleSelectNewAttackArmy));
+	BindWorldHudButton(Page, TEXT("WorldGatherCreateArmy"),
+		GET_FUNCTION_NAME_CHECKED(URokWorldMapHudWidget, HandleGatherCreateClicked));
 }
 
 void URokWorldMapHudWidget::SetGatherQueueVisible(bool bVisible)
@@ -970,7 +1377,8 @@ void URokWorldMapHudWidget::UpdateGatherRoute()
 		HandleGatherCloseClicked();
 		return;
 	}
-	CastChecked<UCanvasPanelSlot>(GatherQueueShade->Slot)->SetSize({146, FMath::Max(100, CurrentExpandedDesignSize.Y - 128)});
+	auto* ShadeSlot = CastChecked<UCanvasPanelSlot>(GatherQueueShade->Slot);
+	ShadeSlot->SetSize({ShadeSlot->GetSize().X, FMath::Max(100, CurrentExpandedDesignSize.Y - 128)});
 	FVector2D From, To;
 	const bool bProjected = GatherExistingArmyIndex == 0 && City && CurrentRootSize.X > 0 && CurrentRootSize.Y > 0
 		&& Controller->ProjectWorldLocationToScreen(City->GetActorLocation(), From, true)
@@ -984,12 +1392,13 @@ void URokWorldMapHudWidget::UpdateGatherRoute()
 		To *= Scale;
 		Count = FMath::Clamp(FMath::FloorToInt((To - From).Size() / 17.0) - 2, 0, GatherRouteDots.Num());
 	}
+	const FVector2D DotOffset = CastChecked<UCanvasPanelSlot>(GetWorldOverlayArt(TEXT("GatherRouteDot")).Slot)->GetPosition();
 	for (int32 Index = 0; Index < GatherRouteDots.Num(); ++Index)
 	{
 		auto* Dot = GatherRouteDots[Index].Get();
 		Dot->SetVisibility(Index < Count ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
 		if (Index < Count)
-			CastChecked<UCanvasPanelSlot>(Dot->Slot)->SetPosition(FMath::Lerp(From, To, (Index + 1.5) / (Count + 2.0)));
+			CastChecked<UCanvasPanelSlot>(Dot->Slot)->SetPosition(FMath::Lerp(From, To, (Index + 1.5) / (Count + 2.0)) + DotOffset);
 	}
 }
 

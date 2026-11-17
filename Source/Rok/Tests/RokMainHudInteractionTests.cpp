@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
+#include "RokUiWidgets.h"
 #include "Components/Border.h"
 #include "Components/Button.h"
 #include "Components/CanvasPanel.h"
@@ -267,7 +268,7 @@ bool FRokMainHudInteractiveControlsTest::RunTest(
 						TEXT("%s is a real player-profile UButton"),
 						*ButtonName.ToString()),
 					Cast<UButton>(
-						ModalWidget->GetWidgetFromName(ButtonName)));
+						RokUiFind::Find(ModalWidget, ButtonName)));
 			}
 
 			static const FName ProfileTextNames[] = {
@@ -288,7 +289,7 @@ bool FRokMainHudInteractiveControlsTest::RunTest(
 			for (const FName& TextName : ProfileTextNames)
 			{
 				UTextBlock* ProfileText = Cast<UTextBlock>(
-					ModalWidget->GetWidgetFromName(TextName));
+					RokUiFind::Find(ModalWidget, TextName));
 				TestNotNull(
 					*FString::Printf(
 						TEXT("%s is a real player-profile UTextBlock"),
@@ -329,9 +330,9 @@ bool FRokMainHudInteractiveControlsTest::RunTest(
 			{
 				ProfileEntry->OnClicked.Broadcast();
 				UButton* BoundaryButton = Cast<UButton>(
-					ModalWidget->GetWidgetFromName(ButtonName));
+					RokUiFind::Find(ModalWidget, ButtonName));
 				UTextBlock* NavigationFeedback = Cast<UTextBlock>(
-					ModalWidget->GetWidgetFromName(
+					RokUiFind::Find(ModalWidget,
 						TEXT("ProfileNavigationFeedback")));
 				TestNotNull(
 					*FString::Printf(
@@ -345,7 +346,7 @@ bool FRokMainHudInteractiveControlsTest::RunTest(
 
 				BoundaryButton->OnClicked.Broadcast();
 				NavigationFeedback = Cast<UTextBlock>(
-					ModalWidget->GetWidgetFromName(
+					RokUiFind::Find(ModalWidget,
 						TEXT("ProfileNavigationFeedback")));
 				TestNotNull(
 					*FString::Printf(
@@ -366,16 +367,16 @@ bool FRokMainHudInteractiveControlsTest::RunTest(
 							: TEXT("PlayerActionTipClickAway");
 						TestNotNull(
 							*FString::Printf(TEXT("%s opens its real tooltip"), *ButtonName.ToString()),
-							ModalWidget->GetWidgetFromName(TipRootName));
+							RokUiFind::Find(ModalWidget, TipRootName));
 						TestTrue(
 							*FString::Printf(TEXT("%s does not use generic navigation feedback"), *ButtonName.ToString()),
 							NavigationFeedback->GetVisibility() == ESlateVisibility::Collapsed);
-						if (UButton* ClickAway = Cast<UButton>(ModalWidget->GetWidgetFromName(ClickAwayName)))
+						if (UButton* ClickAway = Cast<UButton>(RokUiFind::Find(ModalWidget, ClickAwayName)))
 						{
 							ClickAway->OnClicked.Broadcast();
 							TestNull(
 								*FString::Printf(TEXT("%s tooltip closes through its click-away"), *ButtonName.ToString()),
-								ModalWidget->GetWidgetFromName(TipRootName));
+								RokUiFind::Find(ModalWidget, TipRootName));
 							TestTrue(
 								TEXT("Closing a profile tooltip preserves the profile modal"),
 								ModalWidget->IsModalOpen());
@@ -397,7 +398,7 @@ bool FRokMainHudInteractiveControlsTest::RunTest(
 
 			ProfileEntry->OnClicked.Broadcast();
 			UButton* CivilizationRoute = Cast<UButton>(
-				ModalWidget->GetWidgetFromName(TEXT("ProfileCivilizationButton")));
+				RokUiFind::Find(ModalWidget, TEXT("ProfileCivilizationButton")));
 			TestNotNull(TEXT("Profile exposes the civilization-selection route"), CivilizationRoute);
 			if (CivilizationRoute)
 			{
@@ -406,18 +407,18 @@ bool FRokMainHudInteractiveControlsTest::RunTest(
 				{
 					TestNotNull(
 						*FString::Printf(TEXT("Civilization %d is selectable from Unity config"), CivilizationId),
-						Cast<UButton>(ModalWidget->GetWidgetFromName(
+						Cast<UButton>(RokUiFind::Find(ModalWidget,
 							*FString::Printf(TEXT("CivilizationChoiceButton_%d"), CivilizationId))));
 				}
 				for (const int32 CivilizationId : {301, 401, 601, 801})
 				{
 					TestNotNull(
 						*FString::Printf(TEXT("Civilization %d keeps its Unity lock state"), CivilizationId),
-						Cast<UTextBlock>(ModalWidget->GetWidgetFromName(
+						Cast<UTextBlock>(RokUiFind::Find(ModalWidget,
 							*FString::Printf(TEXT("CivilizationLockedState_%d"), CivilizationId))));
 				}
 				UButton* ContinueButton = Cast<UButton>(
-					ModalWidget->GetWidgetFromName(TEXT("CivilizationContinueButton")));
+					RokUiFind::Find(ModalWidget, TEXT("CivilizationContinueButton")));
 				TestNotNull(TEXT("Civilization selection exposes the source change button"), ContinueButton);
 				if (ContinueButton)
 				{
@@ -425,9 +426,9 @@ bool FRokMainHudInteractiveControlsTest::RunTest(
 					ContinueButton->OnClicked.Broadcast();
 					TestNotNull(
 						TEXT("Civilization change opens the source-shaped explanation scroll"),
-						Cast<UScrollBox>(ModalWidget->GetWidgetFromName(TEXT("CivilizationConfirmationScroll"))));
+						Cast<UScrollBox>(RokUiFind::Find(ModalWidget, TEXT("CivilizationConfirmationScroll"))));
 					UButton* SubmitButton = Cast<UButton>(
-						ModalWidget->GetWidgetFromName(TEXT("CivilizationSubmitButton")));
+						RokUiFind::Find(ModalWidget, TEXT("CivilizationSubmitButton")));
 					TestNotNull(TEXT("Civilization confirmation exposes submit"), SubmitButton);
 					if (SubmitButton)
 					{
@@ -436,29 +437,29 @@ bool FRokMainHudInteractiveControlsTest::RunTest(
 							SubmitButton->GetIsEnabled());
 					}
 					UButton* ConfirmationClose = Cast<UButton>(
-						ModalWidget->GetWidgetFromName(TEXT("CivilizationChangeCloseButton")));
+						RokUiFind::Find(ModalWidget, TEXT("CivilizationChangeCloseButton")));
 					if (ConfirmationClose)
 					{
 						ConfirmationClose->OnClicked.Broadcast();
 						TestNotNull(
 							TEXT("Closing civilization confirmation returns to selection"),
-							Cast<UButton>(ModalWidget->GetWidgetFromName(TEXT("CivilizationChoiceButton_101"))));
+							Cast<UButton>(RokUiFind::Find(ModalWidget, TEXT("CivilizationChoiceButton_101"))));
 					}
 				}
 			}
 
 			ProfileEntry->OnClicked.Broadcast();
 			UButton* HeadRoute = Cast<UButton>(
-				ModalWidget->GetWidgetFromName(TEXT("ProfilePictureButton")));
+				RokUiFind::Find(ModalWidget, TEXT("ProfilePictureButton")));
 			TestNotNull(TEXT("Profile exposes a real player-head route"), HeadRoute);
 			if (HeadRoute)
 			{
 				HeadRoute->OnClicked.Broadcast();
 				TestNotNull(
 					TEXT("Player-head route opens the Unity four-column catalog"),
-					Cast<UButton>(ModalWidget->GetWidgetFromName(TEXT("PlayerHeadChoiceButton_0"))));
+					Cast<UButton>(RokUiFind::Find(ModalWidget, TEXT("PlayerHeadChoiceButton_0"))));
 				UButton* HeadConfirm = Cast<UButton>(
-					ModalWidget->GetWidgetFromName(TEXT("PlayerHeadConfirmButton")));
+					RokUiFind::Find(ModalWidget, TEXT("PlayerHeadConfirmButton")));
 				TestNotNull(TEXT("Player-head page exposes confirm"), HeadConfirm);
 				if (HeadConfirm)
 				{
@@ -467,42 +468,42 @@ bool FRokMainHudInteractiveControlsTest::RunTest(
 						HeadConfirm->GetIsEnabled());
 				}
 				UButton* FramePage = Cast<UButton>(
-					ModalWidget->GetWidgetFromName(TEXT("PlayerHeadPageButton_1")));
+					RokUiFind::Find(ModalWidget, TEXT("PlayerHeadPageButton_1")));
 				TestNotNull(TEXT("Player-head page exposes the frame tab"), FramePage);
 				if (FramePage)
 				{
 					FramePage->OnClicked.Broadcast();
 					TestNotNull(
 						TEXT("Frame tab rebuilds the frame catalog"),
-						Cast<UButton>(ModalWidget->GetWidgetFromName(TEXT("PlayerHeadChoiceButton_1"))));
+						Cast<UButton>(RokUiFind::Find(ModalWidget, TEXT("PlayerHeadChoiceButton_1"))));
 				}
 				UButton* CloseSubscreen = Cast<UButton>(
-					ModalWidget->GetWidgetFromName(TEXT("Type1CloseButton")));
+					RokUiFind::Find(ModalWidget, TEXT("Type1CloseButton")));
 				if (CloseSubscreen)
 				{
 					CloseSubscreen->OnClicked.Broadcast();
 					ModalWidget->AdvanceWindowAnimationForTesting(0.25f);
 					TestNotNull(
 						TEXT("Closing player-head page returns to player profile"),
-						Cast<UButton>(ModalWidget->GetWidgetFromName(TEXT("ProfileMoreButton"))));
+						Cast<UButton>(RokUiFind::Find(ModalWidget, TEXT("ProfileMoreButton"))));
 				}
 			}
 
 			ProfileEntry->OnClicked.Broadcast();
 			UButton* PowerRoute = Cast<UButton>(
-				ModalWidget->GetWidgetFromName(TEXT("ProfileMoreButton")));
+				RokUiFind::Find(ModalWidget, TEXT("ProfileMoreButton")));
 			TestNotNull(TEXT("Profile exposes a real power-details route"), PowerRoute);
 			if (PowerRoute)
 			{
 				PowerRoute->OnClicked.Broadcast();
 				TestNotNull(
 					TEXT("Power-details route opens the source-shaped scroll view"),
-					Cast<UScrollBox>(ModalWidget->GetWidgetFromName(TEXT("PlayerPowerScroll"))));
+					Cast<UScrollBox>(RokUiFind::Find(ModalWidget, TEXT("PlayerPowerScroll"))));
 				TestNotNull(
 					TEXT("Power-details page exposes its server boundary"),
-					Cast<UTextBlock>(ModalWidget->GetWidgetFromName(TEXT("PlayerPowerServerBoundaryState"))));
+					Cast<UTextBlock>(RokUiFind::Find(ModalWidget, TEXT("PlayerPowerServerBoundaryState"))));
 				UButton* CloseSubscreen = Cast<UButton>(
-					ModalWidget->GetWidgetFromName(TEXT("Type3CloseButton")));
+					RokUiFind::Find(ModalWidget, TEXT("Type3CloseButton")));
 				if (CloseSubscreen)
 				{
 					CloseSubscreen->OnClicked.Broadcast();
@@ -512,36 +513,36 @@ bool FRokMainHudInteractiveControlsTest::RunTest(
 
 			ProfileEntry->OnClicked.Broadcast();
 			UButton* RankingRoute = Cast<UButton>(
-				ModalWidget->GetWidgetFromName(TEXT("ProfileRankingButton")));
+				RokUiFind::Find(ModalWidget, TEXT("ProfileRankingButton")));
 			TestNotNull(TEXT("Profile exposes a real ranking route"), RankingRoute);
 			if (RankingRoute)
 			{
 				RankingRoute->OnClicked.Broadcast();
 				UButton* FirstCategory = Cast<UButton>(
-					ModalWidget->GetWidgetFromName(TEXT("PlayerRankingCategoryButton_0")));
+					RokUiFind::Find(ModalWidget, TEXT("PlayerRankingCategoryButton_0")));
 				TestNotNull(TEXT("Ranking page exposes source categories"), FirstCategory);
 				if (FirstCategory)
 				{
 					FirstCategory->OnClicked.Broadcast();
 					TestNotNull(
 						TEXT("Ranking category opens the honest unsynced detail page"),
-						Cast<UTextBlock>(ModalWidget->GetWidgetFromName(TEXT("PlayerRankingEmptyState"))));
+						Cast<UTextBlock>(RokUiFind::Find(ModalWidget, TEXT("PlayerRankingEmptyState"))));
 					UButton* RankingBack = Cast<UButton>(
-						ModalWidget->GetWidgetFromName(TEXT("PlayerRankingBackButton")));
+						RokUiFind::Find(ModalWidget, TEXT("PlayerRankingBackButton")));
 					TestNotNull(TEXT("Ranking detail exposes a local back route"), RankingBack);
 					if (RankingBack)
 					{
 						RankingBack->OnClicked.Broadcast();
 						TestNotNull(
 							TEXT("Ranking back restores the category grid"),
-							Cast<UButton>(ModalWidget->GetWidgetFromName(TEXT("PlayerRankingCategoryButton_0"))));
+							Cast<UButton>(RokUiFind::Find(ModalWidget, TEXT("PlayerRankingCategoryButton_0"))));
 					}
 				}
 			}
 
 			ProfileEntry->OnClicked.Broadcast();
 			UButton* ArmyRoute = Cast<UButton>(
-				ModalWidget->GetWidgetFromName(
+				RokUiFind::Find(ModalWidget,
 					TEXT("ProfileArmyButton")));
 			TestNotNull(
 				TEXT("Profile exposes a real army route"),
@@ -559,7 +560,7 @@ bool FRokMainHudInteractiveControlsTest::RunTest(
 
 			ProfileEntry->OnClicked.Broadcast();
 			UButton* SettingsRoute = Cast<UButton>(
-				ModalWidget->GetWidgetFromName(
+				RokUiFind::Find(ModalWidget,
 					TEXT("ProfileSettingsButton")));
 			TestNotNull(
 				TEXT("Profile exposes a real settings route"),
@@ -726,12 +727,12 @@ bool FRokPlayerProfileChangeNameTest::RunTest(
 	ModalWidget->OpenPlayerProfile();
 
 	UTextBlock* ProfileNameBefore = Cast<UTextBlock>(
-		ModalWidget->GetWidgetFromName(TEXT("ProfilePlayerName")));
+		RokUiFind::Find(ModalWidget, TEXT("ProfilePlayerName")));
 	const FString NameBefore = ProfileNameBefore
 		? ProfileNameBefore->GetText().ToString()
 		: FString();
 	UButton* RenameButton = Cast<UButton>(
-		ModalWidget->GetWidgetFromName(TEXT("ProfileRenameButton")));
+		RokUiFind::Find(ModalWidget, TEXT("ProfileRenameButton")));
 	TestNotNull(TEXT("Profile exposes the change-name route"), RenameButton);
 	if (!RenameButton)
 	{
@@ -740,16 +741,16 @@ bool FRokPlayerProfileChangeNameTest::RunTest(
 	RenameButton->OnClicked.Broadcast();
 
 	UEditableTextBox* ChangeNameInput = Cast<UEditableTextBox>(
-		ModalWidget->GetWidgetFromName(TEXT("ChangeNameInput")));
+		RokUiFind::Find(ModalWidget, TEXT("ChangeNameInput")));
 	UButton* ConfirmButton = Cast<UButton>(
-		ModalWidget->GetWidgetFromName(TEXT("ChangeNameConfirmButton")));
+		RokUiFind::Find(ModalWidget, TEXT("ChangeNameConfirmButton")));
 	UButton* CloseButton = Cast<UButton>(
-		ModalWidget->GetWidgetFromName(TEXT("TypeMidCloseButton")));
+		RokUiFind::Find(ModalWidget, TEXT("TypeMidCloseButton")));
 	UTextBlock* ValidationFeedback = Cast<UTextBlock>(
-		ModalWidget->GetWidgetFromName(
+		RokUiFind::Find(ModalWidget,
 			TEXT("ChangeNameValidationFeedback")));
 	UTextBlock* ServiceBoundary = Cast<UTextBlock>(
-		ModalWidget->GetWidgetFromName(
+		RokUiFind::Find(ModalWidget,
 			TEXT("ChangeNameServiceBoundaryState")));
 	TestNotNull(TEXT("Change-name route opens an editable input"), ChangeNameInput);
 	TestNotNull(TEXT("Change-name route has a confirm button"), ConfirmButton);
@@ -811,7 +812,7 @@ bool FRokPlayerProfileChangeNameTest::RunTest(
 	CloseButton->OnClicked.Broadcast();
 	ModalWidget->AdvanceWindowAnimationForTesting(0.25f);
 	UTextBlock* ProfileNameAfter = Cast<UTextBlock>(
-		ModalWidget->GetWidgetFromName(TEXT("ProfilePlayerName")));
+		RokUiFind::Find(ModalWidget, TEXT("ProfilePlayerName")));
 	TestNotNull(TEXT("Close returns to the player-profile modal"), ProfileNameAfter);
 	if (ProfileNameAfter)
 	{
@@ -822,14 +823,14 @@ bool FRokPlayerProfileChangeNameTest::RunTest(
 	}
 
 	RenameButton = Cast<UButton>(
-		ModalWidget->GetWidgetFromName(TEXT("ProfileRenameButton")));
+		RokUiFind::Find(ModalWidget, TEXT("ProfileRenameButton")));
 	if (RenameButton)
 	{
 		RenameButton->OnClicked.Broadcast();
 		ChangeNameInput = Cast<UEditableTextBox>(
-			ModalWidget->GetWidgetFromName(TEXT("ChangeNameInput")));
+			RokUiFind::Find(ModalWidget, TEXT("ChangeNameInput")));
 		ValidationFeedback = Cast<UTextBlock>(
-			ModalWidget->GetWidgetFromName(
+			RokUiFind::Find(ModalWidget,
 				TEXT("ChangeNameValidationFeedback")));
 		TestTrue(
 			TEXT("Reopening change-name resets the draft"),
@@ -839,7 +840,7 @@ bool FRokPlayerProfileChangeNameTest::RunTest(
 			ValidationFeedback
 				&& ValidationFeedback->GetText().ToString().Contains(TEXT("请输入")));
 		UButton* DismissMask = Cast<UButton>(
-			ModalWidget->GetWidgetFromName(TEXT("ModalDismissMask")));
+			RokUiFind::Find(ModalWidget, TEXT("ModalDismissMask")));
 		TestNotNull(
 			TEXT("Change-name modal retains its full-screen dismiss target"),
 			DismissMask);
@@ -849,7 +850,7 @@ bool FRokPlayerProfileChangeNameTest::RunTest(
 			ModalWidget->AdvanceWindowAnimationForTesting(0.25f);
 			TestNotNull(
 				TEXT("Dismissing change-name returns to profile like its close button"),
-				Cast<UTextBlock>(ModalWidget->GetWidgetFromName(
+				Cast<UTextBlock>(RokUiFind::Find(ModalWidget,
 					TEXT("ProfilePlayerName"))));
 		}
 	}
@@ -901,23 +902,22 @@ bool FRokMainHudFeatureScreenEntryTest::RunTest(
 	ModalWidget->OpenResourceInventory(0);
 	TestNotNull(
 		TEXT("Production resource inventory shows the honest empty state"),
-		Cast<UTextBlock>(ModalWidget->GetWidgetFromName(
+		Cast<UTextBlock>(RokUiFind::Find(ModalWidget,
 			TEXT("ResourceInventoryEmptyState"))));
 	TestNotNull(
 		TEXT("Production resource inventory keeps the service line"),
-		Cast<UTextBlock>(ModalWidget->GetWidgetFromName(
+		Cast<UTextBlock>(RokUiFind::Find(ModalWidget,
 			TEXT("ResourceInventoryServiceState"))));
-	TestNull(
-		TEXT("Production resource inventory fabricates no owned rows"),
-		ModalWidget->GetWidgetFromName(TEXT("ResourceRow_0")));
+	const UWidget* ResourceRow = RokUiFind::Find(ModalWidget, TEXT("ResourceRow_0"));
+	TestFalse(TEXT("Production resource inventory displays no reference row"),
+		ResourceRow && UWidget::ConvertSerializedVisibilityToRuntime(ResourceRow->GetVisibility()).IsVisible());
 	ModalWidget->OpenResourceInventory(0, true);
-	TestNotNull(
-		TEXT("Reference resource inventory renders a row"),
-		Cast<UCanvasPanel>(ModalWidget->GetWidgetFromName(
-			TEXT("ResourceRow_0"))));
+	ResourceRow = Cast<UCanvasPanel>(RokUiFind::Find(ModalWidget, TEXT("ResourceRow_0")));
+	TestTrue(TEXT("Reference resource inventory displays a row"),
+		ResourceRow && UWidget::ConvertSerializedVisibilityToRuntime(ResourceRow->GetVisibility()).IsVisible());
 	TestNotNull(
 		TEXT("Reference resource inventory is labeled as a local fixture"),
-		ModalWidget->GetWidgetFromName(
+		RokUiFind::Find(ModalWidget,
 			TEXT("ResourceInventoryReferenceTag")));
 
 	FeatureWidget->OpenActivityCenter();
@@ -1566,91 +1566,91 @@ bool FRokMainHudFeatureScreenEntryTest::RunTest(
 	TestTrue(TEXT("War-warning modal opens"), ModalWidget->IsModalOpen());
 	TestNotNull(
 		TEXT("Production war warning exposes the server-state boundary"),
-		Cast<UTextBlock>(ModalWidget->GetWidgetFromName(
+		Cast<UTextBlock>(RokUiFind::Find(ModalWidget,
 			TEXT("WarWarningServiceBoundaryState"))));
-	TestNull(
-		TEXT("Production war warning does not fabricate a first warning"),
-		ModalWidget->GetWidgetFromName(TEXT("WarWarningRow_0")));
+	const UWidget* WarningRow = RokUiFind::Find(ModalWidget, TEXT("WarWarningRow_0"));
+	TestFalse(TEXT("Production war warning displays no reference row"),
+		WarningRow && UWidget::ConvertSerializedVisibilityToRuntime(WarningRow->GetVisibility()).IsVisible());
 
 	ModalWidget->OpenWarWarning(true);
 	TestNotNull(
 		TEXT("War-warning reference mode is explicitly labelled"),
-		Cast<UTextBlock>(ModalWidget->GetWidgetFromName(
+		Cast<UTextBlock>(RokUiFind::Find(ModalWidget,
 			TEXT("WarWarningReferencePreviewNotice"))));
-	TestNotNull(
-		TEXT("War-warning reference mode keeps a screenshot row"),
-		ModalWidget->GetWidgetFromName(TEXT("WarWarningRow_0")));
+	WarningRow = RokUiFind::Find(ModalWidget, TEXT("WarWarningRow_0"));
+	TestTrue(TEXT("War-warning reference mode displays a row"),
+		WarningRow && UWidget::ConvertSerializedVisibilityToRuntime(WarningRow->GetVisibility()).IsVisible());
 
 	ModalWidget->OpenWarWarning(false);
 	TestNotNull(
 		TEXT("Reopened production war warning restores the server boundary"),
-		Cast<UTextBlock>(ModalWidget->GetWidgetFromName(
+		Cast<UTextBlock>(RokUiFind::Find(ModalWidget,
 			TEXT("WarWarningServiceBoundaryState"))));
-	TestNull(
-		TEXT("Reopened production war warning removes the reference row"),
-		ModalWidget->GetWidgetFromName(TEXT("WarWarningRow_0")));
+	WarningRow = RokUiFind::Find(ModalWidget, TEXT("WarWarningRow_0"));
+	TestFalse(TEXT("Reopened production war warning hides the reference row"),
+		WarningRow && UWidget::ConvertSerializedVisibilityToRuntime(WarningRow->GetVisibility()).IsVisible());
 
 	ModalWidget->OpenBuffList(false);
 	TestNotNull(
 		TEXT("Production buff list exposes the server-state boundary"),
-		Cast<UTextBlock>(ModalWidget->GetWidgetFromName(
+		Cast<UTextBlock>(RokUiFind::Find(ModalWidget,
 			TEXT("BuffListServiceBoundaryState"))));
 	TestNull(
 		TEXT("Production buff list does not fabricate active buffs"),
-		ModalWidget->GetWidgetFromName(TEXT("BuffListReferenceTag_0")));
+		RokUiFind::Find(ModalWidget, TEXT("BuffListReferenceTag_0")));
 	ModalWidget->OpenBuffList(true);
 	TestNotNull(
 		TEXT("Buff-list reference mode is explicitly labelled"),
-		Cast<UTextBlock>(ModalWidget->GetWidgetFromName(
+		Cast<UTextBlock>(RokUiFind::Find(ModalWidget,
 			TEXT("BuffListReferencePreviewNotice"))));
 	TestNotNull(
 		TEXT("Buff-list reference mode keeps a reference row"),
-		ModalWidget->GetWidgetFromName(TEXT("BuffListReferenceTag_0")));
+		RokUiFind::Find(ModalWidget, TEXT("BuffListReferenceTag_0")));
 	ModalWidget->OpenBuffList(false);
 	TestNull(
 		TEXT("Reopened production buff list removes reference rows"),
-		ModalWidget->GetWidgetFromName(TEXT("BuffListReferenceTag_0")));
+		RokUiFind::Find(ModalWidget, TEXT("BuffListReferenceTag_0")));
 
 	ModalWidget->OpenPlayerHeadSelection();
 	TestNotNull(
 		TEXT("Player head selection exposes the head grid"),
-		ModalWidget->GetWidgetFromName(TEXT("PlayerHeadGridPanel")));
+		RokUiFind::Find(ModalWidget, TEXT("PlayerHeadGridPanel")));
 	TestNotNull(
 		TEXT("Player head selection has a real confirm button"),
-		Cast<UButton>(ModalWidget->GetWidgetFromName(
+		Cast<UButton>(RokUiFind::Find(ModalWidget,
 			TEXT("PlayerHeadConfirmButton"))));
 	TestNotNull(
 		TEXT("Player head selection keeps the server-state boundary"),
-		Cast<UTextBlock>(ModalWidget->GetWidgetFromName(
+		Cast<UTextBlock>(RokUiFind::Find(ModalWidget,
 			TEXT("PlayerHeadServerBoundaryState"))));
 
 	ModalWidget->OpenBuffList(false);
 	TestTrue(TEXT("Buff-list modal opens"), ModalWidget->IsModalOpen());
 	TestNotNull(
 		TEXT("Production buff list exposes the server-state boundary"),
-		Cast<UTextBlock>(ModalWidget->GetWidgetFromName(
+		Cast<UTextBlock>(RokUiFind::Find(ModalWidget,
 			TEXT("BuffListServiceBoundaryState"))));
 	TestNull(
 		TEXT("Production buff list does not fabricate a first buff"),
-		ModalWidget->GetWidgetFromName(TEXT("BuffListRow_0")));
+		RokUiFind::Find(ModalWidget, TEXT("BuffListRow_0")));
 
 	ModalWidget->OpenBuffList(true);
 	TestNotNull(
 		TEXT("Buff-list reference mode is explicitly labelled"),
-		Cast<UTextBlock>(ModalWidget->GetWidgetFromName(
+		Cast<UTextBlock>(RokUiFind::Find(ModalWidget,
 			TEXT("BuffListReferencePreviewNotice"))));
 	TestNotNull(
 		TEXT("Buff-list reference mode keeps a screenshot row"),
-		ModalWidget->GetWidgetFromName(TEXT("BuffListRow_0")));
+		RokUiFind::Find(ModalWidget, TEXT("BuffListRow_0")));
 
 	ModalWidget->OpenBuffList(false);
 	TestNotNull(
 		TEXT("Reopened production buff list restores the server boundary"),
-		Cast<UTextBlock>(ModalWidget->GetWidgetFromName(
+		Cast<UTextBlock>(RokUiFind::Find(ModalWidget,
 			TEXT("BuffListServiceBoundaryState"))));
 	TestNull(
 		TEXT("Reopened production buff list removes the reference row"),
-		ModalWidget->GetWidgetFromName(TEXT("BuffListRow_0")));
+		RokUiFind::Find(ModalWidget, TEXT("BuffListRow_0")));
 	ModalWidget->CloseModal();
 
 	FeatureWidget->OpenSettingsHub();

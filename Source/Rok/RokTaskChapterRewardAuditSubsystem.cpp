@@ -1,4 +1,5 @@
 #include "RokTaskChapterRewardAuditSubsystem.h"
+#include "RokUiWidgets.h"
 
 #include "RokBuildingUpgradeSubsystem.h"
 #include "RokDataPaths.h"
@@ -319,7 +320,7 @@ TSharedRef<FJsonObject> URokTaskChapterRewardAuditSubsystem::State() const
 	const UWidget* CurrentModeCanvas = Screen->GetWidgetFromName(TEXT("FeatureModeCanvas"));
 	const UWidget* ChapterRoot = Screen->GetWidgetFromName(TEXT("TaskChapterRoot"));
 	Json->SetBoolField(TEXT("chapter_root_attached_to_mode_canvas"),
-		ChapterRoot && ChapterRoot->GetParent() == CurrentModeCanvas && CurrentModeCanvas);
+		RokUiFind::IsInside(ChapterRoot, CurrentModeCanvas));
 #if !UE_BUILD_SHIPPING
 	Json->SetNumberField(TEXT("task_page"), Screen->GetSelectedTaskPageForAudit());
 	Json->SetNumberField(TEXT("chapter_id"), Screen->GetSelectedTaskChapterGroupIdForAudit());
@@ -410,9 +411,9 @@ bool URokTaskChapterRewardAuditSubsystem::Ready(int32 Page, int32 Chapter) const
 		|| !ModeReady(Screen->GetWidgetFromName(TEXT("FeatureModeCanvas")))) return false;
 	const FGeometry ModeGeometry = Screen->GetWidgetFromName(TEXT("FeatureModeCanvas"))->GetCachedGeometry();
 	if (!ModeGeometry.GetLocalSize().Equals(FVector2D(1440.0, 810.0), 0.1)) return false;
-	if (Page == 1) return (!Screen->GetWidgetFromName(TEXT("TaskChapterRoot"))
-		|| Screen->GetWidgetFromName(TEXT("TaskChapterRoot"))->GetParent()
-			!= Screen->GetWidgetFromName(TEXT("FeatureModeCanvas")))
+	const UWidget* ChapterRoot = Screen->GetWidgetFromName(TEXT("TaskChapterRoot"));
+	const bool bChapterMounted = RokUiFind::IsInside(ChapterRoot, Screen->GetWidgetFromName(TEXT("FeatureModeCanvas")));
+	if (Page == 1) return !bChapterMounted
 		&& Screen->GetRenderedTaskChapterTaskIdsForAudit().IsEmpty()
 		&& Screen->GetRenderedTaskChapterTaskRewardPackageIdsForAudit().IsEmpty()
 		&& Screen->GetRenderedTaskChapterAggregateRewardPackageIdsForAudit().IsEmpty()
@@ -422,10 +423,8 @@ bool URokTaskChapterRewardAuditSubsystem::Ready(int32 Page, int32 Chapter) const
 		|| Screen->IsSelectedTaskChapterMetadataKnownForAudit() != (Chapter < 7)
 		|| Screen->GetTaskChapterSourceTaskCountForAudit() != 39
 		|| Screen->GetTaskChapterSourceGroupCountForAudit() != 7
-		|| !Screen->GetWidgetFromName(TEXT("TaskChapterRoot"))
-		|| Screen->GetWidgetFromName(TEXT("TaskChapterRoot"))->GetParent()
-			!= Screen->GetWidgetFromName(TEXT("FeatureModeCanvas"))
-		|| !Visible(Screen->GetWidgetFromName(TEXT("TaskChapterRoot")))
+		|| !bChapterMounted
+		|| !Visible(ChapterRoot)
 		|| !Visible(Screen->GetWidgetFromName(TEXT("TaskChapterScroll")))
 		|| !CommonAtlasImageReady(Screen->GetWidgetFromName(TEXT("TaskChapterGroupButton_1Background_Center")))
 		|| Screen->GetRenderedTaskChapterTaskIdsForAudit().Num() != ChapterCounts[Chapter - 1]) return false;
@@ -802,7 +801,7 @@ void URokTaskChapterRewardAuditSubsystem::Tick(float DeltaTime)
 		if (!bBegun) bBegun = Begin();
 		if (bBegun && PrepareOwnWindowFocus()) Enter(1);
 		break;
-	case 1: if (PrepareOwnWindowFocus() && Click(Hud->GetWidgetFromName(TEXT("TaskEntryButton")), TEXT("open_main_from_hud"))) Enter(2); break;
+	case 1: if (PrepareOwnWindowFocus() && Click(RokUiFind::Find(Hud, TEXT("TaskEntryButton")), TEXT("open_main_from_hud"))) Enter(2); break;
 	case 2: if (Stable(1, 0)) Capture(TEXT("01_main_default"), 3); break;
 	case 3: if (Click(Screen->GetWidgetFromName(TEXT("TaskPage_0")), TEXT("open_chapter_tab"))) Enter(4); break;
 	case 4: if (Stable(0, 1)) Capture(TEXT("02_chapter1_default"), 5); break;
@@ -852,7 +851,7 @@ void URokTaskChapterRewardAuditSubsystem::Tick(float DeltaTime)
 			Capture(TEXT("16_closed"), 33);
 		break;
 	}
-	case 33: if (Click(Hud->GetWidgetFromName(TEXT("TaskEntryButton")), TEXT("reopen_main_from_hud"))) Enter(34); break;
+	case 33: if (Click(RokUiFind::Find(Hud, TEXT("TaskEntryButton")), TEXT("reopen_main_from_hud"))) Enter(34); break;
 	case 34: if (Stable(1, 0)) Capture(TEXT("17_main_reopened"), 35); break;
 	case 35: if (Click(Screen->GetWidgetFromName(TEXT("TaskPage_0")), TEXT("reopen_chapter_tab"))) Enter(36); break;
 	case 36: if (Stable(0, 1)) Capture(TEXT("18_chapter1_reopened"), 37); break;

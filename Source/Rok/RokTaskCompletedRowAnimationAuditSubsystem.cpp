@@ -1,4 +1,5 @@
 #include "RokTaskCompletedRowAnimationAuditSubsystem.h"
+#include "RokUiWidgets.h"
 
 #include "RokBuildingUpgradeSubsystem.h"
 #include "RokDataPaths.h"
@@ -611,7 +612,7 @@ TSharedRef<FJsonObject> URokTaskCompletedRowAnimationAuditSubsystem::State() con
     Json->SetNumberField(TEXT("camera_scale_y"), Camera.GetScale3D().Y);
     Json->SetNumberField(TEXT("camera_scale_z"), Camera.GetScale3D().Z);
     auto Widgets = MakeShared<FJsonObject>();
-    Widgets->SetObjectField(TEXT("TaskEntryButton"), WidgetState(Hud.IsValid() ? Hud->GetWidgetFromName(TEXT("TaskEntryButton")) : nullptr));
+    Widgets->SetObjectField(TEXT("TaskEntryButton"), WidgetState(Hud.IsValid() ? RokUiFind::Find(Hud, TEXT("TaskEntryButton")) : nullptr));
     for (const TCHAR* Name : {TEXT("FeatureModeCanvas"), TEXT("FeatureFrameClose"), TEXT("TaskMainScroll"),
         TEXT("TaskRow_0"), TEXT("TaskCompletedAnimationPreview"), TEXT("TaskCompletedAnimationFixtureNotice"),
         TEXT("TaskAction_0")})
@@ -696,7 +697,7 @@ bool URokTaskCompletedRowAnimationAuditSubsystem::Ready(int32 Phase) const
         || !Server.IsValid() || !Server->IsLocalOnlyRun() || Server->GetHttpDispatchAttemptCount() != 0
         || Server->GetSuppressedLocalRequestCount() != 0 || Modal->IsModalOpen()) return false;
     const bool bHud = Phase == 3 || Phase == 5;
-    if (bHud) return !Screen->IsScreenOpen() && Visible(Hud->GetWidgetFromName(TEXT("TaskEntryButton")))
+    if (bHud) return !Screen->IsScreenOpen() && Visible(RokUiFind::Find(Hud, TEXT("TaskEntryButton")))
         && Screen->TaskCompletedAnimationElapsed < 0.0f
         && Screen->TaskCompletedAnimationFixtureCallbacks == (Phase == 3 ? 1 : 0);
     if (!Screen->IsScreenOpen() || Screen->SelectedTaskPage != 1 || Screen->GetPendingActionIdForAudit() != INDEX_NONE) return false;
@@ -1188,7 +1189,7 @@ void URokTaskCompletedRowAnimationAuditSubsystem::Tick(float DeltaTime)
         }
         break;
     case 8: if (Boundary() && Stable(3)) Capture(TEXT("03_hud_after_cancel"), 9); break;
-    case 9: if (Boundary() && Click(Cast<UButton>(Hud->GetWidgetFromName(TEXT("TaskEntryButton"))), TEXT("open_normal_tasks_from_hud"))) Enter(10); break;
+    case 9: if (Boundary() && Click(Cast<UButton>(RokUiFind::Find(Hud, TEXT("TaskEntryButton"))), TEXT("open_normal_tasks_from_hud"))) Enter(10); break;
     case 10: if (Boundary() && Stable(4)) Capture(TEXT("04_normal_tasks"), 11); break;
     case 11: if (Boundary() && Click(Cast<UButton>(Screen->GetWidgetFromName(TEXT("FeatureFrameClose"))), TEXT("close_normal_tasks"))) Enter(12); break;
     case 12: if (Boundary() && Stable(5)) Capture(TEXT("05_hud_return"), 13); break;

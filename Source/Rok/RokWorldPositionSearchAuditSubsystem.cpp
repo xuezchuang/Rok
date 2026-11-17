@@ -1,4 +1,5 @@
 #include "RokWorldPositionSearchAuditSubsystem.h"
+#include "RokUiWidgets.h"
 
 #include "RokBuildingUpgradeSubsystem.h"
 #include "RokClientSettingsSubsystem.h"
@@ -633,7 +634,7 @@ bool URokWorldPositionSearchAuditSubsystem::RetryInput(const TCHAR* Kind, const 
 }
 bool URokWorldPositionSearchAuditSubsystem::Click(UUserWidget* Owner, const TCHAR* Selector)
 {
-	UButton* Button = Owner ? Cast<UButton>(Owner->GetWidgetFromName(Selector)) : nullptr;
+	UButton* Button = Owner ? Cast<UButton>(RokUiFind::Find(Owner, Selector)) : nullptr;
 	if (!Expect(Boundary() && Owner && Owner->GetWorld() == CurrentWorld()
 		&& Visible(Button) && Button->GetIsEnabled() && FSlateApplication::IsInitialized(),
 		TEXT("World search Slate button unavailable"))) return false;

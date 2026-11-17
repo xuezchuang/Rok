@@ -1,6 +1,9 @@
 #include "RokPowerGainWidget.h"
 
 #include "RokDataPaths.h"
+#include "RokUiWidgets.h"
+
+#include "Blueprint/WidgetTree.h"
 
 #include "Dom/JsonObject.h"
 #include "Components/PanelWidget.h"
@@ -316,8 +319,19 @@ void URokPowerGainWidget::ObservePower(int32 Previous, int32 Current, bool bOwne
 {
 	if (Current < 0) { bHasPowerObservation = false; return; }
 	bool bVisible = bOwnerVisible;
-	for (const UWidget* Parent = GetParent(); Parent; Parent = Parent->GetParent())
+	for (const UWidget* Parent = GetParent(); Parent;)
+	{
 		bVisible &= Parent->IsVisible() && Parent->GetRenderOpacity() > 0;
+		const UWidget* Next = Parent->GetParent();
+		if (!Next)
+		{
+			// The root canvas of a layout page is not a child of the page's slot.
+			// Follow its owner to keep checking the HUD group that hosts the page.
+			const UWidgetTree* Tree = Cast<UWidgetTree>(Parent->GetOuter());
+			Next = Tree ? Cast<URokUiPageWidget>(Tree->GetOuter()) : nullptr;
+		}
+		Parent = Next;
+	}
 	// Initialization is distinct from a valid zero score. Decreases do not stop
 	// an existing source effect; they simply do not create a new one.
 	if (bHasPowerObservation && Current > Previous && bVisible)

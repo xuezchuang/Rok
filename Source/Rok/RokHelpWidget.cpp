@@ -1,4 +1,5 @@
 #include "RokHelpWidget.h"
+#include "RokUiWidgets.h"
 #include "RokDataPaths.h"
 #include "RokHelpSourceTextData.h"
 #include "RokHelpSourceTextWidget.h"
@@ -26,6 +27,20 @@ void Place(UCanvasPanel* P,UWidget* W,FVector2D XY,FVector2D Size,int32 Z=1)
 FVector2D Pos(const TSharedPtr<FJsonObject>& N) { const auto& A=N->GetArrayField(TEXT("rect"));return FVector2D(A[0]->AsNumber(),A[1]->AsNumber()); }
 FVector2D Size(const TSharedPtr<FJsonObject>& N) { const auto& A=N->GetArrayField(TEXT("rect"));return FVector2D(A[2]->AsNumber(),A[3]->AsNumber()); }
 FName Name(const FString& Prefix,const FString& Path) { return FName(*(Prefix+Path.Replace(TEXT("/"),TEXT("_")))); }
+bool BindGlyph(URokHelpSourceTextWidget* Text,URokHelpSourceTextData* Data,const FText& Value)
+{
+    if(!Text||!Data||Text->SourceFontSize<=0||Text->SourceGlyphSize.X<=0)return false;
+    Text->BindData(Data);
+    return Text->SetText(Value);
+}
+}
+
+TSubclassOf<URokHelpWidget> URokHelpWidget::ResolvePresentationClass()
+{
+    if (URokUiSettings::IsLegacyForced()) return StaticClass();
+    static UClass* ResolvedClass = LoadClass<URokHelpWidget>(
+        nullptr, TEXT("/Game/RokUI/Help/WBP_RokHelpScreen.WBP_RokHelpScreen_C"));
+    return ResolvedClass ? ResolvedClass : StaticClass();
 }
 
 bool URokHelpWidget::LoadCatalog()
@@ -136,9 +151,12 @@ UWidget* URokHelpWidget::DrawNode(UCanvasPanel* Parent,const FName& WidgetName,c
 
 void URokHelpWidget::AddHit(UCanvasPanel* Parent,const FName& WidgetName,int32 Action,const TSharedPtr<FJsonObject>& N,FVector2D Offset,int32 Z)
 {
-    auto* Hit=WidgetTree->ConstructWidget<URokUnityIndexedButton>(URokUnityIndexedButton::StaticClass(),WidgetName);
+    auto* Hit=Cast<URokUnityIndexedButton>(WidgetTree->FindWidget(WidgetName));
+    const bool bCreated=Hit==nullptr;
+    if(bCreated)Hit=WidgetTree->ConstructWidget<URokUnityIndexedButton>(URokUnityIndexedButton::StaticClass(),WidgetName);
     FSlateBrush Empty;Empty.DrawAs=ESlateBrushDrawType::NoDrawType;FButtonStyle Style;Style.SetNormal(Empty).SetHovered(Empty).SetPressed(Empty).SetDisabled(Empty);Hit->SetStyle(Style);
-    Hit->ConfigureAction(Action);Hit->OnIndexedClicked.AddUObject(this,&URokHelpWidget::HandleAction);Place(Parent,Hit,Pos(N)+Offset,Size(N),Z);
+    Hit->ConfigureAction(Action);Hit->OnIndexedClicked.RemoveAll(this);Hit->OnIndexedClicked.AddUObject(this,&URokHelpWidget::HandleAction);
+    if(bCreated)Place(Parent,Hit,Pos(N)+Offset,Size(N),Z);
 }
 
 bool URokHelpWidget::InitializeHelp()
@@ -152,10 +170,49 @@ float URokHelpWidget::GetListScrollOffset() const { return ListScroll?ListScroll
 void URokHelpWidget::Build()
 {
     if(!WidgetTree)return;
-    if(!Root){Root=WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(),TEXT("HelpRoot"));WidgetTree->RootWidget=Root;}else Root->ClearChildren();
+    const bool bWidgetBlueprint=GetClass()!=URokHelpWidget::StaticClass();
+    if(bWidgetBlueprint)Root=Cast<UCanvasPanel>(GetWidgetFromName(TEXT("HelpRoot")));
+    else if(!Root){Root=WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(),TEXT("HelpRoot"));WidgetTree->RootWidget=Root;}
+    else Root->ClearChildren();
+    if(!Root){LoadError=TEXT("Help WBP is missing its HelpRoot canvas.");return;}
     if(!LoadError.IsEmpty())
     {auto* Error=WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(),TEXT("HelpLoadError"));Error->SetText(FText::FromString(LoadError));Place(Root,Error,FVector2D(300,300),FVector2D(800,100));return;}
     const FVector2D FrameOffset(146,28), WindowOffset(138,11.5);
+    if(bWidgetBlueprint)
+    {
+        ListPage=Cast<UCanvasPanel>(GetWidgetFromName(TEXT("HelpListPage")));
+        DetailPage=Cast<UCanvasPanel>(GetWidgetFromName(TEXT("HelpDetailPage")));
+        ListScroll=Cast<UScrollBox>(GetWidgetFromName(TEXT("HelpListScroll")));
+        DetailScroll=Cast<UScrollBox>(GetWidgetFromName(TEXT("HelpAnswerScroll")));
+        TitleText=Cast<URokHelpSourceTextWidget>(GetWidgetFromName(TEXT("HelpFrame_title_lbl_title")));
+        QuestionText=Cast<URokHelpSourceTextWidget>(GetWidgetFromName(TEXT("HelpQuestionText")));
+        AnswerText=Cast<URokHelpSourceTextWidget>(GetWidgetFromName(TEXT("HelpAnswerText")));
+        QuestionTextRegion=Cast<UBorder>(GetWidgetFromName(TEXT("HelpQuestionTextRegion")));
+        AnswerInset=Cast<UBorder>(GetWidgetFromName(TEXT("HelpAnswerInset")));
+        AnswerWidth=Cast<USizeBox>(GetWidgetFromName(TEXT("HelpAnswerWidth")));
+        if(!ListPage||!DetailPage||!ListScroll||!DetailScroll||!TitleText||!QuestionText||!AnswerText
+            ||!QuestionTextRegion||!AnswerInset||!AnswerWidth)
+        {LoadError=TEXT("Help WBP is missing a required named layout widget.");auto* Error=WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(),TEXT("HelpLoadError"));Error->SetText(FText::FromString(LoadError));Place(Root,Error,FVector2D(300,300),FVector2D(800,100));return;}
+        if(!BindGlyph(TitleText,SourceTextData,
+            FText::FromString(Node(TEXT("frame"),TEXT("title/lbl_title"))->GetStringField(TEXT("text"))))
+            ||!BindGlyph(QuestionText,SourceTextData,FText::GetEmpty())
+            ||!BindGlyph(AnswerText,SourceTextData,FText::GetEmpty()))
+        {LoadError=TEXT("Help WBP source glyph widgets could not be configured.");auto* Error=WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(),TEXT("HelpLoadError"));Error->SetText(FText::FromString(LoadError));Place(Root,Error,FVector2D(300,300),FVector2D(800,100));return;}
+        for(const auto& Pair:Layouts->GetObjectField(TEXT("window"))->Values)
+        {
+            const FString Path(*Pair.Key);if(!Path.StartsWith(TEXT("pl_list/"))||Path.Contains(TEXT("sv_helperlist"))||!Pair.Value->AsObject()->HasField(TEXT("font_px")))continue;
+            const FName WidgetName=Name(TEXT("HelpList_"),Path);auto* Glyph=Cast<URokHelpSourceTextWidget>(WidgetTree->FindWidget(WidgetName));const auto NodeData=Pair.Value->AsObject();FString TextValue;
+            if(!Glyph||!NodeData->TryGetStringField(TEXT("text"),TextValue)||!BindGlyph(Glyph,SourceTextData,FText::FromString(TextValue)))
+            {LoadError=FString::Printf(TEXT("Help static source glyph could not be configured: %s"),*WidgetName.ToString());auto* Error=WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(),TEXT("HelpLoadError"));Error->SetText(FText::FromString(LoadError));Place(Root,Error,FVector2D(300,300),FVector2D(800,100));return;}
+        }
+        AddHit(Root,TEXT("HelpCloseButton"),-1,Node(TEXT("frame"),TEXT("title/btn_close")),FrameOffset);
+        AddHit(Root,TEXT("HelpBackButton"),-2,Node(TEXT("frame"),TEXT("title/btn_back")),FrameOffset);
+        AddHit(ListPage,TEXT("HelpCustomerServiceButton"),-3,Node(TEXT("window"),TEXT("pl_list/btn_head")),WindowOffset);
+        ListScroll->SetScrollBarVisibility(ESlateVisibility::Collapsed);ListScroll->SetAnimateWheelScrolling(false);
+        DetailScroll->SetScrollBarVisibility(ESlateVisibility::Collapsed);
+    }
+    else
+    {
     // Source Type3 win children: frame1, frame2, frame3, frame4. Explicit layers
     // preserve the header/body overlap independently of JSON/TMap iteration order.
     for(int32 Index=1;Index<=4;++Index)
@@ -176,7 +233,8 @@ void URokHelpWidget::Build()
     const auto DetailNode=Node(TEXT("window"),TEXT("pl_detial/sv_list"));Place(DetailPage,DetailScroll,Pos(DetailNode)+WindowOffset,Size(DetailNode));
     auto* AnswerCanvas=WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(),TEXT("HelpAnswerConstruction"));
     AnswerText=Cast<URokHelpSourceTextWidget>(DrawNode(AnswerCanvas,TEXT("HelpAnswerText"),Node(TEXT("window"),TEXT("pl_detial/sv_list/v/c/lbl_detial")),FVector2D::ZeroVector));
-    AnswerText->RemoveFromParent();auto* AnswerSize=WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(),TEXT("HelpAnswerWidth"));AnswerSize->SetWidthOverride(894.7f);AnswerSize->SetContent(AnswerText);auto* AnswerInset=WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(),TEXT("HelpAnswerInset"));AnswerInset->SetBrushColor(FLinearColor::Transparent);AnswerInset->SetPadding(FMargin(10,0));AnswerInset->SetContent(AnswerSize);DetailScroll->AddChild(AnswerInset);
+    AnswerText->RemoveFromParent();auto* AnswerSize=WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(),TEXT("HelpAnswerWidth"));AnswerSize->SetWidthOverride(894.7f);AnswerSize->SetContent(AnswerText);auto* LegacyAnswerInset=WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(),TEXT("HelpAnswerInset"));LegacyAnswerInset->SetBrushColor(FLinearColor::Transparent);LegacyAnswerInset->SetPadding(FMargin(10,0));LegacyAnswerInset->SetContent(AnswerSize);DetailScroll->AddChild(LegacyAnswerInset);
+    }
     RebuildList();HandleAction(-2);
 }
 
@@ -184,24 +242,60 @@ void URokHelpWidget::RebuildList()
 {
     ListScroll->ClearChildren();VisibleQuestionIds.Reset();float Y=0;
     auto* Content=WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(),TEXT("HelpListContent"));
+    const bool bLegacy=URokUiSettings::IsLegacyForced();
+    static UClass* GroupRowClass=LoadClass<UUserWidget>(nullptr,TEXT("/Game/RokUI/Help/WBP_RokHelpGroupRow.WBP_RokHelpGroupRow_C"));
+    static UClass* QuestionRowClass=LoadClass<UUserWidget>(nullptr,TEXT("/Game/RokUI/Help/WBP_RokHelpQuestionRow.WBP_RokHelpQuestionRow_C"));
+    const FVector2D GroupSize=Size(Node(TEXT("group"),TEXT("btn_btn")));
+    const FVector2D QuestionSize=Size(Node(TEXT("question"),TEXT("btn_btn")));
     for(int32 Group:Groups)
     {
         const auto* First=Entries.FindByPredicate([Group](const FEntry& E){return E.GroupId==Group;});
-        auto* Row=WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(),*FString::Printf(TEXT("HelpGroupRow_%d"),Group));Place(Content,Row,FVector2D(0,Y),FVector2D(1074,43));
-        DrawNode(Row,*FString::Printf(TEXT("HelpGroupPlate_%d"),Group),Node(TEXT("group"),TEXT("btn_btn")),FVector2D::ZeroVector);
-        DrawNode(Row,*FString::Printf(TEXT("HelpGroupText_%d"),Group),Node(TEXT("group"),TEXT("btn_btn/lbl_title")),FVector2D::ZeroVector,2,&First->Group);
-        DrawNode(Row,*FString::Printf(TEXT("HelpGroupArrow_%d"),Group),Node(TEXT("group"),Expanded.Contains(Group)?TEXT("btn_btn/img_arrowDown"):TEXT("btn_btn/img_arrowUp")),FVector2D::ZeroVector,3);
-        AddHit(Row,*FString::Printf(TEXT("HelpGroupButton_%d"),Group),Group,Node(TEXT("group"),TEXT("btn_btn")),FVector2D::ZeroVector);Y+=43;
+        if(!First){LoadError=TEXT("Help display group has no source entry.");return;}
+        if(GroupRowClass&&!bLegacy)
+        {
+            const FName RowName(*FString::Printf(TEXT("HelpGroupVisual_%d"),Group));
+            auto* Row=WidgetTree->ConstructWidget<UUserWidget>(GroupRowClass,RowName);
+            auto* Label=Row?Cast<URokHelpSourceTextWidget>(Row->GetWidgetFromName(TEXT("HelpGroupText"))):nullptr;
+            auto* ArrowDown=Row?Cast<UImage>(Row->GetWidgetFromName(TEXT("HelpGroupArrowDown"))):nullptr;
+            auto* ArrowUp=Row?Cast<UImage>(Row->GetWidgetFromName(TEXT("HelpGroupArrowUp"))):nullptr;
+            if(!Row||!Label||!ArrowDown||!ArrowUp||!BindGlyph(Label,SourceTextData,FText::FromString(First->Group)))
+            {LoadError=TEXT("Help group row WBP is missing an editable glyph or arrow widget.");return;}
+            ArrowDown->SetVisibility(Expanded.Contains(Group)?ESlateVisibility::HitTestInvisible:ESlateVisibility::Collapsed);
+            ArrowUp->SetVisibility(Expanded.Contains(Group)?ESlateVisibility::Collapsed:ESlateVisibility::HitTestInvisible);
+            Row->SetVisibility(ESlateVisibility::HitTestInvisible);Place(Content,Row,FVector2D(0,Y),GroupSize);
+        }
+        else
+        {
+            auto* Row=WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(),*FString::Printf(TEXT("HelpGroupRow_%d"),Group));Place(Content,Row,FVector2D(0,Y),GroupSize);
+            DrawNode(Row,*FString::Printf(TEXT("HelpGroupPlate_%d"),Group),Node(TEXT("group"),TEXT("btn_btn")),FVector2D::ZeroVector);
+            DrawNode(Row,*FString::Printf(TEXT("HelpGroupText_%d"),Group),Node(TEXT("group"),TEXT("btn_btn/lbl_title")),FVector2D::ZeroVector,2,&First->Group);
+            DrawNode(Row,*FString::Printf(TEXT("HelpGroupArrow_%d"),Group),Node(TEXT("group"),Expanded.Contains(Group)?TEXT("btn_btn/img_arrowDown"):TEXT("btn_btn/img_arrowUp")),FVector2D::ZeroVector,3);
+        }
+        AddHit(Content,*FString::Printf(TEXT("HelpGroupButton_%d"),Group),Group,Node(TEXT("group"),TEXT("btn_btn")),FVector2D(0,Y));Y+=GroupSize.Y;
         if(!Expanded.Contains(Group))continue;
         for(const auto& E:Entries)if(E.GroupId==Group)
         {
-            VisibleQuestionIds.Add(E.Id);auto* Q=WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(),*FString::Printf(TEXT("HelpQuestionRow_%d"),E.Id));Place(Content,Q,FVector2D(17,Y),FVector2D(1040,54));
-            DrawNode(Q,*FString::Printf(TEXT("HelpQuestionLabel_%d"),E.Id),Node(TEXT("question"),TEXT("btn_btn/lbl_title")),FVector2D::ZeroVector,2,&E.Question);
-            DrawNode(Q,*FString::Printf(TEXT("HelpQuestionLine_%d"),E.Id),Node(TEXT("question"),TEXT("line")),FVector2D::ZeroVector);
-            AddHit(Q,*FString::Printf(TEXT("HelpQuestionButton_%d"),E.Id),E.Id,Node(TEXT("question"),TEXT("btn_btn")),FVector2D::ZeroVector);Y+=54;
+            VisibleQuestionIds.Add(E.Id);
+            if(QuestionRowClass&&!bLegacy)
+            {
+                const FName RowName(*FString::Printf(TEXT("HelpQuestionVisual_%d"),E.Id));
+                auto* Row=WidgetTree->ConstructWidget<UUserWidget>(QuestionRowClass,RowName);
+                auto* Label=Row?Cast<URokHelpSourceTextWidget>(Row->GetWidgetFromName(TEXT("HelpQuestionLabel"))):nullptr;
+                if(!Row||!Label||!Row->GetWidgetFromName(TEXT("HelpQuestionLine"))
+                    ||!BindGlyph(Label,SourceTextData,FText::FromString(E.Question)))
+                {LoadError=TEXT("Help question row WBP is missing its editable glyph or separator widget.");return;}
+                Row->SetVisibility(ESlateVisibility::HitTestInvisible);Place(Content,Row,FVector2D(17,Y),QuestionSize);
+            }
+            else
+            {
+                auto* Q=WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(),*FString::Printf(TEXT("HelpQuestionRow_%d"),E.Id));Place(Content,Q,FVector2D(17,Y),QuestionSize);
+                DrawNode(Q,*FString::Printf(TEXT("HelpQuestionLabel_%d"),E.Id),Node(TEXT("question"),TEXT("btn_btn/lbl_title")),FVector2D::ZeroVector,2,&E.Question);
+                DrawNode(Q,*FString::Printf(TEXT("HelpQuestionLine_%d"),E.Id),Node(TEXT("question"),TEXT("line")),FVector2D::ZeroVector);
+            }
+            AddHit(Content,*FString::Printf(TEXT("HelpQuestionButton_%d"),E.Id),E.Id,Node(TEXT("question"),TEXT("btn_btn")),FVector2D(17,Y));Y+=QuestionSize.Y;
         }
     }
-    auto* Fixed=WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(),TEXT("HelpListContentSize"));Fixed->SetWidthOverride(1074);Fixed->SetHeightOverride(Y);Fixed->SetContent(Content);ListScroll->AddChild(Fixed);ListScroll->SetScrollOffset(ListOffset);
+    auto* Fixed=WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(),TEXT("HelpListContentSize"));Fixed->SetWidthOverride(GroupSize.X);Fixed->SetHeightOverride(Y);Fixed->SetContent(Content);ListScroll->AddChild(Fixed);ListScroll->SetScrollOffset(ListOffset);
 }
 
 void URokHelpWidget::HandleAction(int32 Action)

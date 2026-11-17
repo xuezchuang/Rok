@@ -4,6 +4,7 @@
 #include "RokGalleryButton.h"
 #include "RokUiTextTable.h"
 #include "RokModalNineSlice.h"
+#include "RokUiWidgets.h"
 #include "Components/ProgressBar.h"
 #include "Components/ScaleBoxSlot.h"
 #include "RokSpriteAtlas.h"
@@ -22,6 +23,7 @@
 #include "RokBuildingPreviewGlowWidget.h"
 #include "Materials/MaterialInterface.h"
 
+#include "Blueprint/WidgetBlueprintGeneratedClass.h"
 #include "Blueprint/WidgetTree.h"
 #include "Containers/StringConv.h"
 #include "Components/Border.h"
@@ -57,7 +59,59 @@
 
 namespace
 {
-const TCHAR* MainMenuAtlasPath = TEXT("/Game/RokPrototype/UI/MainHudAtlases/rok_hud_atlas_mainmenu.rok_hud_atlas_mainmenu");
+// Definition-list row icons: `atlas[sprite]` ids resolved through the `.tpsheet`
+// manifests, decoded once. Unity tpsheet rects are measured from the bottom; UE V=0 is the top.
+bool ResolveDefinitionIcon(const FString& IconId, UTexture2D*& OutSheet, FBox2D& OutUv)
+{
+	OutSheet = nullptr;
+	if (IconId.IsEmpty())
+	{
+		return false;
+	}
+	static TSharedPtr<FRokSpriteAtlas> IconAtlas;
+	if (!IconAtlas.IsValid())
+	{
+		IconAtlas = MakeShared<FRokSpriteAtlas>();
+		IconAtlas->LoadAll();
+	}
+	FRokSpriteRect SpriteRect;
+	if (!IconAtlas->Resolve(IconId, SpriteRect))
+	{
+		return false;
+	}
+	OutSheet = IconAtlas->GetSheetTexture(SpriteRect.SheetPng);
+	if (!OutSheet)
+	{
+		return false;
+	}
+	OutUv = FBox2D(FVector2D(0.0f, 0.0f), FVector2D(1.0f, 1.0f));
+	if (SpriteRect.SheetWidth > 0 && SpriteRect.SheetHeight > 0)
+	{
+		const float U0 = static_cast<float>(SpriteRect.X) / SpriteRect.SheetWidth;
+		const float V0 = static_cast<float>(SpriteRect.SheetHeight - SpriteRect.Y - SpriteRect.Height) / SpriteRect.SheetHeight;
+		const float V1 = static_cast<float>(SpriteRect.SheetHeight - SpriteRect.Y) / SpriteRect.SheetHeight;
+		const float U1 = static_cast<float>(SpriteRect.X + SpriteRect.Width) / SpriteRect.SheetWidth;
+		OutUv = FBox2D(FVector2D(U0, V0), FVector2D(U1, V1));
+	}
+	return true;
+}
+
+void SetOptionalRowText(UTextBlock* Text, const FString& Value)
+{
+	if (!Text)
+	{
+		return;
+	}
+	if (Value.IsEmpty())
+	{
+		// The C++ build omitted empty detail/tag text; a collapsed block draws nothing either.
+		Text->SetVisibility(ESlateVisibility::Collapsed);
+		return;
+	}
+	Text->SetText(FText::FromString(Value));
+}
+
+const TCHAR* MainMenuAtlasPath =TEXT("/Game/RokPrototype/UI/MainHudAtlases/rok_hud_atlas_mainmenu.rok_hud_atlas_mainmenu");
 const TCHAR* CommonAtlasPath = TEXT("/Game/RokPrototype/UI/MainHudAtlases/rok_hud_atlas_common.rok_hud_atlas_common");
 const TCHAR* PlayerHeadAtlasPath = TEXT("/Game/RokPrototype/UI/MainHudAtlases/rok_hud_atlas_player_head.rok_hud_atlas_player_head");
 const TCHAR* PlayerUiAtlasPath = TEXT("/Game/RokPrototype/UI/FullScreenAtlases/rok_fullscreen_player.rok_fullscreen_player");
@@ -67,7 +121,6 @@ const TCHAR* CivilizationAtlasPath = TEXT("/Game/RokPrototype/UI/ModalAtlases/ro
 const TCHAR* CivilizationImageAtlasPath = TEXT("/Game/RokPrototype/UI/ModalAtlases/rok_modal_atlas_civilization_img.rok_modal_atlas_civilization_img");
 const TCHAR* CivilizationBackgroundAtlasPath = TEXT("/Game/RokPrototype/UI/ModalAtlases/rok_modal_atlas_hero_background.rok_modal_atlas_hero_background");
 const TCHAR* PageAtlasPath = TEXT("/Game/RokPrototype/UI/ModalAtlases/rok_modal_atlas_page.rok_modal_atlas_page");
-const TCHAR* Item0AtlasPath = TEXT("/Game/RokPrototype/UI/ModalAtlases/rok_modal_atlas_item0.rok_modal_atlas_item0");
 const TCHAR* Item1AtlasPath = TEXT("/Game/RokPrototype/UI/ModalAtlases/rok_modal_atlas_item1.rok_modal_atlas_item1");
 const TCHAR* Item5AtlasPath = TEXT("/Game/RokPrototype/UI/FullScreenAtlases/rok_fullscreen_item5.rok_fullscreen_item5");
 
@@ -81,7 +134,6 @@ const FIntPoint CivilizationAtlasSize(2048, 256);
 const FIntPoint CivilizationImageAtlasSize(2048, 1024);
 const FIntPoint CivilizationBackgroundAtlasSize(1024, 512);
 const FIntPoint PageAtlasSize(128, 2048);
-const FIntPoint Item0AtlasSize(512, 512);
 const FIntPoint Item1AtlasSize(256, 1024);
 const FIntPoint Item5AtlasSize(1024, 2048);
 
@@ -98,7 +150,6 @@ const FIntRect CommonPanelRect = SpriteRect(436, 165, 63, 55);
 const FIntRect ResourceRowRect = SpriteRect(1952, 906, 74, 67);
 const FIntRect AttributeFrameRect = CommonPanelRect;
 const FIntRect PreviewFrameRect = SpriteRect(1003, 932, 400, 42);
-const FIntRect ItemAmountStripRect = SpriteRect(974, 885, 120, 27);
 const FIntRect HelpRect = SpriteRect(782, 237, 37, 37);
 const FIntRect HelpAltRect = SpriteRect(743, 237, 37, 37);
 const FIntRect ActionBackgroundRect = SpriteRect(401, 112, 20, 23);
@@ -167,21 +218,6 @@ const FIntRect CivilizationBackgroundRects[] = {
 	SpriteRect(1, 367, 256, 144),
 };
 
-
-
-const FIntRect TabSelectedRect = SpriteRect(205, 370, 145, 103);
-const FIntRect TabDarkRect = SpriteRect(205, 266, 121, 102);
-const FIntRect TabIconRects[4][2] = {
-	{SpriteRect(63, 871, 60, 60), SpriteRect(63, 933, 60, 60)},
-	{SpriteRect(63, 995, 60, 60), SpriteRect(1, 3, 60, 60)},
-	{SpriteRect(1, 65, 60, 60), SpriteRect(1, 127, 60, 60)},
-	{SpriteRect(1, 189, 60, 60), SpriteRect(1, 251, 60, 60)},
-};
-const FIntRect ItemQualityRects[3] = {
-	SpriteRect(137, 219, 134, 134),
-	SpriteRect(295, 377, 134, 134),
-	SpriteRect(159, 377, 134, 134),
-};
 const FIntRect ItemIconRects[4] = {
 	SpriteRect(129, 769, 126, 126),
 	SpriteRect(129, 641, 126, 126),
@@ -201,6 +237,39 @@ const FMargin ModifyButtonMargin(70.0f / 138.0f, 0.0f, 64.0f / 138.0f, 0.0f);
 
 constexpr float UnityReferenceWidth = 1440.0f;
 constexpr float UnityReferenceHeight = 810.0f;
+
+struct FModalShellWidgets
+{
+	UButton* DismissMask = nullptr;
+	UButton* AnimationBlocker = nullptr;
+	USizeBox* DesignSize = nullptr;
+	UCanvasPanel* DesignCanvas = nullptr;
+	UCanvasPanel* Content = nullptr;
+};
+
+bool FindModalShellWidgets(const UWidgetTree* Tree, FModalShellWidgets& Shell)
+{
+	const auto* Root = Tree ? Cast<UCanvasPanel>(Tree->RootWidget) : nullptr;
+	if (!Root || Root->GetFName() != TEXT("RokUnityModalRoot"))
+	{
+		return false;
+	}
+	Shell.DismissMask = Tree->FindWidget<UButton>(TEXT("ModalDismissMask"));
+	Shell.AnimationBlocker = Tree->FindWidget<UButton>(TEXT("ModalAnimationInputBlocker"));
+	Shell.DesignSize = Tree->FindWidget<USizeBox>(TEXT("ModalExpandedDesignSize"));
+	Shell.DesignCanvas = Tree->FindWidget<UCanvasPanel>(TEXT("ModalExpandedDesignCanvas"));
+	Shell.Content = Tree->FindWidget<UCanvasPanel>(TEXT("ModalModeCanvas"));
+	const auto* Dimmer = Tree->FindWidget<UBorder>(TEXT("ModalDimmer"));
+	const auto* ScaleBox = Tree->FindWidget<UScaleBox>(TEXT("ModalUnityExpandScaleBox"));
+	return Shell.DismissMask && Shell.DismissMask->GetParent() == Root
+		&& Dimmer && Shell.DismissMask->GetContent() == Dimmer
+		&& Shell.AnimationBlocker && Shell.AnimationBlocker->GetParent() == Root
+		&& ScaleBox && ScaleBox->GetParent() == Root
+		&& Shell.DesignSize && ScaleBox->GetContent() == Shell.DesignSize
+		&& Shell.DesignCanvas && Shell.DesignSize->GetContent() == Shell.DesignCanvas
+		&& Shell.Content && Shell.Content->GetParent() == Shell.DesignCanvas;
+}
+
 constexpr int32 ChangeNameMinLength = 3;
 constexpr int32 ChangeNameMaxLength = 15;
 constexpr int32 RenamePermitItemId = 502010001;
@@ -212,6 +281,116 @@ FText FormatNumber(int32 Value)
 	FNumberFormattingOptions Options;
 	Options.UseGrouping = true;
 	return FText::AsNumber(Value, &Options);
+}
+
+// "Base_Index": the names the page WBPs use for repeated widgets.
+FName IndexedName(const TCHAR* Base, int32 Index)
+{
+	return FName(*FString::Printf(TEXT("%s_%d"), Base, Index));
+}
+
+void SetPageText(const URokUiPageWidget* Page, FName Name, const FText& Text)
+{
+	if (UTextBlock* TextBlock = Page->Get<UTextBlock>(Name))
+	{
+		TextBlock->SetText(Text);
+	}
+}
+
+// How many fixed list slots (Base_0, Base_1, ...) a page was designed with. Logs
+// when the data has more rows than the page can show.
+int32 CountPageSlots(const URokUiPageWidget* Page, const TCHAR* Base, int32 DataRows)
+{
+	int32 Slots = 0;
+	while (RokUiFind::Find(Page, IndexedName(Base, Slots)))
+	{
+		++Slots;
+	}
+	if (DataRows > Slots)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Rok UI: page %s has %d %s slots for %d rows; the rest are not shown"),
+			*Page->GetClass()->GetName(), Slots, Base, DataRows);
+	}
+	return Slots;
+}
+
+// One city_buff_reference.json definition as the reference previews show it.
+struct FCityBuffPreviewRow
+{
+	FString Title;
+	int32 ConfigDurationSeconds = 0;
+	FIntRect IconRect;
+};
+
+// The first MaxRows definitions with a valid main-menu icon; empty when the
+// published configuration is missing or has another schema.
+TArray<FCityBuffPreviewRow> LoadCityBuffPreviewRows(int32 MaxRows)
+{
+	TArray<FCityBuffPreviewRow> Rows;
+	FString DefinitionJson;
+	TSharedPtr<FJsonObject> DefinitionRoot;
+	const TArray<TSharedPtr<FJsonValue>>* Definitions = nullptr;
+	FString DefinitionSchema;
+	if (!FFileHelper::LoadFileToString(DefinitionJson, *RokDataPaths::Resolve(TEXT("city_buff_reference.json")))
+		|| !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(DefinitionJson), DefinitionRoot)
+		|| !DefinitionRoot.IsValid()
+		|| !DefinitionRoot->TryGetStringField(TEXT("schema"), DefinitionSchema)
+		|| DefinitionSchema != TEXT("rok.city_buff_reference.v2")
+		|| !DefinitionRoot->TryGetArrayField(TEXT("definitions"), Definitions)
+		|| !Definitions)
+	{
+		return Rows;
+	}
+	for (const TSharedPtr<FJsonValue>& DefinitionValue : *Definitions)
+	{
+		if (Rows.Num() >= MaxRows)
+		{
+			break;
+		}
+		const TSharedPtr<FJsonObject> Definition = DefinitionValue.IsValid() ? DefinitionValue->AsObject() : nullptr;
+		double ConfigDuration = 0.0;
+		FString TitleCn;
+		FString IconAtlas;
+		const TArray<TSharedPtr<FJsonValue>>* IconRectValues = nullptr;
+		if (!Definition.IsValid()
+			|| !Definition->TryGetNumberField(TEXT("config_duration_seconds"), ConfigDuration)
+			|| !Definition->TryGetStringField(TEXT("title_cn"), TitleCn)
+			|| !Definition->TryGetStringField(TEXT("icon_atlas"), IconAtlas)
+			|| !Definition->TryGetArrayField(TEXT("icon_rect"), IconRectValues)
+			|| ConfigDuration < 0 || IconAtlas != MainMenuAtlasPath
+			|| !IconRectValues || IconRectValues->Num() != 4)
+		{
+			continue;
+		}
+		double IconNumbers[4] = {};
+		bool bIconRectValid = true;
+		for (int32 Component = 0; Component < 4; ++Component)
+		{
+			bIconRectValid &= (*IconRectValues)[Component].IsValid()
+				&& (*IconRectValues)[Component]->TryGetNumber(IconNumbers[Component]);
+		}
+		if (!bIconRectValid || IconNumbers[0] < 0 || IconNumbers[1] < 0
+			|| IconNumbers[2] <= 0 || IconNumbers[3] <= 0
+			|| IconNumbers[0] + IconNumbers[2] > MainMenuAtlasSize.X
+			|| IconNumbers[1] + IconNumbers[3] > MainMenuAtlasSize.Y)
+		{
+			continue;
+		}
+		FCityBuffPreviewRow& Row = Rows.AddDefaulted_GetRef();
+		Row.Title = TitleCn.IsEmpty() ? FString(TEXT("名称本地化不可用")) : TitleCn;
+		Row.ConfigDurationSeconds = static_cast<int32>(ConfigDuration);
+		Row.IconRect = SpriteRect(static_cast<int32>(IconNumbers[0]), static_cast<int32>(IconNumbers[1]),
+			static_cast<int32>(IconNumbers[2]), static_cast<int32>(IconNumbers[3]));
+	}
+	return Rows;
+}
+
+// The texts of one preview row in a page: <Prefix>Title_<i> and <Prefix>Fields_<i>.
+void SetCityBuffPreviewRowText(const URokUiPageWidget* Page, const TCHAR* Prefix, int32 RowIndex, const FCityBuffPreviewRow& Row)
+{
+	SetPageText(Page, IndexedName(*FString::Printf(TEXT("%sTitle"), Prefix), RowIndex), FText::FromString(Row.Title));
+	SetPageText(Page, IndexedName(*FString::Printf(TEXT("%sFields"), Prefix), RowIndex),
+		FText::FromString(FString::Printf(TEXT("配置时长 %d 秒（非剩余时间）"), Row.ConfigDurationSeconds)));
 }
 
 int32 FindCivilizationVisualIndex(int32 CivilizationId)
@@ -515,15 +694,10 @@ bool URokUnityModalWidget::IsBuildingInfoOpenForActor(const AActor* Actor) const
 		|| SelectedBuildingActor.Get() != Actor || ResourceBuildingReferenceType != 0
 		|| !GetParent() || GetVisibility() != ESlateVisibility::Visible || !ModeCanvas
 		|| ModeCanvas->GetVisibility() == ESlateVisibility::Collapsed) return false;
-	bool bFrame = false;
-	bool bAttributes = false;
-	for (UWidget* Child : ModeCanvas->GetAllChildren())
-	{
-		if (!IsValid(Child)) continue;
-		bFrame |= Child->GetFName() == TEXT("BuildingInfoPreviewFrame");
-		bAttributes |= Child->GetFName() == TEXT("BuildingInfoAttributeFrame");
-	}
-	return bFrame && bAttributes;
+	// The generic building layout (not the resource-building pages) is drawn.
+	return ActivePage && ActivePageName == TEXT("BuildingInfo")
+		&& RokUiFind::Find(ActivePage, TEXT("BuildingInfoPreviewFrame"))
+		&& RokUiFind::Find(ActivePage, TEXT("BuildingInfoAttributeFrame"));
 }
 
 void URokUnityModalWidget::OpenResourceBuildingInfoReferencePreview(int32 UnityBuildingTypeId)
@@ -593,6 +767,42 @@ void URokUnityModalWidget::SampleWindowAnimationForCapture(float Seconds)
 }
 
 
+bool URokUnityModalWidget::FreezePreviewAnimationForCapture(float Seconds)
+{
+	if (!IsModalOpen() || !FMath::IsFinite(Seconds) || Seconds < 0.0f)
+	{
+		return false;
+	}
+	if (ActiveMode == ERokUnityModalMode::CivilizationSelection)
+	{
+		if (!CivilizationHero || !CivilizationListRoot || !CivilizationDetailRoot || !CivilizationSelectionPulse
+			|| !CivilizationHero->FreezeAnimationForCapture(Seconds))
+		{
+			return false;
+		}
+		CivilizationListAnimationTime = FMath::Min(Seconds, 0.5f);
+		CivilizationHeroAnimationTime = FMath::Min(Seconds, RokCivilizationAnimation::ShowDuration + RokCivilizationAnimation::OutDuration);
+		CivilizationSelectionAnimationTime = FMath::Fmod(Seconds, RokCivilizationAnimation::SelectionDuration);
+		ApplyWindowAnimation();
+		bPreviewAnimationFrozenForCapture = true;
+		UE_LOG(LogTemp, Display, TEXT("Rok modal preview capture: civilization sampled at %.6fs, flag pulse phase %.6fs."),
+			Seconds, CivilizationSelectionAnimationTime);
+		return true;
+	}
+	if (auto* Glow = Cast<URokBuildingPreviewGlowWidget>(RokUiFind::Find(this, TEXT("BuildingPreviewGlowWidget"))))
+	{
+		if (Glow->IsPlaybackActive() && Glow->SetPlaybackTime(Seconds))
+		{
+			Glow->SetAutoAdvance(false);
+			bPreviewAnimationFrozenForCapture = true;
+			UE_LOG(LogTemp, Display, TEXT("Rok modal preview capture: building glow sampled at %.6fs, source phase %.6fs."),
+				Glow->GetPlaybackTime(), Glow->GetSourcePhase());
+			return true;
+		}
+	}
+	return false;
+}
+
 void URokUnityModalWidget::OpenBattlePassRewards()
 {
 	// UI_Win_BattlePassRewards: the source lists one row per battle-pass level
@@ -649,6 +859,7 @@ void URokUnityModalWidget::CloseModal()
 	ConfirmedInstantQuote.Reset();
 	ClosePlayerKillTip();
 	ClosePlayerPowerActionTip();
+	bPreviewAnimationFrozenForCapture = false;
 	WindowAnimation.Reset();
 	BuffListAnimationRoot = nullptr;
 	GainEffectListRoot = nullptr;
@@ -681,6 +892,7 @@ void URokUnityModalWidget::CloseModal()
 		URokUiAnimatedButton::ResetAnimationsInHierarchy(ModeCanvas);
 		ModeCanvas->ClearChildren();
 	}
+	ActivePage = nullptr;
 	SetVisibility(ESlateVisibility::Collapsed);
 }
 
@@ -731,6 +943,16 @@ TSharedRef<SWidget> URokUnityModalWidget::RebuildWidget()
 	return Super::RebuildWidget();
 }
 
+TSubclassOf<URokUnityModalWidget> URokUnityModalWidget::ResolveShellClass()
+{
+	static const TSoftClassPtr<URokUnityModalWidget> LayoutClass(FSoftObjectPath(
+		TEXT("/Game/RokUI/Modal/WBP_RokModalShell.WBP_RokModalShell_C")));
+	auto* GeneratedClass = Cast<UWidgetBlueprintGeneratedClass>(URokUiSettings::Resolve(LayoutClass));
+	FModalShellWidgets Shell;
+	return GeneratedClass && FindModalShellWidgets(GeneratedClass->GetWidgetTreeArchetype(), Shell)
+		? GeneratedClass : StaticClass();
+}
+
 void URokUnityModalWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
@@ -747,7 +969,10 @@ void URokUnityModalWidget::NativeTick(const FGeometry& MyGeometry, float InDelta
 {
 	Super::NativeTick(MyGeometry, InDeltaTime);
 	UpdateExpandedDesignResolution(MyGeometry.GetLocalSize());
-	AdvanceWindowAnimation(InDeltaTime);
+	if (!bPreviewAnimationFrozenForCapture)
+	{
+		AdvanceWindowAnimation(InDeltaTime);
+	}
 	UpgradeButtonRefreshRemaining -= InDeltaTime;
 	if (ActiveMode == ERokUnityModalMode::BuildingUpgrade && SelectedBuildingActor.IsValid()
 		&& UpgradeButtonRefreshRemaining <= 0.0f)
@@ -758,8 +983,23 @@ void URokUnityModalWidget::NativeTick(const FGeometry& MyGeometry, float InDelta
 
 void URokUnityModalWidget::BuildWidgetTree()
 {
-	if (!WidgetTree || WidgetTree->RootWidget)
+	if (!WidgetTree || ModeCanvas)
 	{
+		return;
+	}
+	if (WidgetTree->RootWidget)
+	{
+		FModalShellWidgets Shell;
+		if (FindModalShellWidgets(WidgetTree, Shell))
+		{
+			ExpandedDesignSizeBox = Shell.DesignSize;
+			ExpandedDesignCanvas = Shell.DesignCanvas;
+			ModeCanvas = Shell.Content;
+			AnimationInputBlocker = Shell.AnimationBlocker;
+			ExpandedDesignSizeBox->SetWidthOverride(CurrentExpandedDesignSize.X);
+			ExpandedDesignSizeBox->SetHeightOverride(CurrentExpandedDesignSize.Y);
+			Shell.DismissMask->OnClicked.AddUniqueDynamic(this, &URokUnityModalWidget::HandleCloseClicked);
+		}
 		return;
 	}
 
@@ -814,7 +1054,7 @@ void URokUnityModalWidget::BuildWidgetTree()
 	UCanvasPanelSlot* ModeSlot = ExpandedDesignCanvas->AddChildToCanvas(ModeCanvas);
 	// Unity CanvasScaler "expand" keeps the reference height and widens the canvas,
 	// so UI anchored to the centre stays centred. Our builders place absolute
-	// coordinates for 1456x910, hence a centred fixed-size mode canvas.
+	// coordinates in the 1440x810 reference area, hence a centred mode canvas.
 	ModeSlot->SetAnchors(FAnchors(0.5f, 0.5f));
 	ModeSlot->SetAlignment(FVector2D(0.5f, 0.5f));
 	ModeSlot->SetPosition(FVector2D::ZeroVector);
@@ -843,6 +1083,7 @@ void URokUnityModalWidget::RebuildModeContent(bool bOpening)
 
 	URokUiAnimatedButton::ResetAnimationsInHierarchy(ModeCanvas);
 	ModeCanvas->ClearChildren();
+	ActivePage = nullptr;
 	FeedbackText = nullptr;
 	BuffListAnimationRoot = nullptr;
 	BuildingDescriptionRoot = nullptr;
@@ -858,6 +1099,12 @@ void URokUnityModalWidget::RebuildModeContent(bool bOpening)
 	BarracksLevelSelectedLevel = 0;
 	BarracksLevelPageTime = 0.25f;
 	ResetChangeNameWidgetPointers();
+
+	if (TryMountPageOverride())
+	{
+		UpdateWindowAnimationForMode(bOpening);
+		return;
+	}
 
 	switch (ActiveMode)
 	{
@@ -1040,6 +1287,141 @@ void URokUnityModalWidget::RebuildModeContent(bool bOpening)
 	UpdateWindowAnimationForMode(bOpening);
 }
 
+void URokUnityModalWidget::MountFullPiece(UUserWidget* Piece, int32 ZOrder)
+{
+	UCanvasPanelSlot* PieceSlot = ModeCanvas->AddChildToCanvas(Piece);
+	PieceSlot->SetAnchors(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
+	PieceSlot->SetOffsets(FMargin(0.0f));
+	PieceSlot->SetZOrder(ZOrder);
+}
+
+URokModalWindowFrame* URokUnityModalWidget::MountWindowFrame(
+	const TSoftClassPtr<URokModalWindowFrame>& FrameSetting,
+	const FText& Title)
+{
+	UClass* FrameClass = URokUiSettings::Resolve(FrameSetting);
+	URokModalWindowFrame* Frame = FrameClass ? CreateWidget<URokModalWindowFrame>(this, FrameClass) : nullptr;
+	if (Frame)
+	{
+		Frame->Title->SetText(Title);
+		MountFullPiece(Frame, 0);
+	}
+	return Frame;
+}
+
+URokUiPageWidget* URokUnityModalWidget::MountModePage(FName Page)
+{
+	UClass* PageClass = URokUiSettings::ResolvePage(GetDefault<URokUiSettings>()->ModalPages, Page);
+	URokUiPageWidget* Widget = PageClass ? CreateWidget<URokUiPageWidget>(this, PageClass) : nullptr;
+	if (Widget)
+	{
+		// Above the window frame (z 0), where the C++ mode content used to sit.
+		MountFullPiece(Widget, 1);
+	}
+	ActivePage = Widget;
+	ActivePageName = Widget ? Page : NAME_None;
+	return Widget;
+}
+
+URokUiPageWidget* URokUnityModalWidget::MountItem(
+	FName Item,
+	UCanvasPanel* Parent,
+	FName InstanceName,
+	const FVector2D& Position,
+	const FVector2D& Size,
+	int32 ZOrder,
+	const FString& Prefix,
+	const FString& Suffix,
+	const FString& Index)
+{
+	UClass* ItemClass = Parent
+		? URokUiSettings::ResolvePage(GetDefault<URokUiSettings>()->ModalPages, Item) : nullptr;
+	if (!ItemClass)
+	{
+		return nullptr;
+	}
+	// A previous open's instance of the same name may still be outered here.
+	if (UObject* Existing = StaticFindObjectFast(nullptr, Parent->GetOuter(), InstanceName))
+	{
+		RokUiFind::Retire(Existing);
+	}
+	URokUiPageWidget* Widget = CreateWidget<URokUiPageWidget>(Parent, ItemClass, InstanceName);
+	Widget->LegacyPrefix = Prefix;
+	Widget->LegacySuffix = Suffix;
+	Widget->LegacyIndex = Index;
+	PlaceOnCanvas(Parent, Widget, Position, Size, ZOrder);
+	return Widget;
+}
+
+void URokUnityModalWidget::BindIndexedButton(UWidget* Button, int32 ActionId)
+{
+	if (URokUnityIndexedButton* Indexed = Cast<URokUnityIndexedButton>(Button))
+	{
+		Indexed->ConfigureAction(ActionId);
+		Indexed->OnIndexedClicked.AddUObject(this, &URokUnityModalWidget::HandleProfileSubscreenAction);
+	}
+	else if (Button)
+	{
+		UE_LOG(LogTemp, Error, TEXT("Rok UI: %s is a %s, not an indexed button"), *Button->GetName(), *Button->GetClass()->GetName());
+	}
+}
+
+URokUiPageWidget* URokUnityModalWidget::MountTipLayer(FName Item, FName InstanceName)
+{
+	// Over the mode page, filling the expanded canvas so a click anywhere else closes it.
+	URokUiPageWidget* Layer = MountItem(Item, ModeCanvas, InstanceName, FVector2D::ZeroVector,
+		CurrentExpandedDesignSize, 100, FString(), FString());
+	if (Layer)
+	{
+		auto* LayerSlot = CastChecked<UCanvasPanelSlot>(Layer->Slot);
+		LayerSlot->SetAnchors(FAnchors(0, 0, 1, 1));
+		LayerSlot->SetOffsets(FMargin(0));
+	}
+	return Layer;
+}
+
+void URokUnityModalWidget::SetAtlasSprite(
+	UImage* Image,
+	const TCHAR* TexturePath,
+	const FIntRect& UnityRect,
+	const FIntPoint& AtlasSize,
+	const FVector2D& DesiredSize) const
+{
+	if (!Image)
+	{
+		return;
+	}
+	if (UTexture2D* Texture = LoadUiTexture(TexturePath))
+	{
+		Image->SetBrush(MakeAtlasBrush(Texture, UnityRect, AtlasSize, DesiredSize));
+	}
+}
+
+bool URokUnityModalWidget::TryMountPageOverride()
+{
+	FString PagePath;
+	if (ActiveMode == ERokUnityModalMode::None
+		|| !FParse::Value(FCommandLine::Get(), TEXT("RokUiModalPage="), PagePath)
+		|| PagePath.IsEmpty())
+	{
+		return false;
+	}
+	UClass* PageClass = LoadClass<UUserWidget>(nullptr, *PagePath);
+	if (!PageClass)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Rok UI page override: class %s not found, using the C++ build"), *PagePath);
+		return false;
+	}
+	UUserWidget* Page = CreateWidget<UUserWidget>(this, PageClass);
+	if (!Page)
+	{
+		return false;
+	}
+	MountFullPiece(Page, 0);
+	UE_LOG(LogTemp, Display, TEXT("Rok UI page override: mounted %s for mode %d"), *PagePath, static_cast<int32>(ActiveMode));
+	return true;
+}
+
 void URokUnityModalWidget::UpdateWindowAnimationForMode(bool bOpening)
 {
 	if (ActiveMode != ERokUnityModalMode::CivilizationSelection)
@@ -1203,6 +1585,11 @@ void URokUnityModalWidget::AdvanceWindowAnimation(float DeltaSeconds)
 
 void URokUnityModalWidget::BuildType1Window(const FText& Title)
 {
+	if (URokModalWindowFrame* Frame = MountWindowFrame(GetDefault<URokUiSettings>()->ModalWindowType1, Title))
+	{
+		Frame->CloseButton->OnClicked.AddUniqueDynamic(this, &URokUnityModalWidget::HandleCloseClicked);
+		return;
+	}
 	UBorder* BodyLeft = MakeAtlasBorder(TEXT("Type1BodyLeft"), FrameAtlasPath, WindowBodyRect, FrameAtlasSize, FVector2D(570.0f, 698.0f), WindowBodyMargin);
 	PlaceOnCanvas(ModeCanvas, BodyLeft, FVector2D(166.5f, 71.5f), FVector2D(570.0f, 698.0f));
 	UBorder* BodyRight = MakeAtlasBorder(TEXT("Type1BodyRight"), FrameAtlasPath, WindowBodyRect, FrameAtlasSize, FVector2D(570.0f, 698.0f), WindowBodyMargin);
@@ -1228,6 +1615,34 @@ void URokUnityModalWidget::BuildType1Window(const FText& Title)
 
 void URokUnityModalWidget::BuildType2Window(const FText& Title, bool bSourceBarracksUpgradeParent)
 {
+	const URokUiSettings* Settings = GetDefault<URokUiSettings>();
+	if (bSourceBarracksUpgradeParent)
+	{
+		// The barracks preview overlaps the header, so the frame straddles the content at Z=1.
+		UClass* BodyClass = URokUiSettings::Resolve(Settings->ModalWindowType2BarracksBody);
+		UClass* HeaderClass = URokUiSettings::Resolve(Settings->ModalWindowType2Barracks);
+		if (BodyClass && HeaderClass)
+		{
+			URokUiPageWidget* Body = CreateWidget<URokUiPageWidget>(this, BodyClass);
+			URokModalWindowFrame* Header = CreateWidget<URokModalWindowFrame>(this, HeaderClass);
+			if (Body && Header)
+			{
+				Body->SetVisibility(ESlateVisibility::HitTestInvisible);
+				Header->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+				Header->Title->SetText(Title);
+				Header->CloseButton->OnClicked.AddUniqueDynamic(this, &URokUnityModalWidget::HandleCloseClicked);
+				MountFullPiece(Body, 0);
+				MountFullPiece(Header, 2);
+				return;
+			}
+		}
+	}
+	else if (URokModalWindowFrame* Frame = MountWindowFrame(Settings->ModalWindowType2, Title))
+	{
+		Frame->CloseButton->OnClicked.AddUniqueDynamic(this, &URokUnityModalWidget::HandleCloseClicked);
+		return;
+	}
+
 	UBorder* BodyLeft = MakeAtlasBorder(TEXT("Type2BodyLeft"), FrameAtlasPath, WindowBodyRect, FrameAtlasSize, FVector2D(543.0f, 660.8f), WindowBodyMargin);
 	PlaceOnCanvas(ModeCanvas, BodyLeft, bSourceBarracksUpgradeParent ? FVector2D(194.0f, 94.2f) : FVector2D(177.0f, 139.2f), FVector2D(543.0f, 660.8f));
 	UBorder* BodyRight = MakeAtlasBorder(TEXT("Type2BodyRight"), FrameAtlasPath, WindowBodyRect, FrameAtlasSize, FVector2D(543.0f, 660.8f), WindowBodyMargin);
@@ -1253,6 +1668,11 @@ void URokUnityModalWidget::BuildType2Window(const FText& Title, bool bSourceBarr
 
 void URokUnityModalWidget::BuildType3Window(const FText& Title)
 {
+	if (URokModalWindowFrame* Frame = MountWindowFrame(GetDefault<URokUiSettings>()->ModalWindowType3, Title))
+	{
+		Frame->CloseButton->OnClicked.AddUniqueDynamic(this, &URokUnityModalWidget::HandleCloseClicked);
+		return;
+	}
 	// Unity source: UI_Model_Window_Type3, 1148x754 centered in 1440x810.
 	// The two body halves intentionally overlap by 20px and the title halves
 	// overlap by 25px, matching the source prefab's mirrored nine-slice layout.
@@ -1345,6 +1765,11 @@ void URokUnityModalWidget::BuildType3Window(const FText& Title)
 
 void URokUnityModalWidget::BuildCivilizationChangeWindow(const FText& Title)
 {
+	if (URokModalWindowFrame* Frame = MountWindowFrame(GetDefault<URokUiSettings>()->ModalWindowCivilizationChange, Title))
+	{
+		Frame->CloseButton->OnClicked.AddUniqueDynamic(this, &URokUnityModalWidget::HandleCloseClicked);
+		return;
+	}
 	// Unity source: UI_Win_CivilizationChange, Type2 family at
 	// (160,55,1120,700) in the 1440x810 reference view.
 	UBorder* BodyLeft = MakeAtlasBorder(
@@ -1385,6 +1810,11 @@ void URokUnityModalWidget::BuildCivilizationChangeWindow(const FText& Title)
 
 void URokUnityModalWidget::BuildTypeMidWindow(const FText& Title)
 {
+	if (URokModalWindowFrame* Frame = MountWindowFrame(GetDefault<URokUiSettings>()->ModalWindowTypeMid, Title))
+	{
+		Frame->CloseButton->OnClicked.AddUniqueDynamic(this, &URokUnityModalWidget::HandleChangeNameCancelClicked);
+		return;
+	}
 	PlaceOnCanvas(
 		ModeCanvas,
 		MakeAtlasImage(
@@ -1442,323 +1872,69 @@ void URokUnityModalWidget::BuildPlayerProfile()
 		}
 	}
 
-	PlaceOnCanvas(ModeCanvas, MakeAtlasBorder(TEXT("ProfileInfoFrame"), SettingAtlasPath, ProfileFrameRect, SettingAtlasSize, FVector2D(1005.1f, 320.0f), ProfileFrameMargin), FVector2D(217.45f, 182.3f), FVector2D(1005.1f, 320.0f));
-	PlaceOnCanvas(ModeCanvas, MakeAtlasImage(TEXT("ProfileHangingFlag"), SettingAtlasPath, ProfileFlagRect, SettingAtlasSize, FVector2D(304.0f, 371.0f)), FVector2D(269.0f, 167.8f), FVector2D(304.0f, 371.0f), 1);
-	PlaceOnCanvas(ModeCanvas, MakeAtlasImage(TEXT("ProfilePortrait"), PlayerHeadAtlasPath, PortraitRect, PlayerHeadAtlasSize, FVector2D(156.24f)), FVector2D(342.88f, 233.83f), FVector2D(156.24f), 2);
-	PlaceOnCanvas(ModeCanvas, MakeAtlasImage(TEXT("ProfilePortraitFrame"), PlayerHeadAtlasPath, PortraitFrameRect, PlayerHeadAtlasSize, FVector2D(183.15f)), FVector2D(329.43f, 220.38f), FVector2D(183.15f), 3);
-	UButton* PictureButton = MakeAtlasButton(
-		TEXT("ProfilePictureButton"),
-		SettingAtlasPath,
-		PictureButtonRect,
-		SettingAtlasSize,
-		FVector2D(38.0f));
-	PictureButton->OnClicked.AddDynamic(
-		this,
-		&URokUnityModalWidget::HandleProfileAvatarClicked);
-	PictureButton->SetToolTipText(NSLOCTEXT(
-		"RokModal",
-		"ProfilePictureTooltip",
-		"查看头像资料边界"));
-	PlaceOnCanvas(
-		ModeCanvas,
-		PictureButton,
-		FVector2D(239.0f, 206.3f),
-		FVector2D(38.0f),
-		3);
-	UButton* ModifyButton = MakeTextAtlasButton(
-		TEXT("ProfileModifyButton"),
-		CommonAtlasPath,
-		ModifyButtonRect,
-		CommonAtlasSize,
-		FVector2D(135.0f, 54.0f),
-		NSLOCTEXT("RokModal", "ProfileAvatarCatalog", "头像资料"),
-		20,
-		FLinearColor::White);
-	ModifyButton->OnClicked.AddDynamic(
-		this,
-		&URokUnityModalWidget::HandleProfileAvatarClicked);
-	PlaceOnCanvas(
-		ModeCanvas,
-		ModifyButton,
-		FVector2D(353.5f, 423.7f),
-		FVector2D(135.0f, 54.0f),
-		4);
+	// Layout, frames, labels and buttons live in the page WBP; here the role data,
+	// the two pieces that only exist with data (civilization icon, action fill),
+	// and the button handlers.
+	URokUiPageWidget* Page = MountModePage(TEXT("PlayerProfile"));
+	if (!Page)
+	{
+		return;
+	}
+	UCanvasPanel* PageCanvas = Cast<UCanvasPanel>(Page->GetRootWidget());
+	if (UButton* Button = Page->Get<UButton>(TEXT("ProfilePictureButton"))) Button->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleProfileAvatarClicked);
+	if (UButton* Button = Page->Get<UButton>(TEXT("ProfileModifyButton"))) Button->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleProfileAvatarClicked);
+	if (UButton* Button = Page->Get<UButton>(TEXT("ProfileRenameButton"))) Button->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleProfileRenameClicked);
+	if (UButton* Button = Page->Get<UButton>(TEXT("ProfileCivilizationButton"))) Button->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleProfileCivilizationClicked);
+	if (UButton* Button = Page->Get<UButton>(TEXT("ProfileKillsHelpButton"))) Button->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleProfileKillsHelpClicked);
+	if (UButton* Button = Page->Get<UButton>(TEXT("ProfileActionHelpButton"))) Button->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleProfileActionHelpClicked);
+	if (UButton* Button = Page->Get<UButton>(TEXT("ActionAddButton"))) Button->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleProfileActionAddClicked);
+	if (UButton* Button = Page->Get<UButton>(TEXT("ProfileArmyButton"))) Button->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleProfileArmyClicked);
+	if (UButton* Button = Page->Get<UButton>(TEXT("ProfileMoreButton"))) Button->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleProfileMoreClicked);
+	if (UButton* Button = Page->Get<UButton>(TEXT("ProfileRankingButton"))) Button->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleProfileRankingClicked);
+	if (UButton* Button = Page->Get<UButton>(TEXT("ProfileSettingsButton"))) Button->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleProfileSettingsClicked);
 
-	PlaceOnCanvas(ModeCanvas, MakeAtlasBorder(TEXT("PlayerNameBackground"), CommonAtlasPath, CommonPanelRect, CommonAtlasSize, FVector2D(372.11f, 39.82f), CommonPanelMargin), FVector2D(575.3f, 242.33f), FVector2D(372.11f, 39.82f));
-	UTextBlock* RoleLabel = MakeModalText(TEXT("RoleLabel"), 20, FLinearColor(0.8f, 0.78f, 0.72f, 1.0f));
-	RoleLabel->SetText(NSLOCTEXT("RokModal", "LocalGovernorLabel", "城主（本地）"));
-	PlaceOnCanvas(ModeCanvas, RoleLabel, FVector2D(587.71f, 210.69f), FVector2D(140.0f, 26.84f), 2);
-	UTextBlock* RoleId = MakeModalText(TEXT("RoleId"), 20, FLinearColor(0.96f, 0.94f, 0.88f, 1.0f));
-	RoleId->SetText(ProfileState.bHasRoleId
-		? FText::Format(
-			NSLOCTEXT("RokModal", "RoleIdValue", "ID: {0}"),
-			FText::FromString(ProfileState.RoleId))
+	SetPageText(Page, TEXT("RoleId"), ProfileState.bHasRoleId
+		? FText::Format(NSLOCTEXT("RokModal", "RoleIdValue", "ID: {0}"), FText::FromString(ProfileState.RoleId))
 		: NSLOCTEXT("RokModal", "RoleIdUnavailable", "ID: --"));
-	PlaceOnCanvas(ModeCanvas, RoleId, FVector2D(755.13f, 210.69f), FVector2D(190.0f, 26.84f), 2);
-	UTextBlock* PlayerName = MakeModalText(TEXT("ProfilePlayerName"), 26, FLinearColor::White, true);
-	PlayerName->SetText(ProfileState.bHasDisplayName
+	SetPageText(Page, TEXT("ProfilePlayerName"), ProfileState.bHasDisplayName
 		? FText::FromString(ProfileState.DisplayName)
 		: NSLOCTEXT("RokModal", "PlayerNameUnavailable", "名称未接入"));
-	PlaceOnCanvas(ModeCanvas, PlayerName, FVector2D(588.61f, 248.38f), FVector2D(308.22f, 29.0f), 2);
-	UButton* RenameButton = MakeAtlasButton(
-		TEXT("ProfileRenameButton"),
-		SettingAtlasPath,
-		RenameRect,
-		SettingAtlasSize,
-		FVector2D(32.0f));
-	RenameButton->OnClicked.AddDynamic(
-		this,
-		&URokUnityModalWidget::HandleProfileRenameClicked);
-	RenameButton->SetToolTipText(NSLOCTEXT(
-		"RokModal",
-		"ProfileRenameTooltip",
-		"修改正式角色名称"));
-	PlaceOnCanvas(
-		ModeCanvas,
-		RenameButton,
-		FVector2D(905.0f, 246.0f),
-		FVector2D(32.0f),
-		3);
-
-	UTextBlock* CivilLabel = MakeModalText(TEXT("CivilizationLabel"), 22, FLinearColor(0.8f, 0.78f, 0.72f, 1.0f), false, ETextJustify::Right);
-	CivilLabel->SetText(NSLOCTEXT("RokModal", "CivilizationLabelText", "文明"));
-	PlaceOnCanvas(ModeCanvas, CivilLabel, FVector2D(1058.35f, 210.69f), FVector2D(126.76f, 31.77f), 2);
-	if (ProfileState.bHasCivilization
-		&& ProfileState.CivilizationId == 101)
+	// Only Arabia has a source icon in this atlas so far.
+	if (PageCanvas && ProfileState.bHasCivilization && ProfileState.CivilizationId == 101)
 	{
-		PlaceOnCanvas(
-			ModeCanvas,
-			MakeAtlasImage(
-				TEXT("CivilizationIcon"),
-				CivilizationAtlasPath,
-				CivilizationArabiaRect,
-				CivilizationAtlasSize,
-				FVector2D(53.0f, 51.0f)),
-			FVector2D(1053.0f, 243.0f),
-			FVector2D(53.0f, 51.0f),
-			2);
+		PlaceOnCanvas(PageCanvas,
+			MakeAtlasImage(TEXT("CivilizationIcon"), CivilizationAtlasPath, CivilizationArabiaRect, CivilizationAtlasSize, FVector2D(53.0f, 51.0f)),
+			FVector2D(1053.0f, 243.0f), FVector2D(53.0f, 51.0f), 2);
 	}
-	UTextBlock* CivilName = MakeModalText(TEXT("CivilizationName"), 26, FLinearColor(1.0f, 0.9f, 0.58f, 1.0f), true);
-	CivilName->SetText(ProfileState.bHasCivilization
+	SetPageText(Page, TEXT("CivilizationName"), ProfileState.bHasCivilization
 		? FText::FromString(ProfileState.CivilizationName)
 		: NSLOCTEXT("RokModal", "CivilizationUnavailable", "--"));
-	PlaceOnCanvas(ModeCanvas, CivilName, FVector2D(1108.41f, 247.99f), FVector2D(116.34f, 40.0f), 2);
-	UButton* CivilizationButton = MakeAtlasButton(
-		TEXT("ProfileCivilizationButton"),
-		SettingAtlasPath,
-		ChangeRect,
-		SettingAtlasSize,
-		FVector2D(32.0f));
-	CivilizationButton->OnClicked.AddDynamic(
-		this,
-		&URokUnityModalWidget::HandleProfileCivilizationClicked);
-	CivilizationButton->SetToolTipText(NSLOCTEXT(
-		"RokModal",
-		"ProfileCivilizationTooltip",
-		"修改正式角色文明"));
-	PlaceOnCanvas(
-		ModeCanvas,
-		CivilizationButton,
-		FVector2D(1185.0f, 252.0f),
-		FVector2D(32.0f),
-		3);
-
-	auto AddProfileStat = [this](const FName BaseName, const FVector2D Position, const FText& Label, const FText& Value)
-	{
-		UTextBlock* LabelText = MakeModalText(*FString::Printf(TEXT("%sLabel"), *BaseName.ToString()), 22, FLinearColor(0.8f, 0.78f, 0.72f, 1.0f));
-		LabelText->SetText(Label);
-		PlaceOnCanvas(ModeCanvas, LabelText, Position, FVector2D(180.0f, 30.0f), 2);
-		UTextBlock* ValueText = MakeModalText(*FString::Printf(TEXT("%sValue"), *BaseName.ToString()), 20, FLinearColor::White);
-		ValueText->SetText(Value);
-		PlaceOnCanvas(ModeCanvas, ValueText, Position + FVector2D(0.0f, 28.4f), FVector2D(190.0f, 30.0f), 2);
-	};
-	AddProfileStat(
-		TEXT("Alliance"),
-		FVector2D(588.6f, 320.8f),
-		NSLOCTEXT("RokModal", "Alliance", "联盟"),
-		ProfileState.bHasAlliance
-			? FText::FromString(ProfileState.AllianceName)
-			: NSLOCTEXT("RokModal", "AllianceUnavailable", "--"));
-	AddProfileStat(
-		TEXT("Power"),
-		FVector2D(794.26f, 320.8f),
-		NSLOCTEXT("RokModal", "LocalPreviewScore", "本地评分"),
-		ProfileState.LocalPreviewScore > 0
-			? FormatNumber(ProfileState.LocalPreviewScore)
-			: NSLOCTEXT("RokModal", "LocalPreviewScoreUnavailable", "--"));
-	AddProfileStat(
-		TEXT("Kills"),
-		FVector2D(1054.58f, 320.8f),
-		NSLOCTEXT("RokModal", "Kills", "击杀"),
-		ProfileState.bHasKillCount
-			? FText::AsNumber(ProfileState.KillCount)
-			: NSLOCTEXT("RokModal", "KillsUnavailable", "--"));
-	UButton* KillsHelpButton = MakeAtlasButton(
-		TEXT("ProfileKillsHelpButton"),
-		CommonAtlasPath,
-		HelpAltRect,
-		CommonAtlasSize,
-		FVector2D(28.0f));
-	KillsHelpButton->OnClicked.AddDynamic(
-		this,
-		&URokUnityModalWidget::HandleProfileKillsHelpClicked);
-	PlaceOnCanvas(
-		ModeCanvas,
-		KillsHelpButton,
-		FVector2D(1188.0f, 315.0f),
-		FVector2D(28.0f),
-		3);
-
-	UTextBlock* ActionTitle = MakeModalText(TEXT("ActionPointTitle"), 22, FLinearColor(0.8f, 0.78f, 0.72f, 1.0f));
-	ActionTitle->SetText(NSLOCTEXT("RokModal", "ActionPoints", "行动力"));
-	PlaceOnCanvas(ModeCanvas, ActionTitle, FVector2D(609.3f, 384.73f), FVector2D(275.31f, 30.0f), 2);
-	UButton* ActionHelpButton = MakeAtlasButton(
-		TEXT("ProfileActionHelpButton"),
-		CommonAtlasPath,
-		HelpAltRect,
-		CommonAtlasSize,
-		FVector2D(28.0f));
-	ActionHelpButton->OnClicked.AddDynamic(
-		this,
-		&URokUnityModalWidget::HandleProfileActionHelpClicked);
-	PlaceOnCanvas(
-		ModeCanvas,
-		ActionHelpButton,
-		FVector2D(577.0f, 382.0f),
-		FVector2D(28.0f),
-		3);
-	PlaceOnCanvas(ModeCanvas, MakeAtlasBorder(TEXT("ActionBackground"), CommonAtlasPath, ActionBackgroundRect, CommonAtlasSize, FVector2D(528.15f, 22.0f), ActionBackgroundMargin), FVector2D(577.39f, 425.73f), FVector2D(528.15f, 22.0f), 2);
-	if (ProfileState.bHasActionPoints
-		&& ProfileState.ActionPointsMax > 0)
+	SetPageText(Page, TEXT("AllianceValue"), ProfileState.bHasAlliance
+		? FText::FromString(ProfileState.AllianceName)
+		: NSLOCTEXT("RokModal", "AllianceUnavailable", "--"));
+	SetPageText(Page, TEXT("PowerValue"), ProfileState.LocalPreviewScore > 0
+		? FormatNumber(ProfileState.LocalPreviewScore)
+		: NSLOCTEXT("RokModal", "LocalPreviewScoreUnavailable", "--"));
+	SetPageText(Page, TEXT("KillsValue"), ProfileState.bHasKillCount
+		? FText::AsNumber(ProfileState.KillCount)
+		: NSLOCTEXT("RokModal", "KillsUnavailable", "--"));
+	// The fill's width is the action-point ratio, so it is added with the data.
+	if (PageCanvas && ProfileState.bHasActionPoints && ProfileState.ActionPointsMax > 0)
 	{
 		const float FillWidth = 528.15f * FMath::Clamp(
-			static_cast<float>(ProfileState.ActionPointsCurrent)
-				/ static_cast<float>(ProfileState.ActionPointsMax),
-			0.0f,
-			1.0f);
-		PlaceOnCanvas(
-			ModeCanvas,
-			MakeAtlasBorder(
-				TEXT("ActionFill"),
-				CommonAtlasPath,
-				ActionFillRect,
-				CommonAtlasSize,
-				FVector2D(FillWidth, 18.0f),
-				ActionFillMargin),
-			FVector2D(577.39f, 427.73f),
-			FVector2D(FillWidth, 18.0f),
-			3);
+			static_cast<float>(ProfileState.ActionPointsCurrent) / static_cast<float>(ProfileState.ActionPointsMax), 0.0f, 1.0f);
+		PlaceOnCanvas(PageCanvas,
+			MakeAtlasBorder(TEXT("ActionFill"), CommonAtlasPath, ActionFillRect, CommonAtlasSize, FVector2D(FillWidth, 18.0f), ActionFillMargin),
+			FVector2D(577.39f, 427.73f), FVector2D(FillWidth, 18.0f), 3);
 	}
-	PlaceOnCanvas(ModeCanvas, MakeAtlasImage(TEXT("ActionIcon"), CommonAtlasPath, ActionIconRect, CommonAtlasSize, FVector2D(34.0f)), FVector2D(581.0f, 419.0f), FVector2D(34.0f), 4);
-	UTextBlock* ActionValue = MakeModalText(TEXT("ActionValue"), 20, FLinearColor::White, true, ETextJustify::Center);
-	ActionValue->SetText(ProfileState.bHasActionPoints
-		? FText::Format(
-			NSLOCTEXT("RokModal", "ActionPointValue", "{0} / {1}"),
-			FText::AsNumber(ProfileState.ActionPointsCurrent),
-			FText::AsNumber(ProfileState.ActionPointsMax))
+	SetPageText(Page, TEXT("ActionValue"), ProfileState.bHasActionPoints
+		? FText::Format(NSLOCTEXT("RokModal", "ActionPointValue", "{0} / {1}"),
+			FText::AsNumber(ProfileState.ActionPointsCurrent), FText::AsNumber(ProfileState.ActionPointsMax))
 		: NSLOCTEXT("RokModal", "ActionPointUnavailable", "-- / --"));
-	PlaceOnCanvas(ModeCanvas, ActionValue, FVector2D(577.39f, 421.73f), FVector2D(528.15f, 30.0f), 4);
-	UButton* ActionAddButton = MakeAtlasButton(
-		TEXT("ActionAddButton"),
-		CommonAtlasPath,
-		ActionAddRect,
-		CommonAtlasSize,
-		FVector2D(50.0f));
-	ActionAddButton->OnClicked.AddDynamic(
-		this,
-		&URokUnityModalWidget::HandleProfileActionAddClicked);
-	PlaceOnCanvas(
-		ModeCanvas,
-		ActionAddButton,
-		FVector2D(1113.55f, 411.73f),
-		FVector2D(50.0f),
-		4);
-
-	UTextBlock* SourceNote = MakeModalText(
-		TEXT("ProfileSourceNote"),
-		15,
-		FLinearColor(0.86f, 0.8f, 0.66f, 1.0f),
-		false,
-		ETextJustify::Center);
-	SourceNote->SetAutoWrapText(true);
-	SourceNote->SetText(NSLOCTEXT("RokModal", "ProfileLocalSourceNoteCompact", "本地预览 · 角色资料待同步"));
 	UE_LOG(LogTemp, Display, TEXT("Rok profile local score: total=%lld hero=%lld troop=%lld world_building_upgrade=%d authority=unsynchronized"),
 		static_cast<long long>(ProfileState.LocalPreviewScore), static_cast<long long>(ProfileState.LocalHeroScore),
 		static_cast<long long>(ProfileState.LocalTroopPower), ProfileState.LocalBuildingUpgradeScore);
-	PlaceOnCanvas(
-		ModeCanvas,
-		SourceNote,
-		FVector2D(566.0f, 463.0f),
-		FVector2D(650.0f, 54.0f),
-		4);
-
-	PlaceOnCanvas(ModeCanvas, MakeAtlasBorder(TEXT("ProfileBottomPanel"), CommonAtlasPath, CommonPanelRect, CommonAtlasSize, FVector2D(1008.0f, 179.3f), CommonPanelMargin), FVector2D(216.5f, 540.0f), FVector2D(1008.0f, 179.3f));
-	UButton* ArmyButton = MakePlayerDataButton(
-		TEXT("ProfileArmyButton"),
-		ArmyRect,
-		NSLOCTEXT("RokModal", "Army", "部队"));
-	ArmyButton->OnClicked.AddDynamic(
-		this,
-		&URokUnityModalWidget::HandleProfileArmyClicked);
-	PlaceOnCanvas(
-		ModeCanvas,
-		ArmyButton,
-		FVector2D(384.5f, 550.0f),
-		FVector2D(168.0f, 138.0f),
-		2);
-	UButton* MoreButton = MakePlayerDataButton(
-		TEXT("ProfileMoreButton"),
-		MoreInfoRect,
-		NSLOCTEXT("RokModal", "PowerDetails", "战力详情"));
-	MoreButton->OnClicked.AddDynamic(
-		this,
-		&URokUnityModalWidget::HandleProfileMoreClicked);
-	PlaceOnCanvas(
-		ModeCanvas,
-		MoreButton,
-		FVector2D(552.5f, 550.0f),
-		FVector2D(168.0f, 138.0f),
-		2);
-	UButton* RankingButton = MakePlayerDataButton(
-		TEXT("ProfileRankingButton"),
-		RankingRect,
-		NSLOCTEXT("RokModal", "Ranking", "排行榜"));
-	RankingButton->OnClicked.AddDynamic(
-		this,
-		&URokUnityModalWidget::HandleProfileRankingClicked);
-	PlaceOnCanvas(
-		ModeCanvas,
-		RankingButton,
-		FVector2D(720.5f, 550.0f),
-		FVector2D(168.0f, 138.0f),
-		2);
-	UButton* SettingsButton = MakePlayerDataButton(
-		TEXT("ProfileSettingsButton"),
-		SettingsRect,
-		NSLOCTEXT("RokModal", "Settings", "设置"));
-	SettingsButton->OnClicked.AddDynamic(
-		this,
-		&URokUnityModalWidget::HandleProfileSettingsClicked);
-	PlaceOnCanvas(
-		ModeCanvas,
-		SettingsButton,
-		FVector2D(888.5f, 550.0f),
-		FVector2D(168.0f, 138.0f),
-		2);
-
-	FeedbackText = MakeModalText(
-		TEXT("ProfileNavigationFeedback"),
-		16,
-		FLinearColor(0.96f, 0.72f, 0.34f, 1.0f),
-		true,
-		ETextJustify::Center);
-	FeedbackText->SetVisibility(ESlateVisibility::Collapsed);
-	PlaceOnCanvas(
-		ModeCanvas,
-		FeedbackText,
-		FVector2D(375.0f, 691.0f),
-		FVector2D(690.0f, 26.0f),
-		4);
+	FeedbackText = Page->Get<UTextBlock>(TEXT("ProfileNavigationFeedback"));
 }
 
 void URokUnityModalWidget::BuildPlayerHeadSelection()
@@ -1798,135 +1974,87 @@ void URokUnityModalWidget::BuildPlayerHeadSelection()
 	const auto* CurrentHead = Catalog.FindByPredicate([&Profile](const auto& Row) { return Row.Id == Profile.DefaultHeadId; });
 	const auto* CurrentFrame = Catalog.FindByPredicate([&Profile](const auto& Row) { return Row.Id == Profile.DefaultFrameId; });
 
-	UBorder* GridPanel = MakeAtlasBorder(TEXT("PlayerHeadGridPanel"), CommonAtlasPath, CommonPanelRect,
-		CommonAtlasSize, GridBackgroundSize(), CommonPanelMargin);
-	PlaceOnCanvas(ModeCanvas, GridPanel, GridBackgroundPosition(), GridBackgroundSize(), 1);
-	// The source pl_right is a layout node, not a dark background image.
-	UBorder* PreviewPanel = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("PlayerHeadPreviewPanel"));
-	FSlateBrush NoBrush; NoBrush.DrawAs = ESlateBrushDrawType::NoDrawType;
-	PreviewPanel->SetBrush(NoBrush); PreviewPanel->SetVisibility(ESlateVisibility::HitTestInvisible);
-	PlaceOnCanvas(ModeCanvas, PreviewPanel, FVector2D(208, 111), FVector2D(327.6, 624), 1);
-	const auto StyleText = [](UTextBlock* Text, float Points)
+	// Grid backing, preview, both looks of each side tab and the confirm button
+	// live in the page WBP; each catalog row is a cell WBP in the scrolling grid.
+	URokUiPageWidget* Page = MountModePage(TEXT("PlayerHeadSelection"));
+	if (!Page)
 	{
-		FSlateFontInfo Font = Text->GetFont(); Font.Size = Points; Text->SetFont(Font);
-		Text->SetShadowOffset(FVector2D::ZeroVector);
-		Text->SetShadowColorAndOpacity(FLinearColor::Transparent);
-	};
-	const auto PlaceText = [this](UTextBlock* Text, const FVector2D& Position, const FVector2D& Size, bool CenterVertically)
-	{
-		UBorder* Region = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), *FString::Printf(TEXT("%sRegion"), *Text->GetName()));
-		FSlateBrush Empty; Empty.DrawAs = ESlateBrushDrawType::NoDrawType; Region->SetBrush(Empty);
-		Region->SetPadding(FMargin(0)); Region->SetHorizontalAlignment(HAlign_Fill);
-		Region->SetVerticalAlignment(CenterVertically ? VAlign_Center : VAlign_Top);
-		Region->SetVisibility(ESlateVisibility::HitTestInvisible); Region->SetClipping(EWidgetClipping::ClipToBounds); Region->SetContent(Text);
-		PlaceOnCanvas(ModeCanvas, Region, Position, Size, 5);
-	};
+		return;
+	}
 	int32 FreeCount = 0;
 	for (const auto& Row : PlayerHeadPageRows) FreeCount += Row.bFree ? 1 : 0;
-	UTextBlock* Count = MakeModalText(TEXT("PlayerHeadOwnedCount"), 15, FLinearColor::White);
-	StyleText(Count, 15); Count->SetColorAndOpacity(FSlateColor(FLinearColor(.8862745f, .81960785f, .60784316f, 1)));
-	Count->SetText(FText::Format(NSLOCTEXT("RokModal", "PlayerHeadCatalogCount", "默认可用：{0} / 目录：{1}"),
+	SetPageText(Page, TEXT("PlayerHeadOwnedCount"), FText::Format(
+		NSLOCTEXT("RokModal", "PlayerHeadCatalogCount", "默认可用：{0} / 目录：{1}"),
 		FText::AsNumber(FreeCount), FText::AsNumber(PlayerHeadPageRows.Num())));
-	PlaceText(Count, FVector2D(540.35, 127.65), FVector2D(560.5, 42.7), true);
-
-	UScrollBox* GridScroll = WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("PlayerHeadGridScroll"));
-	PlayerHeadGridScroll = GridScroll;
-	GridScroll->SetScrollOffset(PlayerHeadScrollOffset);
-	GridScroll->SetScrollBarVisibility(ESlateVisibility::Collapsed);
-	PlaceOnCanvas(ModeCanvas, GridScroll, ViewportPosition(), ViewportSize(), 2);
-	USizeBox* GridSize = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("PlayerHeadGridSize"));
-	GridSize->SetHeightOverride(ContentHeight(PlayerHeadPageRows.Num()));
-	GridScroll->AddChild(GridSize);
-	UCanvasPanel* Grid = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("PlayerHeadGrid"));
-	GridSize->SetContent(Grid);
-	const auto AddArt = [this](UCanvasPanel* Parent, const FName& Name, const FRokPlayerHeadRow* Row,
-		const FVector2D& Position, float Size, int32 Z)
+	PlayerHeadGridScroll = Page->Get<UScrollBox>(TEXT("PlayerHeadGridScroll"));
+	if (PlayerHeadGridScroll)
 	{
-		if (Row && Row->bArtAvailable)
-			PlaceOnCanvas(Parent, MakeAtlasImage(Name, *Row->Texture, Row->Rect, Row->AtlasSize, FVector2D(Size)), Position, FVector2D(Size), Z);
+		PlayerHeadGridScroll->SetScrollOffset(PlayerHeadScrollOffset);
+	}
+	if (USizeBox* GridSize = Page->Get<USizeBox>(TEXT("PlayerHeadGridSize")))
+	{
+		GridSize->SetHeightOverride(ContentHeight(PlayerHeadPageRows.Num()));
+	}
+	// A row's art in an image, or no image when the row has none.
+	const auto ShowArt = [this](const URokUiPageWidget* Owner, UImage* Image, const FRokPlayerHeadRow* Row, float Size)
+	{
+		const bool bArt = Row && Row->bArtAvailable;
+		if (bArt)
+		{
+			SetAtlasSprite(Image, *Row->Texture, Row->Rect, Row->AtlasSize, FVector2D(Size));
+		}
+		Owner->SetPresent(Image, bArt);
 	};
-	for (int32 Index = 0; Index < PlayerHeadPageRows.Num(); ++Index)
+	UCanvasPanel* Grid = Page->Get<UCanvasPanel>(TEXT("PlayerHeadGrid"));
+	for (int32 Index = 0; Grid && Index < PlayerHeadPageRows.Num(); ++Index)
 	{
 		const auto& Row = PlayerHeadPageRows[Index];
-		const FVector2D Position = CellPosition(Index);
-		UBorder* Cell = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), *FString::Printf(TEXT("PlayerHeadCell_%d"), Row.Id));
-		Cell->SetBrush(NoBrush); Cell->SetPadding(FMargin(0));
-		Cell->SetVisibility(Index == SelectedPlayerHeadIndex ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
-		Cell->SetContent(MakeAtlasImage(*FString::Printf(TEXT("PlayerHeadSelectionRing_%d"), Row.Id), SettingAtlasPath,
-			SpriteRect(405, 686, 135, 135), SettingAtlasSize, FVector2D(135)));
+		URokUiPageWidget* Cell = MountItem(TEXT("PlayerHeadCell"), Grid, *FString::Printf(TEXT("PlayerHeadItem_%d"), Index),
+			CellPosition(Index), FVector2D(135), 1, TEXT("PlayerHead"),
+			FString::Printf(TEXT("_%d"), Row.Id), FString::Printf(TEXT("_%d"), Index));
+		if (!Cell)
+		{
+			break;
+		}
 		// Unity img_selet is sibling 0, behind UI_Model_PlayerHead (sibling 1).
 		// Its opaque center is covered by the portrait, leaving the glowing rim.
-		PlaceOnCanvas(Grid, Cell, Position, FVector2D(135), 1);
-		AddArt(Grid, *FString::Printf(TEXT("PlayerHeadChoiceImage_%d"), Row.Id),
-			SelectedPlayerHeadPage == 0 ? &Row : CurrentHead, Position + FVector2D(4.5), 126, 2);
-		if (SelectedPlayerHeadPage == 1)
-			AddArt(Grid, *FString::Printf(TEXT("PlayerHeadChoiceFrame_%d"), Row.Id), &Row, Position + FVector2D(4.5), 126, 3);
-		if (!Row.bArtAvailable)
+		Cell->SetShown(Cell->Get<UWidget>(TEXT("Cell")), Index == SelectedPlayerHeadIndex);
+		ShowArt(Cell, Cell->Get<UImage>(TEXT("ChoiceImage")), SelectedPlayerHeadPage == 0 ? &Row : CurrentHead, 126.0f);
+		ShowArt(Cell, Cell->Get<UImage>(TEXT("ChoiceFrame")), SelectedPlayerHeadPage == 1 ? &Row : nullptr, 126.0f);
+		UTextBlock* Missing = Cell->Get<UTextBlock>(TEXT("MissingArt"));
+		if (Missing && !Row.bArtAvailable)
 		{
-			UTextBlock* Missing = MakeModalText(*FString::Printf(TEXT("PlayerHeadMissingArt_%d"), Row.Id), 10, FLinearColor::White, false, ETextJustify::Center);
 			Missing->SetText(FText::Format(NSLOCTEXT("RokModal", "PlayerHeadArtMissing", "{0}\n图像缺失"), FText::AsNumber(Row.Id)));
-			PlaceOnCanvas(Grid, Missing, Position + FVector2D(4.5, 43), FVector2D(126, 42), 4);
 		}
-		UTextBlock* State = MakeModalText(*FString::Printf(TEXT("PlayerHeadAccess_%d"), Row.Id), 9, FLinearColor::White, false, ETextJustify::Center);
-		State->SetText(Row.bFree ? NSLOCTEXT("RokModal", "PlayerHeadFree", "默认可用") : NSLOCTEXT("RokModal", "PlayerHeadUnlockUnknown", "解锁状态待同步"));
-		PlaceOnCanvas(Grid, State, Position + FVector2D(4.5, 113), FVector2D(126, 18), 5);
-		PlaceOnCanvas(Grid, MakeIndexedHitButton(*FString::Printf(TEXT("PlayerHeadChoiceButton_%d"), Index), 3000 + Index), Position + FVector2D(4.5), FVector2D(126), 8);
+		Cell->SetPresent(Missing, !Row.bArtAvailable);
+		SetPageText(Cell, TEXT("Access"), Row.bFree
+			? NSLOCTEXT("RokModal", "PlayerHeadFree", "默认可用")
+			: NSLOCTEXT("RokModal", "PlayerHeadUnlockUnknown", "解锁状态待同步"));
+		BindIndexedButton(Cell->Get<UWidget>(TEXT("ChoiceButton")), 3000 + Index);
 	}
-	AddArt(ModeCanvas, TEXT("PlayerHeadPreviewImage"), SelectedPlayerHeadPage == 0 ? &Selected : CurrentHead, PreviewPosition(), 195.3f, 3);
-	AddArt(ModeCanvas, TEXT("PlayerHeadPreviewFrame"), SelectedPlayerHeadPage == 1 ? &Selected : CurrentFrame, PreviewPosition(), 195.3f, 4);
-	if (!Selected.bArtAvailable)
-	{
-		UTextBlock* Missing = MakeModalText(TEXT("PlayerHeadPreviewMissingArt"), 12, FLinearColor::White, true, ETextJustify::Center);
-		Missing->SetText(NSLOCTEXT("RokModal", "PlayerHeadPreviewMissing", "对应图像资源缺失"));
-		PlaceOnCanvas(ModeCanvas, Missing, FVector2D(233.8, 269), FVector2D(276, 40), 5);
-	}
-	UTextBlock* Tag = MakeModalText(TEXT("PlayerHeadPreviewRank"), 15, FLinearColor(0.95f, 0.82f, 0.36f, 1), true, ETextJustify::Center);
-	StyleText(Tag, 15); Tag->SetColorAndOpacity(FSlateColor(FLinearColor::White));
-	Tag->SetText(FText::FromString(Selected.Tag));
-	PlaceText(Tag, FVector2D(325.05, 401), FVector2D(94.7, 30), true);
-	UTextBlock* Name = MakeModalText(TEXT("PlayerHeadPreviewName"), 19, FLinearColor::White, true, ETextJustify::Center);
-	StyleText(Name, 19.5f);
-	Name->SetText(FText::FromString(Selected.Name));
-	PlaceText(Name, FVector2D(222.55, 437), FVector2D(298.5, 36), true);
-	UTextBlock* Description = MakeModalText(TEXT("PlayerHeadPreviewDescription"), 13, FLinearColor(0.78f, 0.78f, 0.75f, 1), false, ETextJustify::Center);
-	StyleText(Description, 13.5f); Description->SetColorAndOpacity(FSlateColor(FLinearColor::White));
-	Description->SetAutoWrapText(true);
-	Description->SetText(FText::FromString(Selected.Description));
-	PlaceText(Description, FVector2D(233.1, 495.05), FVector2D(277.4, 101.9), false);
-	UButton* Confirm = MakeTextAtlasButton(TEXT("PlayerHeadConfirmButton"), CommonAtlasPath, ResourceBlueButtonRect,
-		CommonAtlasSize, FVector2D(202, 84), NSLOCTEXT("RokModal", "PlayerHeadConfirm", "使用"), 18, FLinearColor(0.70f, 0.75f, 0.78f, 1));
+	ShowArt(Page, Page->Get<UImage>(TEXT("PlayerHeadPreviewImage")), SelectedPlayerHeadPage == 0 ? &Selected : CurrentHead, 195.3f);
+	ShowArt(Page, Page->Get<UImage>(TEXT("PlayerHeadPreviewFrame")), SelectedPlayerHeadPage == 1 ? &Selected : CurrentFrame, 195.3f);
+	Page->SetPresent(Page->Get<UWidget>(TEXT("PlayerHeadPreviewMissingArt")), !Selected.bArtAvailable);
+	Page->SetPresent(Page->Get<UWidget>(TEXT("PlayerHeadRankBackground")), !Selected.Tag.IsEmpty());
+	SetPageText(Page, TEXT("PlayerHeadPreviewRank"), FText::FromString(Selected.Tag));
+	SetPageText(Page, TEXT("PlayerHeadPreviewName"), FText::FromString(Selected.Name));
+	SetPageText(Page, TEXT("PlayerHeadPreviewDescription"), FText::FromString(Selected.Description));
 	// No Role_SetRoleHead adapter exists: even free rows must not fabricate success.
-	Confirm->SetIsEnabled(false);
-	PlaceOnCanvas(ModeCanvas, Confirm, ConfirmPosition(), FVector2D(202, 84), 6);
-	if (!Selected.Tag.IsEmpty())
-		PlaceOnCanvas(ModeCanvas, MakeAtlasImage(TEXT("PlayerHeadRankBackground"), SettingAtlasPath,
-			SpriteRect(1, 41, 110, 42), SettingAtlasSize, FVector2D(110, 42)), FVector2D(316.8, 395), FVector2D(110, 42), 4);
-	PlaceOnCanvas(ModeCanvas, MakeAtlasImage(TEXT("PlayerHeadPreviewDivider"), CommonAtlasPath,
-		SpriteRect(1, 611, 570, 2), CommonAtlasSize, FVector2D(300, 3)), FVector2D(221.8, 475.1), FVector2D(300, 3), 3);
+	if (UButton* Confirm = Page->Get<UButton>(TEXT("PlayerHeadConfirmButton")))
+	{
+		Confirm->SetIsEnabled(false);
+	}
+	// Source side buttons are icon-only; the selected tab is the larger plate.
 	for (int32 TabIndex = 0; TabIndex < 2; ++TabIndex)
 	{
-		const bool SelectedTab = TabIndex == SelectedPlayerHeadPage;
-		const FVector2D Position = TabPosition(TabIndex);
-		const FVector2D BackgroundSize = SelectedTab ? FVector2D(144, 103) : FVector2D(121, 102);
-		PlaceOnCanvas(ModeCanvas, MakeAtlasImage(*FString::Printf(TEXT("PlayerHeadTabBackground_%d"), TabIndex), CommonAtlasPath,
-			SelectedTab ? SpriteRect(205, 370, 145, 103) : SpriteRect(205, 266, 121, 102), CommonAtlasSize, BackgroundSize),
-			Position + FVector2D(0, SelectedTab ? 0 : .5), BackgroundSize, 4);
-		const FIntRect IconRect = TabIndex == 0
-			? (SelectedTab ? SpriteRect(1, 1057, 60, 60) : SpriteRect(63, 1925, 60, 60))
-			: (SelectedTab ? SpriteRect(1, 1119, 60, 60) : SpriteRect(1, 1181, 60, 60));
-		PlaceOnCanvas(ModeCanvas, MakeAtlasImage(*FString::Printf(TEXT("PlayerHeadTabIcon_%d"), TabIndex), PageAtlasPath,
-			IconRect, PageAtlasSize, FVector2D(60)), Position + FVector2D(SelectedTab ? 31.7 : 20.2, 19.6), FVector2D(60), 5);
-		UTextBlock* Label = MakeModalText(*FString::Printf(TEXT("PlayerHeadTabLabel_%d"), TabIndex), 14, FLinearColor::White);
-		Label->SetText(TabIndex == 0 ? NSLOCTEXT("RokModal", "PlayerHeadTab", "头像") : NSLOCTEXT("RokModal", "PlayerFrameTab", "头像框"));
-		Label->SetVisibility(ESlateVisibility::Collapsed); // Source side buttons are icon-only.
-		PlaceOnCanvas(ModeCanvas, Label, Position, FVector2D(145, 103), 5);
-		UButton* TabButton = MakeIndexedHitButton(*FString::Printf(TEXT("PlayerHeadPageButton_%d"), TabIndex), 3100 + TabIndex);
-		TabButton->SetToolTipText(Label->GetText());
-		PlaceOnCanvas(ModeCanvas, TabButton, Position, FVector2D(145, 103), 8);
+		const bool bSelectedTab = TabIndex == SelectedPlayerHeadPage;
+		for (const TCHAR* Part : {TEXT("PlayerHeadTabBackground"), TEXT("PlayerHeadTabIcon")})
+		{
+			Page->SetShown(Page->Get<UWidget>(IndexedName(*(FString(Part) + TEXT("Selected")), TabIndex)), bSelectedTab);
+			Page->SetShown(Page->Get<UWidget>(IndexedName(*(FString(Part) + TEXT("Dark")), TabIndex)), !bSelectedTab);
+		}
+		BindIndexedButton(Page->Get<UWidget>(IndexedName(TEXT("PlayerHeadPageButton"), TabIndex)), 3100 + TabIndex);
 	}
-	UTextBlock* Boundary = MakeModalText(TEXT("PlayerHeadServerBoundaryState"), 11, FLinearColor(0.92f, 0.63f, 0.28f, 1), true, ETextJustify::Center);
-	Boundary->SetText(NSLOCTEXT("RokModal", "PlayerHeadAuthorityBoundary", "仅预览；解锁列表与更换服务尚未接入，不会修改角色资料。"));
-	PlaceOnCanvas(ModeCanvas, Boundary, FVector2D(290, 704), FVector2D(860, 28), 7);
 	UE_LOG(LogTemp, Display, TEXT("Rok player head selection: page=%d items=%d selected=%d art=%d authority=server_unchanged"),
 		SelectedPlayerHeadPage, PlayerHeadPageRows.Num(), Selected.Id, Selected.bArtAvailable);
 }
@@ -1944,104 +2072,31 @@ void URokUnityModalWidget::BuildPlayerPowerDetails()
 		}
 	}
 
-	UBorder* HeaderPanel = MakeAtlasBorder(
-		TEXT("PlayerPowerHeaderPanel"), CommonAtlasPath, CommonPanelRect, CommonAtlasSize, FVector2D(1016.0f, 120.0f), CommonPanelMargin);
-	RokModalNineSlice::SetTint(HeaderPanel, FLinearColor(0.22f, 0.23f, 0.23f, 1.0f));
-	PlaceOnCanvas(ModeCanvas, HeaderPanel, FVector2D(212.0f, 95.0f), FVector2D(1016.0f, 120.0f), 1);
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeAtlasImage(TEXT("PlayerPowerPortrait"), PlayerHeadAtlasPath, PortraitRect, PlayerHeadAtlasSize, FVector2D(92.0f)),
-		FVector2D(236.0f, 109.0f), FVector2D(92.0f), 2);
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeAtlasImage(TEXT("PlayerPowerPortraitFrame"), PlayerHeadAtlasPath, PortraitFrameRect, PlayerHeadAtlasSize, FVector2D(92.0f)),
-		FVector2D(236.0f, 109.0f), FVector2D(92.0f), 3);
-
-	UTextBlock* PlayerName = MakeModalText(TEXT("PlayerPowerPlayerName"), 23, FLinearColor::White, true);
-	PlayerName->SetText(ProfileState.bHasDisplayName
+	// Layout, section titles and row labels live in the page WBP.
+	URokUiPageWidget* Page = MountModePage(TEXT("PlayerPowerDetails"));
+	if (!Page)
+	{
+		return;
+	}
+	SetPageText(Page, TEXT("PlayerPowerPlayerName"), ProfileState.bHasDisplayName
 		? FText::FromString(ProfileState.DisplayName)
 		: NSLOCTEXT("RokModal", "PlayerPowerUnknownName", "城主名称未同步"));
-	PlaceOnCanvas(ModeCanvas, PlayerName, FVector2D(348.0f, 112.0f), FVector2D(300.0f, 36.0f), 3);
-
-	UButton* RenameButton = MakeAtlasButton(TEXT("PlayerPowerRenameButton"), SettingAtlasPath, RenameRect, SettingAtlasSize, FVector2D(32.0f));
-	RenameButton->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleProfileRenameClicked);
-	PlaceOnCanvas(ModeCanvas, RenameButton, FVector2D(642.0f, 112.0f), FVector2D(32.0f), 5);
-
-	UTextBlock* PowerText = MakeModalText(TEXT("PlayerPowerLocalTotal"), 20, FLinearColor(0.92f, 0.83f, 0.56f, 1.0f), true);
-	PowerText->SetText(FText::Format(
+	if (UButton* RenameButton = Page->Get<UButton>(TEXT("PlayerPowerRenameButton")))
+	{
+		RenameButton->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleProfileRenameClicked);
+	}
+	SetPageText(Page, TEXT("PlayerPowerLocalTotal"), FText::Format(
 		NSLOCTEXT("RokModal", "PlayerPowerLocalFormat", "本地预览战力 {0}"),
 		FText::AsNumber(ProfileState.LocalPreviewScore)));
-	PlaceOnCanvas(ModeCanvas, PowerText, FVector2D(348.0f, 154.0f), FVector2D(330.0f, 32.0f), 3);
-
-	UTextBlock* KillText = MakeModalText(TEXT("PlayerPowerKillCount"), 20, FLinearColor(0.86f, 0.86f, 0.83f, 1.0f), true);
-	KillText->SetText(ProfileState.bHasKillCount
+	SetPageText(Page, TEXT("PlayerPowerKillCount"), ProfileState.bHasKillCount
 		? FText::Format(NSLOCTEXT("RokModal", "PlayerPowerKillFormat", "击杀 {0}"), FText::AsNumber(ProfileState.KillCount))
 		: NSLOCTEXT("RokModal", "PlayerPowerKillUnknown", "击杀 —"));
-	PlaceOnCanvas(ModeCanvas, KillText, FVector2D(740.0f, 132.0f), FVector2D(330.0f, 34.0f), 3);
-
-	UTextBlock* Boundary = MakeModalText(TEXT("PlayerPowerServerBoundaryState"), 15, FLinearColor(0.92f, 0.63f, 0.28f, 1.0f), true, ETextJustify::Right);
-	Boundary->SetText(NSLOCTEXT("RokModal", "PlayerPowerBoundary", "本地基础评分＋当前城市升级增量 · 正式统计待同步"));
-	PlaceOnCanvas(ModeCanvas, Boundary, FVector2D(820.0f, 173.0f), FVector2D(378.0f, 26.0f), 4);
-
-	UScrollBox* Scroll = WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("PlayerPowerScroll"));
-	Scroll->SetOrientation(Orient_Vertical);
-	Scroll->SetScrollBarVisibility(ESlateVisibility::Collapsed);
-	PlaceOnCanvas(ModeCanvas, Scroll, FVector2D(181.0f, 213.5f), FVector2D(1078.0f, 549.5f), 2);
-
-	USizeBox* ContentSize = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("PlayerPowerScrollContentSize"));
-	ContentSize->SetWidthOverride(1078.0f);
-	ContentSize->SetHeightOverride(980.0f);
-	Scroll->AddChild(ContentSize);
-	UCanvasPanel* Content = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("PlayerPowerScrollContent"));
-	ContentSize->SetContent(Content);
-
-	auto AddSection = [this, Content](const FName& Prefix, const FText& Title, float Y, const TArray<TPair<FText, FText>>& Rows)
-	{
-		const float Height = 54.0f + Rows.Num() * 48.0f;
-		UBorder* Panel = MakeAtlasBorder(
-			*FString::Printf(TEXT("%sPanel"), *Prefix.ToString()),
-			CommonAtlasPath, CommonPanelRect, CommonAtlasSize, FVector2D(1036.0f, Height), CommonPanelMargin);
-		RokModalNineSlice::SetTint(Panel, FLinearColor(0.16f, 0.17f, 0.17f, 1.0f));
-		PlaceOnCanvas(Content, Panel, FVector2D(21.0f, Y), FVector2D(1036.0f, Height), 1);
-		UTextBlock* SectionTitle = MakeModalText(
-			*FString::Printf(TEXT("%sTitle"), *Prefix.ToString()), 21, FLinearColor(0.96f, 0.86f, 0.53f, 1.0f), true);
-		SectionTitle->SetText(Title);
-		PlaceOnCanvas(Content, SectionTitle, FVector2D(48.0f, Y + 10.0f), FVector2D(380.0f, 34.0f), 2);
-		for (int32 RowIndex = 0; RowIndex < Rows.Num(); ++RowIndex)
-		{
-			const float RowY = Y + 51.0f + RowIndex * 48.0f;
-			UTextBlock* Label = MakeModalText(
-				*FString::Printf(TEXT("%sRowLabel_%d"), *Prefix.ToString(), RowIndex), 18, FLinearColor(0.86f, 0.86f, 0.83f, 1.0f));
-			Label->SetText(Rows[RowIndex].Key);
-			PlaceOnCanvas(Content, Label, FVector2D(64.0f, RowY), FVector2D(620.0f, 32.0f), 2);
-			UTextBlock* Value = MakeModalText(
-				*FString::Printf(TEXT("%sRowValue_%d"), *Prefix.ToString(), RowIndex), 18, FLinearColor::White, true, ETextJustify::Right);
-			Value->SetText(Rows[RowIndex].Value);
-			PlaceOnCanvas(Content, Value, FVector2D(720.0f, RowY), FVector2D(286.0f, 32.0f), 2);
-		}
-	};
-
-	const FText UnknownValue = NSLOCTEXT("RokModal", "PlayerPowerUnknownValue", "—");
-	TArray<TPair<FText, FText>> PowerRows;
-	PowerRows.Emplace(NSLOCTEXT("RokModal", "LocalBuildingUpgradeScore", "当前城市升级增量"), FText::AsNumber(ProfileState.LocalBuildingUpgradeScore));
-	PowerRows.Emplace(NSLOCTEXT("RokModal", "TechnologyPower", "科技战力"), UnknownValue);
-	PowerRows.Emplace(NSLOCTEXT("RokModal", "TroopPower", "部队战力"), FText::AsNumber(ProfileState.LocalTroopPower));
-	PowerRows.Emplace(NSLOCTEXT("RokModal", "CommanderPower", "统帅战力"), FText::AsNumber(ProfileState.LocalHeroScore));
-	AddSection(TEXT("PlayerPowerComposition"), NSLOCTEXT("RokModal", "PlayerPowerCompositionTitle", "战力构成"), 0.0f, PowerRows);
-
-	TArray<TPair<FText, FText>> BattleRows;
-	BattleRows.Emplace(NSLOCTEXT("RokModal", "HistoryHighestPower", "历史最高战力"), UnknownValue);
-	BattleRows.Emplace(NSLOCTEXT("RokModal", "BattleWins", "胜利次数"), UnknownValue);
-	BattleRows.Emplace(NSLOCTEXT("RokModal", "BattleLosses", "失败次数"), UnknownValue);
-	BattleRows.Emplace(NSLOCTEXT("RokModal", "DeadTroops", "阵亡部队"), UnknownValue);
-	BattleRows.Emplace(NSLOCTEXT("RokModal", "ScoutCount", "侦察次数"), UnknownValue);
-	AddSection(TEXT("PlayerPowerBattle"), NSLOCTEXT("RokModal", "PlayerPowerBattleTitle", "战斗统计"), 270.0f, BattleRows);
-
-	TArray<TPair<FText, FText>> ResourceRows;
-	ResourceRows.Emplace(NSLOCTEXT("RokModal", "ResourceCollection", "资源采集"), UnknownValue);
-	ResourceRows.Emplace(NSLOCTEXT("RokModal", "ResourceAssistance", "资源援助"), UnknownValue);
-	ResourceRows.Emplace(NSLOCTEXT("RokModal", "AllianceHelpCount", "联盟帮助"), UnknownValue);
-	AddSection(TEXT("PlayerPowerResources"), NSLOCTEXT("RokModal", "PlayerPowerResourcesTitle", "资源与帮助统计"), 565.0f, ResourceRows);
+	// Only part of the composition is known locally (building upgrades, troops,
+	// commanders); technology and the battle/resource statistics stay "—" in the
+	// page until the server sends them.
+	SetPageText(Page, TEXT("PlayerPowerCompositionRowValue_0"), FText::AsNumber(ProfileState.LocalBuildingUpgradeScore));
+	SetPageText(Page, TEXT("PlayerPowerCompositionRowValue_2"), FText::AsNumber(ProfileState.LocalTroopPower));
+	SetPageText(Page, TEXT("PlayerPowerCompositionRowValue_3"), FText::AsNumber(ProfileState.LocalHeroScore));
 }
 
 void URokUnityModalWidget::BuildPlayerRanking()
@@ -2058,124 +2113,61 @@ void URokUnityModalWidget::BuildPlayerRanking()
 	// Source overview is gated by Rank_ShowRankFirst.response. This offline
 	// surface is explicitly a configuration preview; it does not claim a response.
 
-	const bool bOverview = SelectedRankingCategory == INDEX_NONE;
-	const FVector2D PanelPosition = bOverview
-		? FVector2D(200.0f, 91.0f)
-		: FVector2D(183.0f, 91.0f);
-	const FVector2D PanelSize = bOverview
-		? FVector2D(1040.0f, 664.0f)
-		: FVector2D(1074.0f, 664.0f);
-
-	if (bOverview)
+	if (SelectedRankingCategory == INDEX_NONE)
 	{
 		using namespace RokLeaderboardOverviewLayout;
-		// The source pl_Total is a layout group, not an extra dark panel.
-		auto* Overview = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("PlayerRankingMainPanel"));
-		PlaceOnCanvas(ModeCanvas, Overview, PanelPosition, PanelSize, 1);
-		auto* StateText = MakeModalText(TEXT("PlayerRankingServerBoundaryState"), 12, FLinearColor(0.92f, 0.67f, 0.31f), true, ETextJustify::Center);
-		StateText->SetText(NSLOCTEXT("RokModal", "PlayerRankingCategoryBoundary", "排行榜配置预览 · 榜单尚未同步"));
-		PlaceOnCanvas(ModeCanvas, StateText, FVector2D(250, 118), FVector2D(940, 24), 4);
-		for (int32 Index = 0; Index < PlayerRankingRows.Num(); ++Index)
+		// The overview page holds the (empty) source pl_Total canvas and the boundary
+		// line; each category is a tile WBP at its source grid position.
+		URokUiPageWidget* Page = MountModePage(TEXT("PlayerRankingOverview"));
+		UCanvasPanel* Overview = Page ? Page->Get<UCanvasPanel>(TEXT("PlayerRankingMainPanel")) : nullptr;
+		for (int32 Index = 0; Overview && Index < PlayerRankingRows.Num(); ++Index)
 		{
-			const FVector2D Tile = TilePosition(Index);
-			auto* Background = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), *FString::Printf(TEXT("PlayerRankingCategoryTile_%d"), Index));
-			FSlateBrush NoBackground; NoBackground.DrawAs = ESlateBrushDrawType::NoDrawType;
-			Background->SetBrush(NoBackground); Background->SetPadding(FMargin(0)); Background->SetVisibility(ESlateVisibility::HitTestInvisible);
-			auto* Slices = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), *FString::Printf(TEXT("PlayerRankingCategorySlices_%d"), Index));
-			Background->SetContent(Slices);
-			for (int32 SliceIndex = 0; SliceIndex < 9; ++SliceIndex)
+			const FRokLeaderboardRow& Row = PlayerRankingRows[Index];
+			const FString Suffix = FString::Printf(TEXT("_%d"), Index);
+			URokUiPageWidget* Tile = MountItem(TEXT("PlayerRankingTile"), Overview, *(TEXT("PlayerRankingCategory") + Suffix),
+				TilePosition(Index), FVector2D(340.0f, 144.0f), 1, TEXT("PlayerRanking"), Suffix);
+			if (!Tile)
 			{
-				const auto Slice = BackgroundSlice(SliceIndex);
-				PlaceOnCanvas(Slices, MakeAtlasImage(*FString::Printf(TEXT("PlayerRankingCategorySlice_%d_%d"), Index, SliceIndex),
-					CommonAtlasPath, Slice.Rect, CommonAtlasSize, Slice.Size), Slice.Position, Slice.Size);
+				break;
 			}
-			PlaceOnCanvas(Overview, Background, Tile + BackgroundPosition(), BackgroundSize(), 1);
-			if (PlayerRankingRows[Index].HasIcon())
-				PlaceOnCanvas(Overview, MakeAtlasImage(*FString::Printf(TEXT("PlayerRankingCategoryIcon_%d"), Index),
-					PlayerUiAtlasPath, PlayerRankingRows[Index].IconRect, PlayerUiAtlasSize, IconSize()), Tile + IconPosition(), IconSize(), 2);
-			auto AddSourceText = [this, Overview, Tile, Index](const TCHAR* Prefix, const FString& Value, float Pixels,
-				const FVector2D& Position, const FVector2D& Size, EVerticalAlignment VerticalAlignment)
+			UImage* Icon = Tile->Get<UImage>(TEXT("CategoryIcon"));
+			if (Row.HasIcon())
 			{
-				const FName Name(*FString::Printf(TEXT("%s_%d"), Prefix, Index));
-				auto* Text = MakeModalText(Name, 15, FLinearColor::White, Pixels == 20, ETextJustify::Left);
-				auto Font = Text->GetFont(); Font.Size = RokLeaderboardOverviewLayout::FontPoints(Pixels); Text->SetFont(Font);
-				Text->SetShadowOffset(FVector2D::ZeroVector); Text->SetShadowColorAndOpacity(FLinearColor::Transparent);
-				Text->SetAutoWrapText(true); Text->SetWrapTextAt(Size.X); Text->SetText(FText::FromString(Value));
-				auto* Region = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), *FString::Printf(TEXT("%sRegion_%d"), Prefix, Index));
-				FSlateBrush Empty; Empty.DrawAs = ESlateBrushDrawType::NoDrawType; Region->SetBrush(Empty);
-				Region->SetPadding(FMargin(0)); Region->SetHorizontalAlignment(HAlign_Fill); Region->SetVerticalAlignment(VerticalAlignment);
-				Region->SetVisibility(ESlateVisibility::HitTestInvisible); Region->SetContent(Text);
-				PlaceOnCanvas(Overview, Region, Tile + Position, Size, 3);
-			};
-			// RefreshEntryBtn(null rankInfo) uses crossBar for both score and owner.
-			// Source title/mid Arabic flags=10 become MiddleLeft; owner becomes UpperLeft.
-			AddSourceText(TEXT("PlayerRankingCategoryLabel"), PlayerRankingRows[Index].Name, 20, TitlePosition(), TitleSize(), VAlign_Center);
-			AddSourceText(TEXT("PlayerRankingCategoryState"), TEXT("--"), 18, ScorePosition(), ScoreSize(), VAlign_Center);
-			AddSourceText(TEXT("PlayerRankingCategoryOwner"), TEXT("--"), 18, OwnerPosition(), OwnerSize(), VAlign_Top);
-			PlaceOnCanvas(Overview, MakeIndexedHitButton(*FString::Printf(TEXT("PlayerRankingCategoryButton_%d"), Index), 3200 + Index),
-				Tile, FVector2D(340, 144), 8);
+				SetAtlasSprite(Icon, PlayerUiAtlasPath, Row.IconRect, PlayerUiAtlasSize, IconSize());
+			}
+			Tile->SetPresent(Icon, Row.HasIcon());
+			// RefreshEntryBtn(null rankInfo): score and owner stay the crossbar the tile shows.
+			SetPageText(Tile, TEXT("CategoryLabel"), FText::FromString(Row.Name));
+			BindIndexedButton(Tile->Get<UWidget>(TEXT("CategoryButton")), 3200 + Index);
 		}
 		return;
 	}
-	UBorder* MainPanel = MakeAtlasBorder(TEXT("PlayerRankingDetailPanel"), CommonAtlasPath, CommonPanelRect, CommonAtlasSize, PanelSize, CommonPanelMargin);
-	RokModalNineSlice::SetTint(MainPanel, FLinearColor(0.18f, 0.19f, 0.19f, 1.f));
-	PlaceOnCanvas(ModeCanvas, MainPanel, PanelPosition, PanelSize, 1);
 
 	const int32 CategoryIndex = FMath::Clamp(SelectedRankingCategory, 0, PlayerRankingRows.Num() - 1);
-	PlaceOnCanvas(ModeCanvas, MakeIndexedHitButton(TEXT("PlayerRankingBackButton"), 3299), FVector2D(203.0f, 107.0f), FVector2D(108.0f, 54.0f), 8);
-	UTextBlock* BackLabel = MakeModalText(TEXT("PlayerRankingBackLabel"), 18, FLinearColor(0.94f, 0.84f, 0.53f, 1.0f), true, ETextJustify::Center);
-	BackLabel->SetText(NSLOCTEXT("RokModal", "RankingBack", "‹ 返回"));
-	PlaceOnCanvas(ModeCanvas, BackLabel, FVector2D(203.0f, 113.0f), FVector2D(108.0f, 38.0f), 6);
-
-	if (PlayerRankingRows[CategoryIndex].HasIcon())
+	const FRokLeaderboardRow& Row = PlayerRankingRows[CategoryIndex];
+	// Panel, back button, column header, empty and boundary lines live in the page.
+	URokUiPageWidget* Page = MountModePage(TEXT("PlayerRankingDetail"));
+	if (!Page)
 	{
-		PlaceOnCanvas(
-			ModeCanvas,
-			MakeAtlasImage(TEXT("PlayerRankingDetailIcon"), PlayerUiAtlasPath, PlayerRankingRows[CategoryIndex].IconRect, PlayerUiAtlasSize, FVector2D(76.0f, 90.0f)),
-			FVector2D(327.0f, 108.0f),
-			FVector2D(76.0f, 90.0f),
-			3);
+		return;
 	}
-	UTextBlock* DetailTitle = MakeModalText(TEXT("PlayerRankingDetailTitle"), 25, FLinearColor::White, true);
-	DetailTitle->SetText(FText::FromString(PlayerRankingRows[CategoryIndex].Name));
-	PlaceOnCanvas(ModeCanvas, DetailTitle, FVector2D(421.0f, 119.0f), FVector2D(420.0f, 42.0f), 5);
-
-	UTextBlock* SelfRank = MakeModalText(TEXT("PlayerRankingSelfRank"), 18, FLinearColor(0.94f, 0.84f, 0.53f, 1.0f), true, ETextJustify::Right);
-	SelfRank->SetText(NSLOCTEXT("RokModal", "RankingSelfUnknown", "我的排名  —"));
-	PlaceOnCanvas(ModeCanvas, SelfRank, FVector2D(883.0f, 124.0f), FVector2D(290.0f, 34.0f), 5);
-
-	UBorder* Header = MakeAtlasBorder(
-		TEXT("PlayerRankingListHeader"), CommonAtlasPath, CommonPanelRect, CommonAtlasSize, FVector2D(974.0f, 52.0f), CommonPanelMargin);
-	RokModalNineSlice::SetTint(Header, FLinearColor(0.30f, 0.29f, 0.24f, 1.0f));
-	PlaceOnCanvas(ModeCanvas, Header, FVector2D(216.0f, 207.0f), FVector2D(1008.0f, 52.0f), 3);
-	static const FText ColumnLabels[] = {
-		NSLOCTEXT("RokModal", "RankingColumnRank", "排名"),
-		NSLOCTEXT("RokModal", "RankingColumnName", "名称"),
-		NSLOCTEXT("RokModal", "RankingColumnValue", "数值")};
-	static const float ColumnX[] = {233.0f, 423.0f, 943.0f};
-	static const float ColumnWidth[] = {160.0f, 480.0f, 220.0f};
-	for (int32 Index = 0; Index < 3; ++Index)
+	BindIndexedButton(Page->Get<UWidget>(TEXT("PlayerRankingBackButton")), 3299);
+	UImage* Icon = Page->Get<UImage>(TEXT("PlayerRankingDetailIcon"));
+	if (Row.HasIcon())
 	{
-		UTextBlock* Column = MakeModalText(
-			*FString::Printf(TEXT("PlayerRankingColumn_%d"), Index), 18, FLinearColor(0.95f, 0.92f, 0.83f, 1.0f), true,
-			Index == 2 ? ETextJustify::Right : ETextJustify::Left);
-		Column->SetText(Index == 2 ? FText::FromString(PlayerRankingRows[CategoryIndex].Columns.IsValidIndex(0) ? PlayerRankingRows[CategoryIndex].Columns[0] : FString()) : ColumnLabels[Index]);
-		PlaceOnCanvas(ModeCanvas, Column, FVector2D(ColumnX[Index], 216.0f), FVector2D(ColumnWidth[Index], 32.0f), 5);
+		SetAtlasSprite(Icon, PlayerUiAtlasPath, Row.IconRect, PlayerUiAtlasSize, FVector2D(76.0f, 90.0f));
 	}
-
-	UTextBlock* EmptyState = MakeModalText(TEXT("PlayerRankingEmptyState"), 24, FLinearColor(0.76f, 0.76f, 0.73f, 1.0f), false, ETextJustify::Center);
-	EmptyState->SetAutoWrapText(true);
-	EmptyState->SetText(NSLOCTEXT("RokModal", "RankingServerEmpty", "尚未同步排行榜数据"));
-	PlaceOnCanvas(ModeCanvas, EmptyState, FVector2D(313.0f, 395.0f), FVector2D(814.0f, 90.0f), 5);
-	UTextBlock* ProtocolState = MakeModalText(TEXT("PlayerRankingServerBoundaryState"), 15, FLinearColor(0.92f, 0.63f, 0.28f, 1.0f), true, ETextJustify::Center);
-	ProtocolState->SetText(NSLOCTEXT("RokModal", "RankingProtocolBoundary", "配置预览 · 榜单服务尚未接入"));
-	PlaceOnCanvas(ModeCanvas, ProtocolState, FVector2D(333.0f, 637.0f), FVector2D(774.0f, 28.0f), 6);
+	Page->SetPresent(Icon, Row.HasIcon());
+	SetPageText(Page, TEXT("PlayerRankingDetailTitle"), FText::FromString(Row.Name));
+	// The value column is named by the leaderboard's first column.
+	SetPageText(Page, TEXT("PlayerRankingColumn_2"),
+		FText::FromString(Row.Columns.IsValidIndex(0) ? Row.Columns[0] : FString()));
 
 	UE_LOG(
 		LogTemp,
 		Display,
 		TEXT("Rok player ranking screen: leaderboard_id=%d config_preview=1 authority=server_rows_not_synced."),
-		PlayerRankingRows[CategoryIndex].Id);
+		Row.Id);
 }
 
 void URokUnityModalWidget::BuildCivilizationSelection()
@@ -2226,23 +2218,25 @@ void URokUnityModalWidget::BuildCivilizationSelection()
 		}
 	}
 
+	// Background, back button, title, the flag detail group and the list
+	// backdrop live in the page WBP, with CreateCharView's Expand anchors
+	// (background stretched, list at the bottom, details centred). Each country
+	// of the bottom list is a flag WBP; the selected one has its frame and pulse.
+	URokUiPageWidget* Page = MountModePage(TEXT("CivilizationSelection"));
+	if (!Page)
+	{
+		return;
+	}
 	const int32 BackgroundIndex = SelectedCivilization
 		? FindCivilizationBackgroundIndex(SelectedCivilization->Id)
 		: INDEX_NONE;
+	UImage* Background = Page->Get<UImage>(TEXT("CivilizationSelectionBackground"));
 	if (BackgroundIndex != INDEX_NONE)
 	{
-		PlaceOnCanvas(
-			ModeCanvas,
-			MakeAtlasImage(
-				TEXT("CivilizationSelectionBackground"),
-				CivilizationBackgroundAtlasPath,
-				CivilizationBackgroundRects[BackgroundIndex],
-				CivilizationBackgroundAtlasSize,
-				FVector2D(1440.0f, 810.0f)),
-			FVector2D::ZeroVector,
-			FVector2D(1440.0f, 810.0f),
-			0);
+		SetAtlasSprite(Background, CivilizationBackgroundAtlasPath, CivilizationBackgroundRects[BackgroundIndex],
+			CivilizationBackgroundAtlasSize, FVector2D(1440.0f, 810.0f));
 	}
+	Page->SetPresent(Background, BackgroundIndex != INDEX_NONE);
 
 	// CreateCharMediator loads Civilization.heroRes, not a generic portrait.
 	// Validate the source mapping before sharing the exported hero-id mesh clips.
@@ -2263,85 +2257,55 @@ void URokUnityModalWidget::BuildCivilizationSelection()
 				CivilizationHero = nullptr;
 			}
 		}
-		if (CivilizationHero)
+		// The animated mesh is runtime content: it goes into the page between the
+		// background (z 0) and the flag detail group (z 2), centre-anchored.
+		UCanvasPanel* PageCanvas = Cast<UCanvasPanel>(Page->GetRootWidget());
+		if (CivilizationHero && PageCanvas)
 		{
 			CivilizationHero->SetCivilizationProjection(SelectedCivilization->HeroAboutOffset);
-			PlaceOnCanvas(ModeCanvas, CivilizationHero, FVector2D::ZeroVector, FVector2D(1440, 810), 1);
+			PlaceOnCanvas(PageCanvas, CivilizationHero, FVector2D(-720.0f, -405.0f), FVector2D(1440, 810), 1);
+			CastChecked<UCanvasPanelSlot>(CivilizationHero->Slot)->SetAnchors(FAnchors(0.5f, 0.5f));
 		}
 	}
-	// CreateCharView img_charCountryFlag: img_loading_flagBg, Simple image,
-	// no nine-slice border. Its 823x810 source sprite is drawn at 823x819.
-	UImage* CountryFlag = MakeAtlasImage(TEXT("CivilizationCountryFlag"),
-		TEXT("/Game/RokPrototype/UI/BuildCityAtlases/rok_buildcity_atlas_login_loading.rok_buildcity_atlas_login_loading"),
-		SpriteRect(1, 1237, 823, 810), FIntPoint(1024, 2048), FVector2D(823, 819));
-	PlaceOnCanvas(ModeCanvas, CountryFlag, FVector2D(563, -10), FVector2D(823, 819), 1);
+	if (UButton* BackButton = Page->Get<UButton>(TEXT("CivilizationSelectionBackButton")))
+	{
+		BackButton->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleCloseClicked);
+	}
 
-	UButton* BackButton = MakeAtlasButton(
-		TEXT("CivilizationSelectionBackButton"), CommonAtlasPath, CloseRect,
-		CommonAtlasSize, FVector2D(69.0f));
-	BackButton->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleCloseClicked);
-	PlaceOnCanvas(ModeCanvas, BackButton, FVector2D(16.0f, 6.0f), FVector2D(69.0f), 12);
-
-	UTextBlock* PageTitle = MakeModalText(
-		TEXT("CivilizationSelectionTitle"), 29, FLinearColor::White, true);
-	PageTitle->SetText(NSLOCTEXT("RokModal", "CivilizationSelectionTitleText", "选择文明"));
-	PlaceOnCanvas(ModeCanvas, PageTitle, FVector2D(101.0f, 17.0f), FVector2D(300.0f, 45.0f), 12);
-
+	// The flag's descendants share its CanvasGroup and motion; country
+	// selection, page back button and background are outside this group.
+	CivilizationDetailRoot = Page->Get<UCanvasPanel>(TEXT("CivilizationDetailRoot"));
+	const int32 VisualIndex = SelectedCivilization ? FindCivilizationVisualIndex(SelectedCivilization->Id) : INDEX_NONE;
+	const int32 PreviewIndex = SelectedCivilization ? FindCivilizationUnlockedPreviewIndex(SelectedCivilization->Id) : INDEX_NONE;
+	UImage* CityPreview = Page->Get<UImage>(TEXT("CivilizationCityPreview"));
+	UImage* SoldierPreview = Page->Get<UImage>(TEXT("CivilizationSoldierPreview"));
+	UImage* SelectedMark = Page->Get<UImage>(TEXT("CivilizationSelectedMark"));
+	if (PreviewIndex != INDEX_NONE)
+	{
+		SetAtlasSprite(CityPreview, CivilizationImageAtlasPath, CivilizationSceneRects[PreviewIndex],
+			CivilizationImageAtlasSize, FVector2D(734.0f, 261.0f));
+		SetAtlasSprite(SoldierPreview, CivilizationImageAtlasPath, CivilizationSoldierRects[PreviewIndex],
+			CivilizationImageAtlasSize, FVector2D(206.0f, 174.0f));
+	}
+	Page->SetPresent(CityPreview, PreviewIndex != INDEX_NONE);
+	Page->SetPresent(SoldierPreview, PreviewIndex != INDEX_NONE);
+	if (VisualIndex != INDEX_NONE)
+	{
+		SetAtlasSprite(SelectedMark, CivilizationAtlasPath, CivilizationMarkRects[VisualIndex],
+			CivilizationAtlasSize, FVector2D(53.0f, 51.0f));
+	}
+	Page->SetPresent(SelectedMark, VisualIndex != INDEX_NONE);
+	for (const TCHAR* Detail : {TEXT("CivilizationSelectedName"), TEXT("CivilizationBonusTitle"),
+		TEXT("CivilizationBonusDescription"), TEXT("CivilizationInitialHero"), TEXT("CivilizationContinueButton")})
+	{
+		Page->SetPresent(Page->Get<UWidget>(Detail), SelectedCivilization != nullptr);
+	}
 	if (SelectedCivilization)
 	{
-		const int32 VisualIndex = FindCivilizationVisualIndex(SelectedCivilization->Id);
-		const int32 PreviewIndex = FindCivilizationUnlockedPreviewIndex(SelectedCivilization->Id);
-		if (PreviewIndex != INDEX_NONE)
-		{
-			PlaceOnCanvas(
-				ModeCanvas,
-				MakeAtlasImage(
-					TEXT("CivilizationCityPreview"), CivilizationImageAtlasPath,
-					CivilizationSceneRects[PreviewIndex], CivilizationImageAtlasSize,
-					FVector2D(734.0f, 261.0f)),
-				FVector2D(609.5f, 118.0f), FVector2D(734.0f, 261.0f), 2);
-			PlaceOnCanvas(
-				ModeCanvas,
-				MakeAtlasImage(
-					TEXT("CivilizationSoldierPreview"), CivilizationImageAtlasPath,
-					CivilizationSoldierRects[PreviewIndex], CivilizationImageAtlasSize,
-					FVector2D(206.0f, 174.0f)),
-				FVector2D(1182.39f, 225.5f), FVector2D(206.0f, 174.0f), 3);
-		}
-		if (VisualIndex != INDEX_NONE)
-		{
-			PlaceOnCanvas(
-				ModeCanvas,
-				MakeAtlasImage(
-					TEXT("CivilizationSelectedMark"), CivilizationAtlasPath,
-					CivilizationMarkRects[VisualIndex], CivilizationAtlasSize,
-					FVector2D(53.0f, 51.0f)),
-				FVector2D(1243.5f, 50.0f), FVector2D(53.0f, 51.0f), 5);
-		}
-
-		UTextBlock* CivilizationName = MakeModalText(
-			TEXT("CivilizationSelectedName"), 34,
-			FLinearColor(1.0f, 0.82f, 0.32f, 1.0f), true, ETextJustify::Center);
-		CivilizationName->SetText(FText::FromString(SelectedCivilization->DisplayNameZhCn));
-		PlaceOnCanvas(ModeCanvas, CivilizationName, FVector2D(759.0f, 54.0f), FVector2D(438.0f, 52.0f), 6);
-
-		UTextBlock* BonusTitle = MakeModalText(
-			TEXT("CivilizationBonusTitle"), 25,
-			FLinearColor(1.0f, 0.84f, 0.37f, 1.0f), true, ETextJustify::Center);
-		BonusTitle->SetText(FText::FromString(SelectedCivilization->BonusNameZhCn));
-		PlaceOnCanvas(ModeCanvas, BonusTitle, FVector2D(854.25f, 409.5f), FVector2D(465.7f, 30.0f), 6);
-
-		UTextBlock* BonusDescription = MakeModalText(
-			TEXT("CivilizationBonusDescription"), 19,
-			FLinearColor(0.93f, 0.93f, 0.90f, 1.0f), false, ETextJustify::Center);
-		BonusDescription->SetAutoWrapText(true);
-		BonusDescription->SetText(FText::FromString(
-			FormatCivilizationBonusDescription(*SelectedCivilization)));
-		PlaceOnCanvas(ModeCanvas, BonusDescription, FVector2D(621.03f, 451.0f), FVector2D(701.5f, 67.8f), 6);
-
-		UTextBlock* HeroState = MakeModalText(
-			TEXT("CivilizationInitialHero"), 17,
-			FLinearColor(0.82f, 0.84f, 0.84f, 1.0f), true, ETextJustify::Center);
+		SetPageText(Page, TEXT("CivilizationSelectedName"), FText::FromString(SelectedCivilization->DisplayNameZhCn));
+		SetPageText(Page, TEXT("CivilizationBonusTitle"), FText::FromString(SelectedCivilization->BonusNameZhCn));
+		SetPageText(Page, TEXT("CivilizationBonusDescription"),
+			FText::FromString(FormatCivilizationBonusDescription(*SelectedCivilization)));
 		FString InitialHeroName;
 		if (UGameInstance* GameInstance = GetGameInstance())
 		{
@@ -2356,190 +2320,84 @@ void URokUnityModalWidget::BuildCivilizationSelection()
 				}
 			}
 		}
-		HeroState->SetText(FText::Format(
+		SetPageText(Page, TEXT("CivilizationInitialHero"), FText::Format(
 			NSLOCTEXT("RokModal", "CivilizationInitialHeroFormat", "初始统帅：{0}"),
 			InitialHeroName.IsEmpty()
 				? FText::FromString(FString::FromInt(SelectedCivilization->InitialHeroId))
 				: FText::FromString(InitialHeroName)));
-		PlaceOnCanvas(ModeCanvas, HeroState, FVector2D(840.0f, 536.0f), FVector2D(310.0f, 30.0f), 6);
 
 		const bool bSameAsCurrent = ProfileState.bHasCivilization
 			&& ProfileState.CivilizationId == SelectedCivilization->Id;
-		UButton* ContinueButton = MakeTextAtlasButton(
-			TEXT("CivilizationContinueButton"), CommonAtlasPath,
-			ResourceGoldButtonRect, CommonAtlasSize, FVector2D(202.0f, 84.0f),
-			bSameAsCurrent
-				? NSLOCTEXT("RokModal", "CivilizationCurrent", "当前文明")
-				: NSLOCTEXT("RokModal", "CivilizationChange", "更换文明"),
-			24, FLinearColor::White);
-		ContinueButton->SetIsEnabled(!SelectedCivilization->bLocked && !bSameAsCurrent);
-		if (ContinueButton->GetIsEnabled())
+		SetPageText(Page, TEXT("CivilizationContinueButtonLabel"), bSameAsCurrent
+			? NSLOCTEXT("RokModal", "CivilizationCurrent", "当前文明")
+			: NSLOCTEXT("RokModal", "CivilizationChange", "更换文明"));
+		if (UButton* ContinueButton = Page->Get<UButton>(TEXT("CivilizationContinueButton")))
 		{
-			ContinueButton->OnClicked.AddDynamic(
-				this, &URokUnityModalWidget::HandleCivilizationContinueClicked);
-		}
-		PlaceOnCanvas(ModeCanvas, ContinueButton, FVector2D(1127.5f, 521.5f), FVector2D(202.0f, 84.0f), 8);
-	}
-
-	UBorder* ListShade = WidgetTree->ConstructWidget<UBorder>(
-		UBorder::StaticClass(), TEXT("CivilizationListShade"));
-	ListShade->SetPadding(FMargin(0.0f));
-	ListShade->SetBrushColor(FLinearColor(0.015f, 0.02f, 0.025f, 0.88f));
-	ListShade->SetVisibility(ESlateVisibility::HitTestInvisible);
-	PlaceOnCanvas(ModeCanvas, ListShade, FVector2D(0.0f, 640.7f), FVector2D(1440.0f, 169.3f), 4);
-
-	CivilizationSelectionPulse = nullptr;
-	for (int32 Index = 0; Index < Civilizations.Num() && Index < 7; ++Index)
-	{
-		const FRokUnityCatalogCivilization& Civilization = Civilizations[Index];
-		const int32 VisualIndex = FindCivilizationVisualIndex(Civilization.Id);
-		if (VisualIndex == INDEX_NONE)
-		{
-			continue;
-		}
-		const float ItemX = 1241.0f - Index * 199.0f;
-		const FVector2D FlagPosition(ItemX + 14.5f, 662.85f - (Civilization.Id == SelectedCivilizationId ? 28.0f : 0.0f));
-		if (Civilization.Id == SelectedCivilizationId)
-		{
-			PlaceOnCanvas(
-				ModeCanvas,
-				MakeAtlasImage(
-					*FString::Printf(TEXT("CivilizationSelectedFrame_%d"), Civilization.Id),
-					CivilizationAtlasPath, CivilizationSelectRect,
-					CivilizationAtlasSize, FVector2D(208.0f, 204.0f)),
-				FVector2D(ItemX - 4.5f, 616.85f), FVector2D(208.0f, 204.0f), 5);
-			CivilizationSelectionPulse = MakeAtlasImage(TEXT("CivilizationSelectionPulse"), CivilizationAtlasPath,
-				CivilizationSelectRect, CivilizationAtlasSize, FVector2D(208, 204));
-			CivilizationSelectionPulse->SetRenderTransformPivot(FVector2D(0.5, 0));
-			PlaceOnCanvas(ModeCanvas, CivilizationSelectionPulse,
-				FVector2D(ItemX - 4.5f, 616.85f), FVector2D(208, 204), 5);
-		}
-		PlaceOnCanvas(
-			ModeCanvas,
-			MakeAtlasImage(
-				*FString::Printf(TEXT("CivilizationFlag_%d"), Civilization.Id),
-				CivilizationAtlasPath, CivilizationFlagRects[VisualIndex],
-				CivilizationAtlasSize, FVector2D(170.0f, 140.0f)),
-			FlagPosition, FVector2D(170.0f, 140.0f), 6);
-
-		const bool bSelected = Civilization.Id == SelectedCivilizationId;
-		UTextBlock* CountryName = MakeModalText(
-			// Unity 22px -> Slate font points (96dpi): 22 * 72 / 96.
-			*FString::Printf(TEXT("CivilizationChoiceName_%d"), Civilization.Id), 17,
-			bSelected ? FLinearColor(0.3254902f, 0.2784314f, 0.14117648f, 1)
-				: FLinearColor(0.8509804f, 0.83137256f, 0.7294118f, 1), true, ETextJustify::Center);
-		CountryName->SetText(FText::FromString(Civilization.DisplayNameZhCn));
-		CountryName->SetShadowOffset(FVector2D::ZeroVector);
-		// CreateCharFlagItem labels: center anchor, Y -72 / -62.7,
-		// 160x30, within the source 199x180 item at Y 634.85.
-		PlaceOnCanvas(ModeCanvas, CountryName, FVector2D(ItemX + 19.5f, bSelected ? 772.55f : 781.85f), FVector2D(160, 30), 9);
-
-		if (Civilization.bLocked)
-		{
-			UBorder* LockedShade = WidgetTree->ConstructWidget<UBorder>(
-				UBorder::StaticClass(),
-				*FString::Printf(TEXT("CivilizationLockedShade_%d"), Civilization.Id));
-			LockedShade->SetPadding(FMargin(0.0f));
-			LockedShade->SetBrushColor(FLinearColor(0.0f, 0.0f, 0.0f, 0.62f));
-			LockedShade->SetVisibility(ESlateVisibility::HitTestInvisible);
-			PlaceOnCanvas(ModeCanvas, LockedShade, FlagPosition, FVector2D(170.0f, 140.0f), 7);
-			UTextBlock* LockedText = MakeModalText(
-				*FString::Printf(TEXT("CivilizationLockedState_%d"), Civilization.Id),
-				17, FLinearColor(0.84f, 0.84f, 0.82f, 1.0f), true, ETextJustify::Center);
-			LockedText->SetText(NSLOCTEXT("RokModal", "CivilizationLocked", "尚未开放"));
-			PlaceOnCanvas(ModeCanvas, LockedText, FlagPosition + FVector2D(12.0f, 54.0f), FVector2D(146.0f, 30.0f), 8);
-		}
-		else
-		{
-			PlaceOnCanvas(
-				ModeCanvas,
-				MakeIndexedHitButton(
-					*FString::Printf(TEXT("CivilizationChoiceButton_%d"), Civilization.Id),
-					3300 + Index),
-				FlagPosition, FVector2D(170.0f, 140.0f), 10);
+			ContinueButton->SetIsEnabled(!SelectedCivilization->bLocked && !bSameAsCurrent);
+			if (ContinueButton->GetIsEnabled())
+			{
+				ContinueButton->OnClicked.AddDynamic(
+					this, &URokUnityModalWidget::HandleCivilizationContinueClicked);
+			}
 		}
 	}
-
-	UTextBlock* SelectionState = MakeModalText(
-		TEXT("CivilizationSelectionServerBoundaryState"), 16,
-		FLinearColor(0.98f, 0.82f, 0.42f, 1.0f), true, ETextJustify::Center);
-	SelectionState->SetText(Civilizations.Num() == 7
-		? NSLOCTEXT("RokModal", "CivilizationSelectionHint", "选择文明并查看加成 · 最终更换需要服务器确认")
-		: NSLOCTEXT("RokModal", "CivilizationCatalogUnavailable", "文明配置尚未载入"));
-	PlaceOnCanvas(ModeCanvas, SelectionState, FVector2D(638.13f, 619.5f), FVector2D(684.67f, 30.0f), 11);
 
 	// Only sv_list_country descendants belong to the list animation. Keep
 	// background, details, close and confirmation controls stationary.
-	const TArray<UWidget*> Children = ModeCanvas->GetAllChildren();
-	CivilizationListRoot = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("CivilizationListRoot"));
-	CivilizationListRoot->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-	PlaceOnCanvas(ModeCanvas, CivilizationListRoot, FVector2D::ZeroVector, FVector2D(1440, 810), 10);
-	for (UWidget* Child : Children)
+	CivilizationListRoot = Page->Get<UCanvasPanel>(TEXT("CivilizationListRoot"));
+	CivilizationSelectionPulse = nullptr;
+	for (int32 Index = 0; CivilizationListRoot && Index < Civilizations.Num() && Index < 7; ++Index)
 	{
-		const FString Name = Child->GetName();
-		if (Child != CivilizationSelectionPulse && !Name.StartsWith(TEXT("CivilizationFlag_")) && !Name.StartsWith(TEXT("CivilizationSelectedFrame_"))
-			&& !Name.StartsWith(TEXT("CivilizationLockedShade_")) && !Name.StartsWith(TEXT("CivilizationLockedState_"))
-			&& !Name.StartsWith(TEXT("CivilizationChoiceName_"))
-			&& !Name.StartsWith(TEXT("CivilizationChoiceButton_"))) continue;
-		const auto* OldSlot = CastChecked<UCanvasPanelSlot>(Child->Slot);
-		const FVector2D Position = OldSlot->GetPosition();
-		const FVector2D Size = OldSlot->GetSize();
-		const int32 ZOrder = OldSlot->GetZOrder();
-		Child->RemoveFromParent();
-		PlaceOnCanvas(CivilizationListRoot, Child, Position, Size, ZOrder);
+		const FRokUnityCatalogCivilization& Civilization = Civilizations[Index];
+		const int32 FlagIndex = FindCivilizationVisualIndex(Civilization.Id);
+		if (FlagIndex == INDEX_NONE)
+		{
+			continue;
+		}
+		// CreateCharFlagItem: 199-unit pitch; the selected flag rises 28 units
+		// inside its frame and its label turns dark.
+		const float ItemX = 1241.0f - Index * 199.0f;
+		const bool bSelected = Civilization.Id == SelectedCivilizationId;
+		const FString Suffix = FString::Printf(TEXT("_%d"), Civilization.Id);
+		URokUiPageWidget* Item = bSelected
+			? MountItem(TEXT("CivilizationFlagSelected"), CivilizationListRoot, *(TEXT("CivilizationFlagItem") + Suffix),
+				FVector2D(ItemX - 4.5f, 616.85f), FVector2D(208.0f, 204.0f), 5, TEXT("Civilization"), Suffix)
+			: MountItem(TEXT("CivilizationFlag"), CivilizationListRoot, *(TEXT("CivilizationFlagItem") + Suffix),
+				FVector2D(ItemX + 14.5f, 662.85f), FVector2D(170.0f, 150.0f), 5, TEXT("Civilization"), Suffix);
+		if (!Item)
+		{
+			break;
+		}
+		SetAtlasSprite(Item->Get<UImage>(TEXT("Flag")), CivilizationAtlasPath, CivilizationFlagRects[FlagIndex],
+			CivilizationAtlasSize, FVector2D(170.0f, 140.0f));
+		SetPageText(Item, TEXT("ChoiceName"), FText::FromString(Civilization.DisplayNameZhCn));
+		if (bSelected)
+		{
+			CivilizationSelectionPulse = Item->Get<UImage>(TEXT("SelectionPulse"));
+			if (CivilizationSelectionPulse)
+			{
+				CivilizationSelectionPulse->SetRenderTransformPivot(FVector2D(0.5, 0));
+			}
+		}
+		else
+		{
+			Item->SetPresent(Item->Get<UWidget>(TEXT("LockedShade")), Civilization.bLocked);
+			Item->SetPresent(Item->Get<UWidget>(TEXT("LockedState")), Civilization.bLocked);
+		}
+		UWidget* Choice = Item->Get<UWidget>(TEXT("ChoiceButton"));
+		if (Civilization.bLocked)
+		{
+			Item->SetPresent(Choice, false);
+		}
+		else
+		{
+			BindIndexedButton(Choice, 3300 + Index);
+		}
 	}
 
-	// The flag's descendants share its CanvasGroup and motion; country
-	// selection, page back button and background are outside this group.
-	CivilizationDetailRoot = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("CivilizationDetailRoot"));
-	CivilizationDetailRoot->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-	const TArray<UWidget*> DetailCandidates = ModeCanvas->GetAllChildren();
-	PlaceOnCanvas(ModeCanvas, CivilizationDetailRoot, FVector2D::ZeroVector, FVector2D(1440, 810), 2);
-	for (UWidget* Child : DetailCandidates)
-	{
-		const FString Name = Child->GetName();
-		if (Name != TEXT("CivilizationCountryFlag") && Name != TEXT("CivilizationCityPreview")
-			&& Name != TEXT("CivilizationSoldierPreview") && Name != TEXT("CivilizationSelectedMark")
-			&& Name != TEXT("CivilizationSelectedName") && Name != TEXT("CivilizationBonusTitle")
-			&& Name != TEXT("CivilizationBonusDescription") && Name != TEXT("CivilizationInitialHero")
-			&& Name != TEXT("CivilizationContinueButton")) continue;
-		const auto* OldSlot = CastChecked<UCanvasPanelSlot>(Child->Slot);
-		const FVector2D Position = OldSlot->GetPosition();
-		const FVector2D Size = OldSlot->GetSize();
-		const int32 ZOrder = OldSlot->GetZOrder();
-		Child->RemoveFromParent();
-		PlaceOnCanvas(CivilizationDetailRoot, Child, Position, Size, ZOrder);
-	}
-
-	// CreateCharView uses an Expand canvas: background stretches, country
-	// list stays at the bottom, and pl_charChoose content is center-anchored.
-	// Keep source sizes in design units; anchors absorb the expanded viewport.
-	for (UWidget* Child : ModeCanvas->GetAllChildren())
-	{
-		auto* ChildSlot = CastChecked<UCanvasPanelSlot>(Child->Slot);
-		const FName Name = Child->GetFName();
-		if (Name == TEXT("CivilizationSelectionBackground"))
-		{
-			ChildSlot->SetAnchors(FAnchors(0, 0, 1, 1));
-			ChildSlot->SetOffsets(FMargin(0));
-		}
-		else if (Child == CivilizationListRoot)
-		{
-			ChildSlot->SetAnchors(FAnchors(0.5f, 1.0f));
-			ChildSlot->SetPosition(FVector2D(-720, -810));
-		}
-		else if (Name == TEXT("CivilizationListShade"))
-		{
-			ChildSlot->SetAnchors(FAnchors(0, 1, 1, 1));
-			ChildSlot->SetOffsets(FMargin(0, -169.3f, 0, 169.3f));
-		}
-		else if (Name != TEXT("CivilizationSelectionBackButton") && Name != TEXT("CivilizationSelectionTitle"))
-		{
-			const FVector2D Position = ChildSlot->GetPosition();
-			ChildSlot->SetAnchors(FAnchors(0.5f, 0.5f));
-			ChildSlot->SetPosition(Position - FVector2D(720, 405));
-		}
-	}
+	SetPageText(Page, TEXT("CivilizationSelectionServerBoundaryState"), Civilizations.Num() == 7
+		? NSLOCTEXT("RokModal", "CivilizationSelectionHint", "选择文明并查看加成 · 最终更换需要服务器确认")
+		: NSLOCTEXT("RokModal", "CivilizationCatalogUnavailable", "文明配置尚未载入"));
 }
 
 void URokUnityModalWidget::BuildCivilizationChangeConfirmation()
@@ -2558,102 +2416,36 @@ void URokUnityModalWidget::BuildCivilizationChangeConfirmation()
 		}
 	}
 
-	UScrollBox* Scroll = WidgetTree->ConstructWidget<UScrollBox>(
-		UScrollBox::StaticClass(), TEXT("CivilizationConfirmationScroll"));
-	Scroll->SetOrientation(Orient_Vertical);
-	Scroll->SetScrollBarVisibility(ESlateVisibility::Collapsed);
-	PlaceOnCanvas(ModeCanvas, Scroll, FVector2D(239.35f, 122.3f), FVector2D(959.3f, 504.8f), 3);
-
-	USizeBox* ContentSize = WidgetTree->ConstructWidget<USizeBox>(
-		USizeBox::StaticClass(), TEXT("CivilizationConfirmationContentSize"));
-	ContentSize->SetWidthOverride(959.3f);
-	ContentSize->SetHeightOverride(760.0f);
-	Scroll->AddChild(ContentSize);
-	UCanvasPanel* Content = WidgetTree->ConstructWidget<UCanvasPanel>(
-		UCanvasPanel::StaticClass(), TEXT("CivilizationConfirmationContent"));
-	ContentSize->SetContent(Content);
-
-	UTextBlock* NameText = MakeModalText(
-		TEXT("CivilizationConfirmationName"), 30,
-		FLinearColor(1.0f, 0.83f, 0.34f, 1.0f), true, ETextJustify::Center);
-	NameText->SetText(bFoundCivilization
+	// The scroll, warning, the five server checks and the submit button live in
+	// the page WBP; the civilization's name and bonus come from the catalog.
+	URokUiPageWidget* Page = MountModePage(TEXT("CivilizationConfirmation"));
+	if (!Page)
+	{
+		return;
+	}
+	SetPageText(Page, TEXT("CivilizationConfirmationName"), bFoundCivilization
 		? FText::FromString(Civilization.DisplayNameZhCn)
 		: NSLOCTEXT("RokModal", "CivilizationConfirmationMissing", "文明配置不可用"));
-	PlaceOnCanvas(Content, NameText, FVector2D(80.0f, 18.0f), FVector2D(799.0f, 46.0f), 2);
-
-	UTextBlock* Warning = MakeModalText(
-		TEXT("CivilizationConfirmationWarning"), 20,
-		FLinearColor(0.95f, 0.92f, 0.84f, 1.0f), false, ETextJustify::Center);
-	Warning->SetAutoWrapText(true);
-	Warning->SetText(NSLOCTEXT(
-		"RokModal", "CivilizationConfirmationWarningText",
-		"更换文明会影响文明加成和特色兵种。提交前必须完成下列权威检查。"));
-	PlaceOnCanvas(Content, Warning, FVector2D(68.0f, 72.0f), FVector2D(823.0f, 58.0f), 2);
-
-	static const FText CheckLabels[] = {
-		NSLOCTEXT("RokModal", "CivilizationCheckMarch", "所有部队均在城市内"),
-		NSLOCTEXT("RokModal", "CivilizationCheckBattle", "城市未处于战斗状态"),
-		NSLOCTEXT("RokModal", "CivilizationCheckTraining", "没有正在训练的部队"),
-		NSLOCTEXT("RokModal", "CivilizationCheckHospital", "医院没有重伤单位"),
-		NSLOCTEXT("RokModal", "CivilizationCheckCost", "文明更换道具 x1，或宝石 10,000"),
-	};
-	for (int32 Index = 0; Index < UE_ARRAY_COUNT(CheckLabels); ++Index)
-	{
-		const float Y = 150.0f + Index * 62.0f;
-		UBorder* Row = MakeAtlasBorder(
-			*FString::Printf(TEXT("CivilizationConfirmationCheckRow_%d"), Index),
-			CommonAtlasPath, CommonPanelRect, CommonAtlasSize,
-			FVector2D(860.0f, 52.0f), CommonPanelMargin);
-		RokModalNineSlice::SetTint(Row, FLinearColor(0.16f, 0.17f, 0.17f, 0.94f));
-		PlaceOnCanvas(Content, Row, FVector2D(49.0f, Y), FVector2D(860.0f, 52.0f), 1);
-		UTextBlock* Label = MakeModalText(
-			*FString::Printf(TEXT("CivilizationConfirmationCheckLabel_%d"), Index),
-			18, FLinearColor(0.92f, 0.92f, 0.89f, 1.0f), true);
-		Label->SetText(CheckLabels[Index]);
-		PlaceOnCanvas(Content, Label, FVector2D(73.0f, Y + 10.0f), FVector2D(560.0f, 32.0f), 2);
-		UTextBlock* State = MakeModalText(
-			*FString::Printf(TEXT("CivilizationConfirmationCheckState_%d"), Index),
-			16, FLinearColor(0.95f, 0.63f, 0.28f, 1.0f), true, ETextJustify::Right);
-		State->SetText(NSLOCTEXT("RokModal", "CivilizationCheckUnsynced", "等待服务器校验"));
-		PlaceOnCanvas(Content, State, FVector2D(642.0f, Y + 11.0f), FVector2D(238.0f, 30.0f), 2);
-	}
-
-	UTextBlock* BonusText = MakeModalText(
-		TEXT("CivilizationConfirmationBonus"), 18,
-		FLinearColor(0.82f, 0.82f, 0.79f, 1.0f), false, ETextJustify::Center);
-	BonusText->SetAutoWrapText(true);
-	BonusText->SetText(bFoundCivilization
+	SetPageText(Page, TEXT("CivilizationConfirmationBonus"), bFoundCivilization
 		? FText::FromString(FormatCivilizationBonusDescription(Civilization))
 		: FText::GetEmpty());
-	PlaceOnCanvas(Content, BonusText, FVector2D(55.0f, 480.0f), FVector2D(849.0f, 76.0f), 2);
-
-	UTextBlock* Boundary = MakeModalText(
-		TEXT("CivilizationConfirmationServerBoundaryState"), 17,
-		FLinearColor(0.96f, 0.53f, 0.28f, 1.0f), true, ETextJustify::Center);
-	Boundary->SetText(NSLOCTEXT(
-		"RokModal", "CivilizationConfirmationBoundary",
-		"Role_ChangeCivilization 未接入：不会扣除道具或宝石，也不会修改角色文明。"));
-	PlaceOnCanvas(Content, Boundary, FVector2D(44.0f, 595.0f), FVector2D(871.0f, 40.0f), 2);
-
-	UButton* ConfirmButton = MakeTextAtlasButton(
-		TEXT("CivilizationSubmitButton"), CommonAtlasPath,
-		ResourceGoldButtonRect, CommonAtlasSize, FVector2D(202.0f, 73.0f),
-		NSLOCTEXT("RokModal", "CivilizationSubmit", "确认"),
-		24, FLinearColor(0.72f, 0.72f, 0.70f, 1.0f));
-	ConfirmButton->SetIsEnabled(false);
-	PlaceOnCanvas(ModeCanvas, ConfirmButton, FVector2D(619.0f, 635.3f), FVector2D(202.0f, 73.0f), 6);
+	// Role_ChangeCivilization is not wired: the submit button never enables.
+	if (UButton* Submit = Page->Get<UButton>(TEXT("CivilizationSubmitButton")))
+	{
+		Submit->SetIsEnabled(false);
+	}
 }
 
 void URokUnityModalWidget::BuildChangeName()
 {
-	using namespace RokChangeNameLayout;
-	UTextBlock* CurrentNameText = MakeModalText(
-		TEXT("ChangeNameCurrentName"),
-		19,
-		FLinearColor(0.92f, 0.86f, 0.72f, 1.0f),
-		true,
-		ETextJustify::Center);
-	CurrentNameText->SetText(bChangeNameHasCurrentName
+	// Layout, input style and the fixed texts live in the page WBP; validation
+	// state is applied by UpdateChangeNameValidationState.
+	URokUiPageWidget* Page = MountModePage(TEXT("ChangeName"));
+	if (!Page)
+	{
+		return;
+	}
+	SetPageText(Page, TEXT("ChangeNameCurrentName"), bChangeNameHasCurrentName
 		? FText::Format(
 			NSLOCTEXT("RokModal", "ChangeNameCurrentNameValue", "当前名称：{0}"),
 			FText::FromString(ChangeNameCurrentName))
@@ -2661,173 +2453,23 @@ void URokUnityModalWidget::BuildChangeName()
 			"RokModal",
 			"ChangeNameCurrentNameUnavailable",
 			"当前名称：--（本地资料未载入）"));
-	PlaceOnCanvas(
-		ModeCanvas,
-		CurrentNameText,
-		FVector2D(329.0f, 202.0f),
-		FVector2D(782.0f, 30.0f),
-		3);
-
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeAtlasBorder(
-			TEXT("ChangeNameInputBackground"),
-			CommonAtlasPath,
-			CommonPanelRect,
-			CommonAtlasSize,
-			InputSize(),
-			CommonPanelMargin),
-		InputPosition(),
-		InputSize(),
-		2);
-	ChangeNameInput = WidgetTree->ConstructWidget<UEditableTextBox>(
-		UEditableTextBox::StaticClass(),
-		TEXT("ChangeNameInput"));
-	ChangeNameInput->SetText(FText::FromString(ChangeNameDraft));
-	ChangeNameInput->SetHintText(
-		NSLOCTEXT("RokModal", "ChangeNameInputHintSource", "点击此处输入城主昵称..."));
-	FEditableTextBoxStyle InputStyle = FEditableTextBoxStyle::GetDefault();
-	FSlateBrush NoInputBrush; NoInputBrush.DrawAs = ESlateBrushDrawType::NoDrawType;
-	InputStyle
-		.SetFont(FCoreStyle::GetDefaultFontStyle(TEXT("Regular"), InputFontPoints))
-		.SetForegroundColor(FLinearColor::White)
-		.SetFocusedForegroundColor(FLinearColor::White)
-		.SetBackgroundImageNormal(NoInputBrush)
-		.SetBackgroundImageHovered(NoInputBrush)
-		.SetBackgroundImageFocused(NoInputBrush)
-		.SetBackgroundImageReadOnly(NoInputBrush)
-		.SetPadding(FMargin(InputHorizontalPadding, 0));
-	ChangeNameInput->SetWidgetStyle(InputStyle);
-	ChangeNameInput->SetJustification(ETextJustify::Left);
-	ChangeNameInput->SetSelectAllTextWhenFocused(true);
-	ChangeNameInput->SetClearKeyboardFocusOnCommit(false);
-	ChangeNameInput->OnTextChanged.AddDynamic(
-		this,
-		&URokUnityModalWidget::HandleChangeNameTextChanged);
-	PlaceOnCanvas(
-		ModeCanvas,
-		ChangeNameInput,
-		InputPosition(),
-		InputSize(),
-		4);
-
-	ChangeNameCharacterCount = MakeModalText(
-		TEXT("ChangeNameCharacterCount"),
-		16,
-		FLinearColor(0.76f, 0.72f, 0.64f, 1.0f),
-		false,
-		ETextJustify::Right);
-	PlaceOnCanvas(
-		ModeCanvas,
-		ChangeNameCharacterCount,
-		FVector2D(1017.0f, 333.0f),
-		FVector2D(94.0f, 24.0f),
-		4);
-
-	UTextBlock* Description = MakeModalText(
-		TEXT("ChangeNameDescription"),
-		DescriptionFontPoints,
-		FLinearColor::White,
-		false,
-		ETextJustify::Left);
-	Description->SetText(NSLOCTEXT(
-		"RokModal",
-		"ChangeNameDescriptionSource",
-		"您能够输入3至15个字符，可以由数字、字母和特殊符号组成"));
-	Description->SetAutoWrapText(true);
-	Description->SetShadowOffset(FVector2D::ZeroVector);
-	Description->SetShadowColorAndOpacity(FLinearColor::Transparent);
-	Description->SetClipping(EWidgetClipping::ClipToBounds);
-	PlaceOnCanvas(
-		ModeCanvas,
-		Description,
-		DescriptionPosition(),
-		DescriptionSize(),
-		3);
-
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeAtlasImage(
-			TEXT("ChangeNamePermitIcon"),
-			Item5AtlasPath,
-			RenamePermitItemRect,
-			Item5AtlasSize,
-			FVector2D(48.0f)),
-		FVector2D(389.0f, 483.0f),
-		FVector2D(48.0f),
-		3);
-	UTextBlock* CostDescription = MakeModalText(
-		TEXT("ChangeNameCostDescription"),
-		13,
-		FLinearColor(0.94f, 0.86f, 0.59f, 1.0f),
-		true,
-		ETextJustify::Left);
-	CostDescription->SetText(FText::Format(
-		NSLOCTEXT(
-			"RokModal",
-			"ChangeNameCostDescriptionText",
-			"优先消耗改名许可 ×1；没有时消耗 {0} 宝石"),
+	ChangeNameInput = Page->Get<UEditableTextBox>(TEXT("ChangeNameInput"));
+	if (ChangeNameInput)
+	{
+		ChangeNameInput->SetText(FText::FromString(ChangeNameDraft));
+		ChangeNameInput->OnTextChanged.AddDynamic(this, &URokUnityModalWidget::HandleChangeNameTextChanged);
+	}
+	ChangeNameCharacterCount = Page->Get<UTextBlock>(TEXT("ChangeNameCharacterCount"));
+	SetPageText(Page, TEXT("ChangeNameCostDescription"), FText::Format(
+		NSLOCTEXT("RokModal", "ChangeNameCostDescriptionText", "优先消耗改名许可 ×1；没有时消耗 {0} 宝石"),
 		FText::AsNumber(ChangeNameGemCost)));
-	CostDescription->SetAutoWrapText(true);
-	PlaceOnCanvas(
-		ModeCanvas,
-		CostDescription,
-		FVector2D(450.0f, 487.0f),
-		FVector2D(620.0f, 42.0f),
-		3);
-
-	ChangeNameValidationFeedback = MakeModalText(
-		TEXT("ChangeNameValidationFeedback"),
-		12,
-		FLinearColor(0.96f, 0.72f, 0.34f, 1.0f),
-		true,
-		ETextJustify::Center);
-	ChangeNameValidationFeedback->SetAutoWrapText(true);
-	PlaceOnCanvas(
-		ModeCanvas,
-		ChangeNameValidationFeedback,
-		FVector2D(329.0f, 333.0f),
-		FVector2D(670.0f, 32.0f),
-		4);
-
-	ChangeNameServiceBoundaryState = MakeModalText(
-		TEXT("ChangeNameServiceBoundaryState"),
-		11,
-		FLinearColor(0.86f, 0.36f, 0.23f, 1.0f),
-		true,
-		ETextJustify::Center);
-	ChangeNameServiceBoundaryState->SetText(NSLOCTEXT(
-		"RokModal",
-		"ChangeNameServiceBoundary",
-		"服务器改名、权威背包与扣费状态尚未接入；不会修改本地资料。"));
-	ChangeNameServiceBoundaryState->SetAutoWrapText(true);
-	PlaceOnCanvas(
-		ModeCanvas,
-		ChangeNameServiceBoundaryState,
-		FVector2D(341.0f, 539.0f),
-		FVector2D(758.0f, 24.0f),
-		4);
-
-	ChangeNameConfirmButton = MakeTextAtlasButton(
-		TEXT("ChangeNameConfirmButton"),
-		CommonAtlasPath,
-		ResourceGoldButtonRect,
-		CommonAtlasSize,
-		FVector2D(269.0f, 78.0f),
-		NSLOCTEXT("RokModal", "ChangeNameConfirm", "确定"),
-		25,
-		FLinearColor::White,
-		NSLOCTEXT("RokModal", "ChangeNameConfirmUnavailable", "服务未接入"));
-	ChangeNameConfirmButton->OnClicked.AddDynamic(
-		this,
-		&URokUnityModalWidget::HandleChangeNameConfirmClicked);
-	PlaceOnCanvas(
-		ModeCanvas,
-		ChangeNameConfirmButton,
-		FVector2D(585.5f, 567.0f),
-		FVector2D(269.0f, 78.0f),
-		4);
-
+	ChangeNameValidationFeedback = Page->Get<UTextBlock>(TEXT("ChangeNameValidationFeedback"));
+	ChangeNameServiceBoundaryState = Page->Get<UTextBlock>(TEXT("ChangeNameServiceBoundaryState"));
+	ChangeNameConfirmButton = Page->Get<UButton>(TEXT("ChangeNameConfirmButton"));
+	if (ChangeNameConfirmButton)
+	{
+		ChangeNameConfirmButton->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleChangeNameConfirmClicked);
+	}
 	UpdateChangeNameValidationState();
 }
 
@@ -3020,9 +2662,13 @@ void URokUnityModalWidget::UpdateChangeNameValidationState()
 
 void URokUnityModalWidget::BuildResourceInventory()
 {
-	UCanvasPanel* Viewport = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("ResourceListViewport"));
-	Viewport->SetClipping(EWidgetClipping::ClipToBounds);
-	PlaceOnCanvas(ModeCanvas, Viewport, FVector2D(207.0f, 168.3f), FVector2D(1026.0f, 609.4f), 1);
+	// Layout and style live in the page WBP (one row per Unity item slot, a
+	// selected and a dark look per tab). Here: which state shows, and the data.
+	URokUiPageWidget* Page = MountModePage(TEXT("ResourceInventory"));
+	if (!Page)
+	{
+		return;
+	}
 
 	static const int32 Amounts[4][4] = {
 		{10000, 50000, 150000, 1000},
@@ -3030,8 +2676,6 @@ void URokUnityModalWidget::BuildResourceInventory()
 		{7500, 37500, 112500, 750},
 		{3000, 15000, 50000, 500},
 	};
-	static const int32 Qualities[4] = {2, 2, 3, 1};
-	static const int32 OwnedCounts[4] = {3, 1, 1, 0};
 	static const FText ResourceNames[4] = {
 		NSLOCTEXT("RokModal", "Food", "食物"),
 		NSLOCTEXT("RokModal", "Wood", "木材"),
@@ -3039,67 +2683,60 @@ void URokUnityModalWidget::BuildResourceInventory()
 		NSLOCTEXT("RokModal", "Gold", "金币"),
 	};
 
+	const int32 Category = FMath::Clamp(SelectedResourceCategory, 0, 3);
+	const FText& ResourceName = ResourceNames[Category];
+	// Reference rows: quality, owned count and use/buy per slot are fixed in the
+	// page; the item, amount and texts follow the selected category. Production
+	// has no server item inventory yet, so it shows the empty state instead of
+	// fabricated owned counts.
+	const bool bReference = bReferenceResourceCaptureState;
 	int32 RowCount = 0;
-	if (bReferenceResourceCaptureState)
+	for (int32 RowIndex = 0; RowIndex < 4; ++RowIndex)
 	{
-		for (int32 RowIndex = 0; RowIndex < 4; ++RowIndex)
+		Page->SetShown(Page->Get<UWidget>(IndexedName(TEXT("ResourceRow"), RowIndex)), bReference);
+		if (!bReference)
 		{
-			UCanvasPanel* Row = MakeResourceRow(
-				RowIndex,
-				Amounts[SelectedResourceCategory][RowIndex],
-				Qualities[RowIndex],
-				OwnedCounts[RowIndex],
-				RowIndex == 3 ? 5 : 0,
-				ResourceNames[SelectedResourceCategory],
-				ItemIconRects[SelectedResourceCategory]);
-			PlaceOnCanvas(Viewport, Row, FVector2D(19.0f, RowIndex * 156.0f), FVector2D(988.0f, 156.0f));
-			++RowCount;
+			continue;
 		}
-		// Owned counts come from the server item inventory; reference rows must
-		// stay explicitly labeled instead of reading as account state.
-		UTextBlock* ResourceReferenceTag = MakeModalText(
-			TEXT("ResourceInventoryReferenceTag"),
-			14,
-			FLinearColor(0.62f, 0.62f, 0.58f, 1.0f),
-			false,
-			ETextJustify::Right);
-		ResourceReferenceTag->SetText(NSLOCTEXT(
-			"RokModal",
-			"ResourceInventoryReferenceTag",
-			"资源道具 · 本地参考态（非账号状态）"));
-		PlaceOnCanvas(ModeCanvas, ResourceReferenceTag, FVector2D(830.0f, 745.0f), FVector2D(400.0f, 24.0f), 6);
+		++RowCount;
+		const FText Amount = FormatNumber(Amounts[Category][RowIndex]);
+		SetAtlasSprite(
+			Page->Get<UImage>(IndexedName(TEXT("ResourceItemIcon"), RowIndex)),
+			Item1AtlasPath,
+			ItemIconRects[Category],
+			Item1AtlasSize,
+			FVector2D(120.0f));
+		SetPageText(Page, IndexedName(TEXT("ResourceAmountBadge"), RowIndex), Amount);
+		SetPageText(Page, IndexedName(TEXT("ResourceName"), RowIndex),
+			FText::Format(NSLOCTEXT("RokModal", "ResourceItemName", "{0} {1}"), Amount, ResourceName));
+		SetPageText(Page, IndexedName(TEXT("ResourceDescription"), RowIndex),
+			FText::Format(NSLOCTEXT("RokModal", "ResourceDescription", "使用后获得{0}{1}"), Amount, ResourceName));
+		for (const TCHAR* ButtonBase : {TEXT("ResourceUseButton"), TEXT("ResourceBuyButton")})
+		{
+			if (UButton* Button = Cast<UButton>(RokUiFind::Find(Page, IndexedName(ButtonBase, RowIndex))))
+			{
+				Button->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandlePreviewItemAction);
+			}
+		}
 	}
-	else
-	{
-		// Production has no server item inventory yet; keep the list honest
-		// instead of presenting fabricated owned counts.
-		UTextBlock* EmptyState = MakeModalText(
-			TEXT("ResourceInventoryEmptyState"),
-			22,
-			FLinearColor(0.55f, 0.55f, 0.51f, 1.0f),
-			false,
-			ETextJustify::Center);
-		EmptyState->SetText(NSLOCTEXT(
-			"RokModal",
-			"ResourceInventoryEmptyState",
-			"当前暂无可用的资源道具"));
-		PlaceOnCanvas(ModeCanvas, EmptyState, FVector2D(207.0f, 400.0f), FVector2D(1026.0f, 40.0f), 2);
-		UTextBlock* ServiceState = MakeModalText(
-			TEXT("ResourceInventoryServiceState"),
-			17,
-			FLinearColor(0.62f, 0.62f, 0.58f, 1.0f),
-			false,
-			ETextJustify::Center);
-		ServiceState->SetText(NSLOCTEXT(
-			"RokModal",
-			"ResourceInventoryServiceState",
-			"道具背包需要服务器数据，连接服务器后更新。"));
-		PlaceOnCanvas(ModeCanvas, ServiceState, FVector2D(207.0f, 452.0f), FVector2D(1026.0f, 32.0f), 2);
-	}
+	// Owned counts would come from the server item inventory; reference rows stay
+	// labeled so they do not read as account state.
+	Page->SetShown(Page->Get<UWidget>(TEXT("ResourceInventoryReferenceTag")), bReference);
+	Page->SetShown(Page->Get<UWidget>(TEXT("ResourceInventoryEmptyState")), !bReference);
+	Page->SetShown(Page->Get<UWidget>(TEXT("ResourceInventoryServiceState")), !bReference);
 
 	for (int32 CategoryIndex = 0; CategoryIndex < 4; ++CategoryIndex)
 	{
-		UButton* Tab = MakeResourceTab(CategoryIndex, CategoryIndex == SelectedResourceCategory);
+		const bool bSelected = CategoryIndex == Category;
+		Page->SetShown(Page->Get<UWidget>(IndexedName(TEXT("ResourceTabSelected"), CategoryIndex)), bSelected);
+		Page->SetShown(Page->Get<UWidget>(IndexedName(TEXT("ResourceTabIconSelected"), CategoryIndex)), bSelected);
+		Page->SetShown(Page->Get<UWidget>(IndexedName(TEXT("ResourceTabDark"), CategoryIndex)), !bSelected);
+		Page->SetShown(Page->Get<UWidget>(IndexedName(TEXT("ResourceTabIconDark"), CategoryIndex)), !bSelected);
+		UButton* Tab = Page->Get<UButton>(IndexedName(TEXT("ResourceTab"), CategoryIndex));
+		if (!Tab)
+		{
+			continue;
+		}
 		switch (CategoryIndex)
 		{
 		case 0: Tab->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleResourceTabFood); break;
@@ -3108,7 +2745,6 @@ void URokUnityModalWidget::BuildResourceInventory()
 		case 3: Tab->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleResourceTabGold); break;
 		default: break;
 		}
-		PlaceOnCanvas(ModeCanvas, Tab, FVector2D(1231.0f, 214.0f + CategoryIndex * 109.0f), FVector2D(144.0f, 99.0f), 4);
 	}
 
 	UE_LOG(
@@ -3116,444 +2752,105 @@ void URokUnityModalWidget::BuildResourceInventory()
 		Display,
 		TEXT("Rok resource inventory: category=%d reference=%d rows=%d authority=%s."),
 		SelectedResourceCategory,
-		bReferenceResourceCaptureState ? 1 : 0,
+		bReference ? 1 : 0,
 		RowCount,
-		bReferenceResourceCaptureState ? TEXT("local_fixture") : TEXT("server"));
+		bReference ? TEXT("local_fixture") : TEXT("server"));
 }
 
 void URokUnityModalWidget::BuildWarWarning()
 {
-	constexpr float ContentX = 230.0f;
-	constexpr float ContentWidth = 980.0f;
-
 	UE_LOG(
 		LogTemp,
 		Display,
 		TEXT("Rok war warning screen: reference=%d authority=%s."),
 		bReferenceWarWarningCaptureState ? 1 : 0,
 		bReferenceWarWarningCaptureState ? TEXT("local_fixture") : TEXT("server"));
-
-	if (!bReferenceWarWarningCaptureState)
+	// Both states are fixed layouts in the page WBP: the service boundary (no
+	// Role_EarlyWarningInfo data yet) and the labeled Unity reference fixture.
+	URokUiPageWidget* Page = MountModePage(TEXT("WarWarning"));
+	if (!Page)
 	{
-		PlaceOnCanvas(
-			ModeCanvas,
-			MakeAtlasBorder(
-				TEXT("WarWarningServiceBoundaryPanel"),
-				CommonAtlasPath,
-				CommonPanelRect,
-				CommonAtlasSize,
-				FVector2D(ContentWidth, 250.0f),
-				CommonPanelMargin),
-			FVector2D(ContentX, 245.0f),
-			FVector2D(ContentWidth, 250.0f),
-			1);
-
-		UTextBlock* BoundaryTitle = MakeModalText(
-			TEXT("WarWarningServiceBoundaryTitle"),
-			28,
-			FLinearColor(0.30f, 0.22f, 0.12f, 1.0f),
-			true,
-			ETextJustify::Center);
-		BoundaryTitle->SetText(NSLOCTEXT("RokModal", "WarWarningUnavailableTitle", "预警服务尚未接入"));
-		PlaceOnCanvas(ModeCanvas, BoundaryTitle, FVector2D(ContentX + 30.0f, 280.0f), FVector2D(ContentWidth - 60.0f, 40.0f), 2);
-
-		UTextBlock* BoundaryState = MakeModalText(
-			TEXT("WarWarningServiceBoundaryState"),
-			21,
-			FLinearColor(0.38f, 0.31f, 0.22f, 1.0f),
-			false,
-			ETextJustify::Center);
-		BoundaryState->SetAutoWrapText(true);
-		BoundaryState->SetText(NSLOCTEXT(
-			"RokModal",
-			"WarWarningServiceBoundary",
-			"当前客户端还没有接入服务器 Role_EarlyWarningInfo 数据，因此无法验证侦察、攻击、增援或运输预警。"));
-		PlaceOnCanvas(ModeCanvas, BoundaryState, FVector2D(ContentX + 85.0f, 338.0f), FVector2D(ContentWidth - 170.0f, 66.0f), 2);
-
-		UTextBlock* BoundaryActions = MakeModalText(
-			TEXT("WarWarningServerActionsDisabled"),
-			18,
-			FLinearColor(0.61f, 0.38f, 0.14f, 1.0f),
-			true,
-			ETextJustify::Center);
-		BoundaryActions->SetAutoWrapText(true);
-		BoundaryActions->SetText(NSLOCTEXT(
-			"RokModal",
-			"WarWarningActionsBoundary",
-			"忽略、定位和详情操作将在服务器提供预警索引、抵达时间与目标位置后启用。"));
-		PlaceOnCanvas(ModeCanvas, BoundaryActions, FVector2D(ContentX + 85.0f, 419.0f), FVector2D(ContentWidth - 170.0f, 52.0f), 2);
 		return;
 	}
-
-	UTextBlock* ReferenceNotice = MakeModalText(
+	static const TCHAR* BoundaryWidgets[] = {
+		TEXT("WarWarningServiceBoundaryPanel"),
+		TEXT("WarWarningServiceBoundaryTitle"),
+		TEXT("WarWarningServiceBoundaryState"),
+		TEXT("WarWarningServerActionsDisabled"),
+	};
+	static const TCHAR* ReferenceWidgets[] = {
 		TEXT("WarWarningReferencePreviewNotice"),
-		20,
-		FLinearColor(1.0f, 0.78f, 0.25f, 1.0f),
-		true,
-		ETextJustify::Center);
-	ReferenceNotice->SetText(NSLOCTEXT(
-		"RokModal",
-		"WarWarningReferenceNotice",
-		"Unity 参考预览/非实时数据：以下内容只用于 UI 结构验收，不代表玩家当前预警"));
-	PlaceOnCanvas(ModeCanvas, ReferenceNotice, FVector2D(ContentX, 176.0f), FVector2D(ContentWidth, 36.0f), 4);
-
-	UTextBlock* IgnorePreview = MakeModalText(
 		TEXT("WarWarningReferenceIgnoreAllDisabled"),
-		17,
-		FLinearColor(0.63f, 0.38f, 0.16f, 1.0f),
-		true,
-		ETextJustify::Right);
-	IgnorePreview->SetText(NSLOCTEXT("RokModal", "WarWarningIgnoreAllPreview", "全部忽略（参考预览中禁用）"));
-	PlaceOnCanvas(ModeCanvas, IgnorePreview, FVector2D(880.0f, 218.0f), FVector2D(330.0f, 30.0f), 3);
-
-	static const TCHAR* TypeShortLabels[] = {TEXT("侦"), TEXT("战"), TEXT("援"), TEXT("运")};
-	static const FText TypeTitles[] = {
-		NSLOCTEXT("RokModal", "WarningScout", "侦察预警 · 参考"),
-		NSLOCTEXT("RokModal", "WarningAttack", "攻击预警 · 参考"),
-		NSLOCTEXT("RokModal", "WarningReinforce", "增援预警 · 参考"),
-		NSLOCTEXT("RokModal", "WarningTransport", "运输抵达 · 参考"),
-	};
-	static const FText TypeDescriptions[] = {
-		NSLOCTEXT("RokModal", "WarningScoutDescription", "[ABC] 斥候正在侦察你的城市"),
-		NSLOCTEXT("RokModal", "WarningAttackDescription", "[RED] 集结部队 · 兵力 125,000"),
-		NSLOCTEXT("RokModal", "WarningReinforceDescription", "[ALLY] 友军增援 · 兵力 48,000"),
-		NSLOCTEXT("RokModal", "WarningTransportDescription", "[ALLY] 运输队 · 资源 320,000"),
-	};
-	static const FText TypeTargets[] = {
-		NSLOCTEXT("RokModal", "WarningScoutTarget", "目标：城市 · 00:08:42"),
-		NSLOCTEXT("RokModal", "WarningAttackTarget", "目标：城市 · 00:12:18"),
-		NSLOCTEXT("RokModal", "WarningReinforceTarget", "目标：城市 · 00:05:33"),
-		NSLOCTEXT("RokModal", "WarningTransportTarget", "目标：城市 · 00:03:20"),
-	};
-	static const FLinearColor TypeColors[] = {
-		FLinearColor(0.18f, 0.57f, 0.82f, 1.0f),
-		FLinearColor(0.76f, 0.17f, 0.12f, 1.0f),
-		FLinearColor(0.20f, 0.64f, 0.33f, 1.0f),
-		FLinearColor(0.74f, 0.48f, 0.12f, 1.0f),
-	};
-	static const FName RowNames[] = {
-		FName(TEXT("WarWarningRow_0")),
-		FName(TEXT("WarWarningRow_1")),
-		FName(TEXT("WarWarningRow_2")),
-		FName(TEXT("WarWarningRow_3")),
-	};
-
-	for (int32 RowIndex = 0; RowIndex < 4; ++RowIndex)
-	{
-		UCanvasPanel* Row = WidgetTree->ConstructWidget<UCanvasPanel>(
-			UCanvasPanel::StaticClass(),
-			RowNames[RowIndex]);
-		PlaceOnCanvas(
-			Row,
-			MakeAtlasBorder(
-				*FString::Printf(TEXT("WarWarningRowBackground_%d"), RowIndex),
-				CommonAtlasPath,
-				ResourceRowRect,
-				CommonAtlasSize,
-				FVector2D(ContentWidth, 72.0f),
-				ResourceRowMargin),
-			FVector2D::ZeroVector,
-			FVector2D(ContentWidth, 72.0f));
-
-		UBorder* TypeBadge = WidgetTree->ConstructWidget<UBorder>(
-			UBorder::StaticClass(),
-			*FString::Printf(TEXT("WarWarningTypeBadge_%d"), RowIndex));
-		TypeBadge->SetBrushColor(TypeColors[RowIndex]);
-		TypeBadge->SetVisibility(ESlateVisibility::HitTestInvisible);
-		PlaceOnCanvas(Row, TypeBadge, FVector2D(14.0f, 11.0f), FVector2D(50.0f, 50.0f), 1);
-
-		UTextBlock* TypeShort = MakeModalText(
-			*FString::Printf(TEXT("WarWarningTypeShort_%d"), RowIndex),
-			22,
-			FLinearColor::White,
-			true,
-			ETextJustify::Center);
-		TypeShort->SetText(FText::FromString(FString(TypeShortLabels[RowIndex])));
-		PlaceOnCanvas(Row, TypeShort, FVector2D(14.0f, 20.0f), FVector2D(50.0f, 32.0f), 2);
-
-		UTextBlock* Title = MakeModalText(
-			*FString::Printf(TEXT("WarWarningTypeTitle_%d"), RowIndex),
-			20,
-			FLinearColor(0.28f, 0.22f, 0.14f, 1.0f),
-			true);
-		Title->SetText(TypeTitles[RowIndex]);
-		PlaceOnCanvas(Row, Title, FVector2D(82.0f, 7.0f), FVector2D(340.0f, 28.0f), 2);
-
-		UTextBlock* Description = MakeModalText(
-			*FString::Printf(TEXT("WarWarningDescription_%d"), RowIndex),
-			17,
-			FLinearColor(0.38f, 0.31f, 0.22f, 1.0f));
-		Description->SetText(TypeDescriptions[RowIndex]);
-		PlaceOnCanvas(Row, Description, FVector2D(82.0f, 37.0f), FVector2D(510.0f, 26.0f), 2);
-
-		UTextBlock* Target = MakeModalText(
-			*FString::Printf(TEXT("WarWarningTarget_%d"), RowIndex),
-			17,
-			FLinearColor(0.48f, 0.28f, 0.10f, 1.0f),
-			true,
-			ETextJustify::Right);
-		Target->SetText(TypeTargets[RowIndex]);
-		PlaceOnCanvas(Row, Target, FVector2D(600.0f, 23.0f), FVector2D(350.0f, 28.0f), 2);
-
-		PlaceOnCanvas(
-			ModeCanvas,
-			Row,
-			FVector2D(ContentX, 252.0f + RowIndex * 80.0f),
-			FVector2D(ContentWidth, 72.0f),
-			2);
-	}
-
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeAtlasBorder(
-			TEXT("WarWarningDetailStructure"),
-			CommonAtlasPath,
-			CommonPanelRect,
-			CommonAtlasSize,
-			FVector2D(ContentWidth, 142.0f),
-			CommonPanelMargin),
-		FVector2D(ContentX, 576.0f),
-		FVector2D(ContentWidth, 142.0f),
-		1);
-
-	UTextBlock* DetailTitle = MakeModalText(
+		TEXT("WarWarningRow_0"),
+		TEXT("WarWarningRow_1"),
+		TEXT("WarWarningRow_2"),
+		TEXT("WarWarningRow_3"),
+		TEXT("WarWarningDetailStructure"),
 		TEXT("WarWarningDetailTitle"),
-		20,
-		FLinearColor(0.68f, 0.18f, 0.12f, 1.0f),
-		true);
-	DetailTitle->SetText(NSLOCTEXT("RokModal", "WarWarningDetailReferenceTitle", "攻击详情（Unity 参考结构 / 非实时数据）"));
-	PlaceOnCanvas(ModeCanvas, DetailTitle, FVector2D(ContentX + 24.0f, 588.0f), FVector2D(520.0f, 30.0f), 2);
-
-	UTextBlock* DetailBody = MakeModalText(
 		TEXT("WarWarningDetailBody"),
-		17,
-		FLinearColor(0.35f, 0.29f, 0.21f, 1.0f));
-	DetailBody->SetAutoWrapText(true);
-	DetailBody->SetText(NSLOCTEXT(
-		"RokModal",
-		"WarWarningDetailReferenceBody",
-		"主将：参考统帅 A　副将：参考统帅 B\n兵种构成：步兵 80,000 / 弓兵 45,000　目标：城市坐标（参考）"));
-	PlaceOnCanvas(ModeCanvas, DetailBody, FVector2D(ContentX + 24.0f, 624.0f), FVector2D(ContentWidth - 48.0f, 72.0f), 2);
+	};
+	for (const TCHAR* Name : BoundaryWidgets)
+	{
+		Page->SetShown(Page->Get<UWidget>(Name), !bReferenceWarWarningCaptureState);
+	}
+	for (const TCHAR* Name : ReferenceWidgets)
+	{
+		Page->SetShown(Page->Get<UWidget>(Name), bReferenceWarWarningCaptureState);
+	}
 }
 
 void URokUnityModalWidget::BuildBuffList()
 {
-	constexpr float PopupX = 0.0f;
-	constexpr float PopupY = 0.0f;
-	constexpr float PopupWidth = 500.0f;
-	constexpr float PopupHeight = 400.0f;
-	constexpr float RowX = PopupX + 42.0f;
-	constexpr float RowWidth = 416.0f;
-
-	// UI_Pop_BuffList.prefab: pl_pos parents img_bg and pl_rect. The full-screen
-	// dismiss mask is outside this group and must never scale with the popup.
-	BuffListAnimationRoot = WidgetTree->ConstructWidget<UCanvasPanel>(
-		UCanvasPanel::StaticClass(), TEXT("BuffListAnimationRoot"));
-	PlaceOnCanvas(ModeCanvas, BuffListAnimationRoot, FVector2D(470.0f, 205.0f),
-		FVector2D(PopupWidth, PopupHeight));
-	// Source img_bg width 450.3, pivot X .9, offset X 3.3 from pl_pos.
-	// Preserve its relative origin within the existing reconstructed panel.
-	BuffListAnimationRoot->SetRenderTransformPivot(FVector2D(0.9f - 3.3f / 450.3f, 0.0f));
-
-	PlaceOnCanvas(
-		BuffListAnimationRoot,
-		MakeAtlasBorder(
-			TEXT("BuffListPopupBody"),
-			FrameAtlasPath,
-			WindowBodyRect,
-			FrameAtlasSize,
-			FVector2D(PopupWidth, PopupHeight),
-			WindowBodyMargin),
-		FVector2D(PopupX, PopupY),
-		FVector2D(PopupWidth, PopupHeight),
-		1);
-	PlaceOnCanvas(
-		BuffListAnimationRoot,
-		MakeAtlasBorder(
-			TEXT("BuffListPopupHeader"),
-			FrameAtlasPath,
-			WindowHeaderRect,
-			FrameAtlasSize,
-			FVector2D(PopupWidth, 60.0f),
-			WindowHeaderMargin),
-		FVector2D(PopupX, PopupY),
-		FVector2D(PopupWidth, 60.0f),
-		2);
-
-	UTextBlock* PopupTitle = MakeModalText(
-		TEXT("BuffListPopupTitle"),
-		25,
-		FLinearColor(0.96f, 0.94f, 0.88f, 1.0f),
-		true,
-		ETextJustify::Center);
-	PopupTitle->SetText(NSLOCTEXT("RokModal", "BuffListTitle", "城市增益"));
-	PlaceOnCanvas(BuffListAnimationRoot, PopupTitle, FVector2D(PopupX + 30.0f, PopupY + 9.0f), FVector2D(PopupWidth - 60.0f, 38.0f), 3);
-
-	if (!bReferenceBuffListCaptureState)
+	// UI_Pop_BuffList.prefab. The page WBP holds both states: the service
+	// boundary and the static-configuration preview with up to two definition
+	// rows. BuffListAnimationRoot (pl_pos) is what the open animation scales.
+	URokUiPageWidget* Page = MountModePage(TEXT("BuffList"));
+	if (!Page)
 	{
-		PlaceOnCanvas(
-			BuffListAnimationRoot,
-			MakeAtlasBorder(
-				TEXT("BuffListServiceBoundaryPanel"),
-				CommonAtlasPath,
-				CommonPanelRect,
-				CommonAtlasSize,
-				FVector2D(456.0f, 205.0f),
-				CommonPanelMargin),
-			FVector2D(PopupX + 22.0f, PopupY + 80.0f),
-			FVector2D(456.0f, 205.0f),
-			2);
-
-		UTextBlock* BoundaryTitle = MakeModalText(
-			TEXT("BuffListServiceBoundaryTitle"),
-			21,
-			FLinearColor(0.30f, 0.22f, 0.12f, 1.0f),
-			true,
-			ETextJustify::Center);
-		BoundaryTitle->SetText(NSLOCTEXT("RokModal", "BuffListUnavailableTitle", "城市增益状态尚未接入"));
-		PlaceOnCanvas(BuffListAnimationRoot, BoundaryTitle, FVector2D(PopupX + 42.0f, PopupY + 98.0f), FVector2D(416.0f, 32.0f), 3);
-
-		UTextBlock* BoundaryState = MakeModalText(
-			TEXT("BuffListServiceBoundaryState"),
-			17,
-			FLinearColor(0.38f, 0.31f, 0.22f, 1.0f),
-			false,
-			ETextJustify::Center);
-		BoundaryState->SetAutoWrapText(true);
-		BoundaryState->SetText(NSLOCTEXT(
-			"RokModal",
-			"BuffListServiceBoundary",
-			"激活状态、效果数值和剩余时间需要服务器 CityBuff 状态；当前不显示伪造数据。"));
-		PlaceOnCanvas(BuffListAnimationRoot, BoundaryState, FVector2D(PopupX + 52.0f, PopupY + 143.0f), FVector2D(396.0f, 66.0f), 3);
-
-		UTextBlock* NavigationHint = MakeModalText(
-			TEXT("BuffListCityManagerNavigationHint"),
-			15,
-			FLinearColor(0.61f, 0.38f, 0.14f, 1.0f),
-			true,
-			ETextJustify::Center);
-		NavigationHint->SetAutoWrapText(true);
-		NavigationHint->SetText(NSLOCTEXT("RokModal", "BuffListMoreHint", "“更多”只进入城市管理，不代表已激活任何增益。"));
-		PlaceOnCanvas(BuffListAnimationRoot, NavigationHint, FVector2D(PopupX + 52.0f, PopupY + 225.0f), FVector2D(396.0f, 38.0f), 3);
+		return;
 	}
-	else
+	BuffListAnimationRoot = Page->Get<UCanvasPanel>(TEXT("BuffListAnimationRoot"));
+	if (UButton* MoreButton = Page->Get<UButton>(TEXT("BuffListMoreButton")))
 	{
-		UTextBlock* ReferenceNotice = MakeModalText(
-			TEXT("BuffListReferencePreviewNotice"),
-			15,
-			FLinearColor(1.0f, 0.78f, 0.25f, 1.0f),
-			true,
-			ETextJustify::Center);
-		ReferenceNotice->SetText(NSLOCTEXT(
-			"RokModal",
-			"BuffListReferenceNotice",
-			"城市增益静态配置预览 · 非实时/未激活"));
-		PlaceOnCanvas(BuffListAnimationRoot, ReferenceNotice, FVector2D(PopupX + 22.0f, PopupY + 64.0f), FVector2D(456.0f, 28.0f), 4);
+		MoreButton->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleBuffListMoreClicked);
+	}
+	static const TCHAR* BoundaryWidgets[] = {
+		TEXT("BuffListServiceBoundaryPanel"),
+		TEXT("BuffListServiceBoundaryTitle"),
+		TEXT("BuffListServiceBoundaryState"),
+		TEXT("BuffListCityManagerNavigationHint"),
+	};
+	for (const TCHAR* Name : BoundaryWidgets)
+	{
+		Page->SetShown(Page->Get<UWidget>(Name), !bReferenceBuffListCaptureState);
+	}
+	Page->SetShown(Page->Get<UWidget>(TEXT("BuffListReferencePreviewNotice")), bReferenceBuffListCaptureState);
 
-		FString DefinitionJson;
-		const FString DefinitionPath = RokDataPaths::Resolve(TEXT("city_buff_reference.json"));
-		TSharedPtr<FJsonObject> DefinitionRoot;
-		const bool bManifestLoaded = FFileHelper::LoadFileToString(DefinitionJson, *DefinitionPath)
-			&& FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(DefinitionJson), DefinitionRoot)
-			&& DefinitionRoot.IsValid();
-		const TArray<TSharedPtr<FJsonValue>>* Definitions = nullptr;
-		FString DefinitionSchema;
-		const bool bDefinitionsValid = bManifestLoaded
-			&& DefinitionRoot->TryGetStringField(TEXT("schema"), DefinitionSchema)
-			&& DefinitionSchema == TEXT("rok.city_buff_reference.v2")
-			&& DefinitionRoot->TryGetArrayField(TEXT("definitions"), Definitions)
-			&& Definitions != nullptr;
-		int32 ShownCount = 0;
-		if (bDefinitionsValid)
+	constexpr int32 MaxRows = 2;
+	int32 ShownCount = 0;
+	if (bReferenceBuffListCaptureState)
+	{
+		for (const FCityBuffPreviewRow& Row : LoadCityBuffPreviewRows(MaxRows))
 		{
-			for (const TSharedPtr<FJsonValue>& DefinitionValue : *Definitions)
-			{
-				if (ShownCount >= 2) break;
-				const TSharedPtr<FJsonObject> Definition = DefinitionValue.IsValid() ? DefinitionValue->AsObject() : nullptr;
-				if (!Definition.IsValid()) continue;
-				double ConfigDuration = 0.0;
-				FString TitleCn;
-				FString IconAtlas;
-				const TArray<TSharedPtr<FJsonValue>>* IconRectValues = nullptr;
-				if (!Definition->TryGetNumberField(TEXT("config_duration_seconds"), ConfigDuration)
-					|| !Definition->TryGetStringField(TEXT("title_cn"), TitleCn)
-					|| !Definition->TryGetStringField(TEXT("icon_atlas"), IconAtlas)
-					|| !Definition->TryGetArrayField(TEXT("icon_rect"), IconRectValues)
-					|| ConfigDuration < 0 || IconAtlas != MainMenuAtlasPath
-					|| !IconRectValues || IconRectValues->Num() != 4) continue;
-				double IconNumbers[4] = {};
-				bool bIconRectValid = true;
-				for (int32 Component = 0; Component < 4; ++Component)
-				{
-					bIconRectValid &= (*IconRectValues)[Component].IsValid()
-						&& (*IconRectValues)[Component]->TryGetNumber(IconNumbers[Component]);
-				}
-				if (!bIconRectValid || IconNumbers[0] < 0 || IconNumbers[1] < 0
-					|| IconNumbers[2] <= 0 || IconNumbers[3] <= 0
-					|| IconNumbers[0] + IconNumbers[2] > MainMenuAtlasSize.X
-					|| IconNumbers[1] + IconNumbers[3] > MainMenuAtlasSize.Y) continue;
-				const int32 RowIndex = ShownCount++;
-				UCanvasPanel* Row = WidgetTree->ConstructWidget<UCanvasPanel>(
-					UCanvasPanel::StaticClass(), *FString::Printf(TEXT("BuffListDefinitionRow_%d"), RowIndex));
-				PlaceOnCanvas(Row, MakeAtlasBorder(
-					*FString::Printf(TEXT("BuffListRowBackground_%d"), RowIndex),
-					CommonAtlasPath, ResourceRowRect, CommonAtlasSize,
-					FVector2D(RowWidth, 80.0f), ResourceRowMargin),
-					FVector2D::ZeroVector, FVector2D(RowWidth, 80.0f));
-
-				PlaceOnCanvas(Row, MakeAtlasImage(
-					*FString::Printf(TEXT("BuffListDefinitionIcon_%d"), RowIndex),
-					MainMenuAtlasPath,
-					SpriteRect(static_cast<int32>(IconNumbers[0]), static_cast<int32>(IconNumbers[1]),
-						static_cast<int32>(IconNumbers[2]), static_cast<int32>(IconNumbers[3])),
-					MainMenuAtlasSize, FVector2D(54.0f, 54.0f)),
-					FVector2D(13.0f, 13.0f), FVector2D(54.0f, 54.0f), 1);
-
-				UTextBlock* Title = MakeModalText(
-					*FString::Printf(TEXT("BuffListDefinitionTitle_%d"), RowIndex), 17,
-					FLinearColor(0.28f, 0.22f, 0.14f, 1.0f), true);
-				Title->SetText(FText::FromString(TitleCn.IsEmpty() ? FString(TEXT("名称本地化不可用")) : TitleCn));
-				PlaceOnCanvas(Row, Title, FVector2D(82.0f, 9.0f), FVector2D(310.0f, 27.0f), 2);
-
-				UTextBlock* StaticFields = MakeModalText(
-					*FString::Printf(TEXT("BuffListDefinitionFields_%d"), RowIndex), 13,
-					FLinearColor(0.50f, 0.43f, 0.34f, 1.0f));
-				StaticFields->SetText(FText::FromString(FString::Printf(
-					TEXT("配置时长 %d 秒（非剩余时间）"), static_cast<int32>(ConfigDuration))));
-				PlaceOnCanvas(Row, StaticFields, FVector2D(82.0f, 39.0f), FVector2D(310.0f, 23.0f), 2);
-				PlaceOnCanvas(BuffListAnimationRoot, Row,
-					FVector2D(RowX, PopupY + 102.0f + RowIndex * 86.0f), FVector2D(RowWidth, 80.0f), 3);
-			}
+			const int32 RowIndex = ShownCount++;
+			Page->SetShown(Page->Get<UWidget>(IndexedName(TEXT("BuffListDefinitionRow"), RowIndex)), true);
+			SetAtlasSprite(Page->Get<UImage>(IndexedName(TEXT("BuffListDefinitionIcon"), RowIndex)),
+				MainMenuAtlasPath, Row.IconRect, MainMenuAtlasSize, FVector2D(54.0f, 54.0f));
+			SetCityBuffPreviewRowText(Page, TEXT("BuffListDefinition"), RowIndex, Row);
 		}
-		if (ShownCount == 0)
+		if (ShownCount == 0 && BuffListAnimationRoot)
 		{
+			// Only when the published configuration is missing; not part of the page.
 			UTextBlock* MissingDefinitions = MakeModalText(TEXT("BuffListDefinitionUnavailable"), 16,
 				FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
 			MissingDefinitions->SetText(NSLOCTEXT("RokModal", "BuffListDefinitionUnavailable", "增益静态配置未发布或不可读取"));
-			PlaceOnCanvas(BuffListAnimationRoot, MissingDefinitions,
-				FVector2D(PopupX + 42.0f, PopupY + 132.0f), FVector2D(416.0f, 60.0f), 3);
+			PlaceOnCanvas(BuffListAnimationRoot, MissingDefinitions, FVector2D(42.0f, 132.0f), FVector2D(416.0f, 60.0f), 3);
 		}
 	}
-
-	UTextBlock* TouchCloseHint = MakeModalText(
-		TEXT("BuffListTouchCloseHint"),
-		13,
-		FLinearColor(0.50f, 0.43f, 0.34f, 1.0f));
-	TouchCloseHint->SetText(NSLOCTEXT("RokModal", "BuffListTouchClose", "点击弹窗外区域关闭"));
-	PlaceOnCanvas(BuffListAnimationRoot, TouchCloseHint, FVector2D(PopupX + 24.0f, PopupY + 350.0f), FVector2D(220.0f, 24.0f), 3);
-
-	UButton* MoreButton = MakeTextAtlasButton(
-		TEXT("BuffListMoreButton"),
-		CommonAtlasPath,
-		ResourceBlueButtonRect,
-		CommonAtlasSize,
-		FVector2D(160.0f, 52.0f),
-		NSLOCTEXT("RokModal", "BuffListMore", "更多"),
-		20,
-		FLinearColor::White);
-	MoreButton->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleBuffListMoreClicked);
-	PlaceOnCanvas(BuffListAnimationRoot, MoreButton, FVector2D(PopupX + 316.0f, PopupY + 330.0f), FVector2D(160.0f, 52.0f), 4);
-
+	for (int32 RowIndex = ShownCount; RowIndex < MaxRows; ++RowIndex)
+	{
+		Page->SetShown(Page->Get<UWidget>(IndexedName(TEXT("BuffListDefinitionRow"), RowIndex)), false);
+	}
 	UE_LOG(
 		LogTemp,
 		Display,
@@ -3562,293 +2859,81 @@ void URokUnityModalWidget::BuildBuffList()
 		bReferenceBuffListCaptureState ? TEXT("local_fixture") : TEXT("server"));
 }
 
-UCanvasPanel* URokUnityModalWidget::MakeResourceRow(
-	int32 RowIndex,
-	int32 Amount,
-	int32 Quality,
-	int32 OwnedCount,
-	int32 ShortcutPrice,
-	const FText& ResourceName,
-	const FIntRect& ItemIconRect)
-{
-	UCanvasPanel* Row = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), *FString::Printf(TEXT("ResourceRow_%d"), RowIndex));
-	PlaceOnCanvas(Row, MakeAtlasBorder(*FString::Printf(TEXT("ResourceRowBackground_%d"), RowIndex), CommonAtlasPath, ResourceRowRect, CommonAtlasSize, FVector2D(988.0f, 145.0f), ResourceRowMargin), FVector2D(0.0f, 14.5f), FVector2D(988.0f, 145.0f));
-	const int32 QualityIndex = FMath::Clamp(Quality - 1, 0, 2);
-	PlaceOnCanvas(Row, MakeAtlasImage(*FString::Printf(TEXT("ResourceQuality_%d"), RowIndex), Item0AtlasPath, ItemQualityRects[QualityIndex], Item0AtlasSize, FVector2D(134.0f)), FVector2D(10.0f, 20.0f), FVector2D(134.0f), 1);
-	PlaceOnCanvas(Row, MakeAtlasImage(*FString::Printf(TEXT("ResourceItemIcon_%d"), RowIndex), Item1AtlasPath, ItemIconRect, Item1AtlasSize, FVector2D(120.0f)), FVector2D(17.0f, 27.0f), FVector2D(120.0f), 2);
-	PlaceOnCanvas(Row, MakeAtlasBorder(*FString::Printf(TEXT("ResourceAmountStrip_%d"), RowIndex), CommonAtlasPath, ItemAmountStripRect, CommonAtlasSize, FVector2D(120.0f, 26.12f), FMargin(43.0f / 120.0f, 0.0f, 41.0f / 120.0f, 0.0f)), FVector2D(17.0f, 25.4f), FVector2D(120.0f, 26.12f), 3);
-	UTextBlock* AmountBadge = MakeModalText(*FString::Printf(TEXT("ResourceAmountBadge_%d"), RowIndex), 15, FLinearColor::White, true, ETextJustify::Center);
-	AmountBadge->SetText(FormatNumber(Amount));
-	PlaceOnCanvas(Row, AmountBadge, FVector2D(17.0f, 24.0f), FVector2D(120.0f, 27.0f), 4);
-
-	UTextBlock* NameText = MakeModalText(*FString::Printf(TEXT("ResourceName_%d"), RowIndex), 24, FLinearColor(0.28f, 0.22f, 0.14f, 1.0f), true);
-	NameText->SetText(FText::Format(NSLOCTEXT("RokModal", "ResourceItemName", "{0} {1}"), FormatNumber(Amount), ResourceName));
-	PlaceOnCanvas(Row, NameText, FVector2D(158.4f, 35.2f), FVector2D(590.0f, 27.2f), 2);
-	UTextBlock* Description = MakeModalText(*FString::Printf(TEXT("ResourceDescription_%d"), RowIndex), 20, FLinearColor(0.34f, 0.3f, 0.24f, 1.0f));
-	Description->SetText(FText::Format(NSLOCTEXT("RokModal", "ResourceDescription", "使用后获得{0}{1}"), FormatNumber(Amount), ResourceName));
-	PlaceOnCanvas(Row, Description, FVector2D(158.4f, 72.1f), FVector2D(590.0f, 27.2f), 2);
-	if (OwnedCount > 0)
-	{
-		UTextBlock* CountText = MakeModalText(*FString::Printf(TEXT("ResourceOwned_%d"), RowIndex), 20, FLinearColor(0.34f, 0.3f, 0.24f, 1.0f));
-		CountText->SetText(FText::Format(NSLOCTEXT("RokModal", "OwnedCount", "拥有数量:{0}"), FText::AsNumber(OwnedCount)));
-		PlaceOnCanvas(Row, CountText, FVector2D(158.4f, 106.4f), FVector2D(590.0f, 27.2f), 2);
-		UButton* UseButton = MakeTextAtlasButton(*FString::Printf(TEXT("ResourceUseButton_%d"), RowIndex), CommonAtlasPath, ResourceBlueButtonRect, CommonAtlasSize, FVector2D(202.0f, 84.0f), NSLOCTEXT("RokModal", "Use", "使用"), 26, FLinearColor::White);
-		UseButton->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandlePreviewItemAction);
-		PlaceOnCanvas(Row, UseButton, FVector2D(753.0f, 48.0f), FVector2D(202.0f, 84.0f), 3);
-	}
-	else
-	{
-		UButton* BuyButton = MakeTextAtlasButton(*FString::Printf(TEXT("ResourceBuyButton_%d"), RowIndex), CommonAtlasPath, ResourceGoldButtonRect, CommonAtlasSize, FVector2D(202.0f, 84.0f), NSLOCTEXT("RokModal", "BuyAndUse", "购买并使用"), 21, FLinearColor::White, FText::AsNumber(ShortcutPrice));
-		BuyButton->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandlePreviewItemAction);
-		PlaceOnCanvas(Row, BuyButton, FVector2D(753.0f, 48.0f), FVector2D(202.0f, 84.0f), 3);
-		PlaceOnCanvas(Row, MakeAtlasImage(*FString::Printf(TEXT("ResourceGem_%d"), RowIndex), CommonAtlasPath, GemCurrencyRect, CommonAtlasSize, FVector2D(28.0f)), FVector2D(822.0f, 91.0f), FVector2D(28.0f), 5);
-	}
-	return Row;
-}
-
-UButton* URokUnityModalWidget::MakeResourceTab(int32 CategoryIndex, bool bSelected)
-{
-	UButton* Button = WidgetTree->ConstructWidget<URokUiAnimatedButton>(URokUiAnimatedButton::StaticClass(), *FString::Printf(TEXT("ResourceTab_%d"), CategoryIndex));
-	FSlateBrush NoBrush;
-	NoBrush.DrawAs = ESlateBrushDrawType::NoDrawType;
-	FButtonStyle Style;
-	Style.SetNormal(NoBrush);
-	Style.SetHovered(NoBrush);
-	Style.SetPressed(NoBrush);
-	Style.SetDisabled(NoBrush);
-	Style.SetNormalPadding(FMargin(0.0f));
-	Style.SetPressedPadding(FMargin(0.0f));
-	Button->SetStyle(Style);
-	UCanvasPanel* Content = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), *FString::Printf(TEXT("ResourceTabContent_%d"), CategoryIndex));
-	Button->SetContent(Content);
-	if (bSelected)
-	{
-		PlaceOnCanvas(Content, MakeAtlasImage(*FString::Printf(TEXT("ResourceTabSelected_%d"), CategoryIndex), CommonAtlasPath, TabSelectedRect, CommonAtlasSize, FVector2D(144.0f, 103.0f)), FVector2D(0.0f, -2.0f), FVector2D(144.0f, 103.0f));
-		PlaceOnCanvas(Content, MakeAtlasImage(*FString::Printf(TEXT("ResourceTabIconSelected_%d"), CategoryIndex), PageAtlasPath, TabIconRects[CategoryIndex][0], PageAtlasSize, FVector2D(60.0f)), FVector2D(31.0f, 19.0f), FVector2D(60.0f), 1);
-	}
-	else
-	{
-		PlaceOnCanvas(Content, MakeAtlasImage(*FString::Printf(TEXT("ResourceTabDark_%d"), CategoryIndex), CommonAtlasPath, TabDarkRect, CommonAtlasSize, FVector2D(121.0f, 102.0f)), FVector2D(0.0f, -1.0f), FVector2D(121.0f, 102.0f));
-		PlaceOnCanvas(Content, MakeAtlasImage(*FString::Printf(TEXT("ResourceTabIconDark_%d"), CategoryIndex), PageAtlasPath, TabIconRects[CategoryIndex][1], PageAtlasSize, FVector2D(60.0f)), FVector2D(31.0f, 19.0f), FVector2D(60.0f), 1);
-	}
-	return Button;
-}
-
 void URokUnityModalWidget::BuildGainEffect()
 {
-	// UI_Win_GainEffect.prefab (1440x810): `content` 1000x607.8, `sv_list_view`
-	// 968x543.2 and the vertical `page` tab column 141x563. The Type2 frame
-	// supplies the window chrome; the list and tabs sit inside it.
-	constexpr float ListX = 212.0f;
-	constexpr float ListY = 214.0f;
-	constexpr float ListWidth = 700.0f;
-	constexpr float TabX = 948.0f;
-	const FVector2D TabSize(286.0f, 62.0f);
-
-	GainEffectListRoot = WidgetTree->ConstructWidget<UCanvasPanel>(
-		UCanvasPanel::StaticClass(), TEXT("GainEffectListRoot"));
-	GainEffectListRoot->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-	PlaceOnCanvas(ModeCanvas, GainEffectListRoot, FVector2D(ListX, ListY),
-		FVector2D(ListWidth, 520.0f), 3);
-
+	// UI_Win_GainEffect.prefab: the reference list (up to four economy rows, or
+	// the military notice) and the vertical economy/military tabs, laid out in
+	// the page WBP. The selected tab's tint is state, so it is applied here.
+	URokUiPageWidget* Page = MountModePage(TEXT("GainEffect"));
+	if (!Page)
+	{
+		return;
+	}
+	GainEffectListRoot = Page->Get<UCanvasPanel>(TEXT("GainEffectListRoot"));
 	for (int32 Tab = 0; Tab < 2; ++Tab)
 	{
 		const bool bSelected = Tab == GainEffectTabIndex;
-		UButton* TabButton = MakeAtlasButton(
-			*FString::Printf(TEXT("GainEffectTab_%d"), Tab),
-			CommonAtlasPath,
-			CommonPanelRect,
-			CommonAtlasSize,
-			TabSize);
-		UTextBlock* TabLabel = MakeModalText(
-			*FString::Printf(TEXT("GainEffectTabLabel_%d"), Tab),
-			21,
-			bSelected
+		if (UButton* TabButton = Page->Get<UButton>(IndexedName(TEXT("GainEffectTab"), Tab)))
+		{
+			if (Tab == 0)
+			{
+				TabButton->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleGainEffectEconomyTab);
+			}
+			else
+			{
+				TabButton->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleGainEffectMilitaryTab);
+			}
+		}
+		if (UTextBlock* Label = Page->Get<UTextBlock>(IndexedName(TEXT("GainEffectTabLabel"), Tab)))
+		{
+			Label->SetColorAndOpacity(FSlateColor(bSelected
 				? FLinearColor(1.0f, 0.86f, 0.42f, 1.0f)
-				: FLinearColor(0.46f, 0.40f, 0.31f, 1.0f),
-			true,
-			ETextJustify::Center);
-		TabLabel->SetText(Tab == 0
-			? NSLOCTEXT("RokModal", "GainEffectEconomy", "经济")
-			: NSLOCTEXT("RokModal", "GainEffectMilitary", "军事"));
-		// MakeAtlasButton puts its plate in the button content; setting the label
-		// directly replaced it, so rebuild the content as plate + caption.
-		UCanvasPanel* TabContent = WidgetTree->ConstructWidget<UCanvasPanel>(
-			UCanvasPanel::StaticClass(),
-			*FString::Printf(TEXT("GainEffectTabContent_%d"), Tab));
-		UImage* TabPlate = MakeAtlasImage(
-			*FString::Printf(TEXT("GainEffectTabPlate_%d"), Tab),
-			CommonAtlasPath,
-			CommonPanelRect,
-			CommonAtlasSize,
-			TabSize);
-		TabPlate->SetColorAndOpacity(bSelected
-			? FLinearColor(1.0f, 0.92f, 0.68f, 1.0f)
-			: FLinearColor(0.72f, 0.70f, 0.66f, 1.0f));
-		PlaceOnCanvas(TabContent, TabPlate, FVector2D::ZeroVector, TabSize);
-		PlaceOnCanvas(TabContent, TabLabel, FVector2D(0.0f, (TabSize.Y - 30.0f) * 0.5f),
-			FVector2D(TabSize.X, 30.0f), 1);
-		TabButton->SetContent(TabContent);
-		if (Tab == 0)
-		{
-			TabButton->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleGainEffectEconomyTab);
+				: FLinearColor(0.46f, 0.40f, 0.31f, 1.0f)));
 		}
-		else
+		if (UImage* Plate = Page->Get<UImage>(IndexedName(TEXT("GainEffectTabPlate"), Tab)))
 		{
-			TabButton->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleGainEffectMilitaryTab);
+			Plate->SetColorAndOpacity(bSelected
+				? FLinearColor(1.0f, 0.92f, 0.68f, 1.0f)
+				: FLinearColor(0.72f, 0.70f, 0.66f, 1.0f));
 		}
-		PlaceOnCanvas(ModeCanvas, TabButton, FVector2D(TabX, ListY + Tab * 74.0f), TabSize, 4);
 	}
-
-	UTextBlock* ReferenceNotice = MakeModalText(
-		TEXT("GainEffectReferenceNotice"),
-		15,
-		FLinearColor(0.61f, 0.38f, 0.14f, 1.0f),
-		true,
-		ETextJustify::Center);
-	ReferenceNotice->SetText(NSLOCTEXT(
-		"RokModal",
-		"GainEffectReferenceNotice",
-		"城市增益静态配置预览 · 非实时/未激活"));
-	PlaceOnCanvas(ModeCanvas, ReferenceNotice, FVector2D(ListX, 744.0f),
-		FVector2D(ListWidth, 26.0f), 4);
-
 	RebuildGainEffectContent();
 }
 
 void URokUnityModalWidget::RebuildGainEffectContent()
 {
-	if (!GainEffectListRoot)
+	URokUiPageWidget* Page = ActivePage;
+	if (!Page || !GainEffectListRoot)
 	{
 		return;
 	}
-	GainEffectListRoot->ClearChildren();
-	constexpr float RowWidth = 700.0f;
-	constexpr float RowHeight = 76.0f;
-	constexpr float RowSpacing = 84.0f;
-
-	if (GainEffectTabIndex == 1)
+	// No military fixture exists: CityBuff has no military reference rows and
+	// the active state needs the server CityBuff snapshot.
+	const bool bMilitary = GainEffectTabIndex == 1;
+	Page->SetShown(Page->Get<UWidget>(TEXT("GainEffectMilitaryNotice")), bMilitary);
+	constexpr int32 MaxRows = 4;
+	const TArray<FCityBuffPreviewRow> Rows = bMilitary ? TArray<FCityBuffPreviewRow>() : LoadCityBuffPreviewRows(MaxRows);
+	const int32 Slots = CountPageSlots(Page, TEXT("GainEffectRow"), Rows.Num());
+	for (int32 RowIndex = 0; RowIndex < Slots; ++RowIndex)
 	{
-		// No military fixture exists: CityBuff has no military reference rows and
-		// the active state needs the server CityBuff snapshot.
-		UTextBlock* MilitaryNotice = MakeModalText(
-			TEXT("GainEffectMilitaryNotice"),
-			18,
-			FLinearColor(0.38f, 0.31f, 0.22f, 1.0f),
-			false,
-			ETextJustify::Center);
-		MilitaryNotice->SetAutoWrapText(true);
-		MilitaryNotice->SetText(NSLOCTEXT(
-			"RokModal",
-			"GainEffectMilitaryUnavailable",
-			"军事增益需要服务器 CityBuff 状态；当前没有可显示的参考数据。"));
-		PlaceOnCanvas(GainEffectListRoot, MilitaryNotice, FVector2D(40.0f, 120.0f),
-			FVector2D(RowWidth - 80.0f, 80.0f), 2);
-		return;
-	}
-
-	FString DefinitionJson;
-	const FString DefinitionPath = RokDataPaths::Resolve(TEXT("city_buff_reference.json"));
-	TSharedPtr<FJsonObject> DefinitionRoot;
-	const bool bManifestLoaded = FFileHelper::LoadFileToString(DefinitionJson, *DefinitionPath)
-		&& FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(DefinitionJson), DefinitionRoot)
-		&& DefinitionRoot.IsValid();
-
-	const TArray<TSharedPtr<FJsonValue>>* Definitions = nullptr;
-	FString DefinitionSchema;
-	const bool bDefinitionsValid = bManifestLoaded
-		&& DefinitionRoot->TryGetStringField(TEXT("schema"), DefinitionSchema)
-		&& DefinitionSchema == TEXT("rok.city_buff_reference.v2")
-		&& DefinitionRoot->TryGetArrayField(TEXT("definitions"), Definitions)
-		&& Definitions != nullptr;
-
-	int32 ShownCount = 0;
-	if (bDefinitionsValid)
-	{
-		for (const TSharedPtr<FJsonValue>& DefinitionValue : *Definitions)
+		const bool bShown = Rows.IsValidIndex(RowIndex);
+		Page->SetShown(Page->Get<UWidget>(IndexedName(TEXT("GainEffectRow"), RowIndex)), bShown);
+		if (bShown)
 		{
-			if (ShownCount >= 4)
-			{
-				break;
-			}
-			const TSharedPtr<FJsonObject> Definition =
-				DefinitionValue.IsValid() ? DefinitionValue->AsObject() : nullptr;
-			if (!Definition.IsValid())
-			{
-				continue;
-			}
-			double ConfigDuration = 0.0;
-			FString TitleCn;
-			FString IconAtlas;
-			const TArray<TSharedPtr<FJsonValue>>* IconRectValues = nullptr;
-			if (!Definition->TryGetNumberField(TEXT("config_duration_seconds"), ConfigDuration)
-				|| !Definition->TryGetStringField(TEXT("title_cn"), TitleCn)
-				|| !Definition->TryGetStringField(TEXT("icon_atlas"), IconAtlas)
-				|| !Definition->TryGetArrayField(TEXT("icon_rect"), IconRectValues)
-				|| ConfigDuration < 0 || IconAtlas != MainMenuAtlasPath
-				|| !IconRectValues || IconRectValues->Num() != 4)
-			{
-				continue;
-			}
-			double IconNumbers[4] = {};
-			bool bIconRectValid = true;
-			for (int32 Component = 0; Component < 4; ++Component)
-			{
-				bIconRectValid &= (*IconRectValues)[Component].IsValid()
-					&& (*IconRectValues)[Component]->TryGetNumber(IconNumbers[Component]);
-			}
-			if (!bIconRectValid || IconNumbers[0] < 0 || IconNumbers[1] < 0
-				|| IconNumbers[2] <= 0 || IconNumbers[3] <= 0
-				|| IconNumbers[0] + IconNumbers[2] > MainMenuAtlasSize.X
-				|| IconNumbers[1] + IconNumbers[3] > MainMenuAtlasSize.Y)
-			{
-				continue;
-			}
-			const int32 RowIndex = ShownCount++;
-			UCanvasPanel* Row = WidgetTree->ConstructWidget<UCanvasPanel>(
-				UCanvasPanel::StaticClass(),
-				*FString::Printf(TEXT("GainEffectRow_%d"), RowIndex));
-			PlaceOnCanvas(Row, MakeAtlasBorder(
-				*FString::Printf(TEXT("GainEffectRowBackground_%d"), RowIndex),
-				CommonAtlasPath, ResourceRowRect, CommonAtlasSize,
-				FVector2D(RowWidth, RowHeight), ResourceRowMargin),
-				FVector2D::ZeroVector, FVector2D(RowWidth, RowHeight));
-			PlaceOnCanvas(Row, MakeAtlasImage(
-				*FString::Printf(TEXT("GainEffectIcon_%d"), RowIndex),
-				MainMenuAtlasPath,
-				SpriteRect(static_cast<int32>(IconNumbers[0]), static_cast<int32>(IconNumbers[1]),
-					static_cast<int32>(IconNumbers[2]), static_cast<int32>(IconNumbers[3])),
-				MainMenuAtlasSize, FVector2D(54.0f, 54.0f)),
-				FVector2D(13.0f, 11.0f), FVector2D(54.0f, 54.0f), 1);
-
-			UTextBlock* Title = MakeModalText(
-				*FString::Printf(TEXT("GainEffectTitle_%d"), RowIndex), 18,
-				FLinearColor(0.28f, 0.22f, 0.14f, 1.0f), true);
-			Title->SetText(FText::FromString(
-				TitleCn.IsEmpty() ? FString(TEXT("名称本地化不可用")) : TitleCn));
-			PlaceOnCanvas(Row, Title, FVector2D(82.0f, 9.0f),
-				FVector2D(RowWidth - 110.0f, 27.0f), 2);
-
-			UTextBlock* StaticFields = MakeModalText(
-				*FString::Printf(TEXT("GainEffectFields_%d"), RowIndex), 13,
-				FLinearColor(0.50f, 0.43f, 0.34f, 1.0f));
-			StaticFields->SetText(FText::FromString(FString::Printf(
-				TEXT("配置时长 %d 秒（非剩余时间）"), static_cast<int32>(ConfigDuration))));
-			PlaceOnCanvas(Row, StaticFields, FVector2D(82.0f, 39.0f),
-				FVector2D(RowWidth - 110.0f, 23.0f), 2);
-			PlaceOnCanvas(GainEffectListRoot, Row,
-				FVector2D(0.0f, RowIndex * RowSpacing), FVector2D(RowWidth, RowHeight), 3);
+			SetAtlasSprite(Page->Get<UImage>(IndexedName(TEXT("GainEffectIcon"), RowIndex)),
+				MainMenuAtlasPath, Rows[RowIndex].IconRect, MainMenuAtlasSize, FVector2D(54.0f, 54.0f));
+			SetCityBuffPreviewRowText(Page, TEXT("GainEffect"), RowIndex, Rows[RowIndex]);
 		}
 	}
-	if (ShownCount == 0)
+	if (!bMilitary && Rows.IsEmpty())
 	{
+		// Only when the published configuration is missing; not part of the page.
 		UTextBlock* MissingDefinitions = MakeModalText(
 			TEXT("GainEffectDefinitionsUnavailable"), 16,
 			FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
 		MissingDefinitions->SetText(NSLOCTEXT(
 			"RokModal", "GainEffectDefinitionsUnavailable", "增益静态配置未发布或不可读取"));
-		PlaceOnCanvas(GainEffectListRoot, MissingDefinitions, FVector2D(20.0f, 120.0f),
-			FVector2D(RowWidth - 40.0f, 60.0f), 2);
+		PlaceOnCanvas(GainEffectListRoot, MissingDefinitions, FVector2D(20.0f, 120.0f), FVector2D(660.0f, 60.0f), 2);
 	}
 }
 
@@ -3926,13 +3011,9 @@ void URokUnityModalWidget::BuildBattlePassRewards()
 	// UI_Win_BattlePassRewards.prefab: 1440x810 window, `pl_mes` 910x678 with
 	// `sv_list` 1101x548. Rows come from BattlePassReward.csv (age 0, level row)
 	// and item names resolve through Item.csv -> Language.csv.
-	constexpr float RowWidth = 760.0f;
-	constexpr float RowHeight = 84.0f;
-	constexpr float RowSpacing = 92.0f;
 	constexpr int32 MaxRows = 5;
 
 	TMap<FString, FString> ItemNames;
-	TMap<FString, FString> ItemIcons;
 	FString ItemCsv;
 	if (FFileHelper::LoadFileToString(ItemCsv, *RokDataPaths::Resolve(TEXT("ConfigTables/Item.csv"))))
 	{
@@ -3998,14 +3079,13 @@ void URokUnityModalWidget::BuildBattlePassRewards()
 		return FString::Join(Described, TEXT("、"));
 	};
 
-	UTextBlock* Header = MakeModalText(TEXT("BattlePassHeader"), 18,
-		FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), true);
-	Header->SetText(NSLOCTEXT("RokModal", "BattlePassHeader",
-		"战令奖励 · 本地配置预览（未领取）"));
-	PlaceOnCanvas(ModeCanvas, Header, FVector2D(212.0f, 204.0f),
-		FVector2D(RowWidth, 28.0f), 3);
-
-	int32 Shown = 0;
+	struct FBattlePassRow
+	{
+		int32 Level = 0;
+		FString Free;
+		FString Super;
+	};
+	TArray<FBattlePassRow> Rows;
 	FString Csv;
 	TArray<FString> Lines;
 	if (FFileHelper::LoadFileToString(Csv, *RokDataPaths::Resolve(TEXT("ConfigTables/BattlePassReward.csv")))
@@ -4032,7 +3112,7 @@ void URokUnityModalWidget::BuildBattlePassRewards()
 				FMath::Max(RewardColumn, SuperColumn));
 			if (Required != INDEX_NONE)
 			{
-				for (int32 LineIndex = 1; LineIndex < Lines.Num() && Shown < MaxRows; ++LineIndex)
+				for (int32 LineIndex = 1; LineIndex < Lines.Num() && Rows.Num() < MaxRows; ++LineIndex)
 				{
 					TArray<FString> Fields;
 					SplitRokCsvLine(Lines[LineIndex], Fields);
@@ -4045,71 +3125,52 @@ void URokUnityModalWidget::BuildBattlePassRewards()
 					{
 						continue;
 					}
-					const FString FreeReward = DescribeReward(Fields[RewardColumn]);
-					if (FreeReward.IsEmpty())
+					FBattlePassRow Row;
+					Row.Level = Level;
+					Row.Free = DescribeReward(Fields[RewardColumn]);
+					if (Row.Free.IsEmpty())
 					{
 						continue;
 					}
-					const FString SuperReward = DescribeReward(Fields[SuperColumn]);
-
-					const int32 RowIndex = Shown++;
-					UCanvasPanel* Row = WidgetTree->ConstructWidget<UCanvasPanel>(
-						UCanvasPanel::StaticClass(),
-						*FString::Printf(TEXT("BattlePassRow_%d"), RowIndex));
-					PlaceOnCanvas(Row, MakeAtlasBorder(
-						*FString::Printf(TEXT("BattlePassRowBackground_%d"), RowIndex),
-						CommonAtlasPath, ResourceRowRect, CommonAtlasSize,
-						FVector2D(RowWidth, RowHeight), ResourceRowMargin),
-						FVector2D::ZeroVector, FVector2D(RowWidth, RowHeight));
-
-					UTextBlock* LevelText = MakeModalText(
-						*FString::Printf(TEXT("BattlePassRowLevel_%d"), RowIndex), 18,
-						FLinearColor(0.28f, 0.22f, 0.14f, 1.0f), true);
-					LevelText->SetText(FText::FromString(FString::Printf(TEXT("等级 %d"), Level)));
-					PlaceOnCanvas(Row, LevelText, FVector2D(16.0f, 10.0f),
-						FVector2D(130.0f, 26.0f), 2);
-
-					UTextBlock* FreeText = MakeModalText(
-						*FString::Printf(TEXT("BattlePassRowFree_%d"), RowIndex), 14,
-						FLinearColor(0.50f, 0.43f, 0.34f, 1.0f));
-					FreeText->SetText(FText::FromString(FString(TEXT("免费  ")) + FreeReward));
-					PlaceOnCanvas(Row, FreeText, FVector2D(16.0f, 40.0f),
-						FVector2D(RowWidth - 40.0f, 22.0f), 2);
-
-					UTextBlock* SuperText = MakeModalText(
-						*FString::Printf(TEXT("BattlePassRowSuper_%d"), RowIndex), 14,
-						FLinearColor(0.61f, 0.38f, 0.14f, 1.0f));
-					SuperText->SetText(FText::FromString(
-						SuperReward.IsEmpty()
-							? FString(TEXT("进阶  —"))
-							: FString(TEXT("进阶  ") + SuperReward)));
-					PlaceOnCanvas(Row, SuperText, FVector2D(16.0f, 58.0f),
-						FVector2D(RowWidth - 40.0f, 22.0f), 2);
-
-					PlaceOnCanvas(ModeCanvas, Row,
-						FVector2D(212.0f, 242.0f + RowIndex * RowSpacing),
-						FVector2D(RowWidth, RowHeight), 3);
+					Row.Super = DescribeReward(Fields[SuperColumn]);
+					Rows.Add(MoveTemp(Row));
 				}
 			}
 		}
 	}
-	if (Shown == 0)
+
+	// Header, the five row plates and the note live in the page WBP.
+	URokUiPageWidget* Page = MountModePage(TEXT("BattlePassRewards"));
+	if (!Page)
 	{
-		UTextBlock* Missing = MakeModalText(TEXT("BattlePassUnavailable"), 16,
-			FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
-		Missing->SetText(NSLOCTEXT("RokModal", "BattlePassUnavailable",
-			"战令奖励配置未发布或不可读取"));
-		PlaceOnCanvas(ModeCanvas, Missing, FVector2D(212.0f, 300.0f),
-			FVector2D(RowWidth, 60.0f), 3);
+		return;
 	}
-	else
+	for (int32 RowIndex = 0; RowIndex < MaxRows; ++RowIndex)
 	{
-		UTextBlock* Note = MakeModalText(TEXT("BattlePassNote"), 14,
-			FLinearColor(0.61f, 0.38f, 0.14f, 1.0f), false, ETextJustify::Center);
-		Note->SetText(NSLOCTEXT("RokModal", "BattlePassNote",
-			"仅显示当前时代前 6 级 · 领取需要服务器战令进度"));
-		PlaceOnCanvas(ModeCanvas, Note, FVector2D(212.0f, 748.0f),
-			FVector2D(RowWidth, 26.0f), 3);
+		Page->SetShown(Page->Get<UWidget>(IndexedName(TEXT("BattlePassRow"), RowIndex)), Rows.IsValidIndex(RowIndex));
+		if (!Rows.IsValidIndex(RowIndex))
+		{
+			continue;
+		}
+		const FBattlePassRow& Row = Rows[RowIndex];
+		SetPageText(Page, IndexedName(TEXT("BattlePassRowLevel"), RowIndex),
+			FText::FromString(FString::Printf(TEXT("等级 %d"), Row.Level)));
+		SetPageText(Page, IndexedName(TEXT("BattlePassRowFree"), RowIndex),
+			FText::FromString(FString(TEXT("免费  ")) + Row.Free));
+		SetPageText(Page, IndexedName(TEXT("BattlePassRowSuper"), RowIndex), FText::FromString(
+			Row.Super.IsEmpty() ? FString(TEXT("进阶  —")) : FString(TEXT("进阶  ")) + Row.Super));
+	}
+	Page->SetShown(Page->Get<UWidget>(TEXT("BattlePassNote")), !Rows.IsEmpty());
+	if (Rows.IsEmpty())
+	{
+		if (UCanvasPanel* PageCanvas = Cast<UCanvasPanel>(Page->GetRootWidget()))
+		{
+			UTextBlock* Missing = MakeModalText(TEXT("BattlePassUnavailable"), 16,
+				FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
+			Missing->SetText(NSLOCTEXT("RokModal", "BattlePassUnavailable",
+				"战令奖励配置未发布或不可读取"));
+			PlaceOnCanvas(PageCanvas, Missing, FVector2D(212.0f, 300.0f), FVector2D(760.0f, 60.0f), 3);
+		}
 	}
 }
 
@@ -4133,6 +3194,38 @@ void URokUnityModalWidget::BuildDefinitionList(
 	bActiveRowsWrap = bWrapDetail;
 	ActiveListColumns = FMath::Max(1, Columns);
 	const int32 MaxRows = 200;
+
+	const URokUiSettings* UiSettings = GetDefault<URokUiSettings>();
+	// Three list WBPs exist: list, list + search, 3-column grid + search; all
+	// laid out for 700-wide rows like every caller today. Anything else keeps the C++ build.
+	UClass* ListClass = nullptr;
+	if (RowWidth == 700.0f)
+	{
+		if (Columns <= 1)
+		{
+			ListClass = URokUiSettings::Resolve(bWithSearch ? UiSettings->DefinitionListWithSearch : UiSettings->DefinitionList);
+		}
+		else if (Columns == 3 && bWithSearch)
+		{
+			ListClass = URokUiSettings::Resolve(UiSettings->DefinitionGridWithSearch);
+		}
+	}
+	if (ListClass)
+	{
+		URokDefinitionListWidget* List = CreateWidget<URokDefinitionListWidget>(this, ListClass);
+		List->LegacyPrefix = WidgetPrefix;
+		List->Header->SetText(Header);
+		List->Footer->SetText(Footer);
+		if (List->Search)
+		{
+			List->Search->OnTextChanged.AddUniqueDynamic(this, &URokUnityModalWidget::HandleDefinitionFilterChanged);
+		}
+		ActiveListCanvas = List->ScrollContent;
+		ActiveListSize = List->ScrollSize;
+		MountFullPiece(List, 1);
+		PopulateDefinitionRows();
+		return;
+	}
 
 	UTextBlock* HeaderText = MakeModalText(
 		*FString::Printf(TEXT("%sHeader"), *WidgetPrefix), 18,
@@ -4191,7 +3284,17 @@ void URokUnityModalWidget::PopulateDefinitionRows()
 	{
 		return;
 	}
+	const TArray<UWidget*> OldRows = ActiveListCanvas->GetAllChildren();
 	ActiveListCanvas->ClearChildren();
+	for (UWidget* OldRow : OldRows)
+	{
+		// WBP rows are user widgets; free their names for the refilled rows.
+		if (OldRow && OldRow->IsA<UUserWidget>())
+		{
+			RokUiFind::Retire(OldRow);
+		}
+	}
+	const URokUiSettings* UiSettings = GetDefault<URokUiSettings>();
 	const int32 MaxRows = 200;
 	const int32 Columns = FMath::Max(1, ActiveListColumns);
 	const float GapX = 8.0f;
@@ -4235,6 +3338,48 @@ void URokUnityModalWidget::PopulateDefinitionRows()
 			Column * (CardWidth + GapX),
 			RowIndex * (CardHeight + GapY));
 
+		UTexture2D* IconSheet = nullptr;
+		FBox2D IconUv(ForceInit);
+		ResolveDefinitionIcon(RowData.Icon, IconSheet, IconUv);
+		UClass* RowClass = nullptr;
+		if (Columns <= 1)
+		{
+			RowClass = URokUiSettings::Resolve(IconSheet ? UiSettings->DefinitionRowWithIcon : UiSettings->DefinitionRow);
+		}
+		else if (IconSheet)
+		{
+			RowClass = URokUiSettings::Resolve(UiSettings->DefinitionCardWithIcon);
+		}
+		if (RowClass)
+		{
+			const FName RowName(*FString::Printf(TEXT("%sRow_%d"), *ActiveListPrefix, Shown));
+			// A C++-built row of the same name may still sit in the same widget tree.
+			if (UObject* Existing = StaticFindObjectFast(nullptr, ActiveListCanvas->GetOuter(), RowName))
+			{
+				RokUiFind::Retire(Existing);
+			}
+			URokDefinitionRowWidget* RowWidget = CreateWidget<URokDefinitionRowWidget>(ActiveListCanvas, RowClass, RowName);
+			RowWidget->LegacyPrefix = ActiveListPrefix;
+			RowWidget->LegacySuffix = FString::Printf(TEXT("_%d"), Shown);
+			RowWidget->RowTitle->SetText(FText::FromString(RowData.Title));
+			SetOptionalRowText(RowWidget->RowDetail, RowData.Detail);
+			if (RowWidget->RowDetail && bActiveRowsWrap)
+			{
+				RowWidget->RowDetail->SetAutoWrapText(true);
+			}
+			SetOptionalRowText(RowWidget->RowTag, RowData.Tag);
+			if (RowWidget->RowIcon && IconSheet)
+			{
+				FSlateBrush Brush = RowWidget->RowIcon->GetBrush();
+				Brush.SetResourceObject(IconSheet);
+				Brush.SetUVRegion(IconUv);
+				RowWidget->RowIcon->SetBrush(Brush);
+			}
+			PlaceOnCanvas(ActiveListCanvas, RowWidget, Offset, FVector2D(CardWidth, CardHeight), 3);
+			++Shown;
+			continue;
+		}
+
 		UCanvasPanel* Row = WidgetTree->ConstructWidget<UCanvasPanel>(
 			UCanvasPanel::StaticClass(),
 			*FString::Printf(TEXT("%sRow_%d"), *ActiveListPrefix, Shown));
@@ -4246,40 +3391,19 @@ void URokUnityModalWidget::PopulateDefinitionRows()
 
 		// Icon column: resolved from the `.tpsheet` manifest, decoded once.
 		float TextLeft = 12.0f;
-		if (!RowData.Icon.IsEmpty())
+		if (IconSheet)
 		{
-			static TSharedPtr<FRokSpriteAtlas> IconAtlas;
-			if (!IconAtlas.IsValid())
-			{
-				IconAtlas = MakeShared<FRokSpriteAtlas>();
-				IconAtlas->LoadAll();
-			}
-			FRokSpriteRect SpriteRect;
-			if (IconAtlas->Resolve(RowData.Icon, SpriteRect))
-			{
-				if (UTexture2D* Sheet = IconAtlas->GetSheetTexture(SpriteRect.SheetPng))
-				{
-					UImage* Icon = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(),
-						*FString::Printf(TEXT("%sRowIcon_%d"), *ActiveListPrefix, Shown));
-					FSlateBrush Brush;
-					Brush.SetResourceObject(Sheet);
-					Brush.ImageSize = FVector2D(Columns > 1 ? 52.0f : 40.0f, Columns > 1 ? 52.0f : 40.0f);
-					Brush.DrawAs = ESlateBrushDrawType::Image;
-					if (SpriteRect.SheetWidth > 0 && SpriteRect.SheetHeight > 0)
-					{
-						const float U0 = static_cast<float>(SpriteRect.X) / SpriteRect.SheetWidth;
-						// Unity tpsheet rects are measured from the bottom; UE V=0 is the top.
-						const float V0 = static_cast<float>(SpriteRect.SheetHeight - SpriteRect.Y - SpriteRect.Height) / SpriteRect.SheetHeight;
-						const float V1 = static_cast<float>(SpriteRect.SheetHeight - SpriteRect.Y) / SpriteRect.SheetHeight;
-						const float U1 = static_cast<float>(SpriteRect.X + SpriteRect.Width) / SpriteRect.SheetWidth;
-						Brush.SetUVRegion(FBox2D(FVector2D(U0, V0), FVector2D(U1, V1)));
-					}
-					Icon->SetBrush(Brush);
-					PlaceOnCanvas(Row, Icon, FVector2D(8.0f, 8.0f),
-						FVector2D(Columns > 1 ? 52.0f : 40.0f, Columns > 1 ? 52.0f : 40.0f), 2);
-					TextLeft = Columns > 1 ? 66.0f : 56.0f;
-				}
-			}
+			UImage* Icon = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(),
+				*FString::Printf(TEXT("%sRowIcon_%d"), *ActiveListPrefix, Shown));
+			FSlateBrush Brush;
+			Brush.SetResourceObject(IconSheet);
+			Brush.ImageSize = FVector2D(Columns > 1 ? 52.0f : 40.0f, Columns > 1 ? 52.0f : 40.0f);
+			Brush.DrawAs = ESlateBrushDrawType::Image;
+			Brush.SetUVRegion(IconUv);
+			Icon->SetBrush(Brush);
+			PlaceOnCanvas(Row, Icon, FVector2D(8.0f, 8.0f),
+				FVector2D(Columns > 1 ? 52.0f : 40.0f, Columns > 1 ? 52.0f : 40.0f), 2);
+			TextLeft = Columns > 1 ? 66.0f : 56.0f;
 		}
 		UTextBlock* Title = MakeModalText(
 			*FString::Printf(TEXT("%sRowTitle_%d"), *ActiveListPrefix, Shown), Columns > 1 ? 14 : 18,
@@ -4333,7 +3457,7 @@ void URokUnityModalWidget::SetDefinitionFilter(const FString& Filter)
 	// The compendium footer reports the active filter and the rendered count.
 	if (ActiveListPrefix == TEXT("ItemCollection"))
 	{
-		if (UTextBlock* Footer = Cast<UTextBlock>(GetWidgetFromName(TEXT("ItemCollectionFooter"))))
+		if (UTextBlock* Footer = Cast<UTextBlock>(RokUiFind::Find(this, TEXT("ItemCollectionFooter"))))
 		{
 			Footer->SetText(FText::FromString(ActiveListFilter.IsEmpty()
 				? FString::Printf(TEXT("共 %d 件（显示前 200）· 持有与使用需服务器背包"), ItemCollectionTotal)
@@ -4716,45 +3840,22 @@ void URokUnityModalWidget::BuildVipPrivilege()
 
 void URokUnityModalWidget::BuildUiGallery()
 {
-	const TCHAR* Labels[] = {
-		TEXT("增益效果"), TEXT("战令奖励"), TEXT("活动日程"), TEXT("联盟权限"),
-		TEXT("剧情章节"), TEXT("联盟堡垒"), TEXT("道具图鉴"), TEXT("贵宾商店"),
-		TEXT("酒馆概率"), TEXT("城墙"), TEXT("警戒塔"), TEXT("联盟商店"),
-		TEXT("限时礼包"), TEXT("充值礼包"), TEXT("远征商店"), TEXT("酒馆奖励"),
-		TEXT("功能引导"), TEXT("联盟礼物"), TEXT("自选宝箱"),
-	};
-	constexpr int32 Columns = 4;
-	constexpr float ButtonWidth = 210.0f;
-	constexpr float ButtonHeight = 56.0f;
-	constexpr float GapX = 24.0f;
-	constexpr float GapY = 18.0f;
-	const int32 Count = UE_ARRAY_COUNT(Labels);
-	for (int32 Index = 0; Index < Count; ++Index)
+	// Developer gallery: the 19 entry buttons (URokGalleryButton, EntryIndex set
+	// in the page) open the same windows as their -RokOpenModal= switches.
+	URokUiPageWidget* Page = MountModePage(TEXT("UiGallery"));
+	if (!Page)
 	{
-		const int32 Column = Index % Columns;
-		const int32 Row = Index / Columns;
-		const FVector2D Position(
-			212.0f + Column * (ButtonWidth + GapX),
-			250.0f + Row * (ButtonHeight + GapY));
-		URokGalleryButton* Button = WidgetTree->ConstructWidget<URokGalleryButton>(
-			URokGalleryButton::StaticClass(),
-			*FString::Printf(TEXT("GalleryButton_%d"), Index));
-		Button->EntryIndex = Index;
-		Button->OnClicked.AddDynamic(Button, &URokGalleryButton::HandleClicked);
-		Button->OnGalleryEntryClicked.AddDynamic(this, &URokUnityModalWidget::HandleUiGalleryEntry);
-		UTextBlock* Label = MakeModalText(
-			*FString::Printf(TEXT("GalleryLabel_%d"), Index), 20,
-			FLinearColor(0.95f, 0.90f, 0.78f, 1.0f), true, ETextJustify::Center);
-		Label->SetText(FText::FromString(Labels[Index]));
-		Button->SetContent(Label);
-		PlaceOnCanvas(ModeCanvas, Button, Position, FVector2D(ButtonWidth, ButtonHeight), 3);
+		return;
 	}
-	UTextBlock* Note = MakeModalText(TEXT("UiGalleryNote"), 14,
-		FLinearColor(0.61f, 0.38f, 0.14f, 1.0f), false, ETextJustify::Center);
-	Note->SetText(NSLOCTEXT("RokModal", "UiGalleryNote",
-		"开发用界面一览：每个窗口仍以各自命令行开关为准"));
-	PlaceOnCanvas(ModeCanvas, Note, FVector2D(212.0f, 748.0f),
-		FVector2D(900.0f, 26.0f), 3);
+	constexpr int32 EntryCount = 19;
+	for (int32 Index = 0; Index < EntryCount; ++Index)
+	{
+		if (URokGalleryButton* Button = Page->Get<URokGalleryButton>(IndexedName(TEXT("GalleryButton"), Index)))
+		{
+			Button->OnClicked.AddDynamic(Button, &URokGalleryButton::HandleClicked);
+			Button->OnGalleryEntryClicked.AddDynamic(this, &URokUnityModalWidget::HandleUiGalleryEntry);
+		}
+	}
 }
 
 void URokUnityModalWidget::HandleUiGalleryEntry(int32 EntryIndex)
@@ -4843,41 +3944,28 @@ void URokUnityModalWidget::BuildItemExchange()
 		return;
 	}
 
-	// Left: the entry list (scrolled, no search — the stepper needs the rows).
-	UScrollBox* Scroll = WidgetTree->ConstructWidget<UScrollBox>(
-		UScrollBox::StaticClass(), TEXT("ItemExchangeScroll"));
-	Scroll->SetScrollBarVisibility(ESlateVisibility::Collapsed);
-	Scroll->SetConsumeMouseWheel(EConsumeMouseWheel::Always);
-	PlaceOnCanvas(ModeCanvas, Scroll, FVector2D(206.0f, 238.0f),
-		FVector2D(452.0f, 470.0f), 3);
-	UCanvasPanel* Canvas = WidgetTree->ConstructWidget<UCanvasPanel>(
-		UCanvasPanel::StaticClass(), TEXT("ItemExchangeScrollContent"));
-	USizeBox* Size = WidgetTree->ConstructWidget<USizeBox>(
-		USizeBox::StaticClass(), TEXT("ItemExchangeScrollSize"));
-	Size->SetWidthOverride(452.0f);
-	Size->SetHeightOverride(Rows.Num() * 60.0f);
-	Size->SetContent(Canvas);
-	Scroll->AddChild(Size);
+	// The scroll, stepper and footer live in the page WBP; each entry is a row WBP.
+	URokUiPageWidget* Page = MountModePage(TEXT("ItemExchange"));
+	if (!Page)
+	{
+		return;
+	}
+	if (USizeBox* Size = Page->Get<USizeBox>(TEXT("ItemExchangeScrollSize")))
+	{
+		Size->SetHeightOverride(Rows.Num() * 60.0f);
+	}
+	UCanvasPanel* Canvas = Page->Get<UCanvasPanel>(TEXT("ItemExchangeScrollContent"));
 	for (int32 Index = 0; Index < Rows.Num(); ++Index)
 	{
-		UCanvasPanel* Row = WidgetTree->ConstructWidget<UCanvasPanel>(
-			UCanvasPanel::StaticClass(), *FString::Printf(TEXT("ItemExchangeRow_%d"), Index));
-		PlaceOnCanvas(Row, MakeAtlasBorder(
-			*FString::Printf(TEXT("ItemExchangeRowBackground_%d"), Index),
-			CommonAtlasPath, ResourceRowRect, CommonAtlasSize,
-			FVector2D(440.0f, 52.0f), ResourceRowMargin),
-			FVector2D::ZeroVector, FVector2D(440.0f, 52.0f));
-		UTextBlock* Title = MakeModalText(
-			*FString::Printf(TEXT("ItemExchangeRowTitle_%d"), Index), 17,
-			FLinearColor(0.28f, 0.22f, 0.14f, 1.0f), true);
-		Title->SetText(FText::FromString(Rows[Index].Title));
-		PlaceOnCanvas(Row, Title, FVector2D(14.0f, 6.0f), FVector2D(300.0f, 24.0f), 2);
-		UTextBlock* Detail = MakeModalText(
-			*FString::Printf(TEXT("ItemExchangeRowDetail_%d"), Index), 12,
-			FLinearColor(0.50f, 0.43f, 0.34f, 1.0f));
-		Detail->SetText(FText::FromString(Rows[Index].Detail));
-		PlaceOnCanvas(Row, Detail, FVector2D(14.0f, 30.0f), FVector2D(300.0f, 20.0f), 2);
-		PlaceOnCanvas(Canvas, Row, FVector2D(0.0f, Index * 60.0f), FVector2D(440.0f, 52.0f), 3);
+		const FString Suffix = FString::Printf(TEXT("_%d"), Index);
+		URokUiPageWidget* Row = MountItem(TEXT("ItemExchangeRow"), Canvas, *(TEXT("ItemExchangeRow") + Suffix),
+			FVector2D(0.0f, Index * 60.0f), FVector2D(440.0f, 52.0f), 3, TEXT("ItemExchange"), Suffix);
+		if (!Row)
+		{
+			break;
+		}
+		SetPageText(Row, TEXT("RowTitle"), FText::FromString(Rows[Index].Title));
+		SetPageText(Row, TEXT("RowDetail"), FText::FromString(Rows[Index].Detail));
 	}
 
 	// Right: selection + quantity stepper (`btn_substract` / `ipt_num` / `btn_add`).
@@ -4886,55 +3974,16 @@ void URokUnityModalWidget::BuildItemExchange()
 		ItemExchangeIndex = 0;
 	}
 	ItemExchangeCount = FMath::Clamp(ItemExchangeCount, 1, 99);
-
-	UTextBlock* Name = MakeModalText(TEXT("ItemExchangeSelectedName"), 17,
-		FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), true);
-	PlaceOnCanvas(ModeCanvas, Name, FVector2D(690.0f, 250.0f),
-		FVector2D(320.0f, 26.0f), 3);
-
-	UButton* Minus = MakeAtlasButton(TEXT("ItemExchangeMinus"),
-		CommonAtlasPath, CommonPanelRect, CommonAtlasSize, FVector2D(56.0f, 46.0f));
-	UTextBlock* MinusLabel = MakeModalText(TEXT("ItemExchangeMinusLabel"), 22,
-		FLinearColor(0.95f, 0.90f, 0.78f, 1.0f), true, ETextJustify::Center);
-	MinusLabel->SetText(FText::FromString(TEXT("−")));
-	Minus->SetContent(MinusLabel);
-	Minus->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleExchangeMinus);
-	PlaceOnCanvas(ModeCanvas, MakeAtlasBorder(TEXT("ItemExchangeMinusPlate"),
-		CommonAtlasPath, CommonPanelRect, CommonAtlasSize,
-		FVector2D(56.0f, 46.0f), ResourceRowMargin),
-		FVector2D(690.0f, 300.0f), FVector2D(56.0f, 46.0f), 3);
-	PlaceOnCanvas(ModeCanvas, Minus, FVector2D(690.0f, 300.0f), FVector2D(56.0f, 46.0f), 4);
-
-	UTextBlock* Count = MakeModalText(TEXT("ItemExchangeCount"), 22,
-		FLinearColor(0.28f, 0.22f, 0.14f, 1.0f), true, ETextJustify::Center);
-	PlaceOnCanvas(ModeCanvas, Count, FVector2D(752.0f, 300.0f),
-		FVector2D(80.0f, 46.0f), 3);
-
-	UButton* Plus = MakeAtlasButton(TEXT("ItemExchangePlus"),
-		CommonAtlasPath, CommonPanelRect, CommonAtlasSize, FVector2D(56.0f, 46.0f));
-	UTextBlock* PlusLabel = MakeModalText(TEXT("ItemExchangePlusLabel"), 22,
-		FLinearColor(0.95f, 0.90f, 0.78f, 1.0f), true, ETextJustify::Center);
-	PlusLabel->SetText(FText::FromString(TEXT("+")));
-	Plus->SetContent(PlusLabel);
-	Plus->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleExchangePlus);
-	PlaceOnCanvas(ModeCanvas, MakeAtlasBorder(TEXT("ItemExchangePlusPlate"),
-		CommonAtlasPath, CommonPanelRect, CommonAtlasSize,
-		FVector2D(56.0f, 46.0f), ResourceRowMargin),
-		FVector2D(838.0f, 300.0f), FVector2D(56.0f, 46.0f), 3);
-	PlaceOnCanvas(ModeCanvas, Plus, FVector2D(838.0f, 300.0f), FVector2D(56.0f, 46.0f), 4);
-
-	UTextBlock* Change = MakeModalText(TEXT("ItemExchangeChange"), 14,
-		FLinearColor(0.50f, 0.43f, 0.34f, 1.0f));
-	Change->SetAutoWrapText(true);
-	PlaceOnCanvas(ModeCanvas, Change, FVector2D(690.0f, 360.0f),
-		FVector2D(320.0f, 90.0f), 3);
-
-	UTextBlock* Footer = MakeModalText(TEXT("ItemExchangeFooter"), 14,
-		FLinearColor(0.61f, 0.38f, 0.14f, 1.0f), false, ETextJustify::Center);
-	Footer->SetText(FText::FromString(FString::Printf(
+	if (UButton* Minus = Page->Get<UButton>(TEXT("ItemExchangeMinus")))
+	{
+		Minus->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleExchangeMinus);
+	}
+	if (UButton* Plus = Page->Get<UButton>(TEXT("ItemExchangePlus")))
+	{
+		Plus->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleExchangePlus);
+	}
+	SetPageText(Page, TEXT("ItemExchangeFooter"), FText::FromString(FString::Printf(
 		TEXT("共 %d 项 · 数量为本地预览，兑换消耗与到账由服务器决定"), ActiveExchangeEntries.Num())));
-	PlaceOnCanvas(ModeCanvas, Footer, FVector2D(212.0f, 748.0f),
-		FVector2D(700.0f, 26.0f), 3);
 	RefreshExchangeSummary();
 }
 
@@ -4942,15 +3991,15 @@ void URokUnityModalWidget::RefreshExchangeSummary()
 {
 	const FString EntryName = ActiveExchangeEntries.IsValidIndex(ItemExchangeIndex)
 		? ActiveExchangeEntries[ItemExchangeIndex] : FString(TEXT("-"));
-	if (UTextBlock* Name = Cast<UTextBlock>(GetWidgetFromName(TEXT("ItemExchangeSelectedName"))))
+	if (UTextBlock* Name = Cast<UTextBlock>(RokUiFind::Find(this, TEXT("ItemExchangeSelectedName"))))
 	{
 		Name->SetText(FText::FromString(FString::Printf(TEXT("已选：%s"), *EntryName)));
 	}
-	if (UTextBlock* Count = Cast<UTextBlock>(GetWidgetFromName(TEXT("ItemExchangeCount"))))
+	if (UTextBlock* Count = Cast<UTextBlock>(RokUiFind::Find(this, TEXT("ItemExchangeCount"))))
 	{
 		Count->SetText(FText::FromString(FString::Printf(TEXT("%d"), ItemExchangeCount)));
 	}
-	if (UTextBlock* Change = Cast<UTextBlock>(GetWidgetFromName(TEXT("ItemExchangeChange"))))
+	if (UTextBlock* Change = Cast<UTextBlock>(RokUiFind::Find(this, TEXT("ItemExchangeChange"))))
 	{
 		Change->SetText(FText::FromString(FString::Printf(
 			TEXT("数量 %d × %s\n兑换比例与消耗为服务器配置，本地不推算。"),
@@ -5765,37 +4814,33 @@ void URokUnityModalWidget::BuildTheTower()
 		}
 	}
 
-	if (MaxLevel <= 0)
+	// UI_Win_TheTower layout (bar plate, `pb_bar`, `lbl_state`, `lbl_tiptext`)
+	// lives in the page WBP; the state and tip lines come from the tables.
+	URokUiPageWidget* Page = MountModePage(TEXT("TheTower"));
+	if (!Page)
 	{
-		UTextBlock* Missing = MakeModalText(TEXT("TheTowerUnavailable"), 16,
-			FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
-		Missing->SetText(NSLOCTEXT("RokModal", "TheTowerUnavailable",
-			"警戒塔配置未发布或不可读取"));
-		PlaceOnCanvas(ModeCanvas, Missing, FVector2D(212.0f, 300.0f),
-			FVector2D(700.0f, 60.0f), 3);
 		return;
 	}
-
-	// `img_Fill` / `pb_bar`: the bar plate plus a full bar (no live HP locally).
-	PlaceOnCanvas(ModeCanvas, MakeAtlasBorder(TEXT("TheTowerBarPlate"),
-		CommonAtlasPath, ResourceRowRect, CommonAtlasSize,
-		FVector2D(700.0f, 30.0f), ResourceRowMargin),
-		FVector2D(212.0f, 262.0f), FVector2D(700.0f, 30.0f), 3);
-	UProgressBar* Bar = WidgetTree->ConstructWidget<UProgressBar>(
-		UProgressBar::StaticClass(), TEXT("TheTowerHpBar"));
-	Bar->SetPercent(1.0f);
-	Bar->SetFillColorAndOpacity(FLinearColor(0.78f, 0.55f, 0.18f, 1.0f));
-	PlaceOnCanvas(ModeCanvas, Bar, FVector2D(216.0f, 266.0f), FVector2D(692.0f, 22.0f), 4);
-
-	// `lbl_state`
-	UTextBlock* State = MakeModalText(TEXT("TheTowerStateText"), 18,
-		FLinearColor(0.28f, 0.22f, 0.14f, 1.0f), true);
-	State->SetText(FText::FromString(FString::Printf(
+	if (MaxLevel <= 0)
+	{
+		for (const TCHAR* Name : {TEXT("TheTowerBarPlate"), TEXT("TheTowerHpBar"), TEXT("TheTowerStateText"), TEXT("TheTowerTipText")})
+		{
+			Page->SetShown(Page->Get<UWidget>(Name), false);
+		}
+		if (UCanvasPanel* PageCanvas = Cast<UCanvasPanel>(Page->GetRootWidget()))
+		{
+			UTextBlock* Missing = MakeModalText(TEXT("TheTowerUnavailable"), 16,
+				FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
+			Missing->SetText(NSLOCTEXT("RokModal", "TheTowerUnavailable",
+				"警戒塔配置未发布或不可读取"));
+			PlaceOnCanvas(PageCanvas, Missing, FVector2D(212.0f, 300.0f), FVector2D(700.0f, 60.0f), 3);
+		}
+		return;
+	}
+	// No live HP locally: the bar stays full, as designed in the page.
+	SetPageText(Page, TEXT("TheTowerStateText"), FText::FromString(FString::Printf(
 		TEXT("警戒塔 %d 级 · 攻击 %d · 生命 %d（本地配置，满耐久）"),
 		MaxLevel, MaxAttack, MaxHp)));
-	PlaceOnCanvas(ModeCanvas, State, FVector2D(212.0f, 304.0f),
-		FVector2D(700.0f, 26.0f), 3);
-
 	// `lbl_tiptext` / `img_tips`: the HP-section rules, one per line.
 	FString TipText = TEXT("生命分段生效：\n");
 	for (const FRokDefinitionRow& Row : Sections)
@@ -5803,14 +4848,8 @@ void URokUnityModalWidget::BuildTheTower()
 		TipText += FString::Printf(TEXT("%s —— %s\n"), *Row.Title, *Row.Detail);
 	}
 	TipText += TEXT("驻军、实时耐久与修复由服务器决定。");
-	UTextBlock* Tip = MakeModalText(TEXT("TheTowerTipText"), 16,
-		FLinearColor(0.50f, 0.43f, 0.34f, 1.0f), false);
-	Tip->SetAutoWrapText(true);
-	Tip->SetText(FText::FromString(TipText));
-	PlaceOnCanvas(ModeCanvas, Tip, FVector2D(214.0f, 344.0f),
-		FVector2D(700.0f, 320.0f), 3);
+	SetPageText(Page, TEXT("TheTowerTipText"), FText::FromString(TipText));
 }
-
 
 void URokUnityModalWidget::BuildTheWall()
 {
@@ -5856,34 +4895,31 @@ void URokUnityModalWidget::BuildTheWall()
 		}
 	}
 
-	if (MaxLevel <= 0)
+	// UI_Win_TheWall layout (bar plate, durability bar, state and tip lines)
+	// lives in the page WBP; the lines come from the durability table.
+	URokUiPageWidget* Page = MountModePage(TEXT("TheWall"));
+	if (!Page)
 	{
-		UTextBlock* Missing = MakeModalText(TEXT("TheWallUnavailable"), 16,
-			FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
-		Missing->SetText(NSLOCTEXT("RokModal", "TheWallUnavailable",
-			"城墙耐久配置未发布或不可读取"));
-		PlaceOnCanvas(ModeCanvas, Missing, FVector2D(212.0f, 300.0f),
-			FVector2D(700.0f, 60.0f), 3);
 		return;
 	}
-
-	PlaceOnCanvas(ModeCanvas, MakeAtlasBorder(TEXT("TheWallBarPlate"),
-		CommonAtlasPath, ResourceRowRect, CommonAtlasSize,
-		FVector2D(700.0f, 30.0f), ResourceRowMargin),
-		FVector2D(212.0f, 262.0f), FVector2D(700.0f, 30.0f), 3);
-	UProgressBar* Bar = WidgetTree->ConstructWidget<UProgressBar>(
-		UProgressBar::StaticClass(), TEXT("TheWallDurabilityBar"));
-	Bar->SetPercent(1.0f);
-	Bar->SetFillColorAndOpacity(FLinearColor(0.55f, 0.62f, 0.72f, 1.0f));
-	PlaceOnCanvas(ModeCanvas, Bar, FVector2D(216.0f, 266.0f), FVector2D(692.0f, 22.0f), 4);
-
-	UTextBlock* State = MakeModalText(TEXT("TheWallStateText"), 18,
-		FLinearColor(0.28f, 0.22f, 0.14f, 1.0f), true);
-	State->SetText(FText::FromString(FString::Printf(
+	if (MaxLevel <= 0)
+	{
+		for (const TCHAR* Name : {TEXT("TheWallBarPlate"), TEXT("TheWallDurabilityBar"), TEXT("TheWallStateText"), TEXT("TheWallTipText")})
+		{
+			Page->SetShown(Page->Get<UWidget>(Name), false);
+		}
+		if (UCanvasPanel* PageCanvas = Cast<UCanvasPanel>(Page->GetRootWidget()))
+		{
+			UTextBlock* Missing = MakeModalText(TEXT("TheWallUnavailable"), 16,
+				FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
+			Missing->SetText(NSLOCTEXT("RokModal", "TheWallUnavailable",
+				"城墙耐久配置未发布或不可读取"));
+			PlaceOnCanvas(PageCanvas, Missing, FVector2D(212.0f, 300.0f), FVector2D(700.0f, 60.0f), 3);
+		}
+		return;
+	}
+	SetPageText(Page, TEXT("TheWallStateText"), FText::FromString(FString::Printf(
 		TEXT("城墙 %d 级 · 耐久上限 %d（本地配置，满耐久）"), MaxLevel, MaxDurability)));
-	PlaceOnCanvas(ModeCanvas, State, FVector2D(212.0f, 304.0f),
-		FVector2D(700.0f, 26.0f), 3);
-
 	// Milestones from the same curve, plus the honest note about the gap.
 	FString TipText = TEXT("耐久曲线：");
 	for (const TPair<int32, int32>& Entry : Curve)
@@ -5895,14 +4931,8 @@ void URokUnityModalWidget::BuildTheWall()
 	}
 	TipText += FString::Printf(TEXT("\n共 %d 级 · 实际耐久、修复与守将由服务器决定。\n"), MaxLevel);
 	TipText += TEXT("守将、技能槽位（img_skill1bg1..5 / btn_hero_add2）尚无对应配置表，未绘制。");
-	UTextBlock* Tip = MakeModalText(TEXT("TheWallTipText"), 16,
-		FLinearColor(0.50f, 0.43f, 0.34f, 1.0f), false);
-	Tip->SetAutoWrapText(true);
-	Tip->SetText(FText::FromString(TipText));
-	PlaceOnCanvas(ModeCanvas, Tip, FVector2D(214.0f, 344.0f),
-		FVector2D(700.0f, 260.0f), 3);
+	SetPageText(Page, TEXT("TheWallTipText"), FText::FromString(TipText));
 }
-
 
 void URokUnityModalWidget::BuildTavernBoxDesc()
 {
@@ -6104,42 +5134,34 @@ void URokUnityModalWidget::BuildVipStore()
 
 void URokUnityModalWidget::BuildItemTypeFilterChips()
 {
-	// Two chip rows: 类型 1..5 and 品质 1..5. Each row picks one value (0 = 全部);
-	// the active pair composes into a "类型 N|品质 M" filter.
-	constexpr float ChipWidth = 78.0f;
-	constexpr float ChipGap = 6.0f;
+	// Two chip rows over the definition grid, laid out in a page WBP: 类型 0..5
+	// and 品质 0..5 (0 = 全部). The active pair composes into a "类型 N|品质 M" filter.
+	URokUiPageWidget* Page = MountModePage(TEXT("ItemCollectionFilters"));
+	if (!Page)
+	{
+		return;
+	}
 	for (int32 Row = 0; Row < 2; ++Row)
 	{
-		const TCHAR* RowLabel = Row == 0 ? TEXT("类型") : TEXT("品质");
+		const FString ChipBase = FString::Printf(TEXT("ItemCollection%sChip"), Row == 0 ? TEXT("类型") : TEXT("品质"));
 		for (int32 Index = 0; Index <= 5; ++Index)
 		{
-			URokGalleryButton* Chip = WidgetTree->ConstructWidget<URokGalleryButton>(
-				URokGalleryButton::StaticClass(),
-				*FString::Printf(TEXT("ItemCollection%sChip_%d"), RowLabel, Index));
-			Chip->EntryIndex = Index;
+			URokGalleryButton* Chip = Page->Get<URokGalleryButton>(IndexedName(*ChipBase, Index));
+			if (!Chip)
+			{
+				continue;
+			}
 			Chip->OnClicked.AddDynamic(Chip, &URokGalleryButton::HandleClicked);
 			// AddDynamic stringifies the expression, so a conditional member pointer
 			// never binds; branch instead.
 			if (Row == 0)
 			{
-				Chip->OnGalleryEntryClicked.AddDynamic(this,
-					&URokUnityModalWidget::HandleItemTypeFilterChip);
+				Chip->OnGalleryEntryClicked.AddDynamic(this, &URokUnityModalWidget::HandleItemTypeFilterChip);
 			}
 			else
 			{
-				Chip->OnGalleryEntryClicked.AddDynamic(this,
-					&URokUnityModalWidget::HandleItemQualityFilterChip);
+				Chip->OnGalleryEntryClicked.AddDynamic(this, &URokUnityModalWidget::HandleItemQualityFilterChip);
 			}
-			UTextBlock* Label = MakeModalText(
-				*FString::Printf(TEXT("ItemCollection%sChipLabel_%d"), RowLabel, Index), 12,
-				FLinearColor(0.95f, 0.90f, 0.78f, 1.0f), false, ETextJustify::Center);
-			Label->SetText(FText::FromString(Index == 0
-				? FString::Printf(TEXT("%s全部"), RowLabel)
-				: FString::Printf(TEXT("%d"), Index)));
-			Chip->SetContent(Label);
-			PlaceOnCanvas(ModeCanvas, Chip,
-				FVector2D(524.0f + Index * (ChipWidth + ChipGap), 196.0f + Row * 40.0f),
-				FVector2D(ChipWidth, 34.0f), 4);
 		}
 	}
 }
@@ -6512,10 +5534,28 @@ void URokUnityModalWidget::BuildChapterDialog()
 			BuildChapterDialogScreen();
 			return;
 		}
+		const FText MissingText = FText::FromString(FString::Printf(
+			TEXT("对话组 %d 在 TaskDialog.csv 中没有可显示的台词"), ChapterDialogGroup));
+		if (!URokUiSettings::IsLegacyForced())
+		{
+			if (URokUiPageWidget* EmptyPage = MountModePage(TEXT("ChapterDialogEmpty")))
+			{
+				if (UTextBlock* Missing = EmptyPage->Get<UTextBlock>(TEXT("ChapterDialogEmptyText")))
+				{
+					if (UCanvasPanelSlot* PageSlot = Cast<UCanvasPanelSlot>(EmptyPage->Slot))
+					{
+						// The error text must paint above the native frame while its transparent root leaves the close button usable.
+						PageSlot->SetZOrder(5);
+					}
+					Missing->SetText(MissingText);
+					return;
+				}
+				EmptyPage->RemoveFromParent();
+			}
+		}
 		UTextBlock* Missing = MakeModalText(TEXT("ChapterDialogEmpty"), 16,
 			FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
-		Missing->SetText(FText::FromString(FString::Printf(
-			TEXT("对话组 %d 在 TaskDialog.csv 中没有可显示的台词"), ChapterDialogGroup)));
+		Missing->SetText(MissingText);
 		PlaceOnCanvas(ModeCanvas, Missing, FVector2D(212.0f, 400.0f),
 			FVector2D(900.0f, 60.0f), 3);
 		return;
@@ -6582,44 +5622,17 @@ void URokUnityModalWidget::BuildChapterDialog()
 
 void URokUnityModalWidget::BuildChapterDialogScreen()
 {
-	const float PortraitWidth = 240.0f;
-	const float PortraitHeight = 320.0f;
-	const float PortraitY = 300.0f;
-	PlaceOnCanvas(ModeCanvas, MakeAtlasBorder(TEXT("ChapterPortraitLeftPlate"),
-		CommonAtlasPath, ResourceRowRect, CommonAtlasSize,
-		FVector2D(PortraitWidth, PortraitHeight), ResourceRowMargin),
-		FVector2D(214.0f, PortraitY), FVector2D(PortraitWidth, PortraitHeight), 3);
-	PlaceOnCanvas(ModeCanvas, MakeAtlasBorder(TEXT("ChapterPortraitRightPlate"),
-		CommonAtlasPath, ResourceRowRect, CommonAtlasSize,
-		FVector2D(PortraitWidth, PortraitHeight), ResourceRowMargin),
-		FVector2D(902.0f, PortraitY), FVector2D(PortraitWidth, PortraitHeight), 3);
-
-	// Dialogue text and its speaker/voice footer; ShowDialogLine fills them.
-	UTextBlock* LineText = MakeModalText(TEXT("ChapterDialogLineText"), 20,
-		FLinearColor(0.93f, 0.88f, 0.78f, 1.0f), true);
-	LineText->SetAutoWrapText(true);
-	PlaceOnCanvas(ModeCanvas, LineText, FVector2D(480.0f, 320.0f),
-		FVector2D(380.0f, 220.0f), 4);
-	UTextBlock* SpeakerText = MakeModalText(TEXT("ChapterDialogSpeaker"), 15,
-		FLinearColor(0.61f, 0.38f, 0.14f, 1.0f), false, ETextJustify::Center);
-	PlaceOnCanvas(ModeCanvas, SpeakerText, FVector2D(480.0f, 552.0f),
-		FVector2D(380.0f, 24.0f), 4);
-
-	// MakeAtlasButton carries no visible plate on its own; the frame needs one.
-	PlaceOnCanvas(ModeCanvas, MakeAtlasBorder(TEXT("ChapterDialogContinuePlate"),
-		CommonAtlasPath, CommonPanelRect, CommonAtlasSize,
-		FVector2D(200.0f, 54.0f), ResourceRowMargin),
-		FVector2D(570.0f, 600.0f), FVector2D(200.0f, 54.0f), 4);
-	UButton* Continue = MakeAtlasButton(TEXT("ChapterDialogContinue"),
-		CommonAtlasPath, CommonPanelRect, CommonAtlasSize, FVector2D(200.0f, 54.0f));
-	UTextBlock* ContinueLabel = MakeModalText(TEXT("ChapterDialogContinueLabel"), 20,
-		FLinearColor(0.95f, 0.90f, 0.78f, 1.0f), true, ETextJustify::Center);
-	ContinueLabel->SetText(NSLOCTEXT("RokModal", "ChapterDialogContinue", "继续"));
-	Continue->SetContent(ContinueLabel);
-	Continue->OnClicked.AddDynamic(this, &URokUnityModalWidget::AdvanceDialogLine);
-	PlaceOnCanvas(ModeCanvas, Continue, FVector2D(570.0f, 600.0f),
-		FVector2D(200.0f, 54.0f), 5);
-
+	// Portrait plates, the line text and the continue button live in the page
+	// WBP; ShowDialogLine fills the line and speaker footer.
+	URokUiPageWidget* Page = MountModePage(TEXT("ChapterDialogScreen"));
+	if (!Page)
+	{
+		return;
+	}
+	if (UButton* Continue = Page->Get<UButton>(TEXT("ChapterDialogContinue")))
+	{
+		Continue->OnClicked.AddDynamic(this, &URokUnityModalWidget::AdvanceDialogLine);
+	}
 	ShowDialogLine();
 }
 
@@ -6631,11 +5644,11 @@ void URokUnityModalWidget::ShowDialogLine()
 	{
 		return;
 	}
-	if (UTextBlock* Text = Cast<UTextBlock>(GetWidgetFromName(TEXT("ChapterDialogLineText"))))
+	if (UTextBlock* Text = Cast<UTextBlock>(RokUiFind::Find(this, TEXT("ChapterDialogLineText"))))
 	{
 		Text->SetText(FText::FromString(Line->Text));
 	}
-	if (UTextBlock* Speaker = Cast<UTextBlock>(GetWidgetFromName(TEXT("ChapterDialogSpeaker"))))
+	if (UTextBlock* Speaker = Cast<UTextBlock>(RokUiFind::Find(this, TEXT("ChapterDialogSpeaker"))))
 	{
 		FString SpeakerLine = FString::Printf(TEXT("第 %d / %d 句"), ActiveDialogIndex + 1, ActiveDialogLines.Num());
 		if (!Line->Model.IsEmpty())
@@ -6651,11 +5664,11 @@ void URokUnityModalWidget::ShowDialogLine()
 		Speaker->SetText(FText::FromString(SpeakerLine));
 	}
 	// Only the speaking side's plate is emphasised.
-	if (UCanvasPanel* LeftPlate = Cast<UCanvasPanel>(GetWidgetFromName(TEXT("ChapterPortraitLeftPlate"))))
+	if (UCanvasPanel* LeftPlate = Cast<UCanvasPanel>(RokUiFind::Find(this, TEXT("ChapterPortraitLeftPlate"))))
 	{
 		LeftPlate->SetRenderOpacity(Line->bRight ? 0.35f : 1.0f);
 	}
-	if (UCanvasPanel* RightPlate = Cast<UCanvasPanel>(GetWidgetFromName(TEXT("ChapterPortraitRightPlate"))))
+	if (UCanvasPanel* RightPlate = Cast<UCanvasPanel>(RokUiFind::Find(this, TEXT("ChapterPortraitRightPlate"))))
 	{
 		RightPlate->SetRenderOpacity(Line->bRight ? 1.0f : 0.35f);
 	}
@@ -6717,48 +5730,27 @@ void URokUnityModalWidget::BuildBuildingInfo()
 		return;
 	}
 
-	const FVector2D PreviewPosition(208.8f, 166.9f);
-	const FVector2D PreviewSize(450.0f, 620.2f);
-	PlaceOnCanvas(ModeCanvas, MakeAtlasBorder(TEXT("BuildingInfoPreviewFrame"), CommonAtlasPath, PreviewFrameRect,
-		CommonAtlasSize, PreviewSize, PreviewFrameMargin), PreviewPosition, PreviewSize);
-	AddBuildingPreview(ModeCanvas, TEXT("BuildingInfoImage"), State.UnityBuildingTypeId,
-		PreviewPosition, PreviewSize, FVector2D(438.8f, 507.0f));
-
-	PlaceOnCanvas(ModeCanvas, MakeAtlasBorder(TEXT("BuildingInfoAttributeFrame"), CommonAtlasPath, AttributeFrameRect, CommonAtlasSize, FVector2D(536.0f, 144.0f), CommonPanelMargin), FVector2D(682.0f, 205.0f), FVector2D(536.0f, 144.0f));
+	// Layout, frames and stat labels live in the page WBP. The building preview
+	// (art and glow chosen per building and age) is added into the page's canvas
+	// at the place the C++ layout used.
+	URokUiPageWidget* Page = MountModePage(TEXT("BuildingInfo"));
+	if (!Page)
+	{
+		return;
+	}
+	if (UCanvasPanel* PageCanvas = Cast<UCanvasPanel>(Page->GetRootWidget()))
+	{
+		AddBuildingPreview(PageCanvas, TEXT("BuildingInfoImage"), State.UnityBuildingTypeId,
+			FVector2D(208.8f, 166.9f), FVector2D(450.0f, 620.2f), FVector2D(438.8f, 507.0f));
+	}
 	const int32 QueueCount = Subsystem ? Subsystem->GetOwnedBuildQueueCount() : 1;
 	const float BuildSpeedBonus = Subsystem ? Subsystem->GetBuildSpeedBonusPercent() : 0.0f;
-	const FText Labels[3] = {
-		NSLOCTEXT("RokModal", "BuildQueue", "建造队列"),
-		NSLOCTEXT("RokModal", "BuildingPower", "战力"),
-		NSLOCTEXT("RokModal", "BuildSpeedBonus", "建造速度提升"),
-	};
-	const FText Values[3] = {
-		FText::AsNumber(QueueCount),
-		FText::AsNumber(State.Power),
-		FText::FromString(FString::Printf(TEXT("%.0f%%"), BuildSpeedBonus)),
-	};
-	for (int32 Index = 0; Index < 3; ++Index)
-	{
-		UTextBlock* Label = MakeModalText(*FString::Printf(TEXT("BuildingInfoStatLabel_%d"), Index), 20, FLinearColor(0.34f, 0.3f, 0.24f, 1.0f));
-		Label->SetText(Labels[Index]);
-		PlaceOnCanvas(ModeCanvas, Label, FVector2D(704.0f, 218.0f + Index * 40.0f), FVector2D(330.0f, 32.0f), 2);
-		UTextBlock* Value = MakeModalText(*FString::Printf(TEXT("BuildingInfoStatValue_%d"), Index), 20, FLinearColor(0.2f, 0.17f, 0.12f, 1.0f), true, ETextJustify::Right);
-		Value->SetText(Values[Index]);
-		PlaceOnCanvas(ModeCanvas, Value, FVector2D(1045.0f, 218.0f + Index * 40.0f), FVector2D(145.0f, 32.0f), 2);
-	}
-
-	UTextBlock* Description = MakeModalText(TEXT("BuildingInfoDescription"), 18, FLinearColor(0.3f, 0.27f, 0.22f, 1.0f));
-	Description->SetAutoWrapText(true);
-	Description->SetLineHeightPercentage(1.25f);
-	if (State.Type == ERokBuildingType::BuilderHut || !SelectedBuildingActor.IsValid())
-	{
-		Description->SetText(NSLOCTEXT("RokModal", "BuilderHutDescription", "工人小屋是勤劳的建筑工人们日常生活和休息的地方，同时也是城市中唯一可以对建造队列进行管理的建筑物。在这里，您可以选择花费钻石雇佣更多的工人来增加一个额外的建造队列，也可以通过使用加速道具来减少建造队列所需的时间。"));
-	}
-	else
-	{
-		Description->SetText(FText::Format(NSLOCTEXT("RokModal", "GenericBuildingDescription", "{0}是城市发展体系中的重要建筑。当前等级为{1}级，可通过升级提升其战力与功能。"), State.DisplayName, FText::AsNumber(State.Level)));
-	}
-	PlaceOnCanvas(ModeCanvas, Description, FVector2D(704.0f, 386.0f), FVector2D(490.0f, 289.45f), 2);
+	SetPageText(Page, TEXT("BuildingInfoStatValue_0"), FText::AsNumber(QueueCount));
+	SetPageText(Page, TEXT("BuildingInfoStatValue_1"), FText::AsNumber(State.Power));
+	SetPageText(Page, TEXT("BuildingInfoStatValue_2"), FText::FromString(FString::Printf(TEXT("%.0f%%"), BuildSpeedBonus)));
+	SetPageText(Page, TEXT("BuildingInfoDescription"), State.Type == ERokBuildingType::BuilderHut || !SelectedBuildingActor.IsValid()
+		? NSLOCTEXT("RokModal", "BuilderHutDescription", "工人小屋是勤劳的建筑工人们日常生活和休息的地方，同时也是城市中唯一可以对建造队列进行管理的建筑物。在这里，您可以选择花费钻石雇佣更多的工人来增加一个额外的建造队列，也可以通过使用加速道具来减少建造队列所需的时间。")
+		: FText::Format(NSLOCTEXT("RokModal", "GenericBuildingDescription", "{0}是城市发展体系中的重要建筑。当前等级为{1}级，可通过升级提升其战力与功能。"), State.DisplayName, FText::AsNumber(State.Level)));
 }
 
 void URokUnityModalWidget::BuildResourceBuildingInfo(int32 Type, int32 KnownLevel)
@@ -6772,69 +5764,58 @@ void URokUnityModalWidget::BuildResourceBuildingInfo(int32 Type, int32 KnownLeve
 		PlaceOnCanvas(ModeCanvas, Missing, FVector2D(400, 350), FVector2D(650, 60));
 		return;
 	}
-	BuildingDescriptionRoot = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("BuildingDescriptionRoot"));
-	PlaceOnCanvas(ModeCanvas, BuildingDescriptionRoot, FVector2D::ZeroVector, FVector2D(1440, 900), 3);
-	BuildingLevelDetailsRoot = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("BuildingLevelDetailsRoot"));
-	PlaceOnCanvas(ModeCanvas, BuildingLevelDetailsRoot, FVector2D::ZeroVector, FVector2D(1440, 900), 3);
-
-	const FVector2D PreviewPosition(208.8f, 166.9f);
-	const FVector2D PreviewSize(450.0f, 620.2f);
-	PlaceOnCanvas(BuildingDescriptionRoot, MakeAtlasBorder(TEXT("BuildingInfoPreviewFrame"), CommonAtlasPath,
-		PreviewFrameRect, CommonAtlasSize, PreviewSize, PreviewFrameMargin), PreviewPosition, PreviewSize);
-	AddBuildingPreview(BuildingDescriptionRoot, TEXT("BuildingInfoImage"), Type,
-		PreviewPosition, PreviewSize, FVector2D(438.8f, 507.0f));
-	PlaceOnCanvas(BuildingDescriptionRoot, MakeAtlasBorder(TEXT("BuildingInfoAttributeFrame"), CommonAtlasPath, AttributeFrameRect, CommonAtlasSize, FVector2D(536, 144), CommonPanelMargin), FVector2D(682, 205), FVector2D(536, 144));
+	// The description and level pages, the back button and the column headers live
+	// in the page WBP; each level is a row WBP in the scrolling table.
+	URokUiPageWidget* Page = MountModePage(TEXT("ResourceBuildingInfo"));
+	if (!Page)
+	{
+		return;
+	}
+	BuildingDescriptionRoot = Page->Get<UCanvasPanel>(TEXT("BuildingDescriptionRoot"));
+	BuildingLevelDetailsRoot = Page->Get<UCanvasPanel>(TEXT("BuildingLevelDetailsRoot"));
+	if (BuildingDescriptionRoot)
+	{
+		AddBuildingPreview(BuildingDescriptionRoot, TEXT("BuildingInfoImage"), Type,
+			FVector2D(208.8f, 166.9f), FVector2D(450.0f, 620.2f), FVector2D(438.8f, 507.0f));
+	}
 	for (int32 Column = 1; Column < 4; ++Column)
 	{
-		auto* Label = MakeModalText(*FString::Printf(TEXT("BuildingInfoStatLabel_%d"), Column), 20, FLinearColor(0.34f, 0.3f, 0.24f));
-		Label->SetText(FText::FromString(Headers[Column]));
-		PlaceOnCanvas(BuildingDescriptionRoot, Label, FVector2D(704, 218 + (Column - 1) * 40), FVector2D(330, 32));
-		auto* Value = MakeModalText(*FString::Printf(TEXT("BuildingInfoStatValue_%d"), Column), 20, FLinearColor(0.2f, 0.17f, 0.12f), true, ETextJustify::Right);
+		SetPageText(Page, IndexedName(TEXT("BuildingInfoStatLabel"), Column), FText::FromString(Headers[Column]));
 		// Current production and capacity depend on buffs/server state, unlike static level rows.
-		Value->SetText(Column == 3 && Rows.IsValidIndex(KnownLevel - 1) ? FText::AsNumber(Rows[KnownLevel - 1].Power) : FText::FromString(TEXT("—")));
-		PlaceOnCanvas(BuildingDescriptionRoot, Value, FVector2D(1045, 218 + (Column - 1) * 40), FVector2D(145, 32));
+		SetPageText(Page, IndexedName(TEXT("BuildingInfoStatValue"), Column),
+			Column == 3 && Rows.IsValidIndex(KnownLevel - 1) ? FText::AsNumber(Rows[KnownLevel - 1].Power) : FText::FromString(TEXT("—")));
 	}
-	auto* Desc = MakeModalText(TEXT("BuildingInfoDescription"), 18, FLinearColor(0.3f, 0.27f, 0.22f));
-	Desc->SetAutoWrapText(true); Desc->SetText(FText::FromString(Description));
-	PlaceOnCanvas(BuildingDescriptionRoot, Desc, FVector2D(704, 386), FVector2D(490, 289.45f));
-	auto* Info = MakeAtlasButton(TEXT("BuildingLevelInfoButton"), CommonAtlasPath, HelpRect, CommonAtlasSize, FVector2D(38));
-	FButtonStyle InfoStyle = Info->GetStyle();
-	InfoStyle.SetNormalPadding(FMargin(11)); InfoStyle.SetPressedPadding(FMargin(11)); Info->SetStyle(InfoStyle);
-	Info->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleBuildingLevelInfoClicked);
-	PlaceOnCanvas(BuildingDescriptionRoot, Info, FVector2D(222.05f, 272), FVector2D(60), 5);
-	auto* Back = MakeAtlasButton(TEXT("BuildingLevelBackButton"), CommonAtlasPath, SpriteRect(703, 282, 69, 69), CommonAtlasSize, FVector2D(69));
-	Back->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleBuildingLevelBackClicked);
-	BuildingLevelBackButton = Back;
-	PlaceOnCanvas(ModeCanvas, Back, FVector2D(191.5f, 99.5f), FVector2D(69), 5);
+	SetPageText(Page, TEXT("BuildingInfoDescription"), FText::FromString(Description));
+	if (UButton* Info = Page->Get<UButton>(TEXT("BuildingLevelInfoButton")))
+	{
+		Info->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleBuildingLevelInfoClicked);
+	}
+	BuildingLevelBackButton = Page->Get<UButton>(TEXT("BuildingLevelBackButton"));
+	if (BuildingLevelBackButton)
+	{
+		BuildingLevelBackButton->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleBuildingLevelBackClicked);
+	}
 
-	// Chinese ArabLayout Awake flips serialized +/-400,+/-130 into source column order.
-	const float ColumnX[4] = { -13, 257, 517, 787 };
-	PlaceOnCanvas(BuildingLevelDetailsRoot, MakeAtlasImage(TEXT("BuildingLevelHeaderLine"), CommonAtlasPath, SpriteRect(1003, 976, 964, 47), CommonAtlasSize, FVector2D(964, 43)), FVector2D(238, 184.2f), FVector2D(964, 43));
 	for (int32 Column = 0; Column < 4; ++Column)
 	{
-		auto* Header = MakeModalText(*FString::Printf(TEXT("BuildingLevelHeader_%d"), Column), 20, FLinearColor(0.34f, 0.3f, 0.24f), true, ETextJustify::Center);
-		Header->SetText(FText::FromString(Headers[Column]));
-		PlaceOnCanvas(BuildingLevelDetailsRoot, Header, FVector2D(208 + ColumnX[Column], 180.7f), FVector2D(250, 50), 2);
+		SetPageText(Page, IndexedName(TEXT("BuildingLevelHeader"), Column), FText::FromString(Headers[Column]));
 	}
-	BuildingLevelDetailsScroll = WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("BuildingLevelDetailsScroll"));
-	BuildingLevelDetailsScroll->SetScrollBarVisibility(ESlateVisibility::Collapsed);
-	PlaceOnCanvas(BuildingLevelDetailsRoot, BuildingLevelDetailsScroll, FVector2D(208, 230.7f), FVector2D(1024, 542.8f));
-	auto* Size = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("BuildingLevelRowsSize"));
-	Size->SetWidthOverride(1024); Size->SetHeightOverride(1250);
-	auto* Grid = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("BuildingLevelRows"));
-	Size->SetContent(Grid); BuildingLevelDetailsScroll->AddChild(Size);
+	BuildingLevelDetailsScroll = Page->Get<UScrollBox>(TEXT("BuildingLevelDetailsScroll"));
+	UCanvasPanel* Grid = Page->Get<UCanvasPanel>(TEXT("BuildingLevelRows"));
 	for (const auto& Row : Rows)
 	{
-		const float Y = (Row.Level - 1) * 50.0f;
-		if (KnownLevel == Row.Level)
-			PlaceOnCanvas(Grid, MakeAtlasImage(TEXT("BuildingLevelCurrentRow"), CommonAtlasPath, SpriteRect(1, 885, 964, 53), CommonAtlasSize, FVector2D(964, 53)), FVector2D(30, Y - 1.5f), FVector2D(964, 53));
-		PlaceOnCanvas(Grid, MakeAtlasImage(*FString::Printf(TEXT("BuildingLevelLine_%d"), Row.Level), CommonAtlasPath, SpriteRect(1, 611, 570, 2), CommonAtlasSize, FVector2D(964, 3)), FVector2D(30, Y + 47), FVector2D(964, 3));
+		const FString Suffix = FString::Printf(TEXT("_%d"), Row.Level);
+		URokUiPageWidget* Item = MountItem(TEXT("BuildingLevelRow"), Grid, *(TEXT("BuildingLevelRow") + Suffix),
+			FVector2D(0.0f, (Row.Level - 1) * 50.0f), FVector2D(1024.0f, 50.0f), 0, TEXT("BuildingLevel"), Suffix);
+		if (!Item)
+		{
+			break;
+		}
+		Item->SetPresent(Item->Get<UWidget>(TEXT("CurrentRow")), KnownLevel == Row.Level);
 		const int32 Values[4] = { Row.Level, Row.ProduceSpeed, Row.GatherMax, Row.Power };
 		for (int32 Column = 0; Column < 4; ++Column)
 		{
-			auto* Cell = MakeModalText(*FString::Printf(TEXT("BuildingLevelCell_%d_%d"), Row.Level, Column), 20, FLinearColor(0.3f, 0.27f, 0.22f), false, ETextJustify::Center);
-			Cell->SetText(FText::AsNumber(Values[Column]));
-			PlaceOnCanvas(Grid, Cell, FVector2D(ColumnX[Column], Y), FVector2D(250, 50), 2);
+			SetPageText(Item, IndexedName(TEXT("Cell"), Column), FText::AsNumber(Values[Column]));
 		}
 	}
 	ApplyBuildingPageAnimation();
@@ -6865,6 +5846,65 @@ void URokUnityModalWidget::ApplyBuildingPageAnimation()
 	Target->SetRenderTranslation(FVector2D(Sample.X, 0)); Target->SetRenderOpacity(Sample.Alpha);
 }
 
+namespace
+{
+struct FUpgradeStatRow
+{
+	FText Label;
+	int32 Current = 0;
+	int32 Next = 0;
+};
+
+TArray<FUpgradeStatRow> BuildingUpgradeStats(const FRokBuildingUpgradePreview& Preview, UGameInstance* GameInstance)
+{
+	TArray<FUpgradeStatRow> Rows;
+	const int32 Type = Preview.CurrentState.UnityBuildingTypeId;
+	auto* Catalog = GameInstance ? GameInstance->GetSubsystem<URokUnityGameplayCatalogSubsystem>() : nullptr;
+	FRokUnityCatalogBuildingType BuildingType;
+	if (Type >= 9 && Type <= 12 && Catalog && Catalog->GetBuildingType(Type, BuildingType))
+	{
+		const FText Labels[] = {
+			NSLOCTEXT("RokModal", "InfantryTrainingCapacity", "步兵单位训练容量"),
+			NSLOCTEXT("RokModal", "CavalryTrainingCapacity", "骑兵单位训练容量"),
+			NSLOCTEXT("RokModal", "ArcherTrainingCapacity", "弓兵单位训练容量"),
+			NSLOCTEXT("RokModal", "SiegeTrainingCapacity", "攻城单位训练容量")
+		};
+		Rows.Add({Labels[Type - 9], BuildingType.GetTrainingCapacity(Preview.CurrentState.Level),
+			BuildingType.GetTrainingCapacity(Preview.TargetLevel)});
+	}
+	else if (Preview.CurrentProducePerHour > 0 || Preview.NextProducePerHour > 0)
+	{
+		Rows.Add({NSLOCTEXT("RokModal", "ProductionPerHour", "每小时产量"),
+			Preview.CurrentProducePerHour, Preview.NextProducePerHour});
+		Rows.Add({NSLOCTEXT("RokModal", "ProductionCapacity", "最大收取量"), Preview.CurrentGatherMax, Preview.NextGatherMax});
+	}
+	Rows.Add({NSLOCTEXT("RokModal", "UpgradePower", "战力"), Preview.CurrentPower, Preview.NextPower});
+	return Rows;
+}
+
+FText UpgradeStatDelta(const FUpgradeStatRow& Row)
+{
+	return FText::FromString(FString::Printf(TEXT("+%s"),
+		*FormatNumber(FMath::Max(0, Row.Next - Row.Current)).ToString()));
+}
+
+struct FUpgradeCostVisual
+{
+	int32 Cost;
+	FIntRect IconRect;
+};
+
+TArray<FUpgradeCostVisual> BuildingUpgradeCosts(const FRokBuildingUpgradePreview& Preview)
+{
+	return {
+		{Preview.Cost.Food, FoodCurrencyRect},
+		{Preview.Cost.Wood, WoodCurrencyRect},
+		{Preview.Cost.Stone, StoneCurrencyRect},
+		{Preview.Cost.Gold, GoldCurrencyRect},
+	};
+}
+}
+
 void URokUnityModalWidget::BuildBuildingUpgrade()
 {
 	FRokBuildingUpgradePreview Preview;
@@ -6878,7 +5918,6 @@ void URokUnityModalWidget::BuildBuildingUpgrade()
 	ConfirmedInstantQuote.Reset();
 	bUpgradeFeedbackFromAction = false;
 	bUpgradeUsesServer = !bIsSourcePreview && UpgradeSubsystem && UpgradeSubsystem->UsesServerCity();
-	DisplayedUpgradeLevel = Preview.CurrentState.Level;
 	if (bIsSourcePreview)
 	{
 		// Source-derived farm level-1 -> level-2 preview used by the screenshot
@@ -6912,7 +5951,28 @@ void URokUnityModalWidget::BuildBuildingUpgrade()
 		Preview.NextGatherMax = Preview.CurrentState.GatherMax;
 	}
 
+	DisplayedUpgradeLevel = Preview.CurrentState.Level;
 	const bool bDeclaredBarracksPreview = !bIsSourcePreview && Preview.CurrentState.UnityBuildingTypeId == 9;
+	const bool bBarracksAttributes = bDeclaredBarracksPreview && URokBarracksUpgradeAttributes::Supports(
+		Preview.CurrentState.UnityBuildingTypeId, Preview.CurrentState.Level, Preview.TargetLevel);
+	if (!URokUiSettings::IsLegacyForced())
+	{
+		const FName PageName = bBarracksAttributes ? TEXT("BarracksUpgradeSource")
+			: (bDeclaredBarracksPreview ? TEXT("BarracksUpgrade") : TEXT("BuildingUpgrade"));
+		// Both barracks pages need the row asset. Keep the legacy layout intact if
+		// that dependency is unavailable, so the info button still opens a full table.
+		UClass* RowClass = bDeclaredBarracksPreview
+			? URokUiSettings::ResolvePage(GetDefault<URokUiSettings>()->ModalPages, TEXT("BarracksLevelRow"))
+			: nullptr;
+		const bool bCanMountPage = !bDeclaredBarracksPreview || (RowClass && !RowClass->HasAnyClassFlags(CLASS_Abstract));
+		if (URokUiPageWidget* Page = bCanMountPage ? MountModePage(PageName) : nullptr)
+		{
+			BindBuildingUpgradePage(Page, Preview, bIsSourcePreview, bHasRuntimePreview,
+				bDeclaredBarracksPreview, bBarracksAttributes);
+			return;
+		}
+	}
+
 	UCanvasPanel* UpgradeContentCanvas = ModeCanvas;
 	if (bDeclaredBarracksPreview)
 	{
@@ -6948,7 +6008,6 @@ void URokUnityModalWidget::BuildBuildingUpgrade()
 		PlaceOnCanvas(UpgradeContentCanvas, MakeAtlasImage(TEXT("BuildingUpgradeInfoIcon"), CommonAtlasPath, HelpRect, CommonAtlasSize, FVector2D(38.0f)), FVector2D(586.0f, 223.0f), FVector2D(38.0f), 3);
 	}
 
-	const bool bBarracksAttributes = !bIsSourcePreview && URokBarracksUpgradeAttributes::Supports(Preview.CurrentState.UnityBuildingTypeId, Preview.CurrentState.Level, Preview.TargetLevel);
 	// ClearChildren detaches the previous page but its UWidgets may still have
 	// WidgetTree as Outer. Retire only the two names whose class changes between
 	// source barracks glyphs and regular building level text. The new visible
@@ -7001,7 +6060,7 @@ void URokUnityModalWidget::BuildBuildingUpgrade()
 
 	if (bBarracksAttributes)
 	{
-		auto* Attributes = WidgetTree->ConstructWidget<URokBarracksUpgradeAttributes>(URokBarracksUpgradeAttributes::StaticClass(), TEXT("BarracksUpgradeAttributes"));
+		auto* Attributes = WidgetTree->ConstructWidget<URokBarracksUpgradeAttributes>(URokBarracksUpgradeAttributes::ResolveAttributesClass(), TEXT("BarracksUpgradeAttributes"));
 		if (Attributes->InitializeAttributes())
 		{
 			PlaceOnCanvas(UpgradeContentCanvas, Attributes, URokBarracksUpgradeAttributes::SourcePosition(), FVector2D(536, Attributes->GetSourceHeight()), 2);
@@ -7016,34 +6075,7 @@ void URokUnityModalWidget::BuildBuildingUpgrade()
 	}
 	else
 	{
-		struct FUpgradeStatRow
-		{
-			FText Label;
-			int32 Current = 0;
-			int32 Next = 0;
-		};
-		TArray<FUpgradeStatRow> Rows;
-		const int32 Type = Preview.CurrentState.UnityBuildingTypeId;
-		auto* Catalog = GetGameInstance() ? GetGameInstance()->GetSubsystem<URokUnityGameplayCatalogSubsystem>() : nullptr;
-		FRokUnityCatalogBuildingType BuildingType;
-		if (Type >= 9 && Type <= 12 && Catalog && Catalog->GetBuildingType(Type, BuildingType))
-		{
-			const FText Labels[] = {
-				NSLOCTEXT("RokModal", "InfantryTrainingCapacity", "步兵单位训练容量"),
-				NSLOCTEXT("RokModal", "CavalryTrainingCapacity", "骑兵单位训练容量"),
-				NSLOCTEXT("RokModal", "ArcherTrainingCapacity", "弓兵单位训练容量"),
-				NSLOCTEXT("RokModal", "SiegeTrainingCapacity", "攻城单位训练容量")
-			};
-			Rows.Add({Labels[Type - 9], BuildingType.GetTrainingCapacity(Preview.CurrentState.Level),
-				BuildingType.GetTrainingCapacity(Preview.TargetLevel)});
-		}
-		else if (Preview.CurrentProducePerHour > 0 || Preview.NextProducePerHour > 0)
-		{
-			Rows.Add({NSLOCTEXT("RokModal", "ProductionPerHour", "每小时产量"),
-				Preview.CurrentProducePerHour, Preview.NextProducePerHour});
-			Rows.Add({NSLOCTEXT("RokModal", "ProductionCapacity", "最大收取量"), Preview.CurrentGatherMax, Preview.NextGatherMax});
-		}
-		Rows.Add({NSLOCTEXT("RokModal", "UpgradePower", "战力"), Preview.CurrentPower, Preview.NextPower});
+		const TArray<FUpgradeStatRow> Rows = BuildingUpgradeStats(Preview, GetGameInstance());
 		for (int32 Index = 0; Index < Rows.Num(); ++Index)
 		{
 			const float Y = 263.0f + Index * 54.0f;
@@ -7054,7 +6086,7 @@ void URokUnityModalWidget::BuildBuildingUpgrade()
 			Current->SetText(FormatNumber(Rows[Index].Current));
 			PlaceOnCanvas(UpgradeContentCanvas, Current, FVector2D(955.0f, Y), FVector2D(90.0f, 36.0f), 2);
 			UTextBlock* Delta = MakeModalText(*FString::Printf(TEXT("UpgradeStatDelta_%d"), Index), 20, FLinearColor(0.15f, 0.65f, 0.16f, 1.0f), true);
-			Delta->SetText(FText::FromString(FString::Printf(TEXT("+%s"), *FormatNumber(FMath::Max(0, Rows[Index].Next - Rows[Index].Current)).ToString())));
+			Delta->SetText(UpgradeStatDelta(Rows[Index]));
 			PlaceOnCanvas(UpgradeContentCanvas, Delta, FVector2D(1060.0f, Y), FVector2D(120.0f, 36.0f), 2);
 		}
 	
@@ -7069,19 +6101,8 @@ void URokUnityModalWidget::BuildBuildingUpgrade()
 		true);
 	RequirementLabel->SetText(NSLOCTEXT("RokModal", "UpgradeRequirements", "需求"));
 	PlaceOnCanvas(UpgradeContentCanvas, RequirementLabel, FVector2D(690.0f, 452.0f), FVector2D(160.0f, 30.0f), 3);
-	struct FCostVisual
-	{
-		int32 Cost = 0;
-		FIntRect IconRect;
-	};
-	const FCostVisual Costs[4] = {
-		{Preview.Cost.Food, FoodCurrencyRect},
-		{Preview.Cost.Wood, WoodCurrencyRect},
-		{Preview.Cost.Stone, StoneCurrencyRect},
-		{Preview.Cost.Gold, GoldCurrencyRect},
-	};
 	int32 CostVisualIndex = 0;
-	for (const FCostVisual& Cost : Costs)
+	for (const FUpgradeCostVisual& Cost : BuildingUpgradeCosts(Preview))
 	{
 		if (Cost.Cost <= 0)
 		{
@@ -7126,7 +6147,151 @@ void URokUnityModalWidget::BuildBuildingUpgrade()
 	}
 }
 
-void URokUnityModalWidget::BuildBarracksLevelDetails(int32 KnownLevel)
+void URokUnityModalWidget::BindBuildingUpgradePage(URokUiPageWidget* Page, const FRokBuildingUpgradePreview& Preview,
+	bool bIsSourcePreview, bool bHasRuntimePreview, bool bBarracks, bool bBarracksAttributes)
+{
+	UCanvasPanel* Content = Page->Get<UCanvasPanel>(bBarracks ? TEXT("BarracksLevelDescriptionRoot") : TEXT("PageRoot"));
+	if (bBarracks)
+	{
+		BuildingDescriptionRoot = Content;
+		if (UButton* Info = Page->Get<UButton>(TEXT("BarracksLevelInfoButton")))
+		{
+			Info->OnClicked.AddUniqueDynamic(this, &URokUnityModalWidget::HandleBarracksLevelInfoClicked);
+		}
+	}
+	if (Content)
+	{
+		const FVector2D PreviewPosition = bBarracks ? FVector2D(203.0f, 110.3f) : FVector2D(203.9f, 166.9f);
+		AddBuildingPreview(Content, TEXT("BuildingUpgradeImage"), Preview.CurrentState.UnityBuildingTypeId,
+			PreviewPosition, FVector2D(450.0f, 620.0f), bBarracks ? FVector2D(428.0f, 462.0f) : FVector2D(428.9f, 507.0f));
+	}
+	const FText CurrentLevel = FText::AsNumber(Preview.CurrentState.Level);
+	const FText NextLevel = FText::AsNumber(Preview.TargetLevel);
+	if (bBarracksAttributes)
+	{
+		FString GlyphError;
+		auto* SourceTextData = NewObject<URokBarracksSourceTextData>(this);
+		if (!SourceTextData->Load(GlyphError))
+		{
+			UE_LOG(LogTemp, Error, TEXT("Barracks source level glyphs: %s"), *GlyphError);
+		}
+		for (const bool bNext : {false, true})
+		{
+			if (auto* Text = Page->Get<URokBarracksSourceTextWidget>(bNext ? TEXT("UpgradeNextLevel") : TEXT("UpgradeCurrentLevel")))
+			{
+				Text->Configure(SourceTextData, 24, true, 3, URokBarracksUpgradeAttributes::LevelSize(bNext), FLinearColor::White);
+				if (!Text->SetText(bNext ? NextLevel : FText::Format(NSLOCTEXT("RokModal", "BarracksSourceLevel", "等级{0}"), CurrentLevel)))
+				{
+					UE_LOG(LogTemp, Error, TEXT("Barracks source level glyph missing for %s"), *Text->GetText().ToString());
+				}
+			}
+		}
+		UCanvasPanel* Placeholder = Page->Get<UCanvasPanel>(TEXT("BarracksUpgradeAttributesSlot"));
+		if (const auto* AttributeSlot = Placeholder ? Cast<UCanvasPanelSlot>(Placeholder->Slot) : nullptr)
+		{
+			const FVector2D Position = AttributeSlot->GetPosition();
+			const FVector2D Size = AttributeSlot->GetSize();
+			const int32 ZOrder = AttributeSlot->GetZOrder();
+			auto* Attributes = WidgetTree->ConstructWidget<URokBarracksUpgradeAttributes>(
+				URokBarracksUpgradeAttributes::ResolveAttributesClass(), TEXT("BarracksUpgradeAttributes"));
+			// Construct the source-backed Slate content before adding it to the live page.
+			if (Attributes->InitializeAttributes())
+			{
+				PlaceOnCanvas(Content, Attributes, Position, Size, ZOrder);
+			}
+			else
+			{
+				UE_LOG(LogTemp, Error, TEXT("Barracks upgrade attributes: %s"), *Attributes->GetLoadError());
+				UTextBlock* Error = MakeModalText(TEXT("BarracksUpgradeAttributeUnavailable"), 15, FLinearColor::White);
+				Error->SetText(NSLOCTEXT("RokModal", "BarracksAttributeUnavailable", "兵营升级属性源数据不可用"));
+				PlaceOnCanvas(Content, Error, Position, Size, ZOrder);
+			}
+		}
+	}
+	else
+	{
+		SetPageText(Page, TEXT("UpgradeCurrentLevel"), CurrentLevel);
+		SetPageText(Page, TEXT("UpgradeNextLevel"), NextLevel);
+		const TArray<FUpgradeStatRow> Rows = BuildingUpgradeStats(Preview, GetGameInstance());
+		for (int32 Index = 0; Index < 3; ++Index)
+		{
+			UTextBlock* Label = Page->Get<UTextBlock>(IndexedName(TEXT("UpgradeStatLabel"), Index));
+			UTextBlock* Current = Page->Get<UTextBlock>(IndexedName(TEXT("UpgradeStatCurrent"), Index));
+			UTextBlock* Delta = Page->Get<UTextBlock>(IndexedName(TEXT("UpgradeStatDelta"), Index));
+			const bool bShow = Rows.IsValidIndex(Index);
+			Page->SetShown(Label, bShow);
+			Page->SetShown(Current, bShow);
+			Page->SetShown(Delta, bShow);
+			if (bShow)
+			{
+				if (Label) Label->SetText(Rows[Index].Label);
+				if (Current) Current->SetText(FormatNumber(Rows[Index].Current));
+				if (Delta) Delta->SetText(UpgradeStatDelta(Rows[Index]));
+			}
+		}
+	}
+
+	int32 CostIndex = 0;
+	const TArray<FUpgradeCostVisual> Costs = BuildingUpgradeCosts(Preview);
+	for (const FUpgradeCostVisual& Cost : Costs)
+	{
+		if (Cost.Cost > 0)
+		{
+			UImage* Icon = Page->Get<UImage>(IndexedName(TEXT("UpgradeCostIcon"), CostIndex));
+			Page->SetShown(Icon, true);
+			SetAtlasSprite(Icon, CommonAtlasPath, Cost.IconRect, CommonAtlasSize, FVector2D(46));
+			SetPageText(Page, IndexedName(TEXT("UpgradeCostText"), CostIndex), FormatNumber(Cost.Cost));
+			Page->SetShown(Page->Get<UTextBlock>(IndexedName(TEXT("UpgradeCostText"), CostIndex)), true);
+			++CostIndex;
+		}
+	}
+	for (; CostIndex < Costs.Num(); ++CostIndex)
+	{
+		Page->SetShown(Page->Get<UImage>(IndexedName(TEXT("UpgradeCostIcon"), CostIndex)), false);
+		Page->SetShown(Page->Get<UTextBlock>(IndexedName(TEXT("UpgradeCostText"), CostIndex)), false);
+	}
+
+	SetPageText(Page, TEXT("InstantUpgradeButtonSecondary"), bIsSourcePreview ? FText::AsNumber(1)
+		: NSLOCTEXT("RokModal", "InstantPricePending", "费用待同步"));
+	SetPageText(Page, TEXT("TimedUpgradeButtonSecondary"), FText::Format(
+		NSLOCTEXT("RokModal", "Seconds", "{0}秒"), FText::AsNumber(Preview.BuildSeconds)));
+	if (!bBarracks)
+	{
+		UImage* Gem = Page->Get<UImage>(TEXT("InstantUpgradeGem"));
+		Page->SetShown(Gem, bIsSourcePreview);
+		if (bIsSourcePreview)
+		{
+			SetAtlasSprite(Gem, CommonAtlasPath, GemCurrencyRect, CommonAtlasSize, FVector2D(28));
+		}
+	}
+	if (UButton* Instant = Page->Get<UButton>(TEXT("InstantUpgradeButton")))
+	{
+		Instant->OnClicked.AddUniqueDynamic(this, &URokUnityModalWidget::HandleInstantUpgrade);
+	}
+	if (UButton* Timed = Page->Get<UButton>(TEXT("TimedUpgradeButton")))
+	{
+		Timed->SetIsEnabled(bIsSourcePreview || (bHasRuntimePreview && Preview.bCanStartTimedUpgrade));
+		Timed->OnClicked.AddUniqueDynamic(this, &URokUnityModalWidget::HandleStartUpgrade);
+	}
+	FeedbackText = Page->Get<UTextBlock>(TEXT("UpgradeFeedback"));
+	if (FeedbackText)
+	{
+		const bool bShow = !bIsSourcePreview && bHasRuntimePreview
+			&& !Preview.bCanStartTimedUpgrade && !Preview.FailureReason.IsEmpty();
+		FeedbackText->SetText(bShow ? FText::FromString(Preview.FailureReason) : FText::GetEmpty());
+		FeedbackText->SetVisibility(bShow ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+	}
+	if (!bIsSourcePreview)
+	{
+		RefreshUpgradeButtons();
+	}
+	if (bBarracks)
+	{
+		BuildBarracksLevelDetails(Preview.CurrentState.Level, Page);
+	}
+}
+
+void URokUnityModalWidget::BuildBarracksLevelDetails(int32 KnownLevel, URokUiPageWidget* Page)
 {
 	// Unity Text uses pixel size; Slate FontInfo uses points at its 96-DPI renderer.
 	constexpr float LevelTextPoints = 22.0f * 72.0f / 96.0f;
@@ -7142,7 +6307,7 @@ void URokUnityModalWidget::BuildBarracksLevelDetails(int32 KnownLevel)
 	if (!HeaderSourceData->LoadLevelHeaders(Error))
 	{
 		UE_LOG(LogTemp, Error, TEXT("Barracks level header source glyphs: %s"), *Error);
-		if (auto* InfoButton = Cast<UButton>(WidgetTree->FindWidget(TEXT("BarracksLevelInfoButton"))))
+		if (auto* InfoButton = Cast<UButton>(RokUiFind::Find(this, TEXT("BarracksLevelInfoButton"))))
 		{
 			InfoButton->SetIsEnabled(false);
 		}
@@ -7156,7 +6321,7 @@ void URokUnityModalWidget::BuildBarracksLevelDetails(int32 KnownLevel)
 		if (!HeaderSourceData->Find(Headers[Column], 22, false, 4, 250))
 		{
 			UE_LOG(LogTemp, Error, TEXT("Barracks level header source glyph missing: column=%d text=%s"), Column, *Headers[Column]);
-			if (auto* InfoButton = Cast<UButton>(WidgetTree->FindWidget(TEXT("BarracksLevelInfoButton"))))
+			if (auto* InfoButton = Cast<UButton>(RokUiFind::Find(this, TEXT("BarracksLevelInfoButton"))))
 			{
 				InfoButton->SetIsEnabled(false);
 			}
@@ -7167,6 +6332,57 @@ void URokUnityModalWidget::BuildBarracksLevelDetails(int32 KnownLevel)
 		}
 	}
 	BarracksLevelSelectedLevel = Rows.IsValidIndex(KnownLevel - 1) ? KnownLevel : 0;
+	if (Page)
+	{
+		BarracksLevelDetailsRoot = Page->Get<UCanvasPanel>(TEXT("BarracksLevelDetailsRoot"));
+		BarracksLevelDetailsScroll = Page->Get<UScrollBox>(TEXT("BarracksLevelDetailsScroll"));
+		BarracksLevelBackButton = Page->Get<UButton>(TEXT("BarracksLevelBackButton"));
+		if (BarracksLevelBackButton)
+		{
+			BarracksLevelBackButton->OnClicked.AddUniqueDynamic(this, &URokUnityModalWidget::HandleBarracksLevelBackClicked);
+			// The back button sits above the shared window header, which is mounted outside this page.
+			if (const auto* BackSlot = Cast<UCanvasPanelSlot>(BarracksLevelBackButton->Slot))
+			{
+				const FVector2D Position = BackSlot->GetPosition();
+				const FVector2D Size = BackSlot->GetSize();
+				const int32 ZOrder = BackSlot->GetZOrder();
+				BarracksLevelBackButton->RemoveFromParent();
+				PlaceOnCanvas(ModeCanvas, BarracksLevelBackButton, Position, Size, ZOrder);
+			}
+		}
+		for (int32 Column = 0; Column < Headers.Num(); ++Column)
+		{
+			if (auto* Header = Page->Get<URokBarracksSourceTextWidget>(IndexedName(TEXT("BarracksLevelHeader"), Column)))
+			{
+				Header->Configure(HeaderSourceData, 22, false, 4, FVector2D(250, 50), FLinearColor::White);
+				Header->SetText(FText::FromString(Headers[Column]));
+			}
+		}
+		if (USizeBox* Size = Page->Get<USizeBox>(TEXT("BarracksLevelRowsSize")))
+		{
+			Size->SetHeightOverride(Rows.Num() * 50.0f);
+		}
+		UCanvasPanel* Grid = Page->Get<UCanvasPanel>(TEXT("BarracksLevelRows"));
+		for (const FRokBarracksLevelDetailsRow& Row : Rows)
+		{
+			const FString Suffix = FString::Printf(TEXT("_%d"), Row.Level);
+			URokUiPageWidget* Item = MountItem(TEXT("BarracksLevelRow"), Grid, *(TEXT("BarracksLevelRow") + Suffix),
+				FVector2D(0.0f, (Row.Level - 1) * 50.0f), FVector2D(1024.0f, 50.0f), 0, TEXT("BarracksLevel"), Suffix);
+			if (!Item)
+			{
+				break;
+			}
+			Item->SetPresent(Item->Get<UWidget>(TEXT("CurrentRow")), KnownLevel == Row.Level);
+			const FText Values[] = {FText::AsNumber(Row.Level), FText::AsNumber(Row.InfantryTrainNumber),
+				FText::FromString(Row.InfantryAttackText), FText::AsNumber(Row.Power)};
+			for (int32 Column = 0; Column < UE_ARRAY_COUNT(Values); ++Column)
+			{
+				SetPageText(Item, IndexedName(TEXT("Cell"), Column), Values[Column]);
+			}
+		}
+		ApplyBarracksLevelPageAnimation();
+		return;
+	}
 	BarracksLevelDetailsRoot = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("BarracksLevelDetailsRoot"));
 	PlaceOnCanvas(ModeCanvas, BarracksLevelDetailsRoot, FVector2D::ZeroVector, FVector2D(1440, 900), 1);
 	BarracksLevelBackButton = MakeAtlasButton(TEXT("BarracksLevelBackButton"), CommonAtlasPath, SpriteRect(703, 282, 69, 69), CommonAtlasSize, FVector2D(69));
@@ -7707,7 +6923,7 @@ void URokUnityModalWidget::HandleProfileKillsHelpClicked()
 	// PlayerDataMediator.ShowKill -> HelpTip arrowUp; keep profile underneath.
 	ClosePlayerKillTip();
 	ClosePlayerPowerActionTip();
-	UWidget* Anchor = GetWidgetFromName(TEXT("ProfileKillsHelpButton"));
+	UWidget* Anchor = RokUiFind::Find(this, TEXT("ProfileKillsHelpButton"));
 	const auto* AnchorSlot = Anchor ? Cast<UCanvasPanelSlot>(Anchor->Slot) : nullptr;
 	if (!AnchorSlot) return;
 	const FVector2D AnchorCenter = AnchorSlot->GetPosition() + AnchorSlot->GetSize() * 0.5;
@@ -7716,49 +6932,33 @@ void URokUnityModalWidget::HandleProfileKillsHelpClicked()
 		FMath::Max(0.0f, float(CurrentExpandedDesignSize.X) - Width));
 	const float Top = AnchorCenter.Y + 12.0f;
 
-	PlayerKillTipLayer = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("PlayerKillTipLayer"));
-	PlaceOnCanvas(ModeCanvas, PlayerKillTipLayer, FVector2D::ZeroVector, CurrentExpandedDesignSize, 100);
-	auto* LayerSlot = CastChecked<UCanvasPanelSlot>(PlayerKillTipLayer->Slot);
-	LayerSlot->SetAnchors(FAnchors(0, 0, 1, 1)); LayerSlot->SetOffsets(FMargin(0));
-	FSlateBrush NoBrush; NoBrush.DrawAs = ESlateBrushDrawType::NoDrawType;
-	FButtonStyle EmptyStyle;
-	EmptyStyle.SetNormal(NoBrush); EmptyStyle.SetHovered(NoBrush); EmptyStyle.SetPressed(NoBrush);
-	EmptyStyle.SetDisabled(NoBrush); EmptyStyle.SetNormalPadding(FMargin(0)); EmptyStyle.SetPressedPadding(FMargin(0));
-	UButton* Mask = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("PlayerKillTipClickAway"));
-	Mask->SetStyle(EmptyStyle); Mask->OnClicked.AddDynamic(this, &URokUnityModalWidget::ClosePlayerKillTip);
-	PlaceOnCanvas(PlayerKillTipLayer, Mask, FVector2D::ZeroVector, CurrentExpandedDesignSize);
-	auto* MaskSlot = CastChecked<UCanvasPanelSlot>(Mask->Slot);
-	MaskSlot->SetAnchors(FAnchors(0, 0, 1, 1)); MaskSlot->SetOffsets(FMargin(0));
-	PlayerKillTipRoot = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("PlayerKillTipRoot"));
-	PlaceOnCanvas(PlayerKillTipLayer, PlayerKillTipRoot, FVector2D(Left, Top), FVector2D(Width, Height), 1);
+	// The click-away layer and the bubble are an item WBP over the profile page;
+	// C++ places the bubble under the help button and points the arrow at it.
+	URokUiPageWidget* Tip = MountTipLayer(TEXT("PlayerKillTip"), TEXT("PlayerKillTipLayer"));
+	PlayerKillTipLayer = Tip;
+	PlayerKillTipRoot = Tip ? Tip->Get<UCanvasPanel>(TEXT("PlayerKillTipRoot")) : nullptr;
+	if (!PlayerKillTipRoot)
+	{
+		ClosePlayerKillTip();
+		return;
+	}
+	CastChecked<UCanvasPanelSlot>(PlayerKillTipRoot->Slot)->SetPosition(FVector2D(Left, Top));
 	PlayerKillTipRoot->SetRenderTransformPivot(FVector2D(0.5));
 	PlayerKillTipRoot->SetRenderScale(FVector2D(0));
-	// A hit area inside the bubble prevents a click on content closing HelpTip.
-	UButton* Inside = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("PlayerKillTipInside"));
-	Inside->SetStyle(EmptyStyle);
-	PlaceOnCanvas(PlayerKillTipRoot, Inside, FVector2D::ZeroVector, FVector2D(Width, Height));
-	PlaceOnCanvas(PlayerKillTipRoot, MakeAtlasBorder(TEXT("PlayerKillTipBackground"), CommonAtlasPath,
-		SpriteRect(774, 276, 72, 72), CommonAtlasSize, FVector2D(Width, Height),
-		FMargin(21.0f / 72, 23.0f / 72, 21.0f / 72, 24.0f / 72)), FVector2D::ZeroVector, FVector2D(Width, Height), 1);
-	UImage* Arrow = MakeAtlasImage(TEXT("PlayerKillTipArrow"), CommonAtlasPath, SpriteRect(120, 137, 15, 12), CommonAtlasSize, FVector2D(15, 12));
-	Arrow->SetRenderTransformPivot(FVector2D(0.5)); Arrow->SetRenderTransformAngle(180);
-	PlaceOnCanvas(PlayerKillTipRoot, Arrow, FVector2D(AnchorCenter.X - Left - 7.5f, -10.6f), FVector2D(15, 12), 2);
-	UTextBlock* Total = MakeModalText(TEXT("PlayerKillTipTotal"), 18, FLinearColor(0.137f, 0.137f, 0.125f, 1), true);
-	Total->SetText(NSLOCTEXT("RokModal", "PlayerKillTotalUnknown", "击杀总数：—（待同步）"));
-	PlaceOnCanvas(PlayerKillTipRoot, Total, FVector2D(37.37f, 16.34f), FVector2D(280.58f, 30), 3);
-	const FIntRect TierRects[] = { SpriteRect(1, 11, 23, 24), SpriteRect(1, 37, 24, 24),
-		SpriteRect(461, 999, 24, 24), SpriteRect(53, 115, 24, 24), SpriteRect(1, 63, 24, 24) };
-	// Saved upper-right becomes upper-left in Chinese: ArabLayoutCompment.Awake
-	// flips GridLayoutGroup for flags=512/Preview=false. Two 144x24 columns,
-	// spacing Y=28. The creation-date label is inactive in the source prefab.
-	for (int32 Tier = 0; Tier < 5; ++Tier)
+	if (UButton* Mask = Tip->Get<UButton>(TEXT("PlayerKillTipClickAway")))
 	{
-		const FVector2D Cell(43.0f + (Tier % 2) * 144.0f, 59.95f + (Tier / 2) * 52.0f);
-		PlaceOnCanvas(PlayerKillTipRoot, MakeAtlasImage(*FString::Printf(TEXT("PlayerKillTipTierIcon_%d"), Tier + 1),
-			PlayerUiAtlasPath, TierRects[Tier], PlayerUiAtlasSize, FVector2D(23, 24)), Cell, FVector2D(23, 24), 3);
-		UTextBlock* Count = MakeModalText(*FString::Printf(TEXT("PlayerKillTipTierCount_%d"), Tier + 1), 18, FLinearColor(0.137f, 0.137f, 0.125f, 1));
-		Count->SetText(NSLOCTEXT("RokModal", "PlayerKillTierUnknown", "—"));
-		PlaceOnCanvas(PlayerKillTipRoot, Count, Cell + FVector2D(35.9f, -3), FVector2D(105, 30), 3);
+		Mask->OnClicked.AddDynamic(this, &URokUnityModalWidget::ClosePlayerKillTip);
+	}
+	if (UWidget* Arrow = Tip->Get<UWidget>(TEXT("PlayerKillTipArrow")))
+	{
+		auto* ArrowSlot = CastChecked<UCanvasPanelSlot>(Arrow->Slot);
+		ArrowSlot->SetPosition(FVector2D(AnchorCenter.X - Left - 7.5f, ArrowSlot->GetPosition().Y));
+	}
+	// Kill statistics are server state that is not synchronized: never a fabricated zero.
+	SetPageText(Tip, TEXT("PlayerKillTipTotal"), NSLOCTEXT("RokModal", "PlayerKillTotalUnknown", "击杀总数：—（待同步）"));
+	for (int32 Tier = 1; Tier <= 5; ++Tier)
+	{
+		SetPageText(Tip, *FString::Printf(TEXT("PlayerKillTipTierCount_%d"), Tier), NSLOCTEXT("RokModal", "PlayerKillTierUnknown", "—"));
 	}
 	UE_LOG(LogTemp, Display, TEXT("Rok player kill tooltip opened: source=UI_KillTip statistics=server_unknown"));
 }
@@ -7769,7 +6969,7 @@ void URokUnityModalWidget::HandleProfileActionHelpClicked()
 	// PlayerDataMediator.ShowPowerAction -> HelpTip arrowUp; keep profile underneath.
 	ClosePlayerPowerActionTip();
 	ClosePlayerKillTip();
-	UWidget* Anchor = GetWidgetFromName(TEXT("ProfileActionHelpButton"));
+	UWidget* Anchor = RokUiFind::Find(this, TEXT("ProfileActionHelpButton"));
 	const auto* AnchorSlot = Anchor ? Cast<UCanvasPanelSlot>(Anchor->Slot) : nullptr;
 	if (!AnchorSlot) return;
 	const FVector2D AnchorCenter = AnchorSlot->GetPosition() + AnchorSlot->GetSize() * 0.5;
@@ -7778,76 +6978,47 @@ void URokUnityModalWidget::HandleProfileActionHelpClicked()
 		FMath::Max(0.0f, float(CurrentExpandedDesignSize.X) - Width));
 	const float Top = AnchorCenter.Y + 12.0f;
 
-	PlayerPowerActionTipLayer = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("PlayerActionTipLayer"));
-	PlaceOnCanvas(ModeCanvas, PlayerPowerActionTipLayer, FVector2D::ZeroVector, CurrentExpandedDesignSize, 100);
-	auto* LayerSlot = CastChecked<UCanvasPanelSlot>(PlayerPowerActionTipLayer->Slot);
-	LayerSlot->SetAnchors(FAnchors(0, 0, 1, 1)); LayerSlot->SetOffsets(FMargin(0));
-	FSlateBrush NoBrush; NoBrush.DrawAs = ESlateBrushDrawType::NoDrawType;
-	FButtonStyle EmptyStyle;
-	EmptyStyle.SetNormal(NoBrush); EmptyStyle.SetHovered(NoBrush); EmptyStyle.SetPressed(NoBrush);
-	EmptyStyle.SetDisabled(NoBrush); EmptyStyle.SetNormalPadding(FMargin(0)); EmptyStyle.SetPressedPadding(FMargin(0));
-	UButton* Mask = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("PlayerActionTipClickAway"));
-	Mask->SetStyle(EmptyStyle); Mask->OnClicked.AddDynamic(this, &URokUnityModalWidget::ClosePlayerPowerActionTip);
-	PlaceOnCanvas(PlayerPowerActionTipLayer, Mask, FVector2D::ZeroVector, CurrentExpandedDesignSize);
-	auto* MaskSlot = CastChecked<UCanvasPanelSlot>(Mask->Slot);
-	MaskSlot->SetAnchors(FAnchors(0, 0, 1, 1)); MaskSlot->SetOffsets(FMargin(0));
-	PlayerPowerActionTipRoot = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("PlayerActionTipRoot"));
-	PlaceOnCanvas(PlayerPowerActionTipLayer, PlayerPowerActionTipRoot, FVector2D(Left, Top), FVector2D(Width, Height), 1);
+	URokUiPageWidget* Tip = MountTipLayer(TEXT("PlayerActionTip"), TEXT("PlayerActionTipLayer"));
+	PlayerPowerActionTipLayer = Tip;
+	PlayerPowerActionTipRoot = Tip ? Tip->Get<UCanvasPanel>(TEXT("PlayerActionTipRoot")) : nullptr;
+	if (!PlayerPowerActionTipRoot)
+	{
+		ClosePlayerPowerActionTip();
+		return;
+	}
+	CastChecked<UCanvasPanelSlot>(PlayerPowerActionTipRoot->Slot)->SetPosition(FVector2D(Left, Top));
 	PlayerPowerActionTipRoot->SetRenderTransformPivot(FVector2D(0.5));
 	PlayerPowerActionTipRoot->SetRenderScale(FVector2D(0));
-	// A hit area inside the bubble prevents a click on content closing HelpTip.
-	UButton* Inside = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("PlayerActionTipInside"));
-	Inside->SetStyle(EmptyStyle);
-	PlaceOnCanvas(PlayerPowerActionTipRoot, Inside, FVector2D::ZeroVector, FVector2D(Width, Height));
-	PlaceOnCanvas(PlayerPowerActionTipRoot, MakeAtlasBorder(TEXT("PlayerActionTipBackground"), CommonAtlasPath,
-		SpriteRect(774, 276, 72, 72), CommonAtlasSize, FVector2D(Width, Height),
-		FMargin(21.0f / 72, 23.0f / 72, 21.0f / 72, 24.0f / 72)), FVector2D::ZeroVector, FVector2D(Width, Height), 1);
-	UImage* Arrow = MakeAtlasImage(TEXT("PlayerActionTipArrow"), CommonAtlasPath, SpriteRect(120, 137, 15, 12), CommonAtlasSize, FVector2D(15, 12));
-	Arrow->SetRenderTransformPivot(FVector2D(0.5)); Arrow->SetRenderTransformAngle(180);
-	PlaceOnCanvas(PlayerPowerActionTipRoot, Arrow, FVector2D(AnchorCenter.X - Left - 7.5f, -10.6f), FVector2D(15, 12), 2);
-	// Unity Text uses MiddleCenter; zero-padding border supplies vertical centering.
-	auto PlaceTextRegion = [this, &NoBrush](UWidget* Text, const FName& RegionName, float Y, float RegionHeight)
+	if (UButton* Mask = Tip->Get<UButton>(TEXT("PlayerActionTipClickAway")))
 	{
-		auto* Region = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), RegionName);
-		Region->SetBrush(NoBrush); Region->SetPadding(FMargin(0));
-		Region->SetHorizontalAlignment(HAlign_Fill); Region->SetVerticalAlignment(VAlign_Center);
-		Region->SetVisibility(ESlateVisibility::HitTestInvisible); Region->SetContent(Text);
-		PlaceOnCanvas(PlayerPowerActionTipRoot, Region, FVector2D(20, Y), FVector2D(BodyWidth, RegionHeight), 3);
-	};
-	auto MakeBodyText = [this](const FName& Name, const FText& Content)
+		Mask->OnClicked.AddDynamic(this, &URokUnityModalWidget::ClosePlayerPowerActionTip);
+	}
+	if (UWidget* Arrow = Tip->Get<UWidget>(TEXT("PlayerActionTipArrow")))
 	{
-		auto* Text = MakeModalText(Name, 12, FLinearColor::Black, false, ETextJustify::Center);
-		auto Font = Text->GetFont(); Font.Size = RokPowerActionTip::FontPoints(16); Text->SetFont(Font);
-		Text->SetShadowOffset(FVector2D::ZeroVector); Text->SetShadowColorAndOpacity(FLinearColor::Transparent);
-		Text->SetAutoWrapText(true); Text->SetWrapTextAt(RokPowerActionTip::BodyWidth); Text->SetText(Content);
-		return Text;
-	};
-	PlaceTextRegion(MakeBodyText(TEXT("PlayerActionTipDescription"),
-		NSLOCTEXT("RokModal", "PowerActionTipDescription", "行动力能够用于攻打乱军，并会随时间缓慢恢复。")),
-		TEXT("PlayerActionTipDescriptionRegion"), DescriptionY, DescriptionHeight);
-	PlaceTextRegion(MakeBodyText(TEXT("PlayerActionTipWarning"),
-		NSLOCTEXT("RokModal", "PowerActionTipWarning", "（现有行动力超过上限时，取消行动将不会返还任何行动力）")),
-		TEXT("PlayerActionTipWarningRegion"), WarningY, WarningHeight);
-	auto* Recovery = WidgetTree->ConstructWidget<URichTextBlock>(URichTextBlock::StaticClass(), TEXT("PlayerActionTipRecovery"));
-	FTextBlockStyle RecoveryStyle;
-	auto RecoveryFont = FCoreStyle::GetDefaultFontStyle(TEXT("Regular"), 14);
-	RecoveryFont.Size = FontPoints(18); // 18 Unity px = 13.5 Slate pt at 96 DPI.
-	RecoveryStyle.SetFont(RecoveryFont).SetColorAndOpacity(FSlateColor(FLinearColor::Black));
-	RecoveryStyle.SetShadowOffset(FVector2D::ZeroVector);
-	auto* Styles = NewObject<UDataTable>(Recovery); Styles->RowStruct = FRichTextStyleRow::StaticStruct();
-	FRichTextStyleRow DefaultRow; DefaultRow.TextStyle = RecoveryStyle;
-	Styles->AddRow(TEXT("Default"), DefaultRow);
-	FRichTextStyleRow RemainingRow; RemainingRow.TextStyle = RecoveryStyle;
-	RemainingRow.TextStyle.SetColorAndOpacity(FSlateColor(FLinearColor(0.f, 128.f / 255.f, 0.f, 1.f)));
-	Styles->AddRow(TEXT("Remaining"), RemainingRow);
-	Recovery->SetTextStyleSet(Styles); Recovery->SetDefaultTextStyle(RecoveryStyle);
-	Recovery->SetJustification(ETextJustify::Center); Recovery->SetAutoWrapText(true); Recovery->SetWrapTextAt(BodyWidth);
-	Recovery->SetVisibility(ESlateVisibility::HitTestInvisible);
-	// Source 100708 needs city attributes, lastActionForceTime and server time.
-	// Keep every unavailable term unknown; there is no synthetic recovery timer.
-	Recovery->SetText(NSLOCTEXT("RokModal", "PowerActionTipRecoveryUnknown",
-		"行动力恢复1点需要—秒\n（恢复速度提升：+ —%）\n\n全部恢复还需   <Remaining>—</>"));
-	PlaceTextRegion(Recovery, TEXT("PlayerActionTipRecoveryRegion"), RecoveryY, RecoveryHeight);
+		auto* ArrowSlot = CastChecked<UCanvasPanelSlot>(Arrow->Slot);
+		ArrowSlot->SetPosition(FVector2D(AnchorCenter.X - Left - 7.5f, ArrowSlot->GetPosition().Y));
+	}
+	if (auto* Recovery = Tip->Get<URichTextBlock>(TEXT("PlayerActionTipRecovery")))
+	{
+		// The rich-text styles are built at runtime from the engine default font
+		// (a WBP cannot hold this transient style table).
+		FTextBlockStyle RecoveryStyle;
+		auto RecoveryFont = FCoreStyle::GetDefaultFontStyle(TEXT("Regular"), 14);
+		RecoveryFont.Size = FontPoints(18); // 18 Unity px = 13.5 Slate pt at 96 DPI.
+		RecoveryStyle.SetFont(RecoveryFont).SetColorAndOpacity(FSlateColor(FLinearColor::Black));
+		RecoveryStyle.SetShadowOffset(FVector2D::ZeroVector);
+		auto* Styles = NewObject<UDataTable>(Recovery); Styles->RowStruct = FRichTextStyleRow::StaticStruct();
+		FRichTextStyleRow DefaultRow; DefaultRow.TextStyle = RecoveryStyle;
+		Styles->AddRow(TEXT("Default"), DefaultRow);
+		FRichTextStyleRow RemainingRow; RemainingRow.TextStyle = RecoveryStyle;
+		RemainingRow.TextStyle.SetColorAndOpacity(FSlateColor(FLinearColor(0.f, 128.f / 255.f, 0.f, 1.f)));
+		Styles->AddRow(TEXT("Remaining"), RemainingRow);
+		Recovery->SetTextStyleSet(Styles); Recovery->SetDefaultTextStyle(RecoveryStyle);
+		// Source 100708 needs city attributes, lastActionForceTime and server time.
+		// Keep every unavailable term unknown; there is no synthetic recovery timer.
+		Recovery->SetText(NSLOCTEXT("RokModal", "PowerActionTipRecoveryUnknown",
+			"行动力恢复1点需要—秒\n（恢复速度提升：+ —%）\n\n全部恢复还需   <Remaining>—</>"));
+	}
 	UE_LOG(LogTemp, Display, TEXT("Rok power-action tooltip opened: source=UI_Pop_PowerTextTip recovery=server_unknown"));
 }
 
@@ -8029,18 +7200,18 @@ void URokUnityModalWidget::RefreshUpgradeButtons()
 			TimedFailure = TEXT("建筑等级已变化，请重新打开升级界面。");
 		}
 	}
-	if (auto* Price = Cast<UTextBlock>(GetWidgetFromName(TEXT("InstantUpgradeButtonSecondary"))))
+	if (auto* Price = Cast<UTextBlock>(RokUiFind::Find(this, TEXT("InstantUpgradeButtonSecondary"))))
 	{
 		const FText PriceFormat = bUpgradeUsesServer ? NSLOCTEXT("RokModal", "InstantGemEstimate", "约 {0} 宝石")
 			: NSLOCTEXT("RokModal", "InstantGemPrice", "{0} 宝石");
 		Price->SetText(Quote >= 0 ? FText::Format(PriceFormat, FText::AsNumber(Quote))
 			: NSLOCTEXT("RokModal", "InstantPricePending", "费用待同步"));
 	}
-	if (auto* TimedButton = Cast<UButton>(GetWidgetFromName(TEXT("TimedUpgradeButton"))))
+	if (auto* TimedButton = Cast<UButton>(RokUiFind::Find(this, TEXT("TimedUpgradeButton"))))
 	{
 		TimedButton->SetIsEnabled(bTimedEnabled);
 	}
-	if (auto* InstantButton = Cast<UButton>(GetWidgetFromName(TEXT("InstantUpgradeButton"))))
+	if (auto* InstantButton = Cast<UButton>(RokUiFind::Find(this, TEXT("InstantUpgradeButton"))))
 	{
 		InstantButton->SetIsEnabled(bInstantEnabled);
 	}

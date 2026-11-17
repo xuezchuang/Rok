@@ -1,4 +1,5 @@
 #include "RokHospitalExplanationAuditSubsystem.h"
+#include "RokUiWidgets.h"
 #include "RokDataPaths.h"
 #include "RokMainHudWidget.h"
 #include "RokUnityFeatureScreenWidget.h"
@@ -79,7 +80,7 @@ void URokHospitalExplanationAuditSubsystem::Enter(int32 Next) { Step = Next; Ste
 bool URokHospitalExplanationAuditSubsystem::Identity()
 {
     FString Project = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir()); FPaths::NormalizeDirectoryName(Project);
-    return Expect(FPaths::IsSamePath(Project, TEXT("D:/ueDemo/Rok")) && GetWorld() && GetWorld()->GetOutermost()->GetName() == TEXT("/Game/Maps/L_RokUnityGameAppCity"), TEXT("Wrong project/map; no UI action permitted"));
+    return Expect(FPaths::IsSamePath(Project, TEXT("D:/ue/Rok")) && GetWorld() && GetWorld()->GetOutermost()->GetName() == TEXT("/Game/Maps/L_RokUnityGameAppCity"), TEXT("Wrong project/map; no UI action permitted"));
 }
 bool URokHospitalExplanationAuditSubsystem::Begin()
 {
@@ -150,7 +151,7 @@ UScrollBox* URokHospitalExplanationAuditSubsystem::Scroll() const { return Cast<
 bool URokHospitalExplanationAuditSubsystem::Click(UUserWidget* Owner, FName Name)
 {
     if (!Identity() || !Unchanged()) return false;
-    auto* B = Owner ? Cast<UButton>(Owner->GetWidgetFromName(Name)) : nullptr;
+    auto* B = Owner ? Cast<UButton>(RokUiFind::Find(Owner, Name)) : nullptr;
     if (!B && Owner == Feature.Get()) B = Cast<UButton>(Find(Name));
     if (!Expect(B && Visible(B) && B->GetIsEnabled(), TEXT("Required navigation button unavailable"))) return false;
     auto A = MakeShared<FJsonObject>(); A->SetStringField(TEXT("button"), Name.ToString()); A->SetNumberField(TEXT("frame"), GFrameCounter); A->SetNumberField(TEXT("step"), Step); A->SetNumberField(TEXT("elapsed"), Elapsed); Actions.Add(MakeShared<FJsonValueObject>(A));

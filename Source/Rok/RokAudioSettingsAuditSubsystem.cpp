@@ -1,4 +1,5 @@
 #include "RokAudioSettingsAuditSubsystem.h"
+#include "RokUiWidgets.h"
 
 #include "RokAudioRouterSubsystem.h"
 #include "RokBuildingUpgradeSubsystem.h"
@@ -529,8 +530,8 @@ bool URokAudioSettingsAuditSubsystem::Ready(int32 Mode) const
 	if (!Boundary() || !Hud.IsValid() || !Modal.IsValid() || !Screen.IsValid()) return false;
 	if (Mode == 0) return !Modal->IsModalOpen() && !Screen->IsScreenOpen();
 	if (Mode == 1) return Modal->IsModalOpen() && !Screen->IsScreenOpen()
-		&& Visible(Modal->GetWidgetFromName(TEXT("ProfileSettingsButton")))
-		&& !Visible(Modal->GetWidgetFromName(TEXT("ModalAnimationInputBlocker")));
+		&& Visible(RokUiFind::Find(Modal, TEXT("ProfileSettingsButton")))
+		&& !Visible(RokUiFind::Find(Modal, TEXT("ModalAnimationInputBlocker")));
 	if (Mode == 2) return !Modal->IsModalOpen() && Screen->IsScreenOpen()
 		&& Visible(Screen->GetWidgetFromName(TEXT("SettingsHubGeneralButton")))
 		&& Screen->GetWidgetFromName(TEXT("FeatureModeCanvas"))
@@ -558,7 +559,7 @@ bool URokAudioSettingsAuditSubsystem::Ready(int32 Mode) const
 }
 bool URokAudioSettingsAuditSubsystem::Click(UUserWidget* Owner, const TCHAR* Name)
 {
-	UButton* Button = Owner ? Cast<UButton>(Owner->GetWidgetFromName(Name)) : nullptr;
+	UButton* Button = Owner ? Cast<UButton>(RokUiFind::Find(Owner, Name)) : nullptr;
 	if (!Expect(Boundary() && Owner && Owner->GetWorld() == GetWorld()
 		&& Visible(Button) && Button->GetIsEnabled() && FSlateApplication::IsInitialized(),
 		TEXT("Audio audit Slate button unavailable"))) return false;

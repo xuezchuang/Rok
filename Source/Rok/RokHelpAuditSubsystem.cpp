@@ -1,4 +1,5 @@
 #include "RokHelpAuditSubsystem.h"
+#include "RokUiWidgets.h"
 #include "RokDataPaths.h"
 #include "RokHelpSourceTextWidget.h"
 #include "RokHelpWidget.h"
@@ -65,7 +66,7 @@ void URokHelpAuditSubsystem::Enter(int32 NewStage){Stage=NewStage;StageStarted=E
 bool URokHelpAuditSubsystem::Begin()
 {
     FString Project=FPaths::ConvertRelativePathToFull(FPaths::ProjectDir());FPaths::NormalizeDirectoryName(Project);
-    if(!Expect(FPaths::IsSamePath(Project,TEXT("D:/ueDemo/Rok"))&&GetWorld()->GetOutermost()->GetName()==TEXT("/Game/Maps/L_RokUnityGameAppCity"),TEXT("Wrong project/map before any UI action")))return false;
+    if(!Expect(FPaths::IsSamePath(Project,TEXT("D:/ue/Rok"))&&GetWorld()->GetOutermost()->GetName()==TEXT("/Game/Maps/L_RokUnityGameAppCity"),TEXT("Wrong project/map before any UI action")))return false;
     const TCHAR* Cursor=FCommandLine::Get();FString Token;
     while(FParse::Token(Cursor,Token,false))if(Token.StartsWith(TEXT("-Rok"),ESearchCase::IgnoreCase)&&!Token.Equals(TEXT("-RokHelpAudit"),ESearchCase::IgnoreCase)&&(Token.Contains(TEXT("Audit"),ESearchCase::IgnoreCase)||Token.StartsWith(TEXT("-RokOpen"))||Token.StartsWith(TEXT("-RokAuto"))))
     {Finish(TEXT("Dedicated process required without other audits/auto-open flags"));return false;}
@@ -90,7 +91,7 @@ bool URokHelpAuditSubsystem::Unchanged()
 }
 bool URokHelpAuditSubsystem::Click(UUserWidget* Owner,const TCHAR* Name)
 {
-    auto* B=Owner?Cast<UButton>(Owner->GetWidgetFromName(Name)):nullptr;
+    auto* B=Owner?Cast<UButton>(RokUiFind::Find(Owner, Name)):nullptr;
     if(!Expect(B&&B->IsVisible()&&B->GetIsEnabled(),TEXT("Required real UMG button absent or disabled")))return false;
     auto Record=MakeShared<FJsonObject>();Record->SetStringField(TEXT("button"),Name);Record->SetNumberField(TEXT("frame"),Frame);Record->SetNumberField(TEXT("stage"),Stage);Actions.Add(MakeShared<FJsonValueObject>(Record));B->OnClicked.Broadcast();return true;
 }

@@ -1,6 +1,7 @@
 #include "RokScoutScreenWidget.h"
 #include "RokArmyShowPanelAnimation.h"
 #include "RokUiAnimatedButton.h"
+#include "RokUiWidgets.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/Border.h"
 #include "Components/Button.h"
@@ -105,7 +106,16 @@ void URokScoutScreenWidget::Open(int32 KnownCampLevel)
 		PreviousKeyboardFocus = FSlateApplication::Get().GetKeyboardFocusedWidget();
 	}
 	CampLevel = KnownCampLevel;
-	Catalog.Load(CatalogError);
+#if WITH_DEV_AUTOMATION_TESTS
+	if (!CatalogPathForTesting.IsEmpty())
+	{
+		Catalog.LoadForTesting(CatalogPathForTesting, CatalogError);
+	}
+	else
+#endif
+	{
+		Catalog.Load(CatalogError);
+	}
 	bOpen = true; bDescription = false; PanelSeconds = 0.25f;
 	WindowAnimation.Reset(); WindowAnimation.Open(ERokUiWindowAnimationStyle::Type1);
 	Build(); SetVisibility(ESlateVisibility::Visible); ApplyAnimation();
@@ -116,6 +126,10 @@ void URokScoutScreenWidget::Open(int32 KnownCampLevel)
 void URokScoutScreenWidget::Build()
 {
 	RootCanvas->ClearChildren();
+	if (BuildFromBlueprint())
+	{
+		return;
+	}
 	// kTouchClose mask is outside the root Animator so scale cannot expose the world to input.
 	auto* Mask = Button(WidgetTree, TEXT("ScoutBackgroundClose"), nullptr, false);
 	FSlateBrush MaskBrush; MaskBrush.DrawAs = ESlateBrushDrawType::Image; MaskBrush.TintColor = FLinearColor(0, 0, 0, 0.55f);
@@ -213,6 +227,86 @@ void URokScoutScreenWidget::Build()
 	CastChecked<USizeBoxSlot>(Description->AddChild(DescriptionText))->SetVerticalAlignment(VAlign_Top);
 	AnimationBlocker = Button(WidgetTree, TEXT("ScoutAnimationInputBlocker"), nullptr, false);
 	Place(MotionCanvas, AnimationBlocker, FVector2D(133.5, 39.5), FVector2D(1173, 730), 100);
+}
+
+bool URokScoutScreenWidget::BuildFromBlueprint()
+{
+	static const TSoftClassPtr<URokUiPageWidget> PageClass(
+		FSoftObjectPath(TEXT("/Game/RokUI/Scout/WBP_RokScoutScreen.WBP_RokScoutScreen_C")));
+	UClass* Class = URokUiSettings::Resolve(PageClass);
+	URokUiPageWidget* Page = Class ? CreateWidget<URokUiPageWidget>(this, Class) : nullptr;
+	if (!Page)
+	{
+		return false;
+	}
+
+	MotionCanvas = Page->Get<UCanvasPanel>(TEXT("ScoutMotionCanvas"));
+	List = Page->Get<UScrollBox>(TEXT("ScoutListScroll"));
+	Description = Page->Get<USizeBox>(TEXT("ScoutDescriptionScroll"));
+	BackButton = Page->Get<UButton>(TEXT("ScoutBackButton"));
+	AnimationBlocker = Page->Get<UButton>(TEXT("ScoutAnimationInputBlocker"));
+	UButton* Mask = Page->Get<UButton>(TEXT("ScoutBackgroundClose"));
+	UButton* Close = Page->Get<UButton>(TEXT("ScoutCloseButton"));
+	UButton* Info = Page->Get<UButton>(TEXT("ScoutInfoButton"));
+	UCanvasPanel* Content = Page->Get<UCanvasPanel>(TEXT("ScoutListContent"));
+	UTextBlock* Title = Page->Get<UTextBlock>(TEXT("ScoutTitle"));
+	UTextBlock* Summary = Page->Get<UTextBlock>(TEXT("ScoutSummaryText"));
+	UTextBlock* Camp = Page->Get<UTextBlock>(TEXT("ScoutCampConfiguration"));
+	UTextBlock* DescriptionText = Page->Get<UTextBlock>(TEXT("ScoutDescriptionText"));
+	if (!MotionCanvas || !List || !Description || !BackButton || !AnimationBlocker
+		|| !Mask || !Close || !Info || !Content || !Title || !Summary || !Camp || !DescriptionText)
+	{
+		return false;
+	}
+
+	Title->SetText(FText::FromString(Catalog.Text.Contains(180021) ? Catalog.Text[180021] : TEXT("斥候营地")));
+	Summary->SetText(FText::FromString(Catalog.Text.FindRef(181144)));
+	DescriptionText->SetText(FText::FromString(Catalog.Text.FindRef(181002)));
+	FString CampText;
+	if (const auto* Level = Catalog.FindLevel(CampLevel))
+	{
+		CampText = FString::Printf(TEXT("斥候营地  等级 %d\n该等级可容纳 %d 名斥候"), Level->Level, Level->Capacity);
+	}
+	else if (CampLevel == 0)
+	{
+		CampText = TEXT("斥候营地尚未建造");
+	}
+	else
+	{
+		CampText = TEXT("营地等级待同步");
+	}
+	Camp->SetText(FText::FromString(CampText));
+	if (!CatalogError.IsEmpty())
+	{
+		static const TSoftClassPtr<URokUiPageWidget> WarningClass(FSoftObjectPath(
+			TEXT("/Game/RokUI/Scout/WBP_RokScoutCatalogUnavailable.WBP_RokScoutCatalogUnavailable_C")));
+		UClass* ResolvedWarningClass = URokUiSettings::Resolve(WarningClass);
+		auto* WarningPage = ResolvedWarningClass ? CreateWidget<URokUiPageWidget>(this, ResolvedWarningClass) : nullptr;
+		if (WarningPage && Cast<UTextBlock>(WarningPage->GetWidgetFromName(TEXT("ScoutCatalogUnavailable"))))
+		{
+			WarningPage->SetVisibility(ESlateVisibility::HitTestInvisible);
+			auto* WarningSlot = Content->AddChildToCanvas(WarningPage);
+			WarningSlot->SetAnchors(FAnchors(0, 0, 1, 1));
+			WarningSlot->SetOffsets(FMargin(0));
+		}
+		else
+		{
+			Place(Content, Text(WidgetTree, TEXT("ScoutCatalogUnavailable"), TEXT("斥候资料未加载"), 20, ETextJustify::Center),
+				FVector2D(130, 465), FVector2D(756, 40));
+		}
+		UE_LOG(LogTemp, Error, TEXT("Rok Scout: %s"), *CatalogError);
+	}
+	Mask->OnClicked.AddUniqueDynamic(this, &URokScoutScreenWidget::RequestClose);
+	Close->OnClicked.AddUniqueDynamic(this, &URokScoutScreenWidget::RequestClose);
+	BackButton->OnClicked.AddUniqueDynamic(this, &URokScoutScreenWidget::ShowList);
+	Info->OnClicked.AddUniqueDynamic(this, &URokScoutScreenWidget::ShowDescription);
+	BackButton->SetVisibility(ESlateVisibility::Collapsed);
+	Description->SetVisibility(ESlateVisibility::Collapsed);
+	List->SetVisibility(ESlateVisibility::Visible);
+	auto* PageSlot = RootCanvas->AddChildToCanvas(Page);
+	PageSlot->SetAnchors(FAnchors(0, 0, 1, 1));
+	PageSlot->SetOffsets(FMargin(0));
+	return true;
 }
 
 void URokScoutScreenWidget::ShowDescription()

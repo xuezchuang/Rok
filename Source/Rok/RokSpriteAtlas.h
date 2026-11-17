@@ -45,5 +45,7 @@ private:
 	TMap<FString, FRokSpriteRect> Entries;
 	TMap<FString, FString> TextureToSheet;
 	TSet<FString> SheetsScanned;
-	TMap<FString, TObjectPtr<UTexture2D>> Textures;
+	// Weak: the sheets are transient textures and this cache is invisible to GC.
+	// A sheet freed after its last widget released it is decoded again.
+	TMap<FString, TWeakObjectPtr<UTexture2D>> Textures;
 };

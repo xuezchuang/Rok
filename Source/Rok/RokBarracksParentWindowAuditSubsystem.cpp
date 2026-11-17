@@ -1,4 +1,5 @@
 #include "RokBarracksParentWindowAuditSubsystem.h"
+#include "RokUiWidgets.h"
 #include "RokMainHudWidget.h"
 #include "RokUnityFeatureScreenWidget.h"
 #include "RokUnityModalWidget.h"
@@ -79,7 +80,7 @@ bool PreviewFrameSourceMatches(URokUnityModalWidget* Modal)
     if (!Modal) return false;
     for (int32 Index=0; Index<9; ++Index)
     {
-        const auto* Image=Cast<UImage>(Modal->GetWidgetFromName(*FString::Printf(TEXT("BuildingUpgradePreviewFrameSlice_%d"),Index)));
+        const auto* Image=Cast<UImage>(RokUiFind::Find(Modal, *FString::Printf(TEXT("BuildingUpgradePreviewFrameSlice_%d"),Index)));
         const auto* Slot=Image?Cast<UCanvasPanelSlot>(Image->Slot):nullptr;
         if (!Image || !Slot || !Visible(Image)) return false;
         const auto Patch=RokModalNineSlice::Patch(PreviewSpriteRect,PreviewSpriteMargin,FVector2D(450,620),Index);
@@ -190,7 +191,7 @@ bool URokBarracksParentWindowAuditSubsystem::Click(UUserWidget* Owner, FName Nam
     if (!Identity() || !Unchanged()) return false;
     if (!Expect(Name == TEXT("BuildingUpgradeButton") || Name == TEXT("BuildingInfoButton")
         || Name == TEXT("Type2CloseButton"), TEXT("Only navigation delegates allowed"))) return false;
-    auto* Button = Owner ? Cast<UButton>(Owner->GetWidgetFromName(Name)) : nullptr;
+    auto* Button = Owner ? Cast<UButton>(RokUiFind::Find(Owner, Name)) : nullptr;
     if (!Expect(Button && Visible(Button) && Button->GetIsEnabled(), TEXT("Missing enabled navigation button"))) return false;
     auto Action = MakeShared<FJsonObject>(); Action->SetStringField(TEXT("button"), Name.ToString());
     Action->SetNumberField(TEXT("frame"), GFrameCounter); Action->SetNumberField(TEXT("step"), Step);
@@ -206,8 +207,8 @@ bool URokBarracksParentWindowAuditSubsystem::Validate()
     if (!Expect(ViewportPixels.Equals(FVector2D(1440,810), .1) && Viewport.GetLocalSize().X > 0
         && Viewport.GetLocalSize().Y > 0, TEXT("Real game viewport must be 1440x810"))) return false;
     if (PageKind == 0)
-        return Expect(!Modal->IsModalOpen() && !Modal->GetWidgetFromName(ParentNames[0])
-            && !Modal->GetWidgetFromName(ParentNames[5]), TEXT("Closed Type2 parent remained attached"));
+        return Expect(!Modal->IsModalOpen() && !RokUiFind::Find(Modal, ParentNames[0])
+            && !RokUiFind::Find(Modal, ParentNames[5]), TEXT("Closed Type2 parent remained attached"));
 #if !UE_BUILD_SHIPPING
     if (!Expect(Modal->GetSelectedBuildingActorForAudit() == Barracks.Get(), TEXT("Type2 page lost selected Init6 actor"))) return false;
 #endif
@@ -215,7 +216,7 @@ bool URokBarracksParentWindowAuditSubsystem::Validate()
     const bool bUpgrade = PageKind == 1;
     for (int32 Index = 0; Index < UE_ARRAY_COUNT(ParentNames); ++Index)
     {
-        const auto* Widget = Modal->GetWidgetFromName(ParentNames[Index]);
+        const auto* Widget = RokUiFind::Find(Modal, ParentNames[Index]);
         const auto* Slot = Widget ? Cast<UCanvasPanelSlot>(Widget->Slot) : nullptr;
         const FVector2D Expected = bUpgrade ? BarracksPositions[Index] : OtherPositions[Index];
         if (!Expect(Widget && Slot && Visible(Widget) && Slot->GetPosition().Equals(Expected,.02)
@@ -237,12 +238,12 @@ bool URokBarracksParentWindowAuditSubsystem::Validate()
         if ((Index == 1 || Index == 3) && !Expect(Widget->GetRenderTransform().Scale.Equals(FVector2D(-1,1),.001),
             TEXT("Source right parent half lost horizontal mirror"))) return false;
     }
-    const auto* Title = Cast<UTextBlock>(Modal->GetWidgetFromName(TEXT("Type2Title")));
+    const auto* Title = Cast<UTextBlock>(RokUiFind::Find(Modal, TEXT("Type2Title")));
     if (bUpgrade && !Expect(Title && !Title->GetText().IsEmpty(),
         TEXT("Real barracks upgrade title missing"))) return false;
     if (bUpgrade)
     {
-        const auto* PreviewFrame = Cast<UBorder>(Modal->GetWidgetFromName(TEXT("BuildingUpgradePreviewFrame")));
+        const auto* PreviewFrame = Cast<UBorder>(RokUiFind::Find(Modal, TEXT("BuildingUpgradePreviewFrame")));
         const auto* FrameSlot = PreviewFrame ? Cast<UCanvasPanelSlot>(PreviewFrame->Slot) : nullptr;
         if (!Expect(FrameSlot && Visible(PreviewFrame)
             && FrameSlot->GetPosition().Equals(FVector2D(203,110.3),.02)
@@ -262,9 +263,9 @@ bool URokBarracksParentWindowAuditSubsystem::Validate()
             && (FramePixelEnd-FramePixelStart).Equals(FVector2D(450,620),.15)
             && FramePixelEnd.Y < BarracksPositions[0].Y+ParentSizes[0].Y,
             TEXT("Native Left/bg actual pixels extend beyond source parent body"))) return false;
-        const auto* Preview = Modal->GetWidgetFromName(TEXT("BuildingSourcePreviewWidget"));
-        const auto* Glow = Modal->GetWidgetFromName(TEXT("BuildingPreviewGlowWidget"));
-        const auto* Attributes = Modal->GetWidgetFromName(TEXT("BarracksUpgradeAttributes"));
+        const auto* Preview = RokUiFind::Find(Modal, TEXT("BuildingSourcePreviewWidget"));
+        const auto* Glow = RokUiFind::Find(Modal, TEXT("BuildingPreviewGlowWidget"));
+        const auto* Attributes = RokUiFind::Find(Modal, TEXT("BarracksUpgradeAttributes"));
         const auto* PreviewSlot = Preview ? Cast<UCanvasPanelSlot>(Preview->Slot) : nullptr;
         const auto* GlowSlot = Glow ? Cast<UCanvasPanelSlot>(Glow->Slot) : nullptr;
         const auto* AttributesSlot = Attributes ? Cast<UCanvasPanelSlot>(Attributes->Slot) : nullptr;
@@ -277,7 +278,7 @@ bool URokBarracksParentWindowAuditSubsystem::Validate()
             && AttributesSlot->GetSize().Equals(FVector2D(536,110),.02),
             TEXT("Accepted preview/glow/attribute absolute layout moved with parent"))) return false;
     }
-    else if (!Expect(!Modal->GetWidgetFromName(TEXT("BuildingPreviewGlowWidget")),
+    else if (!Expect(!RokUiFind::Find(Modal, TEXT("BuildingPreviewGlowWidget")),
         TEXT("Building info page inherited barracks upgrade glow"))) return false;
     return true;
 }
@@ -294,7 +295,7 @@ TSharedRef<FJsonObject> URokBarracksParentWindowAuditSubsystem::State() const
     {
         for (int32 Index = 0; Index < UE_ARRAY_COUNT(ParentNames); ++Index)
         {
-            const UWidget* Widget = Modal->GetWidgetFromName(ParentNames[Index]);
+            const UWidget* Widget = RokUiFind::Find(Modal, ParentNames[Index]);
             const auto* Slot = Cast<UCanvasPanelSlot>(Widget->Slot);
             const FGeometry Geometry = Widget->GetCachedGeometry();
             const auto Pixel = [&](FVector2D Point)
@@ -320,14 +321,14 @@ TSharedRef<FJsonObject> URokBarracksParentWindowAuditSubsystem::State() const
     Result->SetObjectField(TEXT("parent_widgets"), Parents);
     if (PageKind == 1)
     {
-        const auto* Frame=Cast<UBorder>(Modal->GetWidgetFromName(TEXT("BuildingUpgradePreviewFrame")));
+        const auto* Frame=Cast<UBorder>(RokUiFind::Find(Modal, TEXT("BuildingUpgradePreviewFrame")));
         const auto* Slot=Cast<UCanvasPanelSlot>(Frame->Slot);
         const FGeometry Geometry=Frame->GetCachedGeometry();
         const FVector2D A=Viewport.AbsoluteToLocal(Geometry.LocalToAbsolute(FVector2D::ZeroVector));
         const FVector2D B=Viewport.AbsoluteToLocal(Geometry.LocalToAbsolute(Geometry.GetLocalSize()));
         const FVector2D PixelA(A.X*ViewportPixels.X/Viewport.GetLocalSize().X,A.Y*ViewportPixels.Y/Viewport.GetLocalSize().Y);
         const FVector2D PixelB(B.X*ViewportPixels.X/Viewport.GetLocalSize().X,B.Y*ViewportPixels.Y/Viewport.GetLocalSize().Y);
-        const auto* Slice=Cast<UImage>(Modal->GetWidgetFromName(TEXT("BuildingUpgradePreviewFrameSlice_0")));
+        const auto* Slice=Cast<UImage>(RokUiFind::Find(Modal, TEXT("BuildingUpgradePreviewFrameSlice_0")));
         auto Background=MakeShared<FJsonObject>();
         Background->SetObjectField(TEXT("slot_rect"),MakeParentRectJson(Slot->GetPosition(),Slot->GetSize()));
         Background->SetObjectField(TEXT("pixel_rect"),MakeParentRectJson(PixelA,PixelB-PixelA));

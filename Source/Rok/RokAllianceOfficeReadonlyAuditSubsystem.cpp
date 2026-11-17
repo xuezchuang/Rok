@@ -1,4 +1,5 @@
 #include "RokAllianceOfficeReadonlyAuditSubsystem.h"
+#include "RokUiWidgets.h"
 
 #include "RokBuildingUpgradeSubsystem.h"
 #include "RokDataPaths.h"
@@ -678,7 +679,7 @@ TSharedRef<FJsonObject> URokAllianceOfficeReadonlyAuditSubsystem::State() const
     Json->SetNumberField(TEXT("camera_scale_z"), Camera.GetScale3D().Z);
 
     auto Widgets = MakeShared<FJsonObject>();
-    Widgets->SetObjectField(TEXT("AllianceFeatureButton"), WidgetState(Hud.IsValid() ? Hud->GetWidgetFromName(TEXT("AllianceFeatureButton")) : nullptr));
+    Widgets->SetObjectField(TEXT("AllianceFeatureButton"), WidgetState(Hud.IsValid() ? RokUiFind::Find(Hud, TEXT("AllianceFeatureButton")) : nullptr));
     for (const TCHAR* Name : {TEXT("FeatureModeCanvas"), TEXT("FeatureFrameClose"), TEXT("FeatureFrameTitle"),
         TEXT("AllianceOfficeReferenceOpen"), TEXT("AllianceOfficeReferenceIntro"),
         TEXT("AllianceOfficeReferenceBack"), TEXT("AllianceOfficeReferenceUnavailable")})
@@ -725,7 +726,7 @@ bool URokAllianceOfficeReadonlyAuditSubsystem::Ready(int32 Phase) const
         || !Server.IsValid() || !Server->IsLocalOnlyRun() || Server->GetHttpDispatchAttemptCount() != 0
         || Server->GetSuppressedLocalRequestCount() != 0 || Modal->IsModalOpen()) return false;
     if (Phase == 0 || Phase == 7 || Phase == 11)
-        return !Screen->IsScreenOpen() && Visible(Hud->GetWidgetFromName(TEXT("AllianceFeatureButton")));
+        return !Screen->IsScreenOpen() && Visible(RokUiFind::Find(Hud, TEXT("AllianceFeatureButton")));
     const UWidget* Mode = Screen->GetWidgetFromName(TEXT("FeatureModeCanvas"));
     if (!Screen->IsScreenOpen() || !Mode || !Visible(Mode)
         || !FMath::IsNearlyEqual(Mode->GetRenderOpacity(), 1.0, .01)
@@ -1057,7 +1058,7 @@ void URokAllianceOfficeReadonlyAuditSubsystem::Tick(float DeltaTime)
             Capture(TEXT("00_city_hud"), 2);
         }
         break;
-    case 2: if (Boundary() && Click(Cast<UButton>(Hud->GetWidgetFromName(TEXT("AllianceFeatureButton"))), TEXT("open_alliance_from_hud"))) Enter(3); break;
+    case 2: if (Boundary() && Click(Cast<UButton>(RokUiFind::Find(Hud, TEXT("AllianceFeatureButton"))), TEXT("open_alliance_from_hud"))) Enter(3); break;
     case 3: if (Boundary() && Stable(1)) Capture(TEXT("01_alliance_welcome"), 4); break;
     case 4: if (Boundary() && Click(Cast<UButton>(Screen->GetWidgetFromName(TEXT("AllianceOfficeReferenceOpen"))), TEXT("open_office_reference"))) Enter(5); break;
     case 5: if (Boundary() && Stable(2)) Capture(TEXT("02_office_reference"), 6); break;
@@ -1071,7 +1072,7 @@ void URokAllianceOfficeReadonlyAuditSubsystem::Tick(float DeltaTime)
     case 13: if (Boundary() && Stable(6)) Capture(TEXT("06_welcome_return"), 14); break;
     case 14: if (Boundary() && Click(Cast<UButton>(Screen->GetWidgetFromName(TEXT("FeatureFrameClose"))), TEXT("close_alliance_to_hud"))) Enter(15); break;
     case 15: if (Boundary() && Stable(7)) Capture(TEXT("07_hud_return"), 16); break;
-    case 16: if (Boundary() && Click(Cast<UButton>(Hud->GetWidgetFromName(TEXT("AllianceFeatureButton"))), TEXT("reopen_alliance_from_hud"))) Enter(17); break;
+    case 16: if (Boundary() && Click(Cast<UButton>(RokUiFind::Find(Hud, TEXT("AllianceFeatureButton"))), TEXT("reopen_alliance_from_hud"))) Enter(17); break;
     case 17: if (Boundary() && Stable(8)) Capture(TEXT("08_alliance_reopened"), 18); break;
     case 18: if (Boundary() && Click(Cast<UButton>(Screen->GetWidgetFromName(TEXT("AllianceOfficeReferenceOpen"))), TEXT("reopen_office_reference"))) Enter(19); break;
     case 19: if (Boundary() && Stable(9)) Capture(TEXT("09_office_reopened"), 20); break;

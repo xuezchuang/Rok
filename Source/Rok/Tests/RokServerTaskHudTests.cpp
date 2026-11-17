@@ -6,12 +6,16 @@
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
 #include "Components/Button.h"
+#include "Components/CanvasPanelSlot.h"
 #include "Components/Image.h"
 #include "Components/ScrollBox.h"
+#include "Components/SizeBox.h"
 #include "Components/TextBlock.h"
+#include "Components/VerticalBoxSlot.h"
 #include "../RokBuildingUpgradeSubsystem.h"
 #include "../RokMainHudWidget.h"
 #include "../RokServerTaskSubsystem.h"
+#include "../RokUiWidgets.h"
 #include "../RokUnityFeatureScreenWidget.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRokServerTaskHudTest, "Rok.Net.ServerTasks.Hud",
@@ -29,13 +33,14 @@ bool FRokServerTaskHudTest::RunTest(const FString&)
 	Snapshot.bAvailable = true;
 	Snapshot.bLoaded = false;
 	Tasks->SetSnapshotForTesting(Snapshot);
-	URokMainHudWidget* Hud = NewObject<URokMainHudWidget>(World);
+	const TSubclassOf<URokMainHudWidget> HudClass = URokMainHudWidget::ResolveHudClass();
+	URokMainHudWidget* Hud = NewObject<URokMainHudWidget>(World, HudClass);
 	if (!TestTrue(TEXT("HUD initializes"), Hud->Initialize())) return false;
 	Hud->TakeWidget();
 	Hud->RefreshFromSubsystem();
 	const auto Text = [Hud](const TCHAR* Name)
 	{
-		const UTextBlock* Value = Cast<UTextBlock>(Hud->GetWidgetFromName(Name));
+		const UTextBlock* Value = Cast<UTextBlock>(RokUiFind::Find(Hud, Name));
 		return Value ? Value->GetText().ToString() : FString();
 	};
 	TestTrue(TEXT("Partial server state does not display bootstrap quest"), Text(TEXT("TaskTitle_0")).Contains(TEXT("同步中")));
@@ -60,10 +65,42 @@ bool FRokServerTaskHudTest::RunTest(const FString&)
 	Snapshot.bChapterProgressKnown = true;
 	Tasks->SetSnapshotForTesting(Snapshot);
 	Hud->RefreshFromSubsystem();
-	TestNotNull(TEXT("Real task list scrolls"), Cast<UScrollBox>(Hud->GetWidgetFromName(TEXT("HudTaskScroll"))));
+	TestNotNull(TEXT("Real task list scrolls"), Cast<UScrollBox>(RokUiFind::Find(Hud, TEXT("HudTaskScroll"))));
+	FVector2D RowSize(196.0, 80.0);
+	double RowGap = 4.0;
+	if (HudClass->HasAnyClassFlags(CLASS_CompiledFromBlueprint))
+	{
+		const TSoftClassPtr<URokUiPageWidget> LayoutClass(FSoftObjectPath(
+			TEXT("/Game/RokUI/Hud/WBP_RokHudListLayout.WBP_RokHudListLayout_C")));
+		UClass* Class = URokUiSettings::Resolve(LayoutClass);
+		if (!TestNotNull(TEXT("WBP HUD list design exists"), Class)) return false;
+		auto* Layout = NewObject<URokUiPageWidget>(World, Class);
+		if (!TestTrue(TEXT("WBP HUD list design initializes"), Layout->Initialize())) return false;
+		const auto* Row = Layout->GetWidgetFromName(TEXT("TaskRow"));
+		const auto* Gap = Layout->GetWidgetFromName(TEXT("TaskRowGap"));
+		const auto* RowLayoutSlot = Row ? Cast<UCanvasPanelSlot>(Row->Slot) : nullptr;
+		const auto* GapLayoutSlot = Gap ? Cast<UCanvasPanelSlot>(Gap->Slot) : nullptr;
+		if (!TestTrue(TEXT("Task design supplies row and gap slots"), RowLayoutSlot && GapLayoutSlot)) return false;
+		RowSize = RowLayoutSlot->GetSize();
+		RowGap = GapLayoutSlot->GetSize().Y;
+	}
+	for (int32 Index = 0; Index < 3; ++Index)
+	{
+		const FName RowName = Index == 0 ? FName(TEXT("TaskRowSize"))
+			: FName(*FString::Printf(TEXT("TaskRowSize_%d"), Index));
+		const auto* Row = Cast<USizeBox>(RokUiFind::Find(Hud, RowName));
+		const auto* RowListSlot = Row ? Cast<UVerticalBoxSlot>(Row->Slot) : nullptr;
+		const auto* Action = RokUiFind::Find(Hud, *FString::Printf(TEXT("HudTaskAction_%d"), Index));
+		const auto* HitSlot = Action ? Cast<UCanvasPanelSlot>(Action->Slot) : nullptr;
+		TestTrue(TEXT("Live task row and its action use the design dimensions"), Row && HitSlot
+			&& FVector2D(Row->GetWidthOverride(), Row->GetHeightOverride()).Equals(RowSize, 0.001)
+			&& HitSlot->GetSize().Equals(RowSize, 0.001));
+		TestTrue(TEXT("Live task row uses the design spacing"), RowListSlot
+			&& FMath::IsNearlyEqual(static_cast<double>(RowListSlot->GetPadding().Bottom), RowGap, 0.001));
+	}
 	TestEqual(TEXT("Main title uses account task"), Text(TEXT("TaskTitle_0")), Main.Name);
 	TestTrue(TEXT("Main progress uses server value"), Text(TEXT("TaskProgress_0")).Contains(TEXT("3/20")));
-	UTextBlock* Progress = Cast<UTextBlock>(Hud->GetWidgetFromName(TEXT("TaskProgress_0")));
+	UTextBlock* Progress = Cast<UTextBlock>(RokUiFind::Find(Hud, TEXT("TaskProgress_0")));
 	if (!TestNotNull(TEXT("Task description label"), Progress)) return false;
 	const float ShortDescriptionSize = Progress->GetFont().Size;
 	const FString LongDescription = TEXT("在城市内升级兵营并训练弓兵，随后前往世界地图收集资源，回城领取训练部队并完成本次任务");
@@ -83,18 +120,18 @@ bool FRokServerTaskHudTest::RunTest(const FString&)
 	TestEqual(TEXT("Completed tasks populate the HUD badge"), Text(TEXT("TaskEntryBadgeCount")), FString(TEXT("1")));
 	TestEqual(TEXT("Side follows main"), Text(TEXT("TaskTitle_1")), Side.Name);
 	TestEqual(TEXT("Chapter follows side"), Text(TEXT("TaskTitle_2")), Chapter.Name);
-	UImage* MainReward = Cast<UImage>(Hud->GetWidgetFromName(TEXT("TaskReward_0")));
-	UImage* SideReward = Cast<UImage>(Hud->GetWidgetFromName(TEXT("TaskReward_1")));
+	UImage* MainReward = Cast<UImage>(RokUiFind::Find(Hud, TEXT("TaskReward_0")));
+	UImage* SideReward = Cast<UImage>(RokUiFind::Find(Hud, TEXT("TaskReward_1")));
 	if (!TestNotNull(TEXT("Main marker"), MainReward) || !TestNotNull(TEXT("Side marker"), SideReward)) return false;
 	TestEqual(TEXT("Unfinished has no claim marker"), MainReward->GetVisibility(), ESlateVisibility::Collapsed);
 	TestEqual(TEXT("Only finished side has a claim marker"), SideReward->GetVisibility(), ESlateVisibility::HitTestInvisible);
 	const auto Before = Buildings->GetCurrentResources();
-	UButton* ChapterAction = Cast<UButton>(Hud->GetWidgetFromName(TEXT("HudTaskAction_2")));
+	UButton* ChapterAction = Cast<UButton>(RokUiFind::Find(Hud, TEXT("HudTaskAction_2")));
 	if (!TestNotNull(TEXT("Chapter is clickable"), ChapterAction)) return false;
 	ChapterAction->OnClicked.Broadcast();
 	URokUnityFeatureScreenWidget* Screen = Hud->GetFeatureScreenWidgetForPlacement();
 	TestTrue(TEXT("Chapter card opens task screen"), Screen && Screen->IsScreenOpen()
-		&& Screen->GetWidgetFromName(TEXT("TaskChapterRoot")));
+		&& RokUiFind::Find(Screen, TEXT("TaskChapterRoot")));
 	TestEqual(TEXT("Card navigation does not grant food"), Buildings->GetCurrentResources().Food, Before.Food);
 	TestEqual(TEXT("Card navigation does not grant wood"), Buildings->GetCurrentResources().Wood, Before.Wood);
 	TestEqual(TEXT("Card navigation does not consume completed task"), Tasks->GetSnapshot().HudTasks[1].State,
@@ -105,7 +142,7 @@ bool FRokServerTaskHudTest::RunTest(const FString&)
 	Hud->RefreshFromSubsystem();
 	TestTrue(TEXT("Progress update is live"), Text(TEXT("TaskProgress_0")).Contains(TEXT("7/20")));
 	TestEqual(TEXT("Removed side shifts chapter up"), Text(TEXT("TaskTitle_1")), Chapter.Name);
-	TestNull(TEXT("No stale third card"), Hud->GetWidgetFromName(TEXT("TaskTitle_2")));
+	TestNull(TEXT("No stale third card"), RokUiFind::Find(Hud, TEXT("TaskTitle_2")));
 	Snapshot.SideTasks.Init(Side, 100);
 	for (int32 Index = 0; Index < Snapshot.SideTasks.Num(); ++Index) Snapshot.SideTasks[Index].TaskId += Index;
 	Tasks->SetSnapshotForTesting(Snapshot);
@@ -113,8 +150,8 @@ bool FRokServerTaskHudTest::RunTest(const FString&)
 	TestEqual(TEXT("Source limit renders 99+"), Text(TEXT("TaskEntryBadgeCount")), FString(TEXT("99+")));
 	Tasks->ClearSnapshotForTesting();
 	Hud->RefreshFromSubsystem();
-	TestNull(TEXT("Offline has only the original task row"), Hud->GetWidgetFromName(TEXT("TaskRow_1")));
-	if (const auto* Badge = Hud->GetWidgetFromName(TEXT("TaskEntryBadge")))
+	TestNull(TEXT("Offline has only the original task row"), RokUiFind::Find(Hud, TEXT("TaskRow_1")));
+	if (const auto* Badge = RokUiFind::Find(Hud, TEXT("TaskEntryBadge")))
 		TestEqual(TEXT("Zero hides both the circle and its label"), Badge->GetVisibility(), ESlateVisibility::Collapsed);
 	return true;
 }

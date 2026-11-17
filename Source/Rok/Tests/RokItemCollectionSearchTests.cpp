@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
+#include "RokUiWidgets.h"
 #include "Components/TextBlock.h"
 #include "../RokUnityModalWidget.h"
 
@@ -23,9 +24,9 @@ bool FRokItemCollectionSearchTest::RunTest(const FString& Parameters)
 	Modal->OpenItemCollection();
 
 	TestNotNull(TEXT("The search box exists"),
-		Modal->GetWidgetFromName(TEXT("ItemCollectionSearch")));
+		RokUiFind::Find(Modal, TEXT("ItemCollectionSearch")));
 	const UTextBlock* Before = Cast<UTextBlock>(
-		Modal->GetWidgetFromName(TEXT("ItemCollectionRowTitle_0")));
+		RokUiFind::Find(Modal, TEXT("ItemCollectionRowTitle_0")));
 	TestTrue(TEXT("The unfiltered first row shows an item"),
 		Before != nullptr && !Before->GetText().ToString().IsEmpty());
 

@@ -1,4 +1,5 @@
 #include "RokGraphicsSettingsAuditSubsystem.h"
+#include "RokUiWidgets.h"
 #include "Blueprint/WidgetBlueprintLibrary.h"
 #include "Components/Button.h"
 #include "Components/Slider.h"
@@ -191,7 +192,7 @@ bool URokGraphicsSettingsAuditSubsystem::Restore()
 void URokGraphicsSettingsAuditSubsystem::Next(){++Step;StepStarted=Elapsed;}
 bool URokGraphicsSettingsAuditSubsystem::Click(UUserWidget* Owner,const TCHAR* Name)
 {
- auto* Button=Owner?Cast<UButton>(Owner->GetWidgetFromName(Name)):nullptr;
+ auto* Button=Owner?Cast<UButton>(RokUiFind::Find(Owner, Name)):nullptr;
  if (!GraphicsVisible(Owner) || !GraphicsVisible(Button) || !Button->GetIsEnabled() || Button->GetCachedGeometry().GetLocalSize().X<=0)
  {Finish(FString::Printf(TEXT("Runtime button unavailable: %s"),Name));return false;}
  auto A=MakeShared<FJsonObject>();A->SetStringField(TEXT("button"),Name);Actions.Add(MakeShared<FJsonValueObject>(A));

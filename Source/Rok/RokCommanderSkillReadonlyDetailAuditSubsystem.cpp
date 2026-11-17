@@ -1,4 +1,5 @@
 #include "RokCommanderSkillReadonlyDetailAuditSubsystem.h"
+#include "RokUiWidgets.h"
 
 #include "RokBuildingUpgradeSubsystem.h"
 #include "RokCommanderSkillReadonlyDetail.h"
@@ -785,7 +786,7 @@ TSharedRef<FJsonObject> URokCommanderSkillReadonlyDetailAuditSubsystem::State() 
 	Json->SetNumberField(TEXT("camera_scale_y"), Camera.GetScale3D().Y);
 	Json->SetNumberField(TEXT("camera_scale_z"), Camera.GetScale3D().Z);
 	auto Widgets = MakeShared<FJsonObject>();
-	Widgets->SetObjectField(TEXT("CommanderFeatureButton"), WidgetState(Hud.IsValid() ? Hud->GetWidgetFromName(TEXT("CommanderFeatureButton")) : nullptr));
+	Widgets->SetObjectField(TEXT("CommanderFeatureButton"), WidgetState(Hud.IsValid() ? RokUiFind::Find(Hud, TEXT("CommanderFeatureButton")) : nullptr));
 	for (const TCHAR* Name : {TEXT("FeatureModeCanvas"), TEXT("CommanderBack"), TEXT("CommanderHeadAction_0"),
 		TEXT("CommanderSkillAction_0"), TEXT("CommanderSkillAction_1"), TEXT("CommanderSkillAction_2"),
 		TEXT("CommanderSkillAction_3"), TEXT("CommanderSkillAction_4"), TEXT("CommanderSkillDetailFrame"),
@@ -804,7 +805,7 @@ bool URokCommanderSkillReadonlyDetailAuditSubsystem::Ready(int32 Phase) const
 		|| !Server.IsValid() || !Server->IsLocalOnlyRun() || Server->GetHttpDispatchAttemptCount() != 0
 		|| Server->GetSuppressedLocalRequestCount() != 0 || Modal->IsModalOpen()) return false;
 	if (Phase == 0 || Phase == 9)
-		return !Screen->IsScreenOpen() && Visible(Hud->GetWidgetFromName(TEXT("CommanderFeatureButton")));
+		return !Screen->IsScreenOpen() && Visible(RokUiFind::Find(Hud, TEXT("CommanderFeatureButton")));
 	const UWidget* Mode = Screen->GetWidgetFromName(TEXT("FeatureModeCanvas"));
 	const bool bSettled = Mode && Visible(Mode)
 		&& FMath::IsNearlyEqual(Mode->GetRenderOpacity(), 1.0, .01)
@@ -1133,7 +1134,7 @@ void URokCommanderSkillReadonlyDetailAuditSubsystem::Tick(float DeltaTime)
 			Capture(TEXT("00_city_hud"), 2);
 		}
 		break;
-	case 2: if (Boundary() && Click(Cast<UButton>(Hud->GetWidgetFromName(TEXT("CommanderFeatureButton"))), TEXT("open_commander_from_hud"))) Enter(3); break;
+	case 2: if (Boundary() && Click(Cast<UButton>(RokUiFind::Find(Hud, TEXT("CommanderFeatureButton"))), TEXT("open_commander_from_hud"))) Enter(3); break;
 	case 3: if (Boundary() && Stable(1)) Capture(TEXT("01_commander_default_2007"), 4); break;
 	case 4: if (Boundary() && Click(Cast<UButton>(Screen->GetWidgetFromName(TEXT("CommanderHeadAction_0"))), TEXT("select_local_bootstrap_hero"))) Enter(5); break;
 	case 5:

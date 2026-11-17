@@ -1,12 +1,16 @@
 #if WITH_DEV_AUTOMATION_TESTS
 #include "Misc/AutomationTest.h"
 #include "Misc/FileHelper.h"
+#include "HAL/FileManager.h"
+#include "UnrealClient.h"
+#include "UObject/UObjectIterator.h"
 #include "Misc/Paths.h"
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "../RokDataPaths.h"
 #include "../RokPowerGainWidget.h"
+#include "../RokUiWidgets.h"
 #include "../RokMainHudWidget.h"
 #include "../RokWorldMapHudWidget.h"
 #include "Framework/Application/SlateApplication.h"
@@ -71,7 +75,7 @@ bool FRokPowerGainHudTest::RunTest(const FString&)
 	for (bool bWorld : {false, true})
 	{
 		UUserWidget* Hud = bWorld ? static_cast<UUserWidget*>(World) : City;
-		auto* Effect = Cast<URokPowerGainWidget>(Hud->GetWidgetFromName(bWorld ? TEXT("WorldMapPowerGain") : TEXT("PlayerPowerGain")));
+		auto* Effect = Cast<URokPowerGainWidget>(RokUiFind::Find(Hud, bWorld ? TEXT("WorldMapPowerGain") : TEXT("PlayerPowerGain")));
 		if (!TestNotNull(TEXT("Actual HUD owns the effect widget"), Effect)) return false;
 		auto Set = [&](int32 Value) { if (bWorld) World->SetPowerPresentation(Value); else City->SetPowerPresentation(Value); };
 		auto Advance = [&](float Delta) { if (bWorld) World->AdvancePowerPresentation(Delta); else City->AdvanceHudAnimations(Delta); };
@@ -105,6 +109,88 @@ bool FRokPowerGainHudTest::RunTest(const FString&)
 		Set(300);
 		TestFalse(TEXT("Transparent owner cannot trigger gain"), Effect->IsPlaying());
 	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRokPowerGainMountedTest, "Rok.Ui.Animation.PowerGain.HudMounted",
+	EAutomationTestFlags::ClientContext | EAutomationTestFlags::EngineFilter)
+bool FRokPowerGainMountedTest::RunTest(const FString&)
+{
+	class FCheckMountedEffect final : public IAutomationLatentCommand
+	{
+	public:
+		explicit FCheckMountedEffect(FAutomationTestBase& InTest) : Test(InTest) {}
+
+		bool Update() override
+		{
+			const double Now = FPlatformTime::Seconds();
+			if (Now > Deadline)
+			{
+				Test.AddError(TEXT("The game HUD power effect or screenshot was unavailable."));
+				return true;
+			}
+			if (bStarted)
+			{
+				if (!Test.TestTrue(TEXT("The effect remains attached to the game HUD"), Effect.IsValid())) return true;
+				if (bRequested)
+				{
+					// The real HUD tick owns the playback clock and its natural end.
+					return IFileManager::Get().FileSize(*Screenshot) > 0 && !Effect->IsPlaying();
+				}
+				if (!Effect->IsPlaying() || Effect->GetPlaybackTime() < 0.2f) return false;
+				FScreenshotRequest::RequestScreenshot(Screenshot, true, false);
+				bRequested = true;
+				return false;
+			}
+
+			const auto Start = [this](auto& Hud, const TCHAR* Name, const TCHAR* GroupName, const TCHAR* Map)
+			{
+				if (!Hud.IsInViewport() || !Hud.IsVisible()) return false;
+				auto* Widget = Cast<URokPowerGainWidget>(RokUiFind::Find(&Hud, Name));
+				if (!Widget || Widget->GetCachedGeometry().GetLocalSize().IsNearlyZero()) return false;
+				if (Widget->IsPlaying()) return false;
+				UWidget* Group = RokUiFind::Find(&Hud, GroupName);
+				if (!Group || !Group->IsVisible() || Group->GetRenderOpacity() <= 0.0f) return false;
+				const float Opacity = Group->GetRenderOpacity();
+				Group->SetRenderOpacity(0.0f);
+				// Use values above the local fixture's score so the regular refresh
+				// restores it as a decrease instead of starting a second gain.
+				Hud.SetPowerPresentation(10000);
+				Hud.SetPowerPresentation(10100);
+				Test.TestFalse(TEXT("A transparent HUD group suppresses the effect through its layout"),
+					Widget->IsPlaying());
+				Group->SetRenderOpacity(Opacity);
+				Hud.SetPowerPresentation(10200);
+				Test.TestTrue(TEXT("The real HUD adapter starts the mounted power effect"), Widget->IsPlaying());
+				Effect = Widget;
+				bStarted = true;
+				const FString CaptureDir = FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir() / TEXT("RokUi/Tests"));
+				IFileManager::Get().MakeDirectory(*CaptureDir, true);
+				Screenshot = CaptureDir / FString::Printf(TEXT("hud_power_gain_%s_%s.png"), Map,
+					URokUiSettings::IsLegacyForced() ? TEXT("legacy") : TEXT("wbp"));
+				IFileManager::Get().Delete(*Screenshot);
+				return true;
+			};
+			for (TObjectIterator<URokWorldMapHudWidget> It; It; ++It)
+			{
+				if (Start(**It, TEXT("WorldMapPowerGain"), TEXT("WorldMapPlayerIdentity"), TEXT("world"))) return false;
+			}
+			for (TObjectIterator<URokMainHudWidget> It; It; ++It)
+			{
+				if (Start(**It, TEXT("PlayerPowerGain"), TEXT("PlayerPowerGroup"), TEXT("city"))) return false;
+			}
+			return false;
+		}
+
+	private:
+		FAutomationTestBase& Test;
+		TWeakObjectPtr<URokPowerGainWidget> Effect;
+		FString Screenshot;
+		double Deadline = FPlatformTime::Seconds() + 30;
+		bool bStarted = false;
+		bool bRequested = false;
+	};
+	ADD_LATENT_AUTOMATION_COMMAND(FCheckMountedEffect(*this));
 	return true;
 }
 

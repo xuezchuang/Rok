@@ -1,5 +1,6 @@
 #if WITH_DEV_AUTOMATION_TESTS
 #include "Misc/AutomationTest.h"
+#include "RokUiWidgets.h"
 #include "../RokChangeNameLayout.h"
 #include "../RokUnityModalWidget.h"
 #include "Components/Border.h"
@@ -17,8 +18,8 @@ bool FRokChangeNameLayoutTest::RunTest(const FString&)
 	auto* Modal = NewObject<URokUnityModalWidget>(); Modal->Initialize();
 	const TSharedRef<SWidget> Slate = Modal->TakeWidget();
 	Modal->OpenPlayerProfile(); Modal->AdvanceWindowAnimationForTesting(1);
-	CastChecked<UButton>(Modal->GetWidgetFromName(TEXT("ProfileRenameButton")))->OnClicked.Broadcast();
-	auto* Input = CastChecked<UEditableTextBox>(Modal->GetWidgetFromName(TEXT("ChangeNameInput")));
+	CastChecked<UButton>(RokUiFind::Find(Modal, TEXT("ProfileRenameButton")))->OnClicked.Broadcast();
+	auto* Input = CastChecked<UEditableTextBox>(RokUiFind::Find(Modal, TEXT("ChangeNameInput")));
 	TestTrue(TEXT("Opening retains empty editable draft"), Input->GetText().IsEmpty());
 	TestEqual(TEXT("Source input location"), CastChecked<UCanvasPanelSlot>(Input->Slot)->GetPosition(), FVector2D(329, 270));
 	TestEqual(TEXT("Source full input hit region"), CastChecked<UCanvasPanelSlot>(Input->Slot)->GetSize(), FVector2D(782, 54));
@@ -27,7 +28,7 @@ bool FRokChangeNameLayoutTest::RunTest(const FString&)
 	TestEqual(TEXT("Chinese input left alignment"), Input->GetJustification(), ETextJustify::Left);
 	TestTrue(TEXT("Focus does not paint a stock input frame over atlas"), Input->GetWidgetStyle().BackgroundImageFocused.DrawAs == ESlateBrushDrawType::NoDrawType);
 	TestEqual(TEXT("Source placeholder text"), Input->GetHintText().ToString(), FString(TEXT("点击此处输入城主昵称...")));
-	auto* Desc = CastChecked<UTextBlock>(Modal->GetWidgetFromName(TEXT("ChangeNameDescription")));
+	auto* Desc = CastChecked<UTextBlock>(RokUiFind::Find(Modal, TEXT("ChangeNameDescription")));
 	TestTrue(TEXT("Source description position tolerates float canvas storage"), CastChecked<UCanvasPanelSlot>(Desc->Slot)->GetPosition().Equals(FVector2D(329, 371.9), .001));
 	TestTrue(TEXT("Source description height retained"), CastChecked<UCanvasPanelSlot>(Desc->Slot)->GetSize().Equals(FVector2D(782, 103.6), .001));
 	TestEqual(TEXT("Source explanation twenty pixels becomes fifteen points"), Desc->GetFont().Size, 15.f);
@@ -35,20 +36,20 @@ bool FRokChangeNameLayoutTest::RunTest(const FString&)
 	const auto* Justification = FindFProperty<FByteProperty>(Desc->GetClass(), TEXT("Justification"));
 	if (!TestNotNull(TEXT("Actual text alignment property"), Justification)) return false;
 	TestEqual(TEXT("Chinese description upper-left alignment"), Justification->GetPropertyValue_InContainer(Desc), uint8(ETextJustify::Left));
-	auto* Cost = Modal->GetWidgetFromName(TEXT("ChangeNameCostDescription"));
+	auto* Cost = RokUiFind::Find(Modal, TEXT("ChangeNameCostDescription"));
 	TestTrue(TEXT("Boundary diagnostics no longer overlap source explanation"), CastChecked<UCanvasPanelSlot>(Cost->Slot)->GetPosition().Y >= DescriptionPosition().Y + DescriptionSize().Y);
-	auto* Confirm = CastChecked<UButton>(Modal->GetWidgetFromName(TEXT("ChangeNameConfirmButton")));
+	auto* Confirm = CastChecked<UButton>(RokUiFind::Find(Modal, TEXT("ChangeNameConfirmButton")));
 	Input->SetText(FText::FromString(TEXT("ab"))); Input->OnTextChanged.Broadcast(Input->GetText());
 	TestFalse(TEXT("Invalid short input cannot submit"), Confirm->GetIsEnabled());
 	Input->SetText(FText::FromString(TEXT("NewGovernor"))); Input->OnTextChanged.Broadcast(Input->GetText());
 	TestFalse(TEXT("Valid local input cannot bypass authority boundary"), Confirm->GetIsEnabled());
 	Confirm->OnClicked.Broadcast();
-	TestTrue(TEXT("Direct delegate remains guarded"), CastChecked<UTextBlock>(Modal->GetWidgetFromName(TEXT("ChangeNameValidationFeedback")))->GetText().ToString().Contains(TEXT("没有发送请求")));
+	TestTrue(TEXT("Direct delegate remains guarded"), CastChecked<UTextBlock>(RokUiFind::Find(Modal, TEXT("ChangeNameValidationFeedback")))->GetText().ToString().Contains(TEXT("没有发送请求")));
 	Modal->AdvanceWindowAnimationForTesting(1);
-	CastChecked<UButton>(Modal->GetWidgetFromName(TEXT("TypeMidCloseButton")))->OnClicked.Broadcast();
+	CastChecked<UButton>(RokUiFind::Find(Modal, TEXT("TypeMidCloseButton")))->OnClicked.Broadcast();
 	Modal->AdvanceWindowAnimationForTesting(1);
-	CastChecked<UButton>(Modal->GetWidgetFromName(TEXT("ProfileRenameButton")))->OnClicked.Broadcast();
-	TestTrue(TEXT("Reopen clears draft through existing lifecycle"), CastChecked<UEditableTextBox>(Modal->GetWidgetFromName(TEXT("ChangeNameInput")))->GetText().IsEmpty());
+	CastChecked<UButton>(RokUiFind::Find(Modal, TEXT("ProfileRenameButton")))->OnClicked.Broadcast();
+	TestTrue(TEXT("Reopen clears draft through existing lifecycle"), CastChecked<UEditableTextBox>(RokUiFind::Find(Modal, TEXT("ChangeNameInput")))->GetText().IsEmpty());
 	Modal->CloseModal();
 	return true;
 }

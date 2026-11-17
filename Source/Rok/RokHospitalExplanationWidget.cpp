@@ -1,6 +1,8 @@
 #include "RokHospitalExplanationWidget.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/Border.h"
+#include "Components/CanvasPanel.h"
+#include "Components/CanvasPanelSlot.h"
 #include "Components/RichTextBlock.h"
 #include "Components/ScrollBox.h"
 #include "Components/SizeBox.h"
@@ -11,7 +13,15 @@
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "Styling/CoreStyle.h"
+#include "UObject/UnrealType.h"
 #include "RokDataPaths.h"
+
+TSubclassOf<URokHospitalExplanationWidget> URokHospitalExplanationWidget::ResolvePresentationClass()
+{
+	UClass* ResolvedClass = LoadClass<URokHospitalExplanationWidget>(
+		nullptr, TEXT("/Game/RokUI/Hospital/WBP_RokHospitalExplanation.WBP_RokHospitalExplanation_C"));
+	return ResolvedClass ? ResolvedClass : StaticClass();
+}
 
 bool URokHospitalExplanationWidget::HasExactSourcePaths(const TArray<FString>& Paths)
 {
@@ -60,21 +70,92 @@ bool URokHospitalExplanationWidget::InitializeExplanation()
         for(const auto& V:*Values){double N;if(!V.IsValid()||!V->TryGetNumber(N)||!FMath::IsFinite(N)||FMath::Abs(N)>10000)return false;Result.Add(N);}return Result[2]>0&&Result[3]>0;};
     TArray<double> P,L;if(!Rect(Page,P)||!Rect(Label,L))return Fail(TEXT("Invalid hospital source rectangle"));
     Position=FVector2D(P[0],P[1]);Size=FVector2D(P[2],P[3]);SourceText=FText::FromString(Raw);
-    Scroll=WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(),TEXT("HospitalExplanationScroll"));WidgetTree->RootWidget=Scroll;
-    Scroll->SetScrollBarVisibility(ESlateVisibility::Collapsed);Scroll->SetAnimateWheelScrolling(false);
-    // Unity uses only the viewport mask; it has no scroll-edge shadow images.
-    FScrollBoxStyle ScrollStyle=Scroll->GetWidgetStyle();
-    ScrollStyle.SetTopShadowBrush(FSlateNoResource()).SetBottomShadowBrush(FSlateNoResource());
-    Scroll->SetWidgetStyle(ScrollStyle);
-    Text=WidgetTree->ConstructWidget<URichTextBlock>(URichTextBlock::StaticClass(),TEXT("HospitalExplanationText"));
-    FTextBlockStyle Normal;Normal.SetFont(FCoreStyle::GetDefaultFontStyle(TEXT("Regular"),15));Normal.SetColorAndOpacity(FLinearColor::White);Normal.SetShadowOffset(FVector2D::ZeroVector);
-    auto* Styles=NewObject<UDataTable>(Text);Styles->RowStruct=FRichTextStyleRow::StaticStruct();FRichTextStyleRow Default;Default.TextStyle=Normal;Styles->AddRow(TEXT("Default"),Default);
-    FRichTextStyleRow Yellow;Yellow.TextStyle=Normal;Yellow.TextStyle.SetColorAndOpacity(FLinearColor::FromSRGBColor(FColor(255,255,0)));Styles->AddRow(TEXT("yellow"),Yellow);
-    Text->SetTextStyleSet(Styles);Text->SetDefaultTextStyle(Normal);Text->SetText(FText::FromString(Rich));Text->SetJustification(ETextJustify::Left);Text->SetWrapTextAt(static_cast<float>(L[2]));Text->SetAutoWrapText(true);Text->SetLineHeightPercentage(1.25f);
-    FShapedTextOptions Options;Options.bOverride_TextFlowDirection=true;Options.TextFlowDirection=ETextFlowDirection::LeftToRight;Text->SetShapedTextOptions(Options);
-    auto* Fixed=WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(),TEXT("HospitalExplanationTextWidth"));Fixed->SetWidthOverride(static_cast<float>(L[2]));Fixed->SetContent(Text);
-    auto* Inset=WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(),TEXT("HospitalExplanationInset"));Inset->SetBrushColor(FLinearColor::Transparent);Inset->SetPadding(FMargin(static_cast<float>(L[0]-P[0]),0,0,0));Inset->SetHorizontalAlignment(HAlign_Left);Inset->SetContent(Fixed);Scroll->AddChild(Inset);
+
+    const bool bWidgetBlueprint = GetClass() != URokHospitalExplanationWidget::StaticClass();
+    if (bWidgetBlueprint)
+    {
+        // The generated WBP owns the editable viewport, source-derived geometry,
+        // and base text style; native code supplies runtime content and yellow markup.
+        HospitalExplanationScroll = Cast<UScrollBox>(GetWidgetFromName(TEXT("HospitalExplanationScroll")));
+        HospitalExplanationInset = Cast<UBorder>(GetWidgetFromName(TEXT("HospitalExplanationInset")));
+        HospitalExplanationTextWidth = Cast<USizeBox>(GetWidgetFromName(TEXT("HospitalExplanationTextWidth")));
+        HospitalExplanationText = Cast<URichTextBlock>(GetWidgetFromName(TEXT("HospitalExplanationText")));
+        if (!HospitalExplanationScroll || !HospitalExplanationInset
+            || !HospitalExplanationTextWidth || !HospitalExplanationText)
+        {
+            return Fail(TEXT("Hospital explanation WBP is missing a required named widget"));
+        }
+    }
+    else
+    {
+        // Keep the native-only tree as a fallback for automation and for callers
+        // which have not yet selected the generated WBP class.
+        UCanvasPanel* Root = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("HospitalExplanationRoot"));
+        WidgetTree->RootWidget = Root;
+        HospitalExplanationScroll = WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(),TEXT("HospitalExplanationScroll"));
+        UCanvasPanelSlot* ScrollSlot = Root->AddChildToCanvas(HospitalExplanationScroll);
+        ScrollSlot->SetPosition(FVector2D::ZeroVector);
+        ScrollSlot->SetSize(Size);
+        HospitalExplanationInset = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(),TEXT("HospitalExplanationInset"));
+        HospitalExplanationInset->SetBrushColor(FLinearColor::Transparent);
+        HospitalExplanationInset->SetHorizontalAlignment(HAlign_Left);
+        HospitalExplanationTextWidth = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(),TEXT("HospitalExplanationTextWidth"));
+        HospitalExplanationText = WidgetTree->ConstructWidget<URichTextBlock>(URichTextBlock::StaticClass(),TEXT("HospitalExplanationText"));
+        HospitalExplanationInset->SetContent(HospitalExplanationTextWidth);
+        HospitalExplanationTextWidth->SetContent(HospitalExplanationText);
+        HospitalExplanationScroll->AddChild(HospitalExplanationInset);
+    }
+
+    URichTextBlock* Text = HospitalExplanationText;
+    if (!bWidgetBlueprint)
+    {
+        // Legacy fallback only; the WBP serializes these source-derived values so
+        // Designer edits are retained when its presentation class is selected.
+        UScrollBox* Scroll = HospitalExplanationScroll;
+        Scroll->SetScrollBarVisibility(ESlateVisibility::Collapsed);
+        Scroll->SetAnimateWheelScrolling(false);
+        FScrollBoxStyle ScrollStyle = Scroll->GetWidgetStyle();
+        ScrollStyle.SetTopShadowBrush(FSlateNoResource()).SetBottomShadowBrush(FSlateNoResource());
+        Scroll->SetWidgetStyle(ScrollStyle);
+        FTextBlockStyle DefaultStyle;
+        DefaultStyle.SetFont(FCoreStyle::GetDefaultFontStyle(TEXT("Regular"), 15));
+        DefaultStyle.SetColorAndOpacity(FLinearColor::White);
+        DefaultStyle.SetShadowOffset(FVector2D::ZeroVector);
+        Text->SetDefaultTextStyle(DefaultStyle);
+        Text->SetJustification(ETextJustify::Left);
+        Text->SetWrapTextAt(static_cast<float>(L[2]));
+        Text->SetAutoWrapText(true);
+        Text->SetLineHeightPercentage(1.25f);
+        FShapedTextOptions Options;
+        Options.bOverride_TextFlowDirection = true;
+        Options.TextFlowDirection = ETextFlowDirection::LeftToRight;
+        Text->SetShapedTextOptions(Options);
+        HospitalExplanationTextWidth->SetWidthOverride(static_cast<float>(L[2]));
+        HospitalExplanationInset->SetBrushColor(FLinearColor::Transparent);
+        HospitalExplanationInset->SetPadding(FMargin(static_cast<float>(L[0] - P[0]), 0, 0, 0));
+        HospitalExplanationInset->SetHorizontalAlignment(HAlign_Left);
+    }
+
+    // The WBP authors the base style; the runtime table includes its Default row
+    // plus the yellow style required by the source markup.
+    const FStructProperty* DefaultStyleProperty = FindFProperty<FStructProperty>(
+        Text->GetClass(), TEXT("DefaultTextStyleOverride"));
+    const FTextBlockStyle* AuthoredDefaultStyle = DefaultStyleProperty
+        ? DefaultStyleProperty->ContainerPtrToValuePtr<FTextBlockStyle>(Text)
+        : nullptr;
+    if (!AuthoredDefaultStyle) return Fail(TEXT("Hospital RichTextBlock default style is unavailable"));
+    auto* Styles = NewObject<UDataTable>(Text);
+    Styles->RowStruct = FRichTextStyleRow::StaticStruct();
+    FRichTextStyleRow Default;
+    Default.TextStyle = *AuthoredDefaultStyle;
+    Styles->AddRow(TEXT("Default"), Default);
+    FRichTextStyleRow Yellow;
+    Yellow.TextStyle = Default.TextStyle;
+    Yellow.TextStyle.SetColorAndOpacity(FLinearColor::FromSRGBColor(FColor(255, 255, 0)));
+    Styles->AddRow(TEXT("yellow"), Yellow);
+    Text->SetTextStyleSet(Styles);
+    Text->SetText(FText::FromString(Rich));
     SetVisibility(ESlateVisibility::Collapsed);return true;
 }
-FText URokHospitalExplanationWidget::GetRichText() const{return Text?Text->GetText():FText::GetEmpty();}
-float URokHospitalExplanationWidget::GetScrollOffset() const{return Scroll?Scroll->GetScrollOffset():0;}
+FText URokHospitalExplanationWidget::GetRichText() const{return HospitalExplanationText?HospitalExplanationText->GetText():FText::GetEmpty();}
+float URokHospitalExplanationWidget::GetScrollOffset() const{return HospitalExplanationScroll?HospitalExplanationScroll->GetScrollOffset():0;}

@@ -1,4 +1,5 @@
 #include "RokWorldMapPlayerController.h"
+#include "RokUiWidgets.h"
 #include "RokMainHudWidget.h"
 #include "Components/Button.h"
 #include "Components/ScrollBox.h"
@@ -61,7 +62,7 @@ void ARokWorldMapPlayerController::BeginPlay()
 	{
 		WorldMapHudWidget = CreateWidget<URokWorldMapHudWidget>(
 			this,
-			URokWorldMapHudWidget::StaticClass());
+			URokWorldMapHudWidget::ResolveHudClass());
 		if (WorldMapHudWidget)
 		{
 			WorldMapHudWidget->AddToViewport(30);
@@ -183,7 +184,7 @@ void ARokWorldMapPlayerController::TakeAutoScreenshot()
 	{
 		if (auto* Tactical = Cast<URokMainHudWidget>(WorldMapHudWidget->GetWidgetFromName(TEXT("WorldMapTacticalHud"))))
 		{
-			if (auto* Fold = Cast<UButton>(Tactical->GetWidgetFromName(TEXT("MoreFeatureButton"))))
+			if (auto* Fold = Cast<UButton>(RokUiFind::Find(Tactical, TEXT("MoreFeatureButton"))))
 			{
 				Fold->OnClicked.Broadcast();
 				Tactical->AdvanceHudAnimations(FMath::Max(0.0f, FeatureFoldSample));
@@ -195,7 +196,7 @@ void ARokWorldMapPlayerController::TakeAutoScreenshot()
 	{
 		if (auto* Tactical = Cast<URokMainHudWidget>(WorldMapHudWidget->GetWidgetFromName(TEXT("WorldMapTacticalHud"))))
 		{
-			if (auto* Fold = Cast<UButton>(Tactical->GetWidgetFromName(TEXT("TaskFoldButton"))))
+			if (auto* Fold = Cast<UButton>(RokUiFind::Find(Tactical, TEXT("TaskFoldButton"))))
 			{
 				Fold->OnClicked.Broadcast();
 				Tactical->AdvanceHudAnimations(FMath::Max(0.0f, TaskFoldSample));
@@ -362,7 +363,7 @@ bool ARokWorldMapPlayerController::RunSelectionLodAudit()
 	}
 	if (SelectionLodAuditStage == 2)
 	{
-		auto* Button = Cast<UButton>(WorldMapHudWidget->GetWidgetFromName(TEXT("WorldObjectInfoDetailsButton")));
+		auto* Button = Cast<UButton>(RokUiFind::Find(WorldMapHudWidget, TEXT("WorldObjectInfoDetailsButton")));
 		if (!Button) { UE_LOG(LogTemp, Error, TEXT("Resource page audit missing details button")); return false; }
 		Button->OnClicked.Broadcast();
 		SelectionLodAuditStage = 3;
@@ -370,7 +371,7 @@ bool ARokWorldMapPlayerController::RunSelectionLodAudit()
 	}
 	if (SelectionLodAuditStage == 3)
 	{
-		auto* Page = WorldMapHudWidget->GetWidgetFromName(TEXT("WorldObjectInfoDetailsRoot"));
+		auto* Page = RokUiFind::Find(WorldMapHudWidget, TEXT("WorldObjectInfoDetailsRoot"));
 		if (!Page || Page->GetVisibility() == ESlateVisibility::Collapsed || !FMath::IsNearlyEqual(Page->GetRenderOpacity(), 1.0f))
 		{ UE_LOG(LogTemp, Error, TEXT("Resource page audit description failed")); return false; }
 		FScreenshotRequest::RequestScreenshot(FPaths::ProjectSavedDir() / TEXT("WorldResourceDescription.png"), true, false);
@@ -380,8 +381,8 @@ bool ARokWorldMapPlayerController::RunSelectionLodAudit()
 	}
 	if (SelectionLodAuditStage == 4)
 	{
-		auto* Scroll = Cast<UScrollBox>(WorldMapHudWidget->GetWidgetFromName(TEXT("WorldObjectDescriptionScroll")));
-		auto* Text = Cast<URichTextBlock>(WorldMapHudWidget->GetWidgetFromName(TEXT("WorldObjectInfoDetailsText")));
+		auto* Scroll = Cast<UScrollBox>(RokUiFind::Find(WorldMapHudWidget, TEXT("WorldObjectDescriptionScroll")));
+		auto* Text = Cast<URichTextBlock>(RokUiFind::Find(WorldMapHudWidget, TEXT("WorldObjectInfoDetailsText")));
 		if (!Scroll || !Text || !Text->GetText().ToString().Contains(TEXT("<b>25%</>")))
 		{ UE_LOG(LogTemp, Error, TEXT("Resource rich text audit missing source emphasis")); return false; }
 		Scroll->ScrollToEnd();
@@ -390,7 +391,7 @@ bool ARokWorldMapPlayerController::RunSelectionLodAudit()
 	}
 	if (SelectionLodAuditStage == 40)
 	{
-		auto* Scroll = Cast<UScrollBox>(WorldMapHudWidget->GetWidgetFromName(TEXT("WorldObjectDescriptionScroll")));
+		auto* Scroll = Cast<UScrollBox>(RokUiFind::Find(WorldMapHudWidget, TEXT("WorldObjectDescriptionScroll")));
 		if (!Scroll || Scroll->GetScrollOffset() <= 0)
 		{ UE_LOG(LogTemp, Error, TEXT("Resource rich text audit could not scroll")); return false; }
 		UE_LOG(LogTemp, Display, TEXT("Resource rich text audit SCROLL PASS: offset=%.1f"), Scroll->GetScrollOffset());
@@ -400,7 +401,7 @@ bool ARokWorldMapPlayerController::RunSelectionLodAudit()
 	}
 	if (SelectionLodAuditStage == 42)
 	{
-		auto* Scroll = Cast<UScrollBox>(WorldMapHudWidget->GetWidgetFromName(TEXT("WorldObjectDescriptionScroll")));
+		auto* Scroll = Cast<UScrollBox>(RokUiFind::Find(WorldMapHudWidget, TEXT("WorldObjectDescriptionScroll")));
 		if (!Scroll) { UE_LOG(LogTemp, Error, TEXT("Resource rich text audit lost scroll box")); return false; }
 		// Sample above the bottom as well: the source's emphasized 25% belongs
 		// to paragraph three, preceding the final two paragraphs.
@@ -416,7 +417,7 @@ bool ARokWorldMapPlayerController::RunSelectionLodAudit()
 	}
 	if (SelectionLodAuditStage == 41)
 	{
-		auto* Button = Cast<UButton>(WorldMapHudWidget->GetWidgetFromName(TEXT("WorldObjectDescriptionBack")));
+		auto* Button = Cast<UButton>(RokUiFind::Find(WorldMapHudWidget, TEXT("WorldObjectDescriptionBack")));
 		if (!Button) { UE_LOG(LogTemp, Error, TEXT("Resource page audit missing back button")); return false; }
 		Button->OnClicked.Broadcast();
 		SelectionLodAuditStage = 5;
@@ -424,7 +425,7 @@ bool ARokWorldMapPlayerController::RunSelectionLodAudit()
 	}
 	if (SelectionLodAuditStage == 5)
 	{
-		auto* Page = WorldMapHudWidget->GetWidgetFromName(TEXT("WorldObjectInfoPanelContent"));
+		auto* Page = RokUiFind::Find(WorldMapHudWidget, TEXT("WorldObjectInfoPanelContent"));
 		if (!Page || Page->GetVisibility() == ESlateVisibility::Collapsed || !FMath::IsNearlyEqual(Page->GetRenderOpacity(), 1.0f))
 		{ UE_LOG(LogTemp, Error, TEXT("Resource page audit return failed")); return false; }
 		UE_LOG(LogTemp, Display, TEXT("Resource page audit RETURN PASS"));

@@ -1,4 +1,5 @@
 #include "RokMailAttachmentPulseAuditSubsystem.h"
+#include "RokUiWidgets.h"
 #include "RokMainHudWidget.h"
 #include "RokUnityFeatureScreenWidget.h"
 #include "RokMailAttachmentMeshWidget.h"
@@ -84,7 +85,7 @@ bool URokMailAttachmentPulseAuditSubsystem::Begin()
 bool URokMailAttachmentPulseAuditSubsystem::Click(UUserWidget* Owner, const TCHAR* Name)
 {
     if (!Identity() || !Owner) return false;
-    auto* Button = Cast<UButton>(Owner->GetWidgetFromName(Name));
+    auto* Button = Cast<UButton>(RokUiFind::Find(Owner, Name));
     if (!Button || !Button->IsVisible() || !Button->GetIsEnabled()) { Finish(FString::Printf(TEXT("Missing enabled button %s"), Name)); return false; }
     Button->OnClicked.Broadcast(); // Native delegate; never claim pointer hit-testing.
     return true;

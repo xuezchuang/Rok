@@ -1,5 +1,6 @@
 #if WITH_DEV_AUTOMATION_TESTS
 #include "Misc/AutomationTest.h"
+#include "RokUiTestVisual.h"
 #include "../RokCommanderMeshWidget.h"
 #include "../RokCommanderCamera.h"
 #include "../RokCommanderRosterAnimation.h"
@@ -160,20 +161,20 @@ bool FRokCommanderRosterAnimationTest::RunTest(const FString&)
 	Screen->Initialize(); Screen->TakeWidget(); Screen->OpenCommander();
 	UWidget* List = Screen->GetWidgetFromName(TEXT("CommanderRosterScroll"));
 	if (!TestNotNull(TEXT("Real roster"), List)) return false;
-	TestEqual(TEXT("Opening applies first pose before paint"), List->GetRenderOpacity(), 0.0f);
+	TestEqual(TEXT("Opening applies first pose before paint"), RokUiTestVisual::Opacity(List), 0.0f);
 	Screen->AdvanceCommanderRosterAnimationForTesting(0.2f);
-	TestTrue(TEXT("Runtime entry moves roster"), FMath::IsNearlyEqual(List->GetRenderTransform().Translation.X, -100.0f, 0.001f));
+	TestTrue(TEXT("Runtime entry moves roster"), FMath::IsNearlyEqual(RokUiTestVisual::Translation(List).X, -100.0f, 0.001f));
 	auto* Sort = Cast<UButton>(Screen->GetWidgetFromName(TEXT("CommanderSortAction")));
 	if (!TestNotNull(TEXT("Sort route"), Sort)) return false;
 	Sort->OnClicked.Broadcast(); Screen->FlushPendingActionForTesting();
 	List = Screen->GetWidgetFromName(TEXT("CommanderRosterScroll"));
-	TestTrue(TEXT("Rebuild does not reset entrance"), FMath::IsNearlyEqual(List->GetRenderOpacity(), 0.55f, 0.00001f));
+	TestTrue(TEXT("Rebuild does not reset entrance"), FMath::IsNearlyEqual(RokUiTestVisual::Opacity(List), 0.55f, 0.00001f));
 	UWidget* Portrait = Screen->GetWidgetFromName(TEXT("CommanderAnimatedPortrait"));
 	TestTrue(TEXT("Roster entry does not move character canvas"), Portrait && Portrait->GetRenderTransform().Translation.IsZero());
 	Screen->AdvanceCommanderRosterAnimationForTesting(1.0f);
-	TestEqual(TEXT("List settles fully visible"), List->GetRenderOpacity(), 1.0f);
+	TestEqual(TEXT("List settles fully visible"), RokUiTestVisual::Opacity(List), 1.0f);
 	Screen->CloseScreen(); Screen->OpenCommander();
-	TestEqual(TEXT("Reopening starts a fresh entrance"), Screen->GetWidgetFromName(TEXT("CommanderRosterScroll"))->GetRenderOpacity(), 0.0f);
+	TestEqual(TEXT("Reopening starts a fresh entrance"), RokUiTestVisual::Opacity(Screen->GetWidgetFromName(TEXT("CommanderRosterScroll"))), 0.0f);
 	Screen->CloseScreen();
 	return true;
 }

@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
+#include "RokUiWidgets.h"
 #include "Components/TextBlock.h"
 #include "../RokUnityModalWidget.h"
 
@@ -22,22 +23,22 @@ bool FRokGuildStoreLayoutTest::RunTest(const FString& Parameters)
 	Modal->OpenGuildStore();
 
 	if (!TestNotNull(TEXT("The first shop row exists"),
-		Modal->GetWidgetFromName(TEXT("GuildStoreRow_0"))))
+		RokUiFind::Find(Modal, TEXT("GuildStoreRow_0"))))
 	{
 		return false;
 	}
 	const UTextBlock* Title = Cast<UTextBlock>(
-		Modal->GetWidgetFromName(TEXT("GuildStoreRowTitle_0")));
+		RokUiFind::Find(Modal, TEXT("GuildStoreRowTitle_0")));
 	TestTrue(TEXT("The first row shows the item name from Item.csv"),
 		Title != nullptr && Title->GetText().ToString() == TEXT("天赋重置"));
 	const UTextBlock* Detail = Cast<UTextBlock>(
-		Modal->GetWidgetFromName(TEXT("GuildStoreRowDetail_0")));
+		RokUiFind::Find(Modal, TEXT("GuildStoreRowDetail_0")));
 	TestTrue(TEXT("The detail shows both prices"),
 		Detail != nullptr
 			&& Detail->GetText().ToString().Contains(TEXT("进货价"))
 			&& Detail->GetText().ToString().Contains(TEXT("售价")));
 	TestTrue(TEXT("The list holds more than six rows"),
-		Modal->GetWidgetFromName(TEXT("GuildStoreRow_6")) != nullptr);
+		RokUiFind::Find(Modal, TEXT("GuildStoreRow_6")) != nullptr);
 
 	Modal->CloseModal();
 	TestFalse(TEXT("Closing clears the guild-store mode"), Modal->IsModalOpen());

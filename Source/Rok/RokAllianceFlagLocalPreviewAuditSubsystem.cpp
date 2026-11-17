@@ -1,4 +1,5 @@
 #include "RokAllianceFlagLocalPreviewAuditSubsystem.h"
+#include "RokUiWidgets.h"
 
 #include "RokBuildingUpgradeSubsystem.h"
 #include "RokMainHudWidget.h"
@@ -650,7 +651,7 @@ Json->SetNumberField(TEXT("active_mode"), Screen.IsValid() ? static_cast<int32>(
     Json->SetStringField(TEXT("create_tag_draft"), Screen.IsValid() ? Screen->AllianceCreateTagDraft : FString());
     Json->SetStringField(TEXT("create_notice_draft"), Screen.IsValid() ? Screen->AllianceCreateNoticeDraft : FString());
     auto Widgets = MakeShared<FJsonObject>();
-    Widgets->SetObjectField(TEXT("AllianceFeatureButton"), WidgetState(Hud.IsValid() ? Hud->GetWidgetFromName(TEXT("AllianceFeatureButton")) : nullptr));
+    Widgets->SetObjectField(TEXT("AllianceFeatureButton"), WidgetState(Hud.IsValid() ? RokUiFind::Find(Hud, TEXT("AllianceFeatureButton")) : nullptr));
     for (const TCHAR* Name : {TEXT("FeatureModeCanvas"), TEXT("FeatureFrameClose"), TEXT("AllianceWelcomeJoin"),
         TEXT("AllianceWelcomeCreate"), TEXT("AllianceCreateFlagPanel"), TEXT("AllianceFlagEdit"),
         TEXT("AllianceCreateNameInput"), TEXT("AllianceCreateTagInput"), TEXT("AllianceCreateNoticeInput"), TEXT("AllianceCreateFlagCloth"),
@@ -708,7 +709,7 @@ bool URokAllianceFlagLocalPreviewAuditSubsystem::Ready(int32 Phase) const
     if (Screen->AllianceCreateNameDraft != (bDraftText ? CreateNameText : TEXT(""))
         || Screen->AllianceCreateTagDraft != (bDraftText ? CreateTagText : TEXT(""))
         || Screen->AllianceCreateNoticeDraft != (bDraftText ? CreateNoticeText : TEXT(""))) return false;
-    if (bHud) return !Screen->IsScreenOpen() && Visible(Hud->GetWidgetFromName(TEXT("AllianceFeatureButton")));
+    if (bHud) return !Screen->IsScreenOpen() && Visible(RokUiFind::Find(Hud, TEXT("AllianceFeatureButton")));
     if (!Screen->IsScreenOpen() || Screen->ActiveMode != ERokUnityFeatureScreenMode::Alliance
         || Screen->GetPendingActionIdForAudit() != INDEX_NONE || !SampleUi(Screen.Get()).bReady
         || !Visible(Screen->GetWidgetFromName(TEXT("FeatureFrameClose")))) return false;
@@ -1364,7 +1365,7 @@ void URokAllianceFlagLocalPreviewAuditSubsystem::Tick(float DeltaTime)
     auto Button = [this](const TCHAR* Name) -> UButton*
     { return Cast<UButton>(Screen->GetWidgetFromName(Name)); };
     auto HudButton = [this]() -> UButton*
-    { return Cast<UButton>(Hud->GetWidgetFromName(TEXT("AllianceFeatureButton"))); };
+    { return Cast<UButton>(RokUiFind::Find(Hud, TEXT("AllianceFeatureButton"))); };
     auto Take = [this](UButton* Target, const TCHAR* Label, int32 Next)
     { if (Click(Target, Label)) Enter(Next); };
     auto Shot = [this, &Stable](int32 Phase, const TCHAR* Label, int32 Next)

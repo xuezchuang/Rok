@@ -1,4 +1,5 @@
 #include "RokTrainQuantityAuditSubsystem.h"
+#include "RokUiWidgets.h"
 #include "Blueprint/WidgetBlueprintLibrary.h"
 #include "Components/Button.h"
 #include "Components/EditableTextBox.h"
@@ -109,7 +110,7 @@ bool URokTrainQuantityAuditSubsystem::BindControls()
 bool URokTrainQuantityAuditSubsystem::Click(UUserWidget* Owner, FName Name)
 {
 	if (Name == TEXT("TrainArmyStart")) { Fail(TEXT("Training command forbidden.")); return false; }
-	auto* Button = Owner ? Cast<UButton>(Owner->GetWidgetFromName(Name)) : nullptr;
+	auto* Button = Owner ? Cast<UButton>(RokUiFind::Find(Owner, Name)) : nullptr;
 	if (!Button || Owner->GetWorld() != GetWorld() || !QuantityVisible(Button) || !Button->GetIsEnabled() || Button->GetCachedGeometry().GetLocalSize().X <= 0)
 	{ Fail(FString::Printf(TEXT("Missing/hidden/disabled button %s"), *Name.ToString())); return false; }
 	auto Action = MakeShared<FJsonObject>(); Action->SetStringField(TEXT("button_delegate"), Name.ToString());

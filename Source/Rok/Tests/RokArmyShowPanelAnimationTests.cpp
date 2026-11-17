@@ -3,6 +3,12 @@
 #include "../RokArmyShowPanelAnimation.h"
 #include "../RokUnityFeatureScreenWidget.h"
 #include "Components/Button.h"
+#include "../RokServerArmySubsystem.h"
+#include "Components/ScrollBox.h"
+#include "Components/TextBlock.h"
+#include "Engine/Engine.h"
+#include "Engine/GameInstance.h"
+#include "Misc/ScopeExit.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRokArmyShowPanelAnimationTest,
 	"Rok.Ui.Animation.ArmyShow.PanelNavigation", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -79,4 +85,103 @@ bool FRokArmyShowPanelAnimationTest::RunTest(const FString&)
 	Screen->CloseScreen();
 	return true;
 }
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRokArmyShowSnapshotPresentationTest,
+	"Rok.Ui.ArmyShow.SnapshotPresentation", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FRokArmyShowSnapshotPresentationTest::RunTest(const FString&)
+{
+	auto* Instance = NewObject<UGameInstance>(GEngine);
+	Instance->InitializeStandalone(TEXT("RokArmyShowSnapshotPresentationTest"));
+	UWorld* World = Instance->GetWorld();
+	ON_SCOPE_EXIT { Instance->Shutdown(); GEngine->DestroyWorldContext(World); };
+	auto* Army = Instance->GetSubsystem<URokServerArmySubsystem>();
+	if (!TestNotNull(TEXT("Army subsystem is available to the screen"), Army))
+	{
+		return false;
+	}
+
+	auto* Screen = NewObject<URokUnityFeatureScreenWidget>(World);
+	Screen->Initialize();
+	Screen->TakeWidget();
+	ON_SCOPE_EXIT { Screen->CloseScreen(); };
+
+	FRokServerArmySnapshot Snapshot;
+	Army->SetSnapshotForTesting(Snapshot);
+	Screen->OpenArmyShow();
+	Screen->AdvanceWindowAnimationForTesting(1.0f);
+	const auto ReadScroll = [Screen] { return Cast<UScrollBox>(Screen->GetWidgetFromName(TEXT("ArmyShowListScroll"))); };
+	const auto ReadText = [Screen](const TCHAR* Name)
+	{
+		const UTextBlock* Text = Cast<UTextBlock>(Screen->GetWidgetFromName(Name));
+		return Text ? Text->GetText().ToString() : FString();
+	};
+	const auto* InitialList = ReadScroll();
+	if (!TestNotNull(TEXT("Normal route has a list"), InitialList))
+	{
+		return false;
+	}
+	TestEqual(TEXT("Unavailable data does not fabricate rows"), InitialList->GetChildrenCount(), 0);
+
+	Snapshot.bAvailable = true;
+	Snapshot.Signature = TEXT("waiting");
+	Army->SetSnapshotForTesting(Snapshot);
+	Screen->RefreshServerArmyForTesting();
+	TestEqual(TEXT("Loading data shows the synchronization notice"), ReadText(TEXT("ArmyShowServerEmpty")),
+		FString(TEXT("等待服务器同步行军部队")));
+
+	Snapshot.bLoaded = Snapshot.bArmiesKnown = true;
+	Snapshot.Signature = TEXT("empty");
+	Army->SetSnapshotForTesting(Snapshot);
+	Screen->RefreshServerArmyForTesting();
+	TestEqual(TEXT("A known empty list gets the empty-state notice"), ReadText(TEXT("ArmyShowServerEmpty")),
+		FString(TEXT("暂无行军部队")));
+
+	Snapshot.Signature = TEXT("marches");
+	FRokServerMarch& March = Snapshot.Marches.AddDefaulted_GetRef();
+	March.ArmyIndex = 91;
+	March.Phase = ERokServerMarchPhase::Marching;
+	March.bSoldiersKnown = March.bTargetKnown = March.bTimeKnown = true;
+	March.Count = 640;
+	March.TargetName = TEXT("本地行军目的地");
+	March.RemainingSeconds = 78.0;
+	FRokServerMarch& Returning = Snapshot.Marches.AddDefaulted_GetRef();
+	Returning.ArmyIndex = 93;
+	Returning.Phase = ERokServerMarchPhase::Returning;
+	Army->SetSnapshotForTesting(Snapshot);
+	Screen->RefreshServerArmyForTesting();
+	const auto* ActiveList = ReadScroll();
+	if (!TestNotNull(TEXT("Marches appear in the real scroll box"), ActiveList))
+	{
+		return false;
+	}
+	TestEqual(TEXT("Rendered rows track server snapshot cardinality"), ActiveList->GetChildrenCount(), 2);
+	TestEqual(TEXT("March phase and count are formatted from data"), ReadText(TEXT("ArmyShowMarchStatus_0")),
+		FString(TEXT("行军中 · 兵力 640")));
+	TestEqual(TEXT("Known target is shown verbatim"), ReadText(TEXT("ArmyShowMarchTarget_0")),
+		FString(TEXT("本地行军目的地")));
+	TestEqual(TEXT("Unknown target stays distinguishable"), ReadText(TEXT("ArmyShowMarchTarget_1")),
+		FString(TEXT("目标待同步")));
+	TestEqual(TEXT("Unknown time stays distinguishable"), ReadText(TEXT("ArmyShowMarchRemaining_1")),
+		FString(TEXT("时间待同步")));
+	const auto* Row = Screen->GetWidgetFromName(TEXT("ArmyShowMarchRow_0"));
+	TestTrue(TEXT("Tooltip displays the server army identity"), Row && Row->GetToolTipText().ToString() == TEXT("91"));
+
+	auto* Recall = Cast<UButton>(Screen->GetWidgetFromName(TEXT("ArmyShowMarchRecall_0")));
+	if (!TestNotNull(TEXT("The row retains its original recall action"), Recall))
+	{
+		return false;
+	}
+	Recall->OnClicked.Broadcast();
+	Screen->FlushPendingActionForTesting();
+	TestTrue(TEXT("Recall reports its existing boundary"), ReadText(TEXT("FeatureBoundaryFeedback")).Contains(TEXT("召回请求尚未接入")));
+
+	Snapshot.Marches[0].RemainingSeconds = 0;
+	Army->SetSnapshotForTesting(Snapshot);
+	Screen->RefreshServerArmyForTesting();
+	TestTrue(TEXT("Countdown updates without rebuilding the list"), ReadScroll() == ActiveList);
+	TestEqual(TEXT("Completed timers wait for server authority"), ReadText(TEXT("ArmyShowMarchRemaining_0")),
+		FString(TEXT("等待服务器确认")));
+	return true;
+}
+
 #endif

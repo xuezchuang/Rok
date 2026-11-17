@@ -1,4 +1,5 @@
 #if WITH_DEV_AUTOMATION_TESTS
+#include "RokUiWidgets.h"
 #include "Misc/AutomationTest.h"
 #include "../RokScoutCatalog.h"
 #include "../RokScoutScreenWidget.h"
@@ -24,18 +25,18 @@ bool FRokScoutSourceLevelTest::RunTest(const FString&)
 		TestEqual(TEXT("Source capacity boundary"), Row->Capacity, Level < 5 ? 1 : Level < 11 ? 2 : 3);
 	}
 	auto* Screen = NewObject<URokScoutScreenWidget>(); Screen->Initialize(); Screen->Open();
-	auto* Camp = Cast<UTextBlock>(Screen->GetWidgetFromName(TEXT("ScoutCampConfiguration")));
+	auto* Camp = Cast<UTextBlock>(RokUiFind::Find(Screen, TEXT("ScoutCampConfiguration")));
 	if (!TestNotNull(TEXT("Unknown camp state is visible"), Camp)) return false;
 	TestEqual(TEXT("Unknown camp has no invented level"), Camp->GetText().ToString(), FString(TEXT("营地等级待同步")));
-	TestNotNull(TEXT("Unknown server queue is explicit"), Screen->GetWidgetFromName(TEXT("ScoutQueueUnavailable")));
-	TestNull(TEXT("Capacity does not create an idle Scout A"), Screen->GetWidgetFromName(TEXT("ScoutRow_1")));
-	TestNull(TEXT("No dispatch button without a queue source"), Screen->GetWidgetFromName(TEXT("ScoutDispatchButton")));
+	TestNotNull(TEXT("Unknown server queue is explicit"), RokUiFind::Find(Screen, TEXT("ScoutQueueUnavailable")));
+	TestNull(TEXT("Capacity does not create an idle Scout A"), RokUiFind::Find(Screen, TEXT("ScoutRow_1")));
+	TestNull(TEXT("No dispatch button without a queue source"), RokUiFind::Find(Screen, TEXT("ScoutDispatchButton")));
 	Screen->Open(5);
-	Camp = Cast<UTextBlock>(Screen->GetWidgetFromName(TEXT("ScoutCampConfiguration")));
+	Camp = Cast<UTextBlock>(RokUiFind::Find(Screen, TEXT("ScoutCampConfiguration")));
 	TestTrue(TEXT("Known level shows source capacity, labelled capacity"), Camp && Camp->GetText().ToString().Contains(TEXT("可容纳 2 名斥候")));
-	TestNotNull(TEXT("Known building still does not imply known queue"), Screen->GetWidgetFromName(TEXT("ScoutQueueUnavailable")));
+	TestNotNull(TEXT("Known building still does not imply known queue"), RokUiFind::Find(Screen, TEXT("ScoutQueueUnavailable")));
 	Screen->Open(0);
-	Camp = Cast<UTextBlock>(Screen->GetWidgetFromName(TEXT("ScoutCampConfiguration")));
+	Camp = Cast<UTextBlock>(RokUiFind::Find(Screen, TEXT("ScoutCampConfiguration")));
 	TestEqual(TEXT("Known absent camp distinct from unknown"), Camp->GetText().ToString(), FString(TEXT("斥候营地尚未建造")));
 	Screen->CloseImmediately(); return true;
 }
@@ -48,13 +49,13 @@ bool FRokScoutPageLifecycleTest::RunTest(const FString&)
 	int32 ClosedCount = 0; Screen->OnClosed.AddLambda([&ClosedCount]() { ++ClosedCount; });
 	auto Click = [this, Screen](const TCHAR* Name)
 	{
-		auto* Button = Cast<UButton>(Screen->GetWidgetFromName(Name));
+		auto* Button = Cast<UButton>(RokUiFind::Find(Screen, Name));
 		if (!TestNotNull(Name, Button)) return false;
 		Button->OnClicked.Broadcast(); return true;
 	};
-	auto* List = Screen->GetWidgetFromName(TEXT("ScoutListScroll"));
-	auto* Description = Screen->GetWidgetFromName(TEXT("ScoutDescriptionScroll"));
-	auto* Root = Screen->GetWidgetFromName(TEXT("ScoutRootCanvas"));
+	auto* List = RokUiFind::Find(Screen, TEXT("ScoutListScroll"));
+	auto* Description = RokUiFind::Find(Screen, TEXT("ScoutDescriptionScroll"));
+	auto* Root = RokUiFind::Find(Screen, TEXT("ScoutRootCanvas"));
 	if (!TestNotNull(TEXT("Actual list"), List) || !TestNotNull(TEXT("Actual description"), Description)) return false;
 	TestNull(TEXT("Source description has no scroll/overscroll behavior"), Cast<UScrollBox>(Description));
 	auto* DescriptionBounds = Cast<USizeBox>(Description);
@@ -87,7 +88,7 @@ bool FRokScoutPageLifecycleTest::RunTest(const FString&)
 	TestFalse(TEXT("Exit clip closes window"), Screen->IsScreenOpen());
 	TestEqual(TEXT("Close delegate fired once"), ClosedCount, 1);
 	Screen->CloseImmediately(); TestEqual(TEXT("Repeated close is safe"), ClosedCount, 1);
-	Screen->Open(); List = Screen->GetWidgetFromName(TEXT("ScoutListScroll"));
+	Screen->Open(); List = RokUiFind::Find(Screen, TEXT("ScoutListScroll"));
 	TestEqual(TEXT("Reopen clears old child motion"), List->GetRenderOpacity(), 1.0f);
 	if (!Click(TEXT("ScoutBackgroundClose"))) return false;
 	Screen->AdvanceForTesting(0.2f);

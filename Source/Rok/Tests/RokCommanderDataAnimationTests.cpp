@@ -3,6 +3,7 @@
 #include "../RokCommanderDataAnimation.h"
 #include "../RokUnityFeatureScreenWidget.h"
 #include "Components/Button.h"
+#include "RokUiTestVisual.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRokCommanderDataAnimationTest,
 	"Rok.Ui.Animation.Commander.DataPanel", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -23,23 +24,23 @@ bool FRokCommanderDataAnimationTest::RunTest(const FString&)
 	auto* Power = Screen->GetWidgetFromName(TEXT("CommanderPower"));
 	if (!TestNotNull(TEXT("Real commander data panel child"), Name)
 		|| !TestNotNull(TEXT("Independent portrait power label"), Power)) return false;
-	TestEqual(TEXT("Runtime data panel starts invisible"), Name->GetRenderOpacity(), 0.0f);
-	TestTrue(TEXT("Runtime data panel starts at source X"), FMath::IsNearlyEqual(Name->GetRenderTransform().Translation.X, 200.0));
-	TestEqual(TEXT("Portrait label is outside data animation subtree"), Power->GetRenderOpacity(), 1.0f);
+	TestEqual(TEXT("Runtime data panel starts invisible"), RokUiTestVisual::Opacity(Name), 0.0f);
+	TestTrue(TEXT("Runtime data panel starts at source X"), FMath::IsNearlyEqual(RokUiTestVisual::Translation(Name).X, 200.0));
+	TestEqual(TEXT("Portrait label is outside data animation subtree"), RokUiTestVisual::Opacity(Power), 1.0f);
 	Screen->AdvanceCommanderRosterAnimationForTesting(0.2f);
-	TestTrue(TEXT("Runtime data panel reaches source midpoint"), FMath::IsNearlyEqual(Name->GetRenderOpacity(), 0.55f, 0.001f));
+	TestTrue(TEXT("Runtime data panel reaches source midpoint"), FMath::IsNearlyEqual(RokUiTestVisual::Opacity(Name), 0.55f, 0.001f));
 	auto* Sort = Cast<UButton>(Screen->GetWidgetFromName(TEXT("CommanderSortAction")));
 	if (!TestNotNull(TEXT("Runtime sort action"), Sort)) return false;
 	Sort->OnClicked.Broadcast(); Screen->FlushPendingActionForTesting();
 	Name = Screen->GetWidgetFromName(TEXT("CommanderName"));
 	if (!TestNotNull(TEXT("Rebuilt data panel"), Name)) return false;
-	TestTrue(TEXT("Sort rebuild preserves animation progress"), FMath::IsNearlyEqual(Name->GetRenderOpacity(), 0.55f, 0.001f));
+	TestTrue(TEXT("Sort rebuild preserves animation progress"), FMath::IsNearlyEqual(RokUiTestVisual::Opacity(Name), 0.55f, 0.001f));
 	Screen->AdvanceCommanderRosterAnimationForTesting(1.0f);
-	TestEqual(TEXT("Runtime data panel settles"), Name->GetRenderOpacity(), 1.0f);
+	TestEqual(TEXT("Runtime data panel settles"), RokUiTestVisual::Opacity(Name), 1.0f);
 	Screen->OpenItems(); Screen->OpenCommander();
 	Name = Screen->GetWidgetFromName(TEXT("CommanderName"));
 	if (!TestNotNull(TEXT("Reopened data panel"), Name)) return false;
-	TestEqual(TEXT("Reopening starts a fresh source entry"), Name->GetRenderOpacity(), 0.0f);
+	TestEqual(TEXT("Reopening starts a fresh source entry"), RokUiTestVisual::Opacity(Name), 0.0f);
 	Screen->CloseScreen();
 	return true;
 }

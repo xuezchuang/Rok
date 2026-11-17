@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
+#include "RokUiWidgets.h"
 #include "Components/TextBlock.h"
 #include "../RokUnityModalWidget.h"
 
@@ -22,22 +23,22 @@ bool FRokTavernBoxDescLayoutTest::RunTest(const FString& Parameters)
 	Modal->OpenTavernBoxDesc();
 
 	if (!TestNotNull(TEXT("The first probability row exists"),
-		Modal->GetWidgetFromName(TEXT("TavernBoxDescRow_0"))))
+		RokUiFind::Find(Modal, TEXT("TavernBoxDescRow_0"))))
 	{
 		return false;
 	}
 	const UTextBlock* Title = Cast<UTextBlock>(
-		Modal->GetWidgetFromName(TEXT("TavernBoxDescRowTitle_0")));
+		RokUiFind::Find(Modal, TEXT("TavernBoxDescRowTitle_0")));
 	TestTrue(TEXT("The row names the reward tier"),
 		Title != nullptr && Title->GetText().ToString() == TEXT("传说统帅"));
 	const UTextBlock* Detail = Cast<UTextBlock>(
-		Modal->GetWidgetFromName(TEXT("TavernBoxDescRowDetail_0")));
+		RokUiFind::Find(Modal, TEXT("TavernBoxDescRowDetail_0")));
 	TestTrue(TEXT("The detail shows a percentage"),
 		Detail != nullptr
 			&& Detail->GetText().ToString().Contains(TEXT("概率"))
 			&& Detail->GetText().ToString().Contains(TEXT("%")));
 	TestTrue(TEXT("Both tavern tiers are listed"),
-		Modal->GetWidgetFromName(TEXT("TavernBoxDescRow_12")) != nullptr);
+		RokUiFind::Find(Modal, TEXT("TavernBoxDescRow_12")) != nullptr);
 
 	Modal->CloseModal();
 	TestFalse(TEXT("Closing clears the tavern mode"), Modal->IsModalOpen());

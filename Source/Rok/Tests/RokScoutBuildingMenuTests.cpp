@@ -1,4 +1,5 @@
 #if WITH_DEV_AUTOMATION_TESTS
+#include "RokUiWidgets.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/ScopeExit.h"
 #include "Engine/Engine.h"
@@ -64,10 +65,10 @@ bool FRokScoutBuildingMenuFixtureTest::RunTest(const FString&)
 	TestTrue(TEXT("Real HUD handler opens Scout for fixture building"), Scout->IsScreenOpen());
 	TestFalse(TEXT("Route closes the previously open shared feature"), Feature->IsScreenOpen());
 	TestFalse(TEXT("Route closes the previously open modal"), Modal->IsModalOpen());
-	auto* Config = Cast<UTextBlock>(Scout->GetWidgetFromName(TEXT("ScoutCampConfiguration")));
+	auto* Config = Cast<UTextBlock>(RokUiFind::Find(Scout, TEXT("ScoutCampConfiguration")));
 	if (!TestNotNull(TEXT("Routed camp configuration"), Config)) return false;
 	TestTrue(TEXT("Route forwards known level into capacity query"), Config->GetText().ToString().Contains(TEXT("可容纳 2 名斥候")));
-	TestNotNull(TEXT("Even a known camp does not establish server queue state"), Scout->GetWidgetFromName(TEXT("ScoutQueueUnavailable")));
+	TestNotNull(TEXT("Even a known camp does not establish server queue state"), RokUiFind::Find(Scout, TEXT("ScoutQueueUnavailable")));
 	Scout->CloseImmediately(); Hud->SetSelectedBuilding(nullptr);
 	return true;
 }

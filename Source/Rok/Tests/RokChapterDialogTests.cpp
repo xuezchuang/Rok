@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
+#include "RokUiWidgets.h"
 #include "Components/TextBlock.h"
 #include "../RokUnityModalWidget.h"
 #include "../RokUiTextTable.h"
@@ -31,16 +32,16 @@ bool FRokChapterDialogLayoutTest::RunTest(const FString& Parameters)
 	Modal->OpenChapterDialog();
 
 	if (!TestNotNull(TEXT("The first chapter row exists"),
-		Modal->GetWidgetFromName(TEXT("ChapterDialogRow_0"))))
+		RokUiFind::Find(Modal, TEXT("ChapterDialogRow_0"))))
 	{
 		return false;
 	}
 	const UTextBlock* Title = Cast<UTextBlock>(
-		Modal->GetWidgetFromName(TEXT("ChapterDialogRowTitle_0")));
+		RokUiFind::Find(Modal, TEXT("ChapterDialogRowTitle_0")));
 	TestTrue(TEXT("The first row shows a chapter name"),
 		Title != nullptr && !Title->GetText().ToString().IsEmpty());
 	const UTextBlock* Detail = Cast<UTextBlock>(
-		Modal->GetWidgetFromName(TEXT("ChapterDialogRowDetail_0")));
+		RokUiFind::Find(Modal, TEXT("ChapterDialogRowDetail_0")));
 	TestTrue(TEXT("The objective text has no markup or placeholders"),
 		Detail != nullptr
 			&& !Detail->GetText().ToString().Contains(TEXT("<"))

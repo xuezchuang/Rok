@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
+#include "RokUiWidgets.h"
 #include "Components/CanvasPanel.h"
 #include "../RokUnityModalWidget.h"
 
@@ -14,9 +15,9 @@ bool FRokBuffListChildAnimationTest::RunTest(const FString&)
 	Modal->Initialize();
 	Modal->TakeWidget();
 	Modal->OpenBuffList();
-	UWidget* Popup = Modal->GetWidgetFromName(TEXT("BuffListAnimationRoot"));
-	UWidget* Root = Modal->GetWidgetFromName(TEXT("ModalModeCanvas"));
-	UWidget* Blocker = Modal->GetWidgetFromName(TEXT("ModalAnimationInputBlocker"));
+	UWidget* Popup = RokUiFind::Find(Modal, TEXT("BuffListAnimationRoot"));
+	UWidget* Root = RokUiFind::Find(Modal, TEXT("ModalModeCanvas"));
+	UWidget* Blocker = RokUiFind::Find(Modal, TEXT("ModalAnimationInputBlocker"));
 	if (!TestNotNull(TEXT("pl_pos equivalent exists"), Popup)
 		|| !TestNotNull(TEXT("Unanimated modal root"), Root)
 		|| !TestNotNull(TEXT("Independent input blocker"), Blocker)) return false;
@@ -42,7 +43,7 @@ bool FRokBuffListChildAnimationTest::RunTest(const FString&)
 	TestEqual(TEXT("Closed modal collapsed"), Modal->GetVisibility(), ESlateVisibility::Collapsed);
 	TestEqual(TEXT("Closed popup children removed"), CastChecked<UCanvasPanel>(Root)->GetChildrenCount(), 0);
 	Modal->OpenBuffList();
-	Popup = Modal->GetWidgetFromName(TEXT("BuffListAnimationRoot"));
+	Popup = RokUiFind::Find(Modal, TEXT("BuffListAnimationRoot"));
 	TestEqual(TEXT("Reopen starts fresh default Open"), Popup->GetRenderTransform().Scale, FVector2D(0));
 	Modal->AdvanceWindowAnimationForTesting(0.05f);
 	Modal->RequestCloseModal();

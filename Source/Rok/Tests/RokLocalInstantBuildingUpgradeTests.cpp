@@ -1,5 +1,6 @@
 #if WITH_DEV_AUTOMATION_TESTS
 #include "Misc/AutomationTest.h"
+#include "RokUiWidgets.h"
 #include "Misc/ScopeExit.h"
 #include "Components/Button.h"
 #include "Components/TextBlock.h"
@@ -44,11 +45,11 @@ bool FRokLocalInstantBuildingUpgradeTest::RunTest(const FString&)
 
 	const auto InstantButton = [Modal]()
 	{
-		return Cast<UButton>(Modal->GetWidgetFromName(TEXT("InstantUpgradeButton")));
+		return Cast<UButton>(RokUiFind::Find(Modal, TEXT("InstantUpgradeButton")));
 	};
 	const auto Feedback = [Modal]()
 	{
-		const auto* Text = Cast<UTextBlock>(Modal->GetWidgetFromName(TEXT("UpgradeFeedback")));
+		const auto* Text = Cast<UTextBlock>(RokUiFind::Find(Modal, TEXT("UpgradeFeedback")));
 		return Text ? Text->GetText().ToString() : FString();
 	};
 
@@ -70,7 +71,7 @@ bool FRokLocalInstantBuildingUpgradeTest::RunTest(const FString&)
 	Button = InstantButton();
 	if (!TestNotNull(TEXT("Town hall instant upgrade action"), Button)
 		|| !TestTrue(TEXT("Town Hall can immediately reach level 2"), Button->GetIsEnabled())) return false;
-	const auto* Price = Cast<UTextBlock>(Modal->GetWidgetFromName(TEXT("InstantUpgradeButtonSecondary")));
+	const auto* Price = Cast<UTextBlock>(RokUiFind::Find(Modal, TEXT("InstantUpgradeButtonSecondary")));
 	if (TestNotNull(TEXT("Displayed town hall price"), Price))
 	{
 		TestEqual(TEXT("Town hall price comes from the config"), Price->GetText().ToString(), FString(TEXT("1 宝石")));

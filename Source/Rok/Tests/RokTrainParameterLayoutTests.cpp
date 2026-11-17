@@ -3,6 +3,7 @@
 #include "Misc/ScopeExit.h"
 #include "../RokTrainParameterLayout.h"
 #include "../RokTrainArmyMeshWidget.h"
+#include "../RokUiWidgets.h"
 #include "../RokUnityFeatureScreenWidget.h"
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
@@ -31,9 +32,10 @@ bool FRokTrainParameterLayoutTest::RunTest(const FString&)
 	for (int32 Index = 0; Index < 5; ++Index)
 	{
 		auto* Head = Screen->GetWidgetFromName(*FString::Printf(TEXT("TrainArmyTier_%d"), Index));
-		TestEqual(TEXT("Head belongs to source parameter animator"), static_cast<UWidget*>(Head->GetParent()), Right);
+		if (!TestNotNull(TEXT("Named source head action"), Head)) return false;
+		TestTrue(TEXT("Head belongs to source parameter animator"), RokUiFind::IsInside(Head, Right));
 		TestTrue(TEXT("Source head hit rect retains identity and placement"),
-			(CastChecked<UCanvasPanelSlot>(Head->Slot)->GetPosition() + RightOrigin()).Equals(HeadHit(Index), .001));
+			(RokUiFind::CanvasPosition(Head, Right) + RightOrigin()).Equals(HeadHit(Index), .001));
 	}
 	for (const FName Name : { FName(TEXT("TrainArmyMinus")), FName(TEXT("TrainArmyPlus")), FName(TEXT("TrainArmyMax")) })
 		TestEqual(TEXT("Non-source buttons cannot intercept input"), Screen->GetWidgetFromName(Name)->GetVisibility(), ESlateVisibility::Collapsed);

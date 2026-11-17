@@ -1,6 +1,7 @@
 #include "RokBarracksUpgradeAttributes.h"
 #include "RokBarracksSourceTextData.h"
 #include "RokBarracksSourceTextWidget.h"
+#include "Blueprint/WidgetBlueprintGeneratedClass.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/Border.h"
 #include "Components/CanvasPanel.h"
@@ -12,8 +13,30 @@
 #include "Misc/Paths.h"
 #include "RokDataPaths.h"
 #include "RokModalNineSlice.h"
+#include "RokUiWidgets.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
+
+TSubclassOf<URokBarracksUpgradeAttributes> URokBarracksUpgradeAttributes::ResolveAttributesClass()
+{
+    static const TSoftClassPtr<URokBarracksUpgradeAttributes> LayoutClass(FSoftObjectPath(
+        TEXT("/Game/RokUI/Modal/Items/WBP_RokModalItem_BarracksUpgradeAttributes.WBP_RokModalItem_BarracksUpgradeAttributes_C")));
+    auto* GeneratedClass = Cast<UWidgetBlueprintGeneratedClass>(URokUiSettings::Resolve(LayoutClass));
+    const UWidgetTree* Layout = GeneratedClass ? GeneratedClass->GetWidgetTreeArchetype() : nullptr;
+    if (!Layout || !Cast<UCanvasPanel>(Layout->RootWidget) || Layout->RootWidget->GetFName() != TEXT("BarracksUpgradeAttributeRoot"))
+    {
+        return StaticClass();
+    }
+    for (int32 Row = 0; Row < 2; ++Row)
+    {
+        if (!Cast<URokBarracksSourceTextWidget>(Layout->FindWidget(*FString::Printf(TEXT("UpgradeStatLabel_%d"), Row)))
+            || !Cast<URokBarracksSourceTextWidget>(Layout->FindWidget(*FString::Printf(TEXT("UpgradeStatCurrent_%d"), Row))))
+        {
+            return StaticClass();
+        }
+    }
+    return GeneratedClass;
+}
 
 bool URokBarracksUpgradeAttributes::InitializeAttributes()
 {
@@ -65,10 +88,42 @@ bool URokBarracksUpgradeAttributes::InitializeAttributes()
            !R->TryGetBoolField(TEXT("separator"),Separator)||Separator!=(I==0))return Fail(TEXT("Barracks attribute differs from source contract"));
         Labels.Add(Label);Values.Add(Value);
     }
-    auto* Atlas=LoadObject<UTexture2D>(nullptr,TEXT("/Game/RokPrototype/UI/MainHudAtlases/rok_hud_atlas_common.rok_hud_atlas_common"));
-    if(!Atlas)return Fail(TEXT("Missing source common atlas"));
     auto* GlyphData=NewObject<URokBarracksSourceTextData>(this);
     if(!GlyphData->Load(LoadError))return false;
+    const auto BindRow = [&](int32 Row, URokBarracksSourceTextWidget* Label, URokBarracksSourceTextWidget* Value)
+    {
+        if (!Label || !Value)
+        {
+            return Fail(TEXT("Missing barracks attribute glyph widget"));
+        }
+        // Width and alignment select the baked Unity glyph mesh. Designer slots place that mesh.
+        Label->Configure(GlyphData,20,false,3,FVector2D(275.76,35),FLinearColor::White);
+        Value->Configure(GlyphData,20,false,5,FVector2D(400,35),FLinearColor::White);
+        // Source Color32 already carries beige/current and green/increment; white avoids double tint.
+        if (!Label->SetText(FText::FromString(Labels[Row])) || !Value->SetText(FText::FromString(Values[Row])))
+        {
+            return Fail(TEXT("Missing exact barracks attribute source glyph mesh"));
+        }
+        return true;
+    };
+    if (GetClass()->HasAnyClassFlags(CLASS_CompiledFromBlueprint))
+    {
+        for (int32 Row = 0; Row < 2; ++Row)
+        {
+            auto* Label = Cast<URokBarracksSourceTextWidget>(GetWidgetFromName(*FString::Printf(TEXT("UpgradeStatLabel_%d"), Row)));
+            auto* Value = Cast<URokBarracksSourceTextWidget>(GetWidgetFromName(*FString::Printf(TEXT("UpgradeStatCurrent_%d"), Row)));
+            if (!BindRow(Row, Label, Value))
+            {
+                return false;
+            }
+        }
+        AttributeCount = 2;
+        SetVisibility(ESlateVisibility::HitTestInvisible);
+        return true;
+    }
+
+    auto* Atlas=LoadObject<UTexture2D>(nullptr,TEXT("/Game/RokPrototype/UI/MainHudAtlases/rok_hud_atlas_common.rok_hud_atlas_common"));
+    if(!Atlas)return Fail(TEXT("Missing source common atlas"));
     auto* Canvas=WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(),TEXT("BarracksUpgradeAttributeRoot"));WidgetTree->RootWidget=Canvas;
     auto Place=[Canvas](UWidget* Widget,FVector2D Position,FVector2D Size,int32 Z)
     {auto* CanvasSlot=Canvas->AddChildToCanvas(Widget);CanvasSlot->SetPosition(Position);CanvasSlot->SetSize(Size);CanvasSlot->SetZOrder(Z);};
@@ -89,12 +144,11 @@ bool URokBarracksUpgradeAttributes::InitializeAttributes()
         // Source Chinese Arab layout: label left, combined rich value right; Middle alignment.
         const double Y=22.5+40*I;
         auto* Label=WidgetTree->ConstructWidget<URokBarracksSourceTextWidget>(URokBarracksSourceTextWidget::StaticClass(),*FString::Printf(TEXT("UpgradeStatLabel_%d"),I));
-        Label->Configure(GlyphData,20,false,3,FVector2D(275.76,35),FLinearColor::White);
         auto* Value=WidgetTree->ConstructWidget<URokBarracksSourceTextWidget>(URokBarracksSourceTextWidget::StaticClass(),*FString::Printf(TEXT("UpgradeStatCurrent_%d"),I));
-        Value->Configure(GlyphData,20,false,5,FVector2D(400,35),FLinearColor::White);
-        // Source Color32 already carries beige/current and green/increment; white avoids double tint.
-        if(!Label->SetText(FText::FromString(Labels[I])) || !Value->SetText(FText::FromString(Values[I])))
-            return Fail(TEXT("Missing exact barracks attribute source glyph mesh"));
+        if (!BindRow(I, Label, Value))
+        {
+            return false;
+        }
         for(int32 Column=0;Column<2;++Column)
         {
             auto* Center=WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(),*FString::Printf(TEXT("BarracksUpgradeTextRegion_%d_%d"),I,Column));

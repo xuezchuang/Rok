@@ -1,4 +1,5 @@
 #include "RokMainTaskGoToTownHallAuditSubsystem.h"
+#include "RokUiWidgets.h"
 
 #include "RokBuildingUpgradeSubsystem.h"
 #include "RokDataPaths.h"
@@ -489,14 +490,14 @@ TSharedRef<FJsonObject> URokMainTaskGoToTownHallAuditSubsystem::State() const
 	Json->SetNumberField(TEXT("camera_scale_y"), Camera.GetScale3D().Y);
 	Json->SetNumberField(TEXT("camera_scale_z"), Camera.GetScale3D().Z);
 	auto Widgets = MakeShared<FJsonObject>();
-	Widgets->SetObjectField(TEXT("TaskEntryButton"), WidgetState(Hud.IsValid() ? Hud->GetWidgetFromName(TEXT("TaskEntryButton")) : nullptr));
+	Widgets->SetObjectField(TEXT("TaskEntryButton"), WidgetState(Hud.IsValid() ? RokUiFind::Find(Hud, TEXT("TaskEntryButton")) : nullptr));
 	Widgets->SetObjectField(TEXT("FeatureModeCanvas"), WidgetState(Screen.IsValid() ? Screen->GetWidgetFromName(TEXT("FeatureModeCanvas")) : nullptr));
 	Widgets->SetObjectField(TEXT("TaskAction_0"), WidgetState(Screen.IsValid() ? Screen->GetWidgetFromName(TEXT("TaskAction_0")) : nullptr));
 	Widgets->SetObjectField(TEXT("TaskTitle_0"), WidgetState(Screen.IsValid() ? Screen->GetWidgetFromName(TEXT("TaskTitle_0")) : nullptr));
 	Widgets->SetObjectField(TEXT("TaskDescription_0"), WidgetState(Screen.IsValid() ? Screen->GetWidgetFromName(TEXT("TaskDescription_0")) : nullptr));
-	Widgets->SetObjectField(TEXT("Type2CloseButton"), WidgetState(Modal.IsValid() ? Modal->GetWidgetFromName(TEXT("Type2CloseButton")) : nullptr));
-	Widgets->SetObjectField(TEXT("BuildingInfoPreviewFrame"), WidgetState(Modal.IsValid() ? Modal->GetWidgetFromName(TEXT("BuildingInfoPreviewFrame")) : nullptr));
-	Widgets->SetObjectField(TEXT("BuildingInfoAttributeFrame"), WidgetState(Modal.IsValid() ? Modal->GetWidgetFromName(TEXT("BuildingInfoAttributeFrame")) : nullptr));
+	Widgets->SetObjectField(TEXT("Type2CloseButton"), WidgetState(Modal.IsValid() ? RokUiFind::Find(Modal, TEXT("Type2CloseButton")) : nullptr));
+	Widgets->SetObjectField(TEXT("BuildingInfoPreviewFrame"), WidgetState(Modal.IsValid() ? RokUiFind::Find(Modal, TEXT("BuildingInfoPreviewFrame")) : nullptr));
+	Widgets->SetObjectField(TEXT("BuildingInfoAttributeFrame"), WidgetState(Modal.IsValid() ? RokUiFind::Find(Modal, TEXT("BuildingInfoAttributeFrame")) : nullptr));
 	Json->SetObjectField(TEXT("widgets"), Widgets);
 	return Json;
 }
@@ -508,7 +509,7 @@ bool URokMainTaskGoToTownHallAuditSubsystem::Ready(int32 Phase) const
 		|| Server->GetSuppressedLocalRequestCount() != 0) return false;
 	if (Phase == 0 || Phase == 3)
 		return !Screen->IsScreenOpen() && !Modal->IsModalOpen()
-			&& Visible(Hud->GetWidgetFromName(TEXT("TaskEntryButton")));
+			&& Visible(RokUiFind::Find(Hud, TEXT("TaskEntryButton")));
 	if (Phase == 1)
 	{
 	#if !UE_BUILD_SHIPPING
@@ -526,14 +527,14 @@ bool URokMainTaskGoToTownHallAuditSubsystem::Ready(int32 Phase) const
 	}
 	if (Phase == 2)
 	{
-		const UWidget* Mode = Modal->GetWidgetFromName(TEXT("ModalModeCanvas"));
+		const UWidget* Mode = RokUiFind::Find(Modal, TEXT("ModalModeCanvas"));
 		const bool bModeSettled = !Mode || (Visible(Mode)
 			&& FMath::IsNearlyEqual(Mode->GetRenderOpacity(), 1.0, .01)
 			&& Mode->GetRenderTransform().Scale.Equals(FVector2D(1), .01));
 		return !Screen->IsScreenOpen() && Modal->IsBuildingInfoOpenForActor(Hall.Get())
-			&& bModeSettled && Visible(Modal->GetWidgetFromName(TEXT("Type2CloseButton")))
-			&& Visible(Modal->GetWidgetFromName(TEXT("BuildingInfoPreviewFrame")))
-			&& Visible(Modal->GetWidgetFromName(TEXT("BuildingInfoAttributeFrame")));
+			&& bModeSettled && Visible(RokUiFind::Find(Modal, TEXT("Type2CloseButton")))
+			&& Visible(RokUiFind::Find(Modal, TEXT("BuildingInfoPreviewFrame")))
+			&& Visible(RokUiFind::Find(Modal, TEXT("BuildingInfoAttributeFrame")));
 	}
 	return false;
 }
@@ -791,7 +792,7 @@ void URokMainTaskGoToTownHallAuditSubsystem::Tick(float DeltaTime)
 	{
 	case 0: if (!bBegun) bBegun = Begin(); if (bBegun && PrepareOwnWindowFocus()) Enter(1); break;
 	case 1: if (Stable(0)) Capture(TEXT("00_city_hud"), 2); break;
-	case 2: if (Click(Cast<UButton>(Hud->GetWidgetFromName(TEXT("TaskEntryButton"))), TEXT("open_tasks_from_hud"))) Enter(3); break;
+	case 2: if (Click(Cast<UButton>(RokUiFind::Find(Hud, TEXT("TaskEntryButton"))), TEXT("open_tasks_from_hud"))) Enter(3); break;
 	case 3:
 		if (Stable(1))
 		{
@@ -826,7 +827,7 @@ void URokMainTaskGoToTownHallAuditSubsystem::Tick(float DeltaTime)
 		break;
 	case 4: if (Boundary() && Click(Cast<UButton>(Screen->GetWidgetFromName(TEXT("TaskAction_0"))), TEXT("go_to_cached_hall_info"))) Enter(5); break;
 	case 5: if (Boundary() && Stable(2)) Capture(TEXT("02_exact_hall_building_info"), 6); break;
-	case 6: if (Boundary() && Click(Cast<UButton>(Modal->GetWidgetFromName(TEXT("Type2CloseButton"))), TEXT("close_hall_info"))) Enter(7); break;
+	case 6: if (Boundary() && Click(Cast<UButton>(RokUiFind::Find(Modal, TEXT("Type2CloseButton"))), TEXT("close_hall_info"))) Enter(7); break;
 	case 7: if (Boundary() && Stable(3)) Capture(TEXT("03_hud_return"), 8); break;
 	case 8: Finish(); break;
 	default: Finish(TEXT("Invalid audit state")); break;

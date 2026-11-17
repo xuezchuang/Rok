@@ -1,5 +1,6 @@
 #if WITH_DEV_AUTOMATION_TESTS
 #include "Misc/AutomationTest.h"
+#include "RokUiWidgets.h"
 #include "Misc/FileHelper.h"
 #include "Misc/ScopeExit.h"
 #include "Components/Button.h"
@@ -100,8 +101,8 @@ bool FRokBuilderHutPreviewTest::RunTest(const FString&)
     TestEqual(TEXT("Both commands sit on the same row"), InfoSlot->GetPosition().Y, FeatureSlot->GetPosition().Y);
     Info->OnClicked.Broadcast();
     TestTrue(TEXT("Info opens for the selected worker hut"), Modal->IsBuildingInfoOpenForActor(Hut));
-    auto* Image = Cast<UImage>(Modal->GetWidgetFromName(TEXT("BuildingInfoImage")));
-    auto* Glow = Cast<URokBuildingPreviewGlowWidget>(Modal->GetWidgetFromName(TEXT("BuildingPreviewGlowWidget")));
+    auto* Image = Cast<UImage>(RokUiFind::Find(Modal, TEXT("BuildingInfoImage")));
+    auto* Glow = Cast<URokBuildingPreviewGlowWidget>(RokUiFind::Find(Modal, TEXT("BuildingPreviewGlowWidget")));
     if (!TestNotNull(TEXT("Worker sprite"), Image) || !TestNotNull(TEXT("Worker glow"), Glow)) return false;
     const auto* ImageSlot = CastChecked<UCanvasPanelSlot>(Image->Slot);
     const auto* GlowSlot = CastChecked<UCanvasPanelSlot>(Glow->Slot);
@@ -146,9 +147,9 @@ bool FRokAllBuildingPreviewWindows::RunTest(const FString&)
 			if (bUpgrade) Modal->OpenBuildingUpgrade(Actor);
 			else Modal->OpenBuildingInfo(Actor);
 			const FString Label = FString::Printf(TEXT("Type %d %s"), Type, bUpgrade ? TEXT("upgrade") : TEXT("info"));
-			const auto* Image = Cast<UImage>(Modal->GetWidgetFromName(bUpgrade
+			const auto* Image = Cast<UImage>(RokUiFind::Find(Modal, bUpgrade
 				? TEXT("BuildingUpgradeImage") : TEXT("BuildingInfoImage")));
-			auto* Glow = Cast<URokBuildingPreviewGlowWidget>(Modal->GetWidgetFromName(TEXT("BuildingPreviewGlowWidget")));
+			auto* Glow = Cast<URokBuildingPreviewGlowWidget>(RokUiFind::Find(Modal, TEXT("BuildingPreviewGlowWidget")));
 			TestTrue(Label + TEXT(" uses authored texture"), Image && Image->GetBrush().GetResourceObject()
 				&& Image->GetBrush().GetResourceObject() == Texture);
 			TestTrue(Label + TEXT(" uses active source glow"), Glow && Glow->IsPlaybackActive() && Glow->IsAutoAdvance()

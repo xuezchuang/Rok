@@ -1,4 +1,5 @@
 #include "RokTaskDetailProjectionAuditSubsystem.h"
+#include "RokUiWidgets.h"
 
 #include "RokBuildingPanelWidget.h"
 #include "RokBuildingUpgradeSubsystem.h"
@@ -612,7 +613,7 @@ void URokTaskDetailProjectionAuditSubsystem::Tick(float DeltaTime)
 	{
 	case 0: if (Begin()) Enter(1); break;
 	case 1:
-		if (Click(Hud->GetWidgetFromName(TEXT("TaskEntryButton")), TEXT("open_initial_task_from_hud"))) Enter(2);
+		if (Click(RokUiFind::Find(Hud, TEXT("TaskEntryButton")), TEXT("open_initial_task_from_hud"))) Enter(2);
 		break;
 	case 2:
 		if (Elapsed - StepSince >= 0.35 && ValidateState(1, 1, true))
@@ -627,7 +628,7 @@ void URokTaskDetailProjectionAuditSubsystem::Tick(float DeltaTime)
 		break;
 	case 5:
 		if (Modal->IsModalOpen() && Elapsed - StepSince >= 0.35
-			&& Click(Modal->GetWidgetFromName(TEXT("TimedUpgradeButton")), TEXT("hall_timed_upgrade_start")))
+			&& Click(RokUiFind::Find(Modal, TEXT("TimedUpgradeButton")), TEXT("hall_timed_upgrade_start")))
 		{
 			UpgradePressedWall = FPlatformTime::Seconds();
 			Enter(6);
@@ -635,7 +636,7 @@ void URokTaskDetailProjectionAuditSubsystem::Tick(float DeltaTime)
 		break;
 	case 6:
 		if (Buildings->GetBuildingStateForActor(Hall.Get()).bUpgradeInProgress
-			&& Click(Hud->GetWidgetFromName(TEXT("TaskEntryButton")), TEXT("open_task_during_upgrade"))) Enter(7);
+			&& Click(RokUiFind::Find(Hud, TEXT("TaskEntryButton")), TEXT("open_task_during_upgrade"))) Enter(7);
 		break;
 	case 7:
 		if (Screen->IsScreenOpen() && Buildings->GetBuildingStateForActor(Hall.Get()).bUpgradeInProgress
@@ -655,7 +656,7 @@ void URokTaskDetailProjectionAuditSubsystem::Tick(float DeltaTime)
 		break;
 	case 10:
 		if (Elapsed - StepSince >= 0.35 && ValidateState(2, 2, false)
-			&& Click(Hud->GetWidgetFromName(TEXT("TaskEntryButton")), TEXT("reopen_completed_task_from_hud"))) Enter(11);
+			&& Click(RokUiFind::Find(Hud, TEXT("TaskEntryButton")), TEXT("reopen_completed_task_from_hud"))) Enter(11);
 		break;
 	case 11:
 		if (Elapsed - StepSince >= 0.35 && ValidateState(2, 2, true))

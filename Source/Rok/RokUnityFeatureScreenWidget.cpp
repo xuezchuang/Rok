@@ -24,6 +24,8 @@
 #include "RokTrainParameterLayout.h"
 #include "RokGraphicsSettingsLayout.h"
 #include "RokLanguageSettingsLayout.h"
+#include "RokUiSpec.h"
+#include "RokUiWidgets.h"
 #include "Components/RichTextBlock.h"
 #include "Engine/DataTable.h"
 #include "HAL/PlatformMemory.h"
@@ -52,6 +54,8 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Components/Slider.h"
 #include "Components/TextBlock.h"
+#include "Components/VerticalBox.h"
+#include "TimerManager.h"
 #include "Dom/JsonObject.h"
 #include "Engine/GameInstance.h"
 #include "Engine/Texture2D.h"
@@ -92,6 +96,87 @@
 
 namespace
 {
+int32 ReadLocalUiPreviewOption(const TCHAR* Option, int32 Minimum, int32 Maximum)
+{
+#if !UE_BUILD_SHIPPING
+	int32 Value = INDEX_NONE;
+	if (FParse::Param(FCommandLine::Get(), TEXT("RokLocalOnly"))
+		&& FParse::Value(FCommandLine::Get(), Option, Value)
+		&& Value >= Minimum && Value <= Maximum)
+	{
+		return Value;
+	}
+#endif
+	return INDEX_NONE;
+}
+
+int32 GetTrainArmyDetailPreviewTier()
+{
+	return ReadLocalUiPreviewOption(TEXT("RokTrainArmyPreviewDetail="), 1, 5);
+}
+
+int32 GetBuildingSpeedUpPreview()
+{
+	return ReadLocalUiPreviewOption(TEXT("RokSpeedUpServerPreview="), 1, 3);
+}
+
+enum class EHospitalLocalPreview : int32
+{
+	None = INDEX_NONE,
+	Empty = 1,
+	Wounded,
+	Treating,
+	Ready,
+	Confirm,
+};
+
+constexpr int64 HospitalPreviewFinishTime = 1280;
+
+EHospitalLocalPreview GetHospitalPreviewState()
+{
+	return static_cast<EHospitalLocalPreview>(ReadLocalUiPreviewOption(TEXT("RokHospitalPreviewState="),
+		static_cast<int32>(EHospitalLocalPreview::Empty), static_cast<int32>(EHospitalLocalPreview::Confirm)));
+}
+
+TSharedPtr<FJsonObject> ReadHospitalDisplayRole(const URokGameNetSubsystem* Net, EHospitalLocalPreview Preview)
+{
+#if !UE_BUILD_SHIPPING
+	if (Preview != EHospitalLocalPreview::None)
+	{
+		const auto Role = MakeShared<FJsonObject>();
+		Role->SetNumberField(TEXT("country"), 301);
+		Role->SetNumberField(TEXT("food"), 1000);
+		Role->SetNumberField(TEXT("wood"), 1000);
+		Role->SetNumberField(TEXT("denar"), 20);
+		if (Preview != EHospitalLocalPreview::Empty)
+		{
+			const auto MakeSoldier = [](int32 Id, int32 Type, int32 Count)
+			{
+				const auto Soldier = MakeShared<FJsonObject>();
+				Soldier->SetNumberField(TEXT("id"), Id);
+				Soldier->SetNumberField(TEXT("type"), Type);
+				Soldier->SetNumberField(TEXT("level"), 1);
+				Soldier->SetNumberField(TEXT("num"), Count);
+				return MakeShared<FJsonValueObject>(Soldier);
+			};
+			const TArray<TSharedPtr<FJsonValue>> Wounded = {
+				MakeSoldier(10101, 1, 4), MakeSoldier(10301, 3, 13)};
+			Role->SetArrayField(TEXT("seriousInjured"), Wounded);
+			if (Preview == EHospitalLocalPreview::Treating || Preview == EHospitalLocalPreview::Ready)
+			{
+				const auto Queue = MakeShared<FJsonObject>();
+				Queue->SetNumberField(TEXT("queueIndex"), 1);
+				Queue->SetNumberField(TEXT("finishTime"), HospitalPreviewFinishTime);
+				Queue->SetArrayField(TEXT("treatmentSoldiers"), Wounded);
+				Role->SetObjectField(TEXT("treatmentQueue"), Queue);
+			}
+		}
+		return Role;
+	}
+#endif
+	return Net && Net->GetState() == ERokGameNetState::RoleReady ? Net->GetRoleInfo() : nullptr;
+}
+
 bool ParseWorldPositionInt32Strict(const FString& Text, int32& OutValue)
 {
 	if (Text.IsEmpty())
@@ -508,6 +593,15 @@ const FWorldMapPreviewMarker WorldMapPreviewMarkers[] = {
 };
 constexpr int32 WorldMapPreviewMarkerCount =
 	static_cast<int32>(UE_ARRAY_COUNT(WorldMapPreviewMarkers));
+
+FText FormatMapMarkerDescription(const FWorldMapPreviewMarker& Marker)
+{
+	return FText::Format(
+		NSLOCTEXT("RokMapMarker", "MarkerDescription", "{0}  X:{1} Y:{2}"),
+		FText::FromString(Marker.Description),
+		FText::AsNumber(FMath::RoundToInt(Marker.DisplayCoordinate.X)),
+		FText::AsNumber(FMath::RoundToInt(Marker.DisplayCoordinate.Y)));
+}
 
 bool DoesMarkerMatchPage(
 	const FWorldMapPreviewMarker& Marker,
@@ -1138,8 +1232,19 @@ void URokUnityFeatureScreenWidget::OpenActivityCenter()
 	ActivityCalendarScrollOffset = 0.0f;
 	ActivityPreviewSecondsRemaining = 91824.0;
 	LastRenderedActivitySecond = INDEX_NONE;
+	const int32 PreviewTab = ReadLocalUiPreviewOption(TEXT("RokActivityPreviewTab="), 0, 2);
+	bFreezeActivityCountdownForCapture = PreviewTab != INDEX_NONE;
 	RebuildModeContent(true);
 	SetVisibility(ESlateVisibility::Visible);
+	if (PreviewTab != INDEX_NONE && PreviewTab != SelectedActivityIndex)
+	{
+		const FName Name(*FString::Printf(TEXT("ActivityMenuHit_%d"), PreviewTab));
+		if (UButton* Button = Cast<UButton>(GetWidgetFromName(Name)); Button && Button->GetIsEnabled())
+		{
+			Button->OnClicked.Broadcast();
+			UE_LOG(LogTemp, Display, TEXT("Rok activity preview: clicked %s."), *Name.ToString());
+		}
+	}
 }
 
 void URokUnityFeatureScreenWidget::OpenMail(bool bUseReferenceCaptureState)
@@ -1172,6 +1277,10 @@ void URokUnityFeatureScreenWidget::OpenMail(bool bUseReferenceCaptureState)
 	}
 	RebuildModeContent(true);
 	SetVisibility(ESlateVisibility::Visible);
+	if (bUseReferenceCaptureState)
+	{
+		PreviewMailReferenceSelection();
+	}
 }
 
 void URokUnityFeatureScreenWidget::OpenMailReadOnlyRewardFixture(
@@ -1193,6 +1302,7 @@ void URokUnityFeatureScreenWidget::OpenMailReadOnlyRewardFixture(
 	LastMailBoundaryActionId = INDEX_NONE;
 	RebuildModeContent(true);
 	SetVisibility(ESlateVisibility::Visible);
+	PreviewMailReferenceSelection();
 }
 
 void URokUnityFeatureScreenWidget::OpenMailLocalUnreadFixture()
@@ -1329,6 +1439,20 @@ void URokUnityFeatureScreenWidget::OpenTasks(bool bUseTestFixtureState, int32 Pa
 	bTaskTestFixtureState = bUseTestFixtureState;
 	RebuildModeContent(true);
 	SetVisibility(ESlateVisibility::Visible);
+
+	if (!bUseTestFixtureState && PageIndex == INDEX_NONE && SelectedTaskPage == 0)
+	{
+		const int32 GroupId = ReadLocalUiPreviewOption(TEXT("RokTaskChapterPreviewGroup="), 2, 7);
+		if (GroupId != INDEX_NONE)
+		{
+			const FName ButtonName(*FString::Printf(TEXT("TaskChapterGroupButton_%d"), GroupId));
+			if (auto* Entry = Cast<UButton>(RokUiFind::Find(this, ButtonName)); Entry && Entry->GetIsEnabled())
+			{
+				Entry->OnClicked.Broadcast();
+				UE_LOG(LogTemp, Display, TEXT("Rok task chapter local preview: clicked %s."), *ButtonName.ToString());
+			}
+		}
+	}
 }
 
 void URokUnityFeatureScreenWidget::OpenServerTasksPage(int32 PageIndex)
@@ -1351,7 +1475,9 @@ void URokUnityFeatureScreenWidget::OpenCommander(bool bUseLocalRosterFixture)
 #if !UE_BUILD_SHIPPING
 	bCommanderLocalRosterFixture |= FParse::Param(FCommandLine::Get(), TEXT("RokCommanderSyntheticSlateAuditV3"))
 		|| FParse::Param(FCommandLine::Get(), TEXT("RokCommanderSkillReadonlyDetailAudit"))
-		|| FParse::Param(FCommandLine::Get(), TEXT("RokHeroTalentReadonlyDetailAudit"));
+		|| FParse::Param(FCommandLine::Get(), TEXT("RokHeroTalentReadonlyDetailAudit"))
+		|| (FParse::Param(FCommandLine::Get(), TEXT("RokLocalOnly"))
+			&& FParse::Param(FCommandLine::Get(), TEXT("RokCommanderPreviewFixture")));
 #endif
 	bCommanderBiographyOpen = false;
 	bCommanderServerSelectionInitialized = FParse::Value(
@@ -1573,6 +1699,12 @@ void URokUnityFeatureScreenWidget::OpenMapMarkers()
 
 void URokUnityFeatureScreenWidget::OpenResourceSearch(int32 BarbarianLevel)
 {
+	const int32 GuideLevel = ReadLocalUiPreviewOption(TEXT("RokResourceSearchGuideLevel="), 1, 25);
+	bFreezeResourceSearchGuideForCapture = GuideLevel != INDEX_NONE;
+	if (BarbarianLevel <= 0 && bFreezeResourceSearchGuideForCapture)
+	{
+		BarbarianLevel = GuideLevel;
+	}
 	++ResourceSearchRequestSerial;
 	bResourceSearchPending = false;
 	bResourceSearchTaskGuide = BarbarianLevel > 0;
@@ -1583,6 +1715,16 @@ void URokUnityFeatureScreenWidget::OpenResourceSearch(int32 BarbarianLevel)
 	ResourceSearchResourceLevel = FMath::Clamp(ResourceSearchResourceLevel, 1, 6);
 	RebuildModeContent(true);
 	SetVisibility(ESlateVisibility::Visible);
+	const int32 Type = ReadLocalUiPreviewOption(TEXT("RokResourceSearchTypePreview="), 1, 4);
+	if (Type != INDEX_NONE)
+	{
+		const FName Name(*FString::Printf(TEXT("ResourceSearchType_%d"), Type));
+		if (UButton* Button = Cast<UButton>(GetWidgetFromName(Name)); Button && Button->GetIsEnabled())
+		{
+			Button->OnClicked.Broadcast();
+			UE_LOG(LogTemp, Display, TEXT("Rok resource search preview: clicked %s."), *Name.ToString());
+		}
+	}
 }
 
 void URokUnityFeatureScreenWidget::OpenExpedition()
@@ -1711,7 +1853,9 @@ void URokUnityFeatureScreenWidget::OpenBuildCity(int32 GuideBuildingType)
 
 void URokUnityFeatureScreenWidget::OpenWorkerQueue(AActor* BuildingActor, int32 RequiredSeconds)
 {
-	WorkerRequiredSeconds = RequiredSeconds;
+	const bool bReturningFromSpeedUp = ActiveMode == ERokUnityFeatureScreenMode::SpeedUp && bSpeedUpFromWorkerQueue;
+	const int32 Preview = ReadLocalUiPreviewOption(TEXT("RokWorkerQueueFixture="), 1, 3);
+	WorkerRequiredSeconds = RequiredSeconds == 0 && Preview == 3 ? 8 : RequiredSeconds;
 	ServerSpeedUpQueueIndex = 0;
 	bSpeedUpFromWorkerQueue = false;
 	PendingActionId = INDEX_NONE;
@@ -1720,6 +1864,14 @@ void URokUnityFeatureScreenWidget::OpenWorkerQueue(AActor* BuildingActor, int32 
 	WorkerQueueRefreshAccumulator = 0.0f;
 	RebuildModeContent(true);
 	SetVisibility(ESlateVisibility::Visible);
+	if (!bReturningFromSpeedUp && GetBuildingSpeedUpPreview() != INDEX_NONE)
+	{
+		if (auto* Button = Cast<UButton>(GetWidgetFromName(TEXT("WorkerQueuePrimaryAction"))); Button && Button->GetIsEnabled())
+		{
+			Button->OnClicked.Broadcast();
+			UE_LOG(LogTemp, Display, TEXT("Rok building speed-up preview: clicked the primary worker."));
+		}
+	}
 }
 
 void URokUnityFeatureScreenWidget::OpenSettingsHub()
@@ -1757,7 +1909,7 @@ void URokUnityFeatureScreenWidget::OpenHelp()
 
 void URokUnityFeatureScreenWidget::BuildHelp()
 {
-	HelpWidget = WidgetTree->ConstructWidget<URokHelpWidget>(URokHelpWidget::StaticClass(), TEXT("SettingsHelpWidget"));
+	HelpWidget = WidgetTree->ConstructWidget<URokHelpWidget>(URokHelpWidget::ResolvePresentationClass(), TEXT("SettingsHelpWidget"));
 	HelpWidget->InitializeHelp();
 	HelpWidget->OnCloseRequested.AddUObject(this, &URokUnityFeatureScreenWidget::RequestCloseScreen);
 	PlaceOnCanvas(ModeCanvas, HelpWidget, FVector2D::ZeroVector, FVector2D(1440, 810), 2);
@@ -1787,6 +1939,16 @@ void URokUnityFeatureScreenWidget::OpenArmyStatistics()
 	SelectedArmyStatisticsPage = 0;
 	RebuildModeContent(true);
 	SetVisibility(ESlateVisibility::Visible);
+	const int32 Tab = ReadLocalUiPreviewOption(TEXT("RokArmyStatisticsTab="), 1, 2);
+	if (Tab != INDEX_NONE)
+	{
+		const FName Name(*FString::Printf(TEXT("ArmyStatisticsPage_%d"), Tab));
+		if (UButton* Button = Cast<UButton>(GetWidgetFromName(Name)); Button && Button->GetIsEnabled())
+		{
+			Button->OnClicked.Broadcast();
+			UE_LOG(LogTemp, Display, TEXT("Rok army statistics preview: clicked %s."), *Name.ToString());
+		}
+	}
 }
 
 void URokUnityFeatureScreenWidget::OpenArmyStatisticsPage(int32 PageIndex)
@@ -1840,6 +2002,28 @@ void URokUnityFeatureScreenWidget::OpenTrainArmy(
 			}
 		}
 	}
+	const int32 ReplayIndex = ReadLocalUiPreviewOption(TEXT("RokTrainArmyPreviewServerBuilding="), 1, MAX_int32);
+	if (ReplayIndex != INDEX_NONE)
+	{
+		const auto* Instance = GetGameInstance();
+		const auto* Net = Instance ? Instance->GetSubsystem<URokGameNetSubsystem>() : nullptr;
+		const auto* Army = Instance ? Instance->GetSubsystem<URokServerArmySubsystem>() : nullptr;
+		if (Net && Net->IsSnapshotReplay() && Army)
+		{
+			const FRokServerArmySnapshot Snapshot = Army->GetSnapshot();
+			const auto* Building = Snapshot.TrainingBuildings.FindByPredicate([ReplayIndex](const auto& Candidate)
+			{
+				return Candidate.BuildingIndex == ReplayIndex;
+			});
+			if (Building)
+			{
+				SelectedServerTrainBuildingIndex = Building->BuildingIndex;
+				SelectedTrainArmyType = Building->BuildingType - 8;
+				UE_LOG(LogTemp, Display, TEXT("Rok training preview bound snapshot building index=%d army_type=%d."),
+					SelectedServerTrainBuildingIndex, SelectedTrainArmyType);
+			}
+		}
+	}
 	SelectedTrainTier = 1;
 	SelectedTrainCount = SelectedServerTrainBuildingIndex > 0 ? MAX_int32 : 1;
 	bTrainArmyDetailVisible = false;
@@ -1847,6 +2031,29 @@ void URokUnityFeatureScreenWidget::OpenTrainArmy(
 	TrainArmyDetailAnimationTime = 0.25f;
 	RebuildModeContent(true);
 	SetVisibility(ESlateVisibility::Visible);
+	const int32 PreviewTier = GetTrainArmyDetailPreviewTier();
+	if (PreviewTier != INDEX_NONE)
+	{
+		ClickTrainArmyPreviewButton(PreviewTier == SelectedTrainTier ? FName(TEXT("TrainArmyDetailButton"))
+			: FName(*FString::Printf(TEXT("TrainArmyTier_%d"), PreviewTier - 1)));
+	}
+	else if (const int32 BrowseTier = ReadLocalUiPreviewOption(TEXT("RokTrainArmyPreviewBrowse="), 2, 5); BrowseTier != INDEX_NONE)
+	{
+		ClickTrainArmyPreviewButton(*FString::Printf(TEXT("TrainArmyTier_%d"), BrowseTier - 1));
+	}
+	else if (ReadLocalUiPreviewOption(TEXT("RokTrainArmyPreviewConfirm="), 1, 1) == 1)
+	{
+		ClickTrainArmyPreviewButton(TEXT("TrainArmyInstant"));
+	}
+}
+
+void URokUnityFeatureScreenWidget::ClickTrainArmyPreviewButton(FName Name)
+{
+	if (auto* Button = Cast<UButton>(GetWidgetFromName(Name)); Button && Button->GetIsEnabled())
+	{
+		Button->OnClicked.Broadcast();
+		UE_LOG(LogTemp, Display, TEXT("Rok train army detail preview: clicked %s."), *Name.ToString());
+	}
 }
 
 void URokUnityFeatureScreenWidget::OpenTrainArmyPreview(int32 ArmyType)
@@ -1889,6 +2096,13 @@ void URokUnityFeatureScreenWidget::OpenSpeedUp(
 	VisibleSpeedUpItemIds.Reset();
 	RebuildModeContent(true);
 	SetVisibility(ESlateVisibility::Visible);
+	if (ReadLocalUiPreviewOption(TEXT("RokSpeedUpPreviewPage="), 1, 1) == 1)
+	{
+		if (auto* Next = Cast<UButton>(GetWidgetFromName(TEXT("SpeedUpNextPage"))); Next && Next->GetIsEnabled())
+		{
+			Next->OnClicked.Broadcast();
+		}
+	}
 }
 
 void URokUnityFeatureScreenWidget::OpenHospital(AActor* BuildingActor)
@@ -1902,6 +2116,14 @@ void URokUnityFeatureScreenWidget::OpenHospital(AActor* BuildingActor)
 	FeatureContextActor = BuildingActor;
 	RebuildModeContent(true);
 	SetVisibility(ESlateVisibility::Visible);
+	if (GetHospitalPreviewState() == EHospitalLocalPreview::Confirm)
+	{
+		if (auto* Button = Cast<UButton>(GetWidgetFromName(TEXT("HospitalHealNowButton"))); Button && Button->GetIsEnabled())
+		{
+			Button->OnClicked.Broadcast();
+			UE_LOG(LogTemp, Display, TEXT("Rok hospital preview: clicked HospitalHealNowButton."));
+		}
+	}
 }
 
 void URokUnityFeatureScreenWidget::OpenResearch(AActor* AcademyActor)
@@ -1922,6 +2144,16 @@ void URokUnityFeatureScreenWidget::OpenCityManager()
 	SelectedCityManagerGroupId = 0;
 	RebuildModeContent(true);
 	SetVisibility(ESlateVisibility::Visible);
+	const int32 PreviewGroup = ReadLocalUiPreviewOption(TEXT("RokCityManagerPreviewGroup="), 201, 605);
+	if (PreviewGroup != INDEX_NONE)
+	{
+		const FName Name(*FString::Printf(TEXT("CityManagerGroupButton_%d"), PreviewGroup));
+		if (UButton* Button = Cast<UButton>(GetWidgetFromName(Name)); Button && Button->GetIsEnabled())
+		{
+			Button->OnClicked.Broadcast();
+			UE_LOG(LogTemp, Display, TEXT("Rok city manager preview: clicked %s."), *Name.ToString());
+		}
+	}
 }
 
 void URokUnityFeatureScreenWidget::OpenArmyShow()
@@ -2002,6 +2234,7 @@ void URokUnityFeatureScreenWidget::CloseScreen()
 	AnimatedMode = ERokUnityFeatureScreenMode::None;
 	PendingActionId = INDEX_NONE;
 	ActiveMode = ERokUnityFeatureScreenMode::None;
+	ActiveModePage = nullptr;
 	if (ModeCanvas)
 	{
 		URokUiAnimatedButton::ResetAnimationsInHierarchy(ModeCanvas);
@@ -2213,8 +2446,41 @@ void URokUnityFeatureScreenWidget::NativeTick(const FGeometry& MyGeometry, float
 		if (auto* Scroll = Cast<UScrollBox>(GetWidgetFromName(TEXT("BuildCityBuildingScroll"))))
 		{
 			const int32 Index = VisibleBuildCityTypeIds.IndexOfByKey(BuildCityGuideTypeId);
-			const double CardCenter = (Index + 0.5) * BuildCityCardStride;
-			const double ListWidth = CurrentExpandedDesignSize.X - BuildCityListLeft;
+			double CardCenter = (Index + 0.5) * BuildCityCardStride;
+			const FName TargetName(*FString::Printf(TEXT("BuildCityCardSize_%d"), BuildCityGuideTypeId));
+			double PrecedingWidth = 0.0;
+			for (const UWidget* Child : Scroll->GetAllChildren())
+			{
+				const auto* CardSize = Cast<USizeBox>(Child);
+				if (!CardSize || !CardSize->IsWidthOverride() || CardSize->GetWidthOverride() <= 0.0f)
+				{
+					break;
+				}
+				const double CardWidth = CardSize->GetWidthOverride();
+				if (CardSize->GetFName() == TargetName)
+				{
+					CardCenter = PrecedingWidth + CardWidth * 0.5;
+					break;
+				}
+				PrecedingWidth += CardWidth;
+			}
+
+			const auto WidthOf = [](const UWidget* Child, double ParentWidth, double Fallback)
+			{
+				const auto* CanvasSlot = Child ? Cast<UCanvasPanelSlot>(Child->Slot) : nullptr;
+				if (!CanvasSlot)
+				{
+					return Fallback;
+				}
+				const FAnchors Anchors = CanvasSlot->GetAnchors();
+				const double Span = Anchors.Maximum.X - Anchors.Minimum.X;
+				const FMargin Offsets = CanvasSlot->GetOffsets();
+				const double Width = Span > 0.0 ? ParentWidth * Span - Offsets.Left - Offsets.Right : Offsets.Right;
+				return Width > 0.0 ? Width : Fallback;
+			};
+			const double DefaultListWidth = CurrentExpandedDesignSize.X - BuildCityListLeft;
+			const double MaskWidth = WidthOf(GetWidgetFromName(TEXT("BuildCityListMask")), CurrentExpandedDesignSize.X, DefaultListWidth);
+			const double ListWidth = WidthOf(Scroll, MaskWidth, MaskWidth);
 			Scroll->SetScrollOffset(FMath::Max(0.0, CardCenter - ListWidth * 0.5));
 		}
 		bBuildCityGuideNeedsScroll = false;
@@ -2319,6 +2585,41 @@ void URokUnityFeatureScreenWidget::BuildWidgetTree()
 	WidgetTree->RootWidget = RootCanvas;
 	RootCanvas->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
 
+	if (UClass* ShellClass = ResolveFeaturePageClass(TEXT("FeatureShell")))
+	{
+		if (auto* Shell = CreateWidget<URokUiPageWidget>(this, ShellClass))
+		{
+			auto* DesignSize = Shell->Get<USizeBox>(TEXT("FeatureExpandedDesignSize"));
+			auto* DesignCanvas = Shell->Get<UCanvasPanel>(TEXT("FeatureExpandedDesignCanvas"));
+			auto* Content = Shell->Get<UCanvasPanel>(TEXT("FeatureModeCanvas"));
+			auto* Chrome = Shell->Get<UCanvasPanel>(TEXT("CommanderChrome"));
+			auto* Scene = Shell->Get<UImage>(TEXT("CommanderSceneBackground"));
+			auto* Blocker = Shell->Get<UButton>(TEXT("FeatureScreenInputBlocker"));
+			const auto* ScaleBox = Shell->Get<UScaleBox>(TEXT("FeatureUnityExpandScaleBox"));
+			const auto* Dimmer = Shell->Get<UBorder>(TEXT("FeatureScreenDimmer"));
+			if (DesignSize && DesignCanvas && Content && Chrome && Scene && Blocker && ScaleBox && Dimmer
+				&& ScaleBox->GetContent() == DesignSize && DesignSize->GetContent() == DesignCanvas
+				&& Content->GetParent() == DesignCanvas && Chrome->GetParent() == DesignCanvas)
+			{
+				FeatureShellPage = Shell;
+				ExpandedDesignSizeBox = DesignSize;
+				ExpandedDesignCanvas = DesignCanvas;
+				ModeCanvas = Content;
+				CommanderChrome = Chrome;
+				CommanderSceneImage = Scene;
+				ExpandedDesignSizeBox->SetWidthOverride(CurrentExpandedDesignSize.X);
+				ExpandedDesignSizeBox->SetHeightOverride(CurrentExpandedDesignSize.Y);
+				Blocker->OnClicked.AddUniqueDynamic(this, &URokUnityFeatureScreenWidget::HandleResearchMainMaskClicked);
+
+				Shell->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+				auto* ShellSlot = RootCanvas->AddChildToCanvas(Shell);
+				ShellSlot->SetAnchors(FAnchors(0, 0, 1, 1));
+				ShellSlot->SetOffsets(FMargin(0));
+				return;
+			}
+		}
+	}
+
 	UBorder* Dimmer = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("FeatureScreenDimmer"));
 	Dimmer->SetBrushColor(FLinearColor(0.0f, 0.0f, 0.0f, 0.74f));
 	Dimmer->SetVisibility(ESlateVisibility::HitTestInvisible);
@@ -2387,6 +2688,136 @@ void URokUnityFeatureScreenWidget::BuildWidgetTree()
 	ChromeSlot->SetZOrder(3);
 }
 
+UWidget* URokUnityFeatureScreenWidget::GetWidgetFromName(const FName& Name) const
+{
+	if (FeedbackText && Name == FeedbackText->GetFName())
+	{
+		return FeedbackText;
+	}
+	if (ActiveModePage)
+	{
+		if (UWidget* Widget = RokUiFind::Find(ActiveModePage, Name))
+		{
+			return Widget;
+		}
+	}
+	if (ModeCanvas)
+	{
+		for (const UWidget* Child : ModeCanvas->GetAllChildren())
+		{
+			const auto* Page = Cast<URokUiPageWidget>(Child);
+			if (Page && Page != ActiveModePage.Get())
+			{
+				if (UWidget* Widget = RokUiFind::Find(Page, Name))
+				{
+					return Widget;
+				}
+			}
+		}
+	}
+	for (const UCanvasPanel* Overlay : {VipDailyPointHelpTipRoot.Get(), MailRewardTooltipRoot.Get()})
+	{
+		if (!Overlay) continue;
+		for (const UWidget* Child : Overlay->GetAllChildren())
+		{
+			if (const auto* Page = Cast<URokUiPageWidget>(Child))
+			{
+				if (UWidget* Found = RokUiFind::Find(Page, Name))
+				{
+					return Found;
+				}
+			}
+		}
+	}
+	if (FeatureShellPage)
+	{
+		if (UWidget* Found = RokUiFind::Find(FeatureShellPage, Name))
+		{
+			return Found;
+		}
+	}
+	return Super::GetWidgetFromName(Name);
+}
+
+UClass* URokUnityFeatureScreenWidget::ResolveFeaturePageClass(FName Name)
+{
+	if (URokUiSettings::IsLegacyForced())
+	{
+		return nullptr;
+	}
+	const FRokUiPageEntry* Entry = GetDefault<URokUiSettings>()->FeaturePages.FindByPredicate(
+		[Name](const FRokUiPageEntry& Candidate) { return Candidate.Page == Name; });
+	return Entry ? URokUiSettings::Resolve(Entry->Class) : nullptr;
+}
+
+URokUiPageWidget* URokUnityFeatureScreenWidget::MountModePage(FName PageName, bool bBindFrameClose, int32 ZOrder)
+{
+	if (PageName.IsNone())
+	{
+		PageName = FName(*StaticEnum<ERokUnityFeatureScreenMode>()->GetNameStringByValue(static_cast<int64>(ActiveMode)));
+	}
+	UClass* PageClass = ResolveFeaturePageClass(PageName);
+	URokUiPageWidget* Page = PageClass ? CreateWidget<URokUiPageWidget>(this, PageClass) : nullptr;
+	if (!Page)
+	{
+		return nullptr;
+	}
+	ActiveModePage = Page;
+	Page->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+	UCanvasPanelSlot* PageSlot = ModeCanvas->AddChildToCanvas(Page);
+	PageSlot->SetAnchors(FAnchors(0, 0, 1, 1));
+	PageSlot->SetOffsets(FMargin(0));
+	PageSlot->SetZOrder(ZOrder);
+	if (bBindFrameClose)
+	{
+		BindPageAction(*ActiveModePage, TEXT("FeatureFrameClose"), 1);
+	}
+	return ActiveModePage;
+}
+
+URokUiPageWidget* URokUnityFeatureScreenWidget::MountPageItem(
+	UCanvasPanel* Parent, UClass* ItemClass, const TCHAR* LegacyPrefix, int32 Index)
+{
+	URokUiPageWidget* Item = Parent ? CreateWidget<URokUiPageWidget>(this, ItemClass) : nullptr;
+	if (Item)
+	{
+		Item->LegacyPrefix = LegacyPrefix;
+		Item->LegacySuffix = FString::Printf(TEXT("_%d"), Index);
+		Item->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+		UCanvasPanelSlot* ItemSlot = Parent->AddChildToCanvas(Item);
+		ItemSlot->SetAnchors(FAnchors(0, 0, 1, 1));
+		ItemSlot->SetOffsets(FMargin(0));
+	}
+	return Item;
+}
+
+void URokUnityFeatureScreenWidget::BindPageAction(const URokUiPageWidget& Page, FName Name, int32 ActionId)
+{
+	if (URokUnityIndexedButton* Button = Page.Get<URokUnityIndexedButton>(Name))
+	{
+		Button->ConfigureAction(ActionId);
+		Button->OnIndexedClicked.AddUObject(this, &URokUnityFeatureScreenWidget::HandleIndexedAction);
+	}
+}
+
+bool URokUnityFeatureScreenWidget::ExportCurrentModeSpec(const FString& Filename, FString& OutError) const
+{
+	if (!IsScreenOpen() || !ModeCanvas)
+	{
+		OutError = TEXT("No feature screen is open");
+		return false;
+	}
+#if !UE_BUILD_SHIPPING
+	if (FParse::Param(FCommandLine::Get(), TEXT("RokUiExportFeatureShell")))
+	{
+		const UWidget* Root = FeatureShellPage ? FeatureShellPage->GetRootWidget() : GetRootWidget();
+		return RokUiSpec::ExportChildren(Cast<UPanelWidget>(Root), Filename, TEXT("FeatureShell"), OutError);
+	}
+#endif
+	const FString Label = StaticEnum<ERokUnityFeatureScreenMode>()->GetNameStringByValue(static_cast<int64>(ActiveMode));
+	return RokUiSpec::ExportChildren(ModeCanvas, Filename, Label, OutError);
+}
+
 void URokUnityFeatureScreenWidget::RebuildModeContent(bool bOpening)
 {
 	if (!ModeCanvas)
@@ -2410,6 +2841,7 @@ void URokUnityFeatureScreenWidget::RebuildModeContent(bool bOpening)
 	ActiveMailRewardTooltipIndex = INDEX_NONE;
 	MailRewardTooltipAnchor = FVector2D::ZeroVector;
 	TrainArmyAnimatedChildren.Reset();
+	ActiveModePage = nullptr;
 	ModeCanvas->ClearChildren();
 	if (CommanderSceneImage) CommanderSceneImage->SetVisibility(ESlateVisibility::Collapsed);
 	if (CommanderChrome) CommanderChrome->ClearChildren();
@@ -2450,7 +2882,7 @@ void URokUnityFeatureScreenWidget::RebuildModeContent(bool bOpening)
 	ResourceSearchSlider = nullptr;
 	ResourceSearchSliderFill = nullptr;
 	ResourceSearchLevelValueText = nullptr;
-	if (UBorder* Dimmer = Cast<UBorder>(WidgetTree->FindWidget(TEXT("FeatureScreenDimmer"))))
+	if (UBorder* Dimmer = Cast<UBorder>(GetWidgetFromName(TEXT("FeatureScreenDimmer"))))
 	{
 		Dimmer->SetBrushColor(FLinearColor(0, 0, 0,
 			ActiveMode == ERokUnityFeatureScreenMode::Research ? 0.8f : 0.74f));
@@ -2459,7 +2891,7 @@ void URokUnityFeatureScreenWidget::RebuildModeContent(bool bOpening)
 				? ESlateVisibility::Collapsed
 				: ESlateVisibility::HitTestInvisible);
 	}
-	if (UWidget* InputBlocker = WidgetTree->FindWidget(TEXT("FeatureScreenInputBlocker")))
+	if (UWidget* InputBlocker = GetWidgetFromName(TEXT("FeatureScreenInputBlocker")))
 	{
 		// Unity UI.s_chat uses EnumMaskStatus.kNone: uncovered HUD remains
 		// hit-testable. Chat has only bounds-matched panel shields below.
@@ -2759,7 +3191,10 @@ void URokUnityFeatureScreenWidget::ApplyWindowAnimation()
 		if (ResourceSearchDockRoot) ResourceSearchDockRoot->SetRenderTranslation(FVector2D(0, ResourceSearchAnimation.DockTranslationY));
 		if (ResourceSearchPopupRoot) ResourceSearchPopupRoot->SetRenderScale(FVector2D(ResourceSearchAnimation.PopupScale));
 		if (ResourceSearchGuide)
-			ResourceSearchGuide->SetRenderTranslation(FVector2D(0, 5.0 * FMath::Sin(FPlatformTime::Seconds() * 5.0)));
+		{
+			const double Offset = bFreezeResourceSearchGuideForCapture ? 0.0 : 5.0 * FMath::Sin(FPlatformTime::Seconds() * 5.0);
+			ResourceSearchGuide->SetRenderTranslation(FVector2D(0, Offset));
+		}
 		return;
 	}
 	if (ModeCanvas && ActiveMode == ERokUnityFeatureScreenMode::Chat)
@@ -2777,7 +3212,7 @@ void URokUnityFeatureScreenWidget::ApplyWindowAnimation()
 		}
 		for (const TCHAR* Name : { TEXT("ChatAnimationInputShield"), TEXT("ChatCloseInputShield") })
 		{
-			if (UWidget* Shield = WidgetTree->FindWidget(Name))
+			if (UWidget* Shield = RokUiFind::Find(this, Name))
 			{
 				Shield->SetRenderTranslation(FVector2D(ChatContactAnimation.TranslationX, 0.0f));
 				Shield->SetVisibility(ChatDrawerAnimation.IsAnimating()
@@ -2869,629 +3304,34 @@ void URokUnityFeatureScreenWidget::AdvanceWindowAnimation(float DeltaSeconds)
 	}
 }
 
-void URokUnityFeatureScreenWidget::BuildChat()
-{
-	// UI_Win_ChatMediator.OnPopEmojiMenu/OnHideEmojiMenu resize the
-	// message region and lift pl_down by pl_emoji.rect.height immediately.
-	// UI_Win_Chat.prefab pl_emoji sizeDelta.y = 289.8 (no tween).
-	const float EmojiHeight = 289.8f;
-	const float EmojiLift = bChatEmojiPanelOpen ? EmojiHeight : 0.0f;
-	ChatContentCanvas = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("ChatContentCanvas"));
-	PlaceOnCanvas(ModeCanvas, ChatContentCanvas, FVector2D::ZeroVector,
-		FVector2D(UnityReferenceWidth, UnityReferenceHeight), 0);
-	// The panel blocks its own footprint, including while its controls are
-	// disabled by entry/exit. Uncovered HUD is never covered by a global mask.
-	const auto MakeShield = [this](const TCHAR* Name, UCanvasPanel* Parent,
-		const FVector2D& Position, const FVector2D& Size, int32 ZOrder)
-	{
-		UButton* Shield = WidgetTree->ConstructWidget<URokChatInputShield>(URokChatInputShield::StaticClass(), Name);
-		FSlateBrush NoBrush;
-		NoBrush.DrawAs = ESlateBrushDrawType::NoDrawType;
-		FButtonStyle Style;
-		Style.SetNormal(NoBrush).SetHovered(NoBrush).SetPressed(NoBrush).SetDisabled(NoBrush);
-		Shield->SetStyle(Style);
-		PlaceOnCanvas(Parent, Shield, Position, Size, ZOrder);
-	};
-	MakeShield(TEXT("ChatPanelInputShield"), ChatContentCanvas, FVector2D::ZeroVector, FVector2D(1024.0f, 810.0f), -1);
-	MakeShield(TEXT("ChatAnimationInputShield"), ModeCanvas, FVector2D::ZeroVector, FVector2D(1024.0f, 810.0f), 100);
-	MakeShield(TEXT("ChatCloseInputShield"), ModeCanvas, FVector2D(1019.0f, 343.0f), FVector2D(48.0f, 124.0f), 100);
-	// Unity UI_Win_Chat is a 1024 px drawer: 330 px contacts on the left and
-	// a 694.7 px conversation region on the right. The remaining viewport is
-	// deliberately left visible and hit-testable (UI.s_chat: kNone mask).
-	const FVector2D FrameSize(1024.0f, 810.0f);
-	const FVector2D HalfFrameSize(FrameSize.X * 0.5f, FrameSize.Y - 60.0f);
-	PlaceOnCanvas(
-		ChatContentCanvas,
-		MakeSolidBorder(
-			TEXT("ChatMainBackground"),
-			FLinearColor(0.018f, 0.026f, 0.03f, 0.99f)),
-		FVector2D::ZeroVector,
-		FrameSize,
-		0);
-	UCanvasPanel* BodyLeft = MakeAtlasBorder(
-		TEXT("ChatFrameBodyLeft"),
-		FrameAtlasPath,
-		WindowBodyRect,
-		FrameAtlasSize,
-		HalfFrameSize,
-		WindowBodyMargin);
-	PlaceOnCanvas(
-		ChatContentCanvas,
-		BodyLeft,
-		FVector2D(0.0f, 60.0f),
-		HalfFrameSize,
-		1);
-	UCanvasPanel* BodyRight = MakeAtlasBorder(
-		TEXT("ChatFrameBodyRight"),
-		FrameAtlasPath,
-		WindowBodyRect,
-		FrameAtlasSize,
-		HalfFrameSize,
-		WindowBodyMargin);
-	BodyRight->SetRenderTransformPivot(FVector2D(0.5f));
-	BodyRight->SetRenderScale(FVector2D(-1.0f, 1.0f));
-	PlaceOnCanvas(
-		ChatContentCanvas,
-		BodyRight,
-		FVector2D(512.0f, 60.0f),
-		HalfFrameSize,
-		1);
-	UCanvasPanel* HeaderLeft = MakeAtlasBorder(
-		TEXT("ChatFrameHeaderLeft"),
-		FrameAtlasPath,
-		WindowHeaderRect,
-		FrameAtlasSize,
-		FVector2D(512.0f, 60.0f),
-		WindowHeaderMargin);
-	PlaceOnCanvas(
-		ChatContentCanvas,
-		HeaderLeft,
-		FVector2D::ZeroVector,
-		FVector2D(512.0f, 60.0f),
-		5);
-	UCanvasPanel* HeaderRight = MakeAtlasBorder(
-		TEXT("ChatFrameHeaderRight"),
-		FrameAtlasPath,
-		WindowHeaderRect,
-		FrameAtlasSize,
-		FVector2D(512.0f, 60.0f),
-		WindowHeaderMargin);
-	HeaderRight->SetRenderTransformPivot(FVector2D(0.5f));
-	HeaderRight->SetRenderScale(FVector2D(-1.0f, 1.0f));
-	PlaceOnCanvas(
-		ChatContentCanvas,
-		HeaderRight,
-		FVector2D(512.0f, 0.0f),
-		FVector2D(512.0f, 60.0f),
-		5);
-	UTextBlock* WindowTitle = MakeScreenText(
-		TEXT("ChatWindowTitle"),
-		30,
-		FLinearColor(0.96f, 0.94f, 0.88f, 1.0f),
-		true,
-		ETextJustify::Center);
-	WindowTitle->SetText(NSLOCTEXT("RokChat", "ChatTitle", "聊天"));
-	PlaceOnCanvas(
-		ChatContentCanvas,
-		WindowTitle,
-		FVector2D(0.0f, 8.0f),
-		FVector2D(1024.0f, 42.0f),
-		7);
-	if (bChatTestFixtureState)
-	{
-		// Chat history and contacts are server data; the fixture preview must
-		// stay explicitly labeled instead of reading as account state.
-		UTextBlock* ChatFixtureTag = MakeScreenText(
-			TEXT("ChatFixtureTag"),
-			14,
-			FLinearColor(0.62f, 0.62f, 0.58f, 1.0f),
-			false,
-			ETextJustify::Right);
-		ChatFixtureTag->SetText(NSLOCTEXT(
-			"RokChat",
-			"FixtureTag",
-			"聊天 · 本地参考态（非账号状态）"));
-		PlaceOnCanvas(
-			ChatContentCanvas,
-			ChatFixtureTag,
-			FVector2D(704.0f, 14.0f),
-			FVector2D(312.0f, 24.0f),
-			7);
-	}
-	PlaceOnCanvas(
-		ChatContentCanvas,
-		MakeActionButton(
-			TEXT("FeatureFrameClose"),
-			1,
-			ChatAtlasPath,
-			ChatCloseRect,
-			ChatAtlasSize,
-			FVector2D(48.0f, 124.0f)),
-		FVector2D(1019.0f, 343.0f),
-		FVector2D(48.0f, 124.0f),
-		30);
-
-	PlaceOnCanvas(
-		ChatContentCanvas,
-		MakeSolidBorder(
-			TEXT("ChatContactsPanel"),
-			FLinearColor(0.045f, 0.055f, 0.06f, 0.98f)),
-		FVector2D(6.0f, 66.0f),
-		FVector2D(320.0f, 730.0f),
-		2);
-	PlaceOnCanvas(
-		ChatContentCanvas,
-		MakeSolidBorder(
-			TEXT("ChatMessagesPanel"),
-			FLinearColor(0.025f, 0.035f, 0.04f, 0.98f)),
-		FVector2D(326.0f, 60.0f),
-		FVector2D(695.0f, 750.0f),
-		2);
-
-	static const FText ChannelLabels[] = {
-		// Unity shows Language 750011 for the world channel contact.
-		NSLOCTEXT("RokChat", "WorldChannel", "王国"),
-		NSLOCTEXT("RokChat", "AllianceChannel", "联盟"),
-		NSLOCTEXT("RokChat", "PrivateChannel", "私聊")};
-	for (int32 Index = 0; Index < 3; ++Index)
-	{
-		const bool bSelected = Index == SelectedChatChannel;
-		const FVector2D RowSize(304.0f, 88.0f);
-		UCanvasPanel* ChannelRow = WidgetTree->ConstructWidget<UCanvasPanel>(
-			UCanvasPanel::StaticClass(),
-			*FString::Printf(TEXT("ChatChannelRow_%d"), Index));
-		PlaceOnCanvas(
-			ChatContentCanvas,
-			ChannelRow,
-			FVector2D(11.0f, 82.0f + Index * 94.0f),
-			RowSize,
-			6);
-		PlaceOnCanvas(
-			ChannelRow,
-			MakeSolidBorder(
-				*FString::Printf(TEXT("ChatChannelShade_%d"), Index),
-				bSelected
-					? FLinearColor(0.12f, 0.15f, 0.16f, 0.98f)
-					: FLinearColor(0.06f, 0.075f, 0.08f, 0.94f)),
-			FVector2D::ZeroVector,
-			RowSize,
-			0);
-		if (bSelected)
-		{
-			PlaceOnCanvas(
-				ChannelRow,
-				MakeAtlasBorder(
-					*FString::Printf(TEXT("ChatChannelSelected_%d"), Index),
-					ChatAtlasPath,
-					ChatSelectedContactRect,
-					ChatAtlasSize,
-					RowSize,
-					FMargin(0.16f)),
-				FVector2D::ZeroVector,
-				RowSize,
-				1);
-		}
-		if (Index < 2)
-		{
-			PlaceOnCanvas(
-				ChannelRow,
-				MakeAtlasImage(
-					*FString::Printf(TEXT("ChatChannelIcon_%d"), Index),
-					ChatAtlasPath,
-					Index == 0 ? ChatWorldIconRect : ChatAllianceIconRect,
-					ChatAtlasSize,
-					FVector2D(64.0f)),
-				FVector2D(12.0f, 12.0f),
-				FVector2D(64.0f),
-				2);
-		}
-		else
-		{
-			PlaceOnCanvas(
-				ChannelRow,
-				MakeSolidBorder(
-					TEXT("ChatPrivateIconShade"),
-					FLinearColor(0.16f, 0.18f, 0.18f, 1.0f)),
-				FVector2D(18.0f, 18.0f),
-				FVector2D(52.0f),
-				2);
-			UTextBlock* PrivateGlyph = MakeScreenText(
-				TEXT("ChatPrivateIconGlyph"),
-				24,
-				FLinearColor(0.95f, 0.86f, 0.55f, 1.0f),
-				true,
-				ETextJustify::Center);
-			PrivateGlyph->SetText(NSLOCTEXT("RokChat", "PrivateGlyph", "私"));
-			PlaceOnCanvas(
-				ChannelRow,
-				PrivateGlyph,
-				FVector2D(18.0f, 25.0f),
-				FVector2D(52.0f, 38.0f),
-				3);
-		}
-		UTextBlock* ChannelLabel = MakeScreenText(
-			*FString::Printf(TEXT("ChatChannelLabel_%d"), Index),
-			23,
-			bSelected
-				? FLinearColor(1.0f, 0.88f, 0.48f, 1.0f)
-				: FLinearColor(0.82f, 0.82f, 0.78f, 1.0f),
-			true);
-		ChannelLabel->SetText(ChannelLabels[Index]);
-		PlaceOnCanvas(
-			ChannelRow,
-			ChannelLabel,
-			FVector2D(94.0f, 25.0f),
-			FVector2D(185.0f, 38.0f),
-			3);
-		PlaceOnCanvas(
-			ChannelRow,
-			MakeActionButton(
-				*FString::Printf(TEXT("ChatChannel_%d"), Index),
-				800 + Index,
-				nullptr,
-				FIntRect(),
-				FIntPoint(1, 1),
-				RowSize),
-			FVector2D::ZeroVector,
-			RowSize,
-			10);
-	}
-
-	UTextBlock* ContactTitle = MakeScreenText(
-		TEXT("ChatContactTitle"),
-		20,
-		FLinearColor(0.95f, 0.85f, 0.52f, 1.0f),
-		true,
-		ETextJustify::Center);
-	ContactTitle->SetText(NSLOCTEXT("RokChat", "Contacts", "私聊联系人"));
-	PlaceOnCanvas(
-		ChatContentCanvas,
-		ContactTitle,
-		FVector2D(20.0f, 382.0f),
-		FVector2D(292.0f, 36.0f),
-		7);
-	if (bChatTestFixtureState)
-	{
-		static const TCHAR* FixtureContacts[] = {
-			TEXT("沙漠之鹰  在线"),
-			TEXT("远征军  离线")};
-		for (int32 Index = 0; Index < 2; ++Index)
-		{
-			UTextBlock* Contact = MakeScreenText(
-				*FString::Printf(TEXT("ChatContact_%d"), Index),
-				18,
-				Index == 0
-					? FLinearColor(0.52f, 0.95f, 0.62f, 1.0f)
-					: FLinearColor(0.68f, 0.68f, 0.66f, 1.0f));
-			Contact->SetText(FText::FromString(FixtureContacts[Index]));
-			PlaceOnCanvas(
-				ChatContentCanvas,
-				Contact,
-				FVector2D(34.0f, 436.0f + Index * 58.0f),
-				FVector2D(265.0f, 34.0f),
-				7);
-		}
-	}
-	else
-	{
-		UTextBlock* ContactsEmpty = MakeScreenText(
-			TEXT("ChatContactsEmptyState"),
-			17,
-			FLinearColor(0.56f, 0.58f, 0.58f, 1.0f),
-			false,
-			ETextJustify::Center);
-		ContactsEmpty->SetText(
-			NSLOCTEXT("RokChat", "NoPrivateContacts", "暂无私聊联系人"));
-		PlaceOnCanvas(
-			ChatContentCanvas,
-			ContactsEmpty,
-			FVector2D(34.0f, 442.0f),
-			FVector2D(264.0f, 32.0f),
-			7);
-	}
-
-	PlaceOnCanvas(ChatContentCanvas,
-		MakeActionButton(TEXT("ChatContactsToggleButton"), 812,
-			ChatAtlasPath, ChatShrinkRect, ChatAtlasSize, FVector2D(32.0f)),
-		FVector2D(334.65f, 71.61f), FVector2D(32.0f), 9);
-	UTextBlock* ConversationTitle = MakeScreenText(
-		TEXT("ChatConversationTitle"),
-		24,
-		FLinearColor(0.96f, 0.9f, 0.7f, 1.0f),
-		true);
-	ConversationTitle->SetText(ChannelLabels[SelectedChatChannel]);
-	PlaceOnCanvas(
-		ChatContentCanvas,
-		ConversationTitle,
-		FVector2D(438.0f, 72.0f),
-		FVector2D(420.0f, 38.0f),
-		7);
-	if (SelectedChatChannel < 2)
-	{
-		PlaceOnCanvas(
-			ChatContentCanvas,
-			MakeAtlasImage(
-				TEXT("ChatConversationChannelIcon"),
-				ChatAtlasPath,
-				SelectedChatChannel == 0
-					? ChatWorldIconRect
-					: ChatAllianceIconRect,
-				ChatAtlasSize,
-				FVector2D(48.0f)),
-			FVector2D(378.0f, 65.0f),
-			FVector2D(48.0f),
-			7);
-	}
-	auto* MessageViewport = WidgetTree->ConstructWidget<UCanvasPanel>(
-		UCanvasPanel::StaticClass(), TEXT("ChatMessageViewport"));
-	MessageViewport->SetClipping(EWidgetClipping::ClipToBoundsAlways);
-	const FVector2D MessageViewportSize(665.0f, 594.0f - EmojiLift);
-	PlaceOnCanvas(ChatContentCanvas, MessageViewport, FVector2D(340, 121), MessageViewportSize, 4);
-	PlaceOnCanvas(
-		MessageViewport,
-		MakeSolidBorder(
-			TEXT("ChatMessageViewportBackground"),
-			FLinearColor(0.012f, 0.018f, 0.021f, 0.94f)),
-		FVector2D::ZeroVector,
-		MessageViewportSize,
-		4);
-
-	// Unity sv_chat is a ScrollRect/ListView, not a fixed collection of
-	// message cards. Keep its scroll offset when the emoji dock changes size.
-	auto* MessageScroll = WidgetTree->ConstructWidget<UScrollBox>(
-		UScrollBox::StaticClass(), TEXT("ChatMessageScroll"));
-	MessageScroll->SetOrientation(Orient_Vertical);
-	MessageScroll->SetScrollBarVisibility(ESlateVisibility::Collapsed);
-	MessageScroll->SetConsumeMouseWheel(EConsumeMouseWheel::Always);
-	MessageScroll->SetScrollOffset(ChatMessageScrollOffset);
-	PlaceOnCanvas(MessageViewport, MessageScroll, FVector2D::ZeroVector, MessageViewportSize, 5);
-	auto* MessageExtent = WidgetTree->ConstructWidget<USizeBox>(
-		USizeBox::StaticClass(), TEXT("ChatMessageExtent"));
-	const float ContentHeight = bChatTestFixtureState ? FMath::Max(403.0f, float(MessageViewportSize.Y)) : float(MessageViewportSize.Y);
-	MessageExtent->SetHeightOverride(ContentHeight);
-	MessageScroll->AddChild(MessageExtent);
-	auto* MessageContent = WidgetTree->ConstructWidget<UCanvasPanel>(
-		UCanvasPanel::StaticClass(), TEXT("ChatMessageContent"));
-	MessageExtent->AddChild(MessageContent);
-	if (bChatTestFixtureState)
-	{
-		static const TCHAR* WorldMessages[] = {
-			TEXT("[王国] 沙漠之鹰：有人一起探索遗迹吗？"),
-			TEXT("[王国] snow：坐标已分享 X:1146 Y:157"),
-			TEXT("[系统] 欢迎来到第1王国。")};
-		static const TCHAR* AllianceMessages[] = {
-			TEXT("[联盟] 盟主：今晚20:00集结联盟要塞。"),
-			TEXT("[联盟] snow：收到，我会提前到达。"),
-			TEXT("[联盟] 盟友：资源点已标记。")};
-		static const TCHAR* PrivateMessages[] = {
-			TEXT("[好友] 沙漠之鹰：你的城市升级得怎么样？"),
-			TEXT("[我] 正在升级市政厅。"),
-			TEXT("[好友] 沙漠之鹰：需要资源就告诉我。")};
-		const TCHAR* const* Messages = SelectedChatChannel == 0
-			? WorldMessages
-			: (SelectedChatChannel == 1
-				? AllianceMessages
-				: PrivateMessages);
-		for (int32 Index = 0; Index < 3; ++Index)
-		{
-			PlaceOnCanvas(
-				MessageContent,
-				MakeSolidBorder(
-					*FString::Printf(TEXT("ChatMessageShade_%d"), Index),
-					Index % 2 == 0
-						? FLinearColor(0.07f, 0.085f, 0.09f, 0.96f)
-						: FLinearColor(0.04f, 0.052f, 0.057f, 0.96f)),
-				FVector2D(16.0f, 25.0f + Index * 126.0f),
-				FVector2D(632.0f, 102.0f),
-				5);
-			UTextBlock* Message = MakeScreenText(
-				*FString::Printf(TEXT("ChatMessage_%d"), Index),
-				18,
-				FLinearColor(0.9f, 0.92f, 0.9f, 1.0f));
-			Message->SetText(FText::FromString(Messages[Index]));
-			PlaceOnCanvas(
-				MessageContent,
-				Message,
-				FVector2D(36.0f, 49.0f + Index * 126.0f),
-				FVector2D(592.0f, 56.0f),
-				6);
-		}
-	}
-	else
-	{
-		UTextBlock* MessagesEmpty = MakeScreenText(
-			TEXT("ChatMessagesEmptyState"),
-			18,
-			FLinearColor(0.52f, 0.54f, 0.54f, 1.0f),
-			false,
-			ETextJustify::Center);
-		MessagesEmpty->SetText(
-			NSLOCTEXT("RokChat", "NoMessages", "暂无消息"));
-		PlaceOnCanvas(
-			MessageContent,
-			MessagesEmpty,
-			FVector2D(140.0f, 253.0f - EmojiLift * 0.5f),
-			FVector2D(384.0f, 38.0f),
-			6);
-	}
-
-	if (bChatEmojiPanelOpen)
-	{
-		// Keep the dismiss button within the ScrollBox hierarchy so wheel
-		// events bubble to the message list instead of leaking to the map.
-		const FVector2D DismissSize(MessageViewportSize.X, ContentHeight);
-		PlaceOnCanvas(MessageContent, MakeActionButton(TEXT("ChatEmojiDismissMask"),
-			813, nullptr, FIntRect(), FIntPoint(1, 1), DismissSize),
-			FVector2D::ZeroVector, DismissSize, 30);
-	}
-	auto* InputRoot = WidgetTree->ConstructWidget<UCanvasPanel>(
-		UCanvasPanel::StaticClass(), TEXT("ChatInputRoot"));
-	PlaceOnCanvas(ChatContentCanvas, InputRoot, FVector2D(0, -EmojiLift), FVector2D(1024, 810), 8);
-	InputRoot->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-	PlaceOnCanvas(
-		InputRoot,
-		MakeSolidBorder(
-			TEXT("ChatInputShade"),
-			FLinearColor(0.08f, 0.09f, 0.09f, 1.0f)),
-		FVector2D(340.0f, 736.0f),
-		FVector2D(520.0f, 48.0f),
-		6);
-	ChatInputTextBox = WidgetTree->ConstructWidget<UEditableTextBox>(
-		UEditableTextBox::StaticClass(),
-		TEXT("ChatInputTextBox"));
-	ChatInputTextBox->SetText(FText::FromString(ChatDraft));
-	ChatInputTextBox->SetHintText(
-		NSLOCTEXT("RokChat", "InputHint", "输入消息…"));
-	FEditableTextBoxStyle ChatInputStyle =
-		FEditableTextBoxStyle::GetDefault();
-	ChatInputStyle
-		.SetFont(FCoreStyle::GetDefaultFontStyle(TEXT("Regular"), 18))
-		.SetForegroundColor(FLinearColor::White)
-		.SetFocusedForegroundColor(FLinearColor::White)
-		.SetBackgroundColor(FLinearColor(0.08f, 0.09f, 0.09f, 1.0f))
-		.SetPadding(FMargin(16.0f, 8.0f));
-	ChatInputTextBox->SetWidgetStyle(ChatInputStyle);
-	ChatInputTextBox->SetClearKeyboardFocusOnCommit(false);
-	ChatInputTextBox->OnTextCommitted.AddDynamic(
-		this,
-		&URokUnityFeatureScreenWidget::HandleChatInputCommitted);
-	PlaceOnCanvas(
-		InputRoot,
-		ChatInputTextBox,
-		FVector2D(344.0f, 737.0f),
-		FVector2D(512.0f, 46.0f),
-		7);
-	PlaceOnCanvas(
-		InputRoot,
-		MakeActionButton(
-			TEXT("ChatEmojiButton"),
-			811,
-			EmojiAtlasPath,
-			EmojiFaceRect,
-			EmojiAtlasSize,
-			FVector2D(60.0f)),
-		FVector2D(869.0f, 730.0f),
-		FVector2D(60.0f),
-		8);
-
-	UCanvasPanel* SendVisual = WidgetTree->ConstructWidget<UCanvasPanel>(
-		UCanvasPanel::StaticClass(),
-		TEXT("ChatSendVisual"));
-	PlaceOnCanvas(
-		InputRoot,
-		SendVisual,
-		FVector2D(928.0f, 730.0f),
-		FVector2D(60.0f),
-		8);
-	PlaceOnCanvas(
-		SendVisual,
-		MakeAtlasBorder(
-			TEXT("ChatSendBackground"),
-			CommonAtlasPath,
-			MiniBlueButtonRect,
-			CommonAtlasSize,
-			FVector2D(60.0f),
-			MiniBlueMargin),
-		FVector2D::ZeroVector,
-		FVector2D(60.0f),
-		0);
-	PlaceOnCanvas(
-		SendVisual,
-		MakeAtlasImage(
-			TEXT("ChatSendIcon"),
-			ChatAtlasPath,
-			ChatSendRect,
-			ChatAtlasSize,
-			FVector2D(48.0f, 30.0f)),
-		FVector2D(6.0f, 15.0f),
-		FVector2D(48.0f, 30.0f),
-		1);
-	PlaceOnCanvas(
-		SendVisual,
-		MakeActionButton(
-			TEXT("ChatSendButton"),
-			810,
-			nullptr,
-			FIntRect(),
-			FIntPoint(1, 1),
-			FVector2D(60.0f)),
-		FVector2D::ZeroVector,
-		FVector2D(60.0f),
-		10);
-
-	if (bChatEmojiPanelOpen)
-	{
-		UCanvasPanel* EmojiPanel = WidgetTree->ConstructWidget<UCanvasPanel>(
-			UCanvasPanel::StaticClass(),
-			TEXT("ChatEmojiPanel"));
-		PlaceOnCanvas(
-			ChatContentCanvas,
-			EmojiPanel,
-			FVector2D(330.0f, 810.0f - EmojiHeight),
-			FVector2D(694.0f, EmojiHeight),
-			20);
-		PlaceOnCanvas(
-			EmojiPanel,
-			MakeAtlasBorder(
-				TEXT("ChatEmojiPanelBackground"),
-				EmojiAtlasPath,
-				EmojiPanelRect,
-				EmojiAtlasSize,
-				FVector2D(694.0f, EmojiHeight),
-				FMargin(0.16f, 0.22f)),
-			FVector2D::ZeroVector,
-			FVector2D(694.0f, EmojiHeight),
-			0);
-		UTextBlock* EmojiTitle = MakeScreenText(
-			TEXT("ChatEmojiPanelTitle"),
-			20,
-			FLinearColor(0.95f, 0.87f, 0.6f, 1.0f),
-			true);
-		EmojiTitle->SetText(NSLOCTEXT("RokChat", "EmojiTitle", "表情"));
-		PlaceOnCanvas(
-			EmojiPanel,
-			EmojiTitle,
-			FVector2D(24.0f, 18.0f),
-			FVector2D(180.0f, 34.0f),
-			2);
-		PlaceOnCanvas(
-			EmojiPanel,
-			MakeActionButton(
-				TEXT("ChatEmojiItem_0"),
-				820,
-				EmojiAtlasPath,
-				EmojiTextRect,
-				EmojiAtlasSize,
-				FVector2D(88.0f)),
-			FVector2D(28.0f, 72.0f),
-			FVector2D(88.0f),
-			3);
-		PlaceOnCanvas(
-			EmojiPanel,
-			MakeActionButton(
-				TEXT("ChatEmojiItem_1"),
-				821,
-				EmojiAtlasPath,
-				EmojiFaceRect,
-				EmojiAtlasSize,
-				FVector2D(88.0f)),
-			FVector2D(132.0f, 72.0f),
-			FVector2D(88.0f),
-			3);
-	}
-
-	UE_LOG(
-		LogTemp,
-		Display,
-		TEXT("Rok chat screen: channel=%d emoji_panel=%d fixture=%d authority=%s."),
-		SelectedChatChannel,
-		bChatEmojiPanelOpen ? 1 : 0,
-		bChatTestFixtureState ? 1 : 0,
-		bChatTestFixtureState ? TEXT("local_fixture") : TEXT("server"));
-}
+#include "RokFeatureChat.inl"
 
 void URokUnityFeatureScreenWidget::BuildWorldPositionSearch()
 {
+	if (const URokUiPageWidget* Page = MountModePage())
+	{
+		WorldPositionXInput = Page->Get<UEditableTextBox>(TEXT("WorldPositionXInput"));
+		WorldPositionYInput = Page->Get<UEditableTextBox>(TEXT("WorldPositionYInput"));
+		if (WorldPositionXInput)
+		{
+			WorldPositionXInput->SetText(FText::FromString(FString::FromInt(SearchCoordinateX)));
+			WorldPositionXInput->OnTextCommitted.AddDynamic(this, &URokUnityFeatureScreenWidget::HandleWorldPositionXCommitted);
+		}
+		if (WorldPositionYInput)
+		{
+			WorldPositionYInput->SetText(FText::FromString(FString::FromInt(SearchCoordinateY)));
+			WorldPositionYInput->OnTextCommitted.AddDynamic(this, &URokUnityFeatureScreenWidget::HandleWorldPositionYCommitted);
+		}
+		BindPageAction(*Page, TEXT("WorldPositionMinus_1"), 850);
+		BindPageAction(*Page, TEXT("WorldPositionPlus_1"), 851);
+		BindPageAction(*Page, TEXT("WorldPositionMinus_2"), 852);
+		BindPageAction(*Page, TEXT("WorldPositionPlus_2"), 853);
+		BindPageAction(*Page, TEXT("WorldPositionGo"), 854);
+		WorldPositionMiddleTipRoot = Page->Get<UCanvasPanel>(TEXT("WorldPositionMiddleTipRoot"));
+		WorldPositionMiddleTipBackground = Page->Get<UImage>(TEXT("WorldPositionMiddleTipBackground"));
+		WorldPositionMiddleTipText = Page->Get<UTextBlock>(TEXT("WorldPositionMiddleTipText"));
+		return;
+	}
 	BuildSplitWindowFrame(
 		CapturePoint(360.0f, 190.0f),
 		FVector2D(720.0f, 430.0f),
@@ -3660,6 +3500,46 @@ void URokUnityFeatureScreenWidget::BuildWorldPositionSearch()
 
 void URokUnityFeatureScreenWidget::BuildMapMarkers()
 {
+	UClass* RowClass = ResolveFeaturePageClass(TEXT("MapMarkerRow"));
+	UClass* SelectedRowClass = ResolveFeaturePageClass(TEXT("MapMarkerRowSelected"));
+	if (const URokUiPageWidget* Page = RowClass && SelectedRowClass ? MountModePage() : nullptr)
+	{
+		for (int32 Index = 0; Index < 5; ++Index)
+		{
+			const FString Prefix = FString::Printf(TEXT("MapMarkerPage_%d"), Index);
+			const bool bSelected = Index == SelectedMapMarkerPage;
+			Page->SetShown(Page->Get<UCanvasPanel>(*(Prefix + TEXT("Selected"))), bSelected);
+			Page->SetShown(Page->Get<UCanvasPanel>(*(Prefix + TEXT("Normal"))), !bSelected);
+			BindPageAction(*Page, *Prefix, 900 + Index);
+		}
+		int32 VisibleRow = 0;
+		for (int32 Index = 0; Index < WorldMapPreviewMarkerCount; ++Index)
+		{
+			const FWorldMapPreviewMarker& Marker = WorldMapPreviewMarkers[Index];
+			if (!DoesMarkerMatchPage(Marker, SelectedMapMarkerPage))
+			{
+				continue;
+			}
+			UCanvasPanel* RowSlot = Page->Get<UCanvasPanel>(*FString::Printf(TEXT("MapMarkerRowSlot_%d"), VisibleRow++));
+			UClass* StyleClass = Index == SelectedMapMarkerIndex ? SelectedRowClass : RowClass;
+			if (const URokUiPageWidget* Row = MountPageItem(RowSlot, StyleClass, TEXT("MapMarker"), Index))
+			{
+				if (UTextBlock* Name = Row->Get<UTextBlock>(TEXT("Name")))
+				{
+					Name->SetText(FText::FromString(Marker.Name));
+				}
+				if (UTextBlock* Description = Row->Get<UTextBlock>(TEXT("Description")))
+				{
+					Description->SetText(FormatMapMarkerDescription(Marker));
+				}
+				BindPageAction(*Row, TEXT("RowHit"), 920 + Index);
+			}
+		}
+		Page->SetShown(Page->Get<UTextBlock>(TEXT("MapMarkerEmpty")), VisibleRow == 0);
+		BindPageAction(*Page, TEXT("MapMarkerAdd"), 941);
+		BindPageAction(*Page, TEXT("MapMarkerGo"), 940);
+		return;
+	}
 	BuildSplitWindowFrame(
 		CapturePoint(180.0f, 90.0f),
 		FVector2D(1080.0f, 700.0f),
@@ -3743,14 +3623,7 @@ void URokUnityFeatureScreenWidget::BuildMapMarkers()
 			*FString::Printf(TEXT("MapMarkerDescription_%d"), Index),
 			16,
 			FLinearColor(0.7f, 0.74f, 0.72f, 1.0f));
-		Description->SetText(FText::Format(
-			NSLOCTEXT(
-				"RokMapMarker",
-				"MarkerDescription",
-				"{0}  X:{1} Y:{2}"),
-			FText::FromString(Marker.Description),
-			FText::AsNumber(FMath::RoundToInt(Marker.DisplayCoordinate.X)),
-			FText::AsNumber(FMath::RoundToInt(Marker.DisplayCoordinate.Y))));
+		Description->SetText(FormatMapMarkerDescription(Marker));
 		PlaceOnCanvas(
 			ModeCanvas,
 			Description,
@@ -3828,6 +3701,110 @@ void URokUnityFeatureScreenWidget::BuildMapMarkers()
 
 void URokUnityFeatureScreenWidget::BuildResourceSearch()
 {
+	static const FText TypeLabels[] = {
+		NSLOCTEXT("RokResourceSearch", "Barbarian", "乱军"),
+		NSLOCTEXT("RokResourceSearch", "Food", "农田"),
+		NSLOCTEXT("RokResourceSearch", "Wood", "伐木场"),
+		NSLOCTEXT("RokResourceSearch", "Stone", "铁矿床"),
+		NSLOCTEXT("RokResourceSearch", "Gold", "金矿床")};
+	static const FText TypeDescriptions[] = {
+		NSLOCTEXT("RokResourceSearch", "BarbarianTip", "击败乱军能够获得丰厚的奖励"),
+		NSLOCTEXT("RokResourceSearch", "FoodTip", "派遣攻城车能够采集更多的食物。"),
+		NSLOCTEXT("RokResourceSearch", "WoodTip", "派遣攻城车能够采集更多的木材。"),
+		NSLOCTEXT("RokResourceSearch", "StoneTip", "派遣攻城车能够采集更多的铁矿石。"),
+		NSLOCTEXT("RokResourceSearch", "GoldTip", "派遣攻城车能够采集更多的金币。")};
+	UTexture2D* SearchAtlas = LoadUiTexture(ResourceSearchAtlasPath);
+	UMaterialInstanceDynamic* LockedIcon = nullptr;
+	if (auto* Gray = LoadObject<UMaterialInterface>(nullptr,
+		TEXT("/Game/RokPrototype/UI/Research/M_RokResearchGrayUI.M_RokResearchGrayUI")))
+	{
+		LockedIcon = UMaterialInstanceDynamic::Create(Gray, this);
+		LockedIcon->SetTextureParameterValue(TEXT("SourceAtlas"), SearchAtlas);
+	}
+	SelectedResourceSearchType = FMath::Clamp(SelectedResourceSearchType, 0, 4);
+	const int32 SelectedLevel = SelectedResourceSearchType == 0
+		? ResourceSearchBarbarianLevel
+		: ResourceSearchResourceLevel;
+	const int32 MaxLevel = SelectedResourceSearchType == 0 ? 25 : 6;
+	const bool bShowTaskGuide = bResourceSearchTaskGuide && SelectedResourceSearchType == 0;
+	if (bShowTaskGuide && !TaskGuideTexture)
+	{
+		TaskGuideTexture = FImageUtils::ImportFileAsTexture2D(RokDataPaths::Resolve(TEXT("WorldSearch/finger001.png")));
+	}
+
+	UClass* TypeClass = ResolveFeaturePageClass(TEXT("ResourceSearchType"));
+	if (const URokUiPageWidget* Page = TypeClass ? MountModePage(NAME_None, false) : nullptr)
+	{
+		BindPageAction(*Page, TEXT("ResourceSearchTouchCloseMask"), 1013);
+		BindPageAction(*Page, TEXT("ResourceSearchLevelMinus"), 1010);
+		BindPageAction(*Page, TEXT("ResourceSearchLevelPlus"), 1011);
+		BindPageAction(*Page, TEXT("ResourceSearchSubmit"), 1012);
+		ResourceSearchDockRoot = Page->Get<UCanvasPanel>(TEXT("ResourceSearchDockRoot"));
+		ResourceSearchPopupRoot = Page->Get<UCanvasPanel>(TEXT("ResourceSearchPopupRoot"));
+		const auto TypeSlotName = [](int32 Index)
+		{
+			return FName(*FString::Printf(TEXT("ResourceSearchTypeSlot_%d"), Index));
+		};
+		const auto TypeSlotX = [Page, &TypeSlotName](int32 Index)
+		{
+			const UCanvasPanel* TypeSlot = Page->Get<UCanvasPanel>(TypeSlotName(Index));
+			const UCanvasPanelSlot* Layout = TypeSlot ? Cast<UCanvasPanelSlot>(TypeSlot->Slot) : nullptr;
+			return Layout ? Layout->GetPosition().X : 0.0;
+		};
+		if (UCanvasPanelSlot* PopupSlot = ResourceSearchPopupRoot ? Cast<UCanvasPanelSlot>(ResourceSearchPopupRoot->Slot) : nullptr)
+		{
+			PopupSlot->SetPosition(PopupSlot->GetPosition()
+				+ FVector2D(TypeSlotX(SelectedResourceSearchType) - TypeSlotX(0), 0.0));
+		}
+		for (int32 Index = 0; Index < UE_ARRAY_COUNT(TypeLabels); ++Index)
+		{
+			UCanvasPanel* TypeSlot = Page->Get<UCanvasPanel>(TypeSlotName(Index));
+			if (const URokUiPageWidget* TypePage = MountPageItem(TypeSlot, TypeClass, TEXT("ResourceSearch"), Index))
+			{
+				BindPageAction(*TypePage, TEXT("Type"), 1000 + Index);
+				if (UTextBlock* Label = TypePage->Get<UTextBlock>(TEXT("TypeLabel")))
+				{
+					Label->SetText(TypeLabels[Index]);
+				}
+				if (UImage* Icon = TypePage->Get<UImage>(TEXT("TypeIcon")))
+				{
+					FSlateBrush Brush = Icon->GetBrush();
+					const auto AtlasBrush = MakeAtlasBrush(SearchAtlas, ResourceSearchTypeIconRects[Index],
+						ResourceSearchAtlasSize, Brush.GetImageSize());
+					const bool bLocked = !GetResourceSearchLock(Index).IsEmpty();
+					Brush.SetResourceObject(bLocked && LockedIcon ? static_cast<UObject*>(LockedIcon) : SearchAtlas);
+					Brush.SetUVRegion(static_cast<FBox2f>(AtlasBrush.GetUVRegion()));
+					Icon->SetBrush(Brush);
+				}
+			}
+		}
+		if (UTextBlock* Description = Page->Get<UTextBlock>(TEXT("ResourceSearchDescription")))
+		{
+			Description->SetText(TypeDescriptions[SelectedResourceSearchType]);
+		}
+		ResourceSearchLevelValueText = Page->Get<UTextBlock>(TEXT("ResourceSearchLevelValue"));
+		ResourceSearchSliderFill = Page->Get<UProgressBar>(TEXT("ResourceSearchSliderFill"));
+		ResourceSearchMonsterTip = Page->Get<UTextBlock>(TEXT("ResourceSearchMonsterTip"));
+		ResourceSearchSlider = Page->Get<USlider>(TEXT("ResourceSearchSlider"));
+		if (ResourceSearchSlider)
+		{
+			ResourceSearchSlider->SetMinValue(1.0f);
+			ResourceSearchSlider->SetMaxValue(static_cast<float>(MaxLevel));
+			ResourceSearchSlider->SetValue(static_cast<float>(SelectedLevel));
+			ResourceSearchSlider->OnValueChanged.AddDynamic(this, &URokUnityFeatureScreenWidget::HandleResourceSearchSliderChanged);
+		}
+		HandleResourceSearchSliderChanged(static_cast<float>(SelectedLevel));
+		UImage* Guide = Page->Get<UImage>(TEXT("ResourceSearchGuide"));
+		const bool bShowGuide = bShowTaskGuide && TaskGuideTexture;
+		Page->SetPresent(Guide, bShowGuide);
+		ResourceSearchGuide = bShowGuide ? Guide : nullptr;
+		if (ResourceSearchGuide)
+		{
+			ResourceSearchGuide->SetBrushFromTexture(TaskGuideTexture);
+		}
+		return;
+	}
+
 	// Unity registers this interface as kTouchCloseAlpha: the map remains
 	// visible and a transparent full-screen raycast mask closes the popover.
 	PlaceOnCanvas(
@@ -3858,25 +3835,6 @@ void URokUnityFeatureScreenWidget::BuildResourceSearch()
 		DockSize,
 		2);
 
-	static const FText TypeLabels[] = {
-		NSLOCTEXT("RokResourceSearch", "Barbarian", "乱军"),
-		NSLOCTEXT("RokResourceSearch", "Food", "农田"),
-		NSLOCTEXT("RokResourceSearch", "Wood", "伐木场"),
-		NSLOCTEXT("RokResourceSearch", "Stone", "铁矿床"),
-		NSLOCTEXT("RokResourceSearch", "Gold", "金矿床")};
-	static const FText TypeDescriptions[] = {
-		NSLOCTEXT("RokResourceSearch", "BarbarianTip", "击败乱军能够获得丰厚的奖励"),
-		NSLOCTEXT("RokResourceSearch", "FoodTip", "派遣攻城车能够采集更多的食物。"),
-		NSLOCTEXT("RokResourceSearch", "WoodTip", "派遣攻城车能够采集更多的木材。"),
-		NSLOCTEXT("RokResourceSearch", "StoneTip", "派遣攻城车能够采集更多的铁矿石。"),
-		NSLOCTEXT("RokResourceSearch", "GoldTip", "派遣攻城车能够采集更多的金币。")};
-	UMaterialInstanceDynamic* LockedIcon = nullptr;
-	if (auto* Gray = LoadObject<UMaterialInterface>(nullptr,
-		TEXT("/Game/RokPrototype/UI/Research/M_RokResearchGrayUI.M_RokResearchGrayUI")))
-	{
-		LockedIcon = UMaterialInstanceDynamic::Create(Gray, this);
-		LockedIcon->SetTextureParameterValue(TEXT("SourceAtlas"), LoadUiTexture(ResourceSearchAtlasPath));
-	}
 	for (int32 TypeIndex = 0; TypeIndex < UE_ARRAY_COUNT(TypeLabels); ++TypeIndex)
 	{
 		const FVector2D CellPosition(200.0f + TypeIndex * 220.0f, 637.0f);
@@ -3935,11 +3893,6 @@ void URokUnityFeatureScreenWidget::BuildResourceSearch()
 			10);
 	}
 
-	SelectedResourceSearchType = FMath::Clamp(SelectedResourceSearchType, 0, 4);
-	const int32 SelectedLevel = SelectedResourceSearchType == 0
-		? ResourceSearchBarbarianLevel
-		: ResourceSearchResourceLevel;
-	const int32 MaxLevel = SelectedResourceSearchType == 0 ? 25 : 6;
 	const float PopupCenterX = 280.0f + SelectedResourceSearchType * 220.0f;
 	const FVector2D PopupPosition(PopupCenterX - 200.0f, 334.8f);
 	const FVector2D PopupSize(400.0f, 307.0f);
@@ -4143,18 +4096,13 @@ void URokUnityFeatureScreenWidget::BuildResourceSearch()
 		Label->SetShadowColorAndOpacity(FLinearColor::Transparent);
 	}
 	ResourceSearchGuide = nullptr;
-	if (bResourceSearchTaskGuide && SelectedResourceSearchType == 0)
+	if (bShowTaskGuide && TaskGuideTexture)
 	{
-		if (!TaskGuideTexture)
-			TaskGuideTexture = FImageUtils::ImportFileAsTexture2D(RokDataPaths::Resolve(TEXT("WorldSearch/finger001.png")));
-		if (TaskGuideTexture)
-		{
-			ResourceSearchGuide = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("ResourceSearchGuide"));
-			ResourceSearchGuide->SetBrushFromTexture(TaskGuideTexture);
-			ResourceSearchGuide->SetRenderTransformAngle(180.0f);
-			ResourceSearchGuide->SetVisibility(ESlateVisibility::HitTestInvisible);
-			PlaceOnCanvas(ModeCanvas, ResourceSearchGuide, FVector2D(PopupCenterX - 24.5f, 383), FVector2D(49, 149), 14);
-		}
+		ResourceSearchGuide = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("ResourceSearchGuide"));
+		ResourceSearchGuide->SetBrushFromTexture(TaskGuideTexture);
+		ResourceSearchGuide->SetRenderTransformAngle(180.0f);
+		ResourceSearchGuide->SetVisibility(ESlateVisibility::HitTestInvisible);
+		PlaceOnCanvas(ModeCanvas, ResourceSearchGuide, FVector2D(PopupCenterX - 24.5f, 383), FVector2D(49, 149), 14);
 	}
 
 	UImage* Arrow = MakeAtlasImage(
@@ -4292,8 +4240,71 @@ void URokUnityFeatureScreenWidget::AdvanceExpeditionAnimation(float DeltaSeconds
 	if (Time >= Duration) ExpeditionAnimationPhase = FName(TEXT("Idle"));
 }
 
+namespace
+{
+FText FormatGemPackageAmount(const FRokUnityEconomyChargeGemPackage& Package)
+{
+	return FText::Format(NSLOCTEXT("RokGemShop", "GemAmount", "{0} 宝石"), FText::AsNumber(Package.DenarNum));
+}
+
+FText FormatGemPackageBonus(const FRokUnityEconomyChargeGemPackage& Package)
+{
+	return FText::Format(NSLOCTEXT("RokGemShop", "BonusConfigFormat", "首充赠 {0}\n常规赠 {1}"),
+		FText::AsNumber(Package.FirstPresenter), FText::AsNumber(Package.Presenter));
+}
+
+FText FormatGemPackageProduct(const FRokUnityEconomyChargeGemPackage& Package)
+{
+	return FText::Format(NSLOCTEXT("RokGemShop", "ProductConfigFormat", "商品配置 {0}（不是现金价格）"),
+		FText::AsNumber(Package.ProductId));
+}
+}
+
 void URokUnityFeatureScreenWidget::BuildGemShop()
 {
+	// Packages come from the Unity RechargeGemMall rows in the economy
+	// catalog; ProductId is a config key, not a cash price, so the shop keeps
+	// the same honest product note as the charge screen.
+	URokUnityEconomyCatalogSubsystem* EconomyCatalog = GetEconomyCatalogSubsystem();
+	if (EconomyCatalog && !EconomyCatalog->IsCatalogLoaded())
+	{
+		EconomyCatalog->LoadCatalog();
+	}
+	const TArray<FRokUnityEconomyChargeGemPackage> GemPackages =
+		EconomyCatalog && EconomyCatalog->IsCatalogLoaded()
+			? EconomyCatalog->GetChargeGemPackages()
+			: TArray<FRokUnityEconomyChargeGemPackage>();
+	UClass* PackageClass = ResolveFeaturePageClass(TEXT("GemShopPackage"));
+	if (const URokUiPageWidget* Page = PackageClass ? MountModePage() : nullptr)
+	{
+		const int32 PackageCount = FMath::Min(6, GemPackages.Num());
+		for (int32 Index = 0; Index < PackageCount; ++Index)
+		{
+			UCanvasPanel* CardSlot = Page->Get<UCanvasPanel>(*FString::Printf(TEXT("GemShopPackageSlot_%d"), Index));
+			const URokUiPageWidget* Card = MountPageItem(CardSlot, PackageClass, TEXT("GemShop"), Index);
+			if (!Card)
+			{
+				continue;
+			}
+			const FRokUnityEconomyChargeGemPackage& Package = GemPackages[Index];
+			if (UTextBlock* Amount = Card->Get<UTextBlock>(TEXT("PackageAmount")))
+			{
+				Amount->SetText(FormatGemPackageAmount(Package));
+			}
+			if (UTextBlock* Bonus = Card->Get<UTextBlock>(TEXT("PackageBonus")))
+			{
+				Bonus->SetText(FormatGemPackageBonus(Package));
+			}
+			if (UTextBlock* Product = Card->Get<UTextBlock>(TEXT("PackageProduct")))
+			{
+				Product->SetText(FormatGemPackageProduct(Package));
+			}
+			BindPageAction(*Card, TEXT("Buy"), 1200 + Index);
+		}
+		Page->SetShown(Page->Get<UTextBlock>(TEXT("GemShopCatalogMissing")), PackageCount == 0);
+		UE_LOG(LogTemp, Display, TEXT("Rok gem shop screen: packages=%d balance=not_synced authority=server."), PackageCount);
+		return;
+	}
 	BuildSplitWindowFrame(
 		CapturePoint(155.0f, 62.0f),
 		FVector2D(1130.0f, 726.0f),
@@ -4325,18 +4336,6 @@ void URokUnityFeatureScreenWidget::BuildGemShop()
 		FVector2D(300.0f, 40.0f),
 		5);
 
-	// Packages come from the Unity RechargeGemMall rows in the economy
-	// catalog; ProductId is a config key, not a cash price, so the shop keeps
-	// the same honest product note as the charge screen.
-	URokUnityEconomyCatalogSubsystem* EconomyCatalog = GetEconomyCatalogSubsystem();
-	if (EconomyCatalog && !EconomyCatalog->IsCatalogLoaded())
-	{
-		EconomyCatalog->LoadCatalog();
-	}
-	const TArray<FRokUnityEconomyChargeGemPackage> GemPackages =
-		EconomyCatalog && EconomyCatalog->IsCatalogLoaded()
-			? EconomyCatalog->GetChargeGemPackages()
-			: TArray<FRokUnityEconomyChargeGemPackage>();
 	int32 ShownPackages = 0;
 	for (int32 Index = 0; Index < FMath::Min(6, GemPackages.Num()); ++Index)
 	{
@@ -4369,9 +4368,7 @@ void URokUnityFeatureScreenWidget::BuildGemShop()
 			23,
 			FLinearColor(1.0f, 0.78f, 0.88f, 1.0f),
 			true);
-		Amount->SetText(FText::Format(
-			NSLOCTEXT("RokGemShop", "GemAmount", "{0} 宝石"),
-			FText::AsNumber(Package.DenarNum)));
+		Amount->SetText(FormatGemPackageAmount(Package));
 		PlaceOnCanvas(
 			ModeCanvas,
 			Amount,
@@ -4382,13 +4379,7 @@ void URokUnityFeatureScreenWidget::BuildGemShop()
 			*FString::Printf(TEXT("GemShopPackageBonus_%d"), Index),
 			14,
 			FLinearColor(0.93f, 0.8f, 0.4f, 1.0f));
-		Bonus->SetText(FText::Format(
-			NSLOCTEXT(
-				"RokGemShop",
-				"BonusConfigFormat",
-				"首充赠 {0}\n常规赠 {1}"),
-			FText::AsNumber(Package.FirstPresenter),
-			FText::AsNumber(Package.Presenter)));
+		Bonus->SetText(FormatGemPackageBonus(Package));
 		PlaceOnCanvas(
 			ModeCanvas,
 			Bonus,
@@ -4399,12 +4390,7 @@ void URokUnityFeatureScreenWidget::BuildGemShop()
 			*FString::Printf(TEXT("GemShopPackageProduct_%d"), Index),
 			12,
 			FLinearColor(0.68f, 0.67f, 0.68f, 1.0f));
-		Product->SetText(FText::Format(
-			NSLOCTEXT(
-				"RokGemShop",
-				"ProductConfigFormat",
-				"商品配置 {0}（不是现金价格）"),
-			FText::AsNumber(Package.ProductId)));
+		Product->SetText(FormatGemPackageProduct(Package));
 		PlaceOnCanvas(
 			ModeCanvas,
 			Product,
@@ -4475,8 +4461,144 @@ void URokUnityFeatureScreenWidget::BuildGemShop()
 		ShownPackages);
 }
 
+namespace
+{
+FText FormatChargeCatalogState(const FRokUnityEconomyChargePage* Page)
+{
+	return Page
+		? FText::Format(
+			NSLOCTEXT(
+				"RokCharge",
+				"CatalogSourceFormat",
+				"Unity RechargeList · 行 {0} · ID {1} · 类型 {2}"),
+			FText::AsNumber(Page->SourceRow),
+			FText::AsNumber(Page->Id),
+			FText::AsNumber(Page->PagingType))
+		: NSLOCTEXT(
+			"RokCharge",
+			"CatalogUnavailable",
+			"Unity 充值目录尚未加载；当前仅保留页面结构。");
+}
+
+FText FormatChargeGemAmount(const FRokUnityEconomyChargeGemPackage& Package)
+{
+	return FText::Format(
+		NSLOCTEXT("RokCharge", "GemAmount", "{0} 宝石"),
+		FText::AsNumber(Package.DenarNum));
+}
+
+FText FormatChargeGemBonus(const FRokUnityEconomyChargeGemPackage& Package)
+{
+	return FText::Format(
+		NSLOCTEXT(
+			"RokCharge",
+			"BonusConfigFormat",
+			"首充赠 {0}\n常规赠 {1}"),
+		FText::AsNumber(Package.FirstPresenter),
+		FText::AsNumber(Package.Presenter));
+}
+
+FText FormatChargeGemProduct(const FRokUnityEconomyChargeGemPackage& Package)
+{
+	return FText::Format(
+		NSLOCTEXT(
+			"RokCharge",
+			"ProductConfigFormat",
+			"商品配置 {0}（不是现金价格）"),
+		FText::AsNumber(Package.ProductId));
+}
+
+FText FormatChargeServiceState(int32 PageType)
+{
+	return FText::Format(
+		NSLOCTEXT(
+			"RokCharge",
+			"PageBoundaryFormat",
+			"{0} 的页面入口与 Unity 配置已接入。\n活动进度、限购、领奖资格和商品内容仍需服务器状态。"),
+		ResolveChargePageLabel(PageType));
+}
+
+void SetFeaturePageText(const URokUiPageWidget& Page, FName Name, const FText& Value)
+{
+	if (UTextBlock* Text = Page.Get<UTextBlock>(Name))
+	{
+		Text->SetText(Value);
+	}
+}
+}
+
 void URokUnityFeatureScreenWidget::BuildCharge()
 {
+	URokUnityEconomyCatalogSubsystem* Catalog =
+		GetEconomyCatalogSubsystem();
+	if (Catalog && !Catalog->IsCatalogLoaded())
+	{
+		Catalog->LoadCatalog();
+	}
+	const bool bCatalogLoaded = Catalog && Catalog->IsCatalogLoaded();
+	static const int32 ChargePageOrder[] = {
+		101,
+		102,
+		103,
+		104,
+		107,
+		105,
+		106};
+	if (!FMath::IsWithinInclusive(SelectedChargePageType, 101, 107))
+	{
+		SelectedChargePageType = 107;
+	}
+	FRokUnityEconomyChargePage SelectedPage;
+	const bool bHasPageConfig = Catalog
+		&& Catalog->FindChargePageByPagingType(
+			SelectedChargePageType,
+			SelectedPage);
+	UClass* CardClass = ResolveFeaturePageClass(TEXT("ChargeGemPackage"));
+	if (const URokUiPageWidget* Page = CardClass ? MountModePage() : nullptr)
+	{
+		for (int32 PageType : ChargePageOrder)
+		{
+			const FString Prefix = FString::Printf(TEXT("ChargePage_%d"), PageType);
+			const bool bSelected = PageType == SelectedChargePageType;
+			Page->SetShown(Page->Get<UCanvasPanel>(*(Prefix + TEXT("Selected"))), bSelected);
+			Page->SetShown(Page->Get<UCanvasPanel>(*(Prefix + TEXT("Normal"))), !bSelected);
+			BindPageAction(*Page, *Prefix, 2300 + PageType - 101);
+		}
+		SetFeaturePageText(*Page, TEXT("ChargeSelectedPageTitle"), ResolveChargePageLabel(SelectedChargePageType));
+		SetFeaturePageText(*Page, TEXT("ChargeCatalogState"), FormatChargeCatalogState(bHasPageConfig ? &SelectedPage : nullptr));
+
+		const bool bGemPage = SelectedChargePageType == 107;
+		for (const FName ServiceWidget : {FName(TEXT("ChargePageServicePanel")),
+			FName(TEXT("ChargeSelectedPageServiceBoundary")), FName(TEXT("ChargePageBoundaryAction"))})
+		{
+			Page->SetPresent(Page->Get<UWidget>(ServiceWidget), !bGemPage);
+		}
+		if (!bGemPage)
+		{
+			Page->SetPresent(Page->Get<UTextBlock>(TEXT("ChargeGemCatalogEmptyState")), false);
+			SetFeaturePageText(*Page, TEXT("ChargeSelectedPageServiceBoundary"), FormatChargeServiceState(SelectedChargePageType));
+			BindPageAction(*Page, TEXT("ChargePageBoundaryAction"), 2340);
+			return;
+		}
+
+		const TArray<FRokUnityEconomyChargeGemPackage> Packages = bCatalogLoaded
+			? Catalog->GetChargeGemPackages() : TArray<FRokUnityEconomyChargeGemPackage>();
+		Page->SetPresent(Page->Get<UTextBlock>(TEXT("ChargeGemCatalogEmptyState")), Packages.IsEmpty());
+		for (int32 Index = 0; Index < FMath::Min(6, Packages.Num()); ++Index)
+		{
+			UCanvasPanel* CardSlot = Page->Get<UCanvasPanel>(*FString::Printf(TEXT("ChargeGemPackageSlot_%d"), Index));
+			if (const URokUiPageWidget* Card = MountPageItem(CardSlot, CardClass, TEXT("ChargeGemPackage"), Index))
+			{
+				const FRokUnityEconomyChargeGemPackage& Package = Packages[Index];
+				SetFeaturePageText(*Card, TEXT("Amount"), FormatChargeGemAmount(Package));
+				SetFeaturePageText(*Card, TEXT("Bonus"), FormatChargeGemBonus(Package));
+				SetFeaturePageText(*Card, TEXT("Product"), FormatChargeGemProduct(Package));
+				BindPageAction(*Card, TEXT("Buy"), 2320 + Index);
+			}
+		}
+		return;
+	}
+
 	BuildSplitWindowFrame(
 		CapturePoint(80.0f, 45.0f),
 		FVector2D(1280.0f, 780.0f),
@@ -4499,25 +4621,6 @@ void URokUnityFeatureScreenWidget::BuildCharge()
 		FVector2D(232.0f, 624.0f),
 		3);
 
-	URokUnityEconomyCatalogSubsystem* Catalog =
-		GetEconomyCatalogSubsystem();
-	if (Catalog && !Catalog->IsCatalogLoaded())
-	{
-		Catalog->LoadCatalog();
-	}
-	const bool bCatalogLoaded = Catalog && Catalog->IsCatalogLoaded();
-	static const int32 ChargePageOrder[] = {
-		101,
-		102,
-		103,
-		104,
-		107,
-		105,
-		106};
-	if (!FMath::IsWithinInclusive(SelectedChargePageType, 101, 107))
-	{
-		SelectedChargePageType = 107;
-	}
 	for (int32 Index = 0;
 		Index < UE_ARRAY_COUNT(ChargePageOrder);
 		++Index)
@@ -4582,29 +4685,11 @@ void URokUnityFeatureScreenWidget::BuildCharge()
 		FVector2D(360.0f, 36.0f),
 		6);
 
-	FRokUnityEconomyChargePage SelectedPage;
-	const bool bHasPageConfig = Catalog
-		&& Catalog->FindChargePageByPagingType(
-			SelectedChargePageType,
-			SelectedPage);
 	UTextBlock* SourceState = MakeScreenText(
 		TEXT("ChargeCatalogState"),
 		15,
 		FLinearColor(0.67f, 0.65f, 0.67f, 1.0f));
-	SourceState->SetText(
-		bHasPageConfig
-			? FText::Format(
-				NSLOCTEXT(
-					"RokCharge",
-					"CatalogSourceFormat",
-					"Unity RechargeList · 行 {0} · ID {1} · 类型 {2}"),
-				FText::AsNumber(SelectedPage.SourceRow),
-				FText::AsNumber(SelectedPage.Id),
-				FText::AsNumber(SelectedPage.PagingType))
-			: NSLOCTEXT(
-				"RokCharge",
-				"CatalogUnavailable",
-				"Unity 充值目录尚未加载；当前仅保留页面结构。"));
+	SourceState->SetText(FormatChargeCatalogState(bHasPageConfig ? &SelectedPage : nullptr));
 	PlaceOnCanvas(
 		ModeCanvas,
 		SourceState,
@@ -4661,9 +4746,7 @@ void URokUnityFeatureScreenWidget::BuildCharge()
 				23,
 				FLinearColor(1.0f, 0.78f, 0.90f, 1.0f),
 				true);
-			Amount->SetText(FText::Format(
-				NSLOCTEXT("RokCharge", "GemAmount", "{0} 宝石"),
-				FText::AsNumber(Package.DenarNum)));
+			Amount->SetText(FormatChargeGemAmount(Package));
 			PlaceOnCanvas(
 				ModeCanvas,
 				Amount,
@@ -4678,13 +4761,7 @@ void URokUnityFeatureScreenWidget::BuildCharge()
 					Index),
 				14,
 				FLinearColor(0.92f, 0.81f, 0.45f, 1.0f));
-			Bonus->SetText(FText::Format(
-				NSLOCTEXT(
-					"RokCharge",
-					"BonusConfigFormat",
-					"首充赠 {0}\n常规赠 {1}"),
-				FText::AsNumber(Package.FirstPresenter),
-				FText::AsNumber(Package.Presenter)));
+			Bonus->SetText(FormatChargeGemBonus(Package));
 			PlaceOnCanvas(
 				ModeCanvas,
 				Bonus,
@@ -4699,12 +4776,7 @@ void URokUnityFeatureScreenWidget::BuildCharge()
 					Index),
 				13,
 				FLinearColor(0.68f, 0.67f, 0.68f, 1.0f));
-			Product->SetText(FText::Format(
-				NSLOCTEXT(
-					"RokCharge",
-					"ProductConfigFormat",
-					"商品配置 {0}（不是现金价格）"),
-				FText::AsNumber(Package.ProductId)));
+			Product->SetText(FormatChargeGemProduct(Package));
 			PlaceOnCanvas(
 				ModeCanvas,
 				Product,
@@ -4772,12 +4844,7 @@ void URokUnityFeatureScreenWidget::BuildCharge()
 			FLinearColor(0.94f, 0.90f, 0.80f, 1.0f),
 			true,
 			ETextJustify::Center);
-		PageBoundary->SetText(FText::Format(
-			NSLOCTEXT(
-				"RokCharge",
-				"PageBoundaryFormat",
-				"{0} 的页面入口与 Unity 配置已接入。\n活动进度、限购、领奖资格和商品内容仍需服务器状态。"),
-			ResolveChargePageLabel(SelectedChargePageType)));
+		PageBoundary->SetText(FormatChargeServiceState(SelectedChargePageType));
 		PageBoundary->SetAutoWrapText(true);
 		PlaceOnCanvas(
 			ModeCanvas,
@@ -4822,740 +4889,70 @@ void URokUnityFeatureScreenWidget::BuildCharge()
 		8);
 }
 
-void URokUnityFeatureScreenWidget::BuildBuildCity()
-{
-	// UI_Item_BuildCityBuilding uses Unity pixel sizes. Slate renders points
-	// at 96 DPI; preserve fractional 13.5pt for the source 18px body text.
-	auto ApplyCardFont = [](UTextBlock* Text, float Pixels)
-	{
-		FSlateFontInfo Font = Text->GetFont();
-		Font.Size = Pixels * 72.0f / 96.0f;
-		Text->SetFont(Font);
-		Text->SetShadowOffset(FVector2D::ZeroVector);
-	};
-	BuildCityAnimatedCards.Reset();
-	BuildCityCardSourceIndices.Reset();
-	VisibleBuildCityTypeIds.Reset();
-	BuildableBuildCityTypeIds.Reset();
-	URokUnityGameplayCatalogSubsystem* Catalog = nullptr;
-	if (UGameInstance* GameInstance = GetGameInstance())
-	{
-		Catalog =
-			GameInstance->GetSubsystem<URokUnityGameplayCatalogSubsystem>();
-		if (Catalog && !Catalog->IsCatalogLoaded())
-		{
-			Catalog->LoadCatalog();
-		}
-	}
-
-	int32 TownHallLevel = 1;
-	TMap<int32, int32> CurrentBuildingCounts;
-	URokBuildingUpgradeSubsystem* UpgradeSubsystem = GetWorld()
-		? GetWorld()->GetSubsystem<URokBuildingUpgradeSubsystem>()
-		: nullptr;
-	const URokServerCitySubsystem* ServerCity = GetWorld() ? GetWorld()->GetSubsystem<URokServerCitySubsystem>() : nullptr;
-	if (ServerCity && ServerCity->HasAppliedServerCity())
-	{
-		for (const FRokServerBuilding& Row : ServerCity->GetAppliedBuildings())
-		{
-			if (Row.Level < 0) continue;
-			++CurrentBuildingCounts.FindOrAdd(Row.Type);
-			if (Row.Type == 1) TownHallLevel = FMath::Max(TownHallLevel, Row.Level);
-		}
-	}
-	else if (UWorld* World = GetWorld())
-	{
-		for (TActorIterator<AActor> ActorIt(World); ActorIt; ++ActorIt)
-		{
-			AActor* Actor = *ActorIt;
-			int32 TaggedTypeId = 0;
-			for (const FName& Tag : Actor->Tags)
-			{
-				const FString TagString = Tag.ToString();
-				if (TagString.StartsWith(TEXT("UnityBuildingType_")))
-				{
-					TaggedTypeId = FCString::Atoi(
-						*TagString.Mid(18));
-					break;
-				}
-			}
-			if (TaggedTypeId <= 0)
-			{
-				continue;
-			}
-			CurrentBuildingCounts.FindOrAdd(TaggedTypeId) += 1;
-			if (TaggedTypeId == 1 && UpgradeSubsystem)
-			{
-				TownHallLevel = FMath::Max(
-					TownHallLevel,
-					UpgradeSubsystem->GetBuildingStateForActor(Actor).Level);
-			}
-		}
-	}
-
-	auto ResolveBuildState = [&CurrentBuildingCounts, TownHallLevel](
-		const FRokUnityCatalogBuildingType& BuildingType,
-		int32& OutCurrentCount,
-		int32& OutCurrentLimit,
-		int32& OutMaximumLimit,
-		int32& OutUnlockTownHallLevel)
-	{
-		OutCurrentCount = CurrentBuildingCounts.FindRef(BuildingType.TypeId);
-		OutCurrentLimit = BuildingType.GetCountLimit(TownHallLevel);
-		OutMaximumLimit = BuildingType.GetMaximumCountLimit();
-		OutUnlockTownHallLevel = 0;
-		for (const TPair<int32, int32>& Pair :
-			BuildingType.CountLimitByTownHallLevel)
-		{
-			if (Pair.Key > TownHallLevel
-				&& Pair.Value > OutCurrentCount
-				&& (OutUnlockTownHallLevel == 0
-					|| Pair.Key < OutUnlockTownHallLevel))
-			{
-				OutUnlockTownHallLevel = Pair.Key;
-			}
-		}
-
-		if (OutMaximumLimit <= 0)
-		{
-			return BuildingType.Group == 3 ? 0 : 1;
-		}
-		if (OutCurrentCount < OutCurrentLimit)
-		{
-			return 0;
-		}
-		return OutCurrentCount >= OutMaximumLimit ? 2 : 1;
-	};
-
-	int32 CategoryBuildableCounts[3] = {0, 0, 0};
-	if (Catalog && Catalog->IsCatalogLoaded())
-	{
-		for (const int32 TypeId : Catalog->GetBuildingTypeIds())
-		{
-			FRokUnityCatalogBuildingType BuildingType;
-			if (!Catalog->GetBuildingType(TypeId, BuildingType)
-				|| BuildingType.Group < 1
-				|| BuildingType.Group > 3
-				|| BuildingType.LevelCount <= 0)
-			{
-				continue;
-			}
-			int32 CurrentCount = 0;
-			int32 CurrentLimit = 0;
-			int32 MaximumLimit = 0;
-			int32 UnlockTownHallLevel = 0;
-			if (ResolveBuildState(
-					BuildingType,
-					CurrentCount,
-					CurrentLimit,
-					MaximumLimit,
-					UnlockTownHallLevel)
-				== 0)
-			{
-				CategoryBuildableCounts[BuildingType.Group - 1] += 1;
-			}
-		}
-	}
-
-	UWidget* MaskClose = MakeActionButton(
-			TEXT("BuildCityMaskClose"),
-			1,
-			nullptr,
-			FIntRect(),
-			FIntPoint::ZeroValue,
-			FVector2D::ZeroVector);
-	auto* MaskSlot = ModeCanvas->AddChildToCanvas(MaskClose);
-	MaskSlot->SetAnchors(FAnchors(0, 0, 1, 1));
-	MaskSlot->SetOffsets(FMargin(0));
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeAtlasBorder(
-			TEXT("BuildCityDrawerBackground"),
-			BuildCityLoadingAtlasPath,
-			BuildCityDrawerRect,
-			BuildCityLoadingAtlasSize,
-			// rect/bg: bottom anchored, x=15, y=-10, delta=(22,153), pivot=(1,0).
-			// Sprite border is Unity (left,bottom,right,top), not Slate order.
-			FVector2D(1462.0f, 153.0f),
-			FMargin(0.47f, 0.41f, 0.46f, 0.44f)),
-		FVector2D(-7.0f, -130.0f),
-		FVector2D(1462.0f, 153.0f),
-		2);
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeActionButton(
-			TEXT("BuildCityDrawerInputShield"),
-			1399,
-			nullptr,
-			FIntRect(),
-			FIntPoint::ZeroValue,
-			FVector2D(1440.0f, 130.0f)),
-		FVector2D(0.0f, -130.0f),
-		FVector2D(1440.0f, 130.0f),
-		3);
-
-	// BuildCityMediator selects the target's group before centering its card.
-	FRokUnityCatalogBuildingType GuideBuilding;
-	if (BuildCityGuideTypeId > 0 && Catalog && Catalog->GetBuildingType(BuildCityGuideTypeId, GuideBuilding)
-		&& GuideBuilding.Group >= 1 && GuideBuilding.Group <= 3)
-	{
-		SelectedBuildCityCategory = GuideBuilding.Group - 1;
-	}
-
-	static const int32 EconomyTypes[] = {
-		2, 3, 4, 5, 7, 13, 15, 16, 19, 20, 21, 30};
-	static const int32 MilitaryTypes[] = {
-		9, 10, 11, 12, 14, 17, 18, 28, 29, 31};
-	static const int32 DecorationTypes[] = {51, 52, 53};
-	const int32* OrderedTypes = EconomyTypes;
-	int32 OrderedTypeCount = UE_ARRAY_COUNT(EconomyTypes);
-	if (SelectedBuildCityCategory == 1)
-	{
-		OrderedTypes = MilitaryTypes;
-		OrderedTypeCount = UE_ARRAY_COUNT(MilitaryTypes);
-	}
-	else if (SelectedBuildCityCategory == 2)
-	{
-		OrderedTypes = DecorationTypes;
-		OrderedTypeCount = UE_ARRAY_COUNT(DecorationTypes);
-	}
-	for (int32 Index = 0; Index < OrderedTypeCount; ++Index)
-	{
-		FRokUnityCatalogBuildingType BuildingType;
-		if (Catalog
-			&& Catalog->GetBuildingType(OrderedTypes[Index], BuildingType)
-			&& BuildingType.LevelCount > 0)
-		{
-			VisibleBuildCityTypeIds.Add(OrderedTypes[Index]);
-		}
-	}
-
-	// Unity shows the available buildings before the locked and maxed cards.
-	auto BuildStateForType = [&](int32 TypeId)
-	{
-		FRokUnityCatalogBuildingType BuildingType;
-		Catalog->GetBuildingType(TypeId, BuildingType);
-		int32 Count, Limit, Maximum, UnlockLevel;
-		return ResolveBuildState(BuildingType, Count, Limit, Maximum, UnlockLevel);
-	};
-	VisibleBuildCityTypeIds.StableSort([&](int32 A, int32 B)
-	{
-		return BuildStateForType(A) < BuildStateForType(B);
-	});
-
-	UScrollBox* BuildingScroll =
-		WidgetTree->ConstructWidget<UScrollBox>(
-			UScrollBox::StaticClass(),
-			TEXT("BuildCityBuildingScroll"));
-	BuildingScroll->SetOrientation(Orient_Horizontal);
-	BuildingScroll->SetScrollBarVisibility(ESlateVisibility::Collapsed);
-	BuildingScroll->SetAllowOverscroll(true);
-	BuildingScroll->SetAnimateWheelScrolling(true);
-	BuildingScroll->SetWheelScrollMultiplier(9.0f);
-	// At 1440x900 the cards start at (144, 416). Anchor to the bottom
-	// so the rail, card footer and mask follow Unity's expanded canvas.
-	constexpr float CardHeight = 501.4f;
-	constexpr float AnimationHeadroom = 241.1f;
-	constexpr float VisibleCardHeight = 484.0f;
-	UCanvasPanel* BuildingMask = WidgetTree->ConstructWidget<UCanvasPanel>(
-		UCanvasPanel::StaticClass(), TEXT("BuildCityListMask"));
-	BuildingMask->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-	BuildingMask->SetClipping(EWidgetClipping::ClipToBoundsAlways);
-	PlaceOnCanvas(ModeCanvas, BuildingMask,
-		FVector2D(BuildCityListLeft, -VisibleCardHeight - AnimationHeadroom),
-		FVector2D(UnityReferenceWidth - BuildCityListLeft, VisibleCardHeight + AnimationHeadroom), 4);
-	BuildingScroll->SetClipping(EWidgetClipping::Inherit);
-	auto* ScrollSlot = BuildingMask->AddChildToCanvas(BuildingScroll);
-	ScrollSlot->SetAnchors(FAnchors(0, 0, 1, 0));
-	ScrollSlot->SetOffsets(FMargin(0, AnimationHeadroom, 0, CardHeight));
-
-	bBuildCityGuideNeedsScroll = VisibleBuildCityTypeIds.Contains(BuildCityGuideTypeId);
-	if (VisibleBuildCityTypeIds.IsEmpty())
-	{
-		UTextBlock* Empty = MakeScreenText(
-			TEXT("BuildCityCatalogState"),
-			23,
-			FLinearColor(0.78f, 0.76f, 0.68f, 1.0f),
-			false,
-			ETextJustify::Center);
-		Empty->SetText(
-			Catalog
-				? NSLOCTEXT(
-					"RokBuildCity",
-					"CategoryEmpty",
-					"该分类没有可建造的 Unity 配置")
-				: NSLOCTEXT(
-					"RokBuildCity",
-					"CatalogUnavailable",
-					"Unity 建筑配置运行时尚未加载"));
-		PlaceOnCanvas(
-			ModeCanvas,
-			Empty,
-			FVector2D(330.0f, -320.0f),
-			FVector2D(780.0f, 50.0f),
-			5);
-	}
-	else
-	{
-		const FIntPoint PreviewProfile = RokBuildingSourcePreview::ResolveProfile(GetGameInstance(), TownHallLevel);
-		for (int32 Index = 0; Index < VisibleBuildCityTypeIds.Num(); ++Index)
-		{
-			const int32 TypeId = VisibleBuildCityTypeIds[Index];
-			FRokUnityCatalogBuildingType BuildingType;
-			if (!Catalog->GetBuildingType(TypeId, BuildingType))
-			{
-				continue;
-			}
-
-			int32 CurrentCount = 0;
-			int32 CurrentLimit = 0;
-			int32 MaximumLimit = 0;
-			int32 UnlockTownHallLevel = 0;
-			const int32 BuildState = ResolveBuildState(
-				BuildingType,
-				CurrentCount,
-				CurrentLimit,
-				MaximumLimit,
-				UnlockTownHallLevel);
-			const bool bBuildable = BuildState == 0;
-			if (bBuildable)
-			{
-				BuildableBuildCityTypeIds.Add(TypeId);
-			}
-
-			UCanvasPanel* Card =
-				WidgetTree->ConstructWidget<UCanvasPanel>(
-					UCanvasPanel::StaticClass(),
-					*FString::Printf(
-						TEXT("BuildCityCard_%d"),
-						TypeId));
-			Card->SetRenderTransformPivot(FVector2D(0.5));
-			BuildCityAnimatedCards.Add(Card);
-			BuildCityCardSourceIndices.Add(Index);
-			const FIntRect CardRect = bBuildable
-				? BuildCityCardLightRect
-				: BuildCityCardDarkRect;
-			PlaceOnCanvas(
-				Card,
-				MakeAtlasImage(
-					*FString::Printf(TEXT("BuildCityCardLeft_%d"), TypeId),
-					BuildCityImageAtlasPath,
-					CardRect,
-					BuildCityImageAtlasSize,
-					FVector2D(159.0f, 501.0f)),
-				FVector2D(7.0f, 0.2f),
-				FVector2D(159.0f, 501.0f));
-			UImage* CardRight = MakeAtlasImage(
-				*FString::Printf(TEXT("BuildCityCardRight_%d"), TypeId),
-				BuildCityImageAtlasPath,
-				CardRect,
-				BuildCityImageAtlasSize,
-				FVector2D(159.0f, 501.0f));
-			CardRight->SetRenderTransformPivot(FVector2D(0.5f));
-			CardRight->SetRenderScale(FVector2D(-1.0f, 1.0f));
-			PlaceOnCanvas(
-				Card,
-				CardRight,
-				FVector2D(166.0f, 0.2f),
-				FVector2D(159.0f, 501.0f));
-
-			RokBuildingSourcePreview::FVisual Art;
-			if (RokBuildingSourcePreview::FindVisual(TypeId, PreviewProfile.X, PreviewProfile.Y, Art)
-				|| RokBuildingSourcePreview::FindVisual(TypeId, 101, 1, Art))
-			{
-				if (auto* Texture = RokBuildingSourcePreview::LoadTexture(Art))
-				{
-					// UI_Item_BuildCityBuilding/pl_icon is scaled to 0.65.
-					Art.Size *= 0.65;
-					Art.Offset *= 0.65;
-					const FBox2D Draw = Art.FitInPane(FVector2D(147, 138), FVector2D(294, 264));
-					auto* Preview = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(),
-						*FString::Printf(TEXT("BuildCityCardPreview_%d"), TypeId));
-					Preview->SetBrushFromTexture(Texture);
-					Preview->SetVisibility(ESlateVisibility::HitTestInvisible);
-					Preview->SetColorAndOpacity(bBuildable
-						? FLinearColor::White : FLinearColor(0.42f, 0.42f, 0.42f, 0.88f));
-					PlaceOnCanvas(Card, Preview, FVector2D(19, 0) + Draw.Min, Draw.GetSize(), 2);
-				}
-			}
-
-			UTextBlock* Name = MakeScreenText(
-				*FString::Printf(TEXT("BuildCityCardName_%d"), TypeId),
-				23,
-				bBuildable ? FLinearColor::Black : FLinearColor::White,
-				true,
-				ETextJustify::Center);
-			ApplyCardFont(Name, 24);
-			Name->SetText(
-				BuildingType.DisplayNameZhCn.IsEmpty()
-					? ResolveBuildingTypeName(TypeId)
-					: FText::FromString(BuildingType.DisplayNameZhCn));
-			PlaceOnCanvas(
-				Card,
-				Name,
-				FVector2D(18.75f, 244.0f),
-				FVector2D(294.5f, 40.0f),
-				4);
-
-			UTextBlock* Description = MakeScreenText(
-				*FString::Printf(
-					TEXT("BuildCityCardDescription_%d"),
-					TypeId),
-				16,
-				bBuildable ? FLinearColor::Black : FLinearColor::White,
-				false,
-				ETextJustify::Center);
-			ApplyCardFont(Description, 18);
-			Description->SetText(
-				ResolveBuildCityDescription(BuildingType));
-			Description->SetAutoWrapText(true);
-			PlaceOnCanvas(
-				Card,
-				Description,
-				FVector2D(18.75f, 273.0f),
-				FVector2D(294.5f, 67.6f),
-				4);
-
-			PlaceOnCanvas(
-				Card,
-				MakeAtlasBorder(
-					*FString::Printf(TEXT("BuildCityCardState_%d"), TypeId),
-					CommonAtlasPath,
-					TaskRowRect,
-					CommonAtlasSize,
-					bBuildable
-						? FVector2D(270.0f, 41.9f)
-						: FVector2D(270.0f, 116.4f),
-					FMargin(
-						23.0f / 74.0f,
-						22.0f / 67.0f,
-						21.0f / 74.0f,
-						13.0f / 67.0f)),
-				bBuildable
-					? FVector2D(31.0f, 430.5f)
-					: FVector2D(31.0f, 347.2f),
-				bBuildable
-					? FVector2D(270.0f, 41.9f)
-					: FVector2D(270.0f, 116.4f),
-				5);
-
-			if (bBuildable)
-			{
-				struct FBuildResourceEntry
-				{
-					FIntRect IconRect;
-					int32 Amount = 0;
-				};
-				TArray<FBuildResourceEntry> Resources;
-				if (BuildingType.Level1Cost.Wood > 0)
-				{
-					Resources.Add({WoodRect, BuildingType.Level1Cost.Wood});
-				}
-				if (BuildingType.Level1Cost.Food > 0)
-				{
-					Resources.Add({FoodRect, BuildingType.Level1Cost.Food});
-				}
-				if (BuildingType.Level1Cost.Stone > 0)
-				{
-					Resources.Add({StoneRect, BuildingType.Level1Cost.Stone});
-				}
-				if (BuildingType.Level1Cost.Gold > 0)
-				{
-					Resources.Add({GoldRect, BuildingType.Level1Cost.Gold});
-				}
-				const int32 ResourceCount = FMath::Min(2, Resources.Num());
-				for (int32 ResourceIndex = 0;
-					ResourceIndex < ResourceCount;
-					++ResourceIndex)
-				{
-					const float ResourceX =
-						129.0f - (ResourceCount - 1) * 55.0f + ResourceIndex * 110.0f;
-					PlaceOnCanvas(
-						Card,
-						MakeAtlasImage(
-							*FString::Printf(
-								TEXT("BuildCityCardResourceIcon_%d_%d"),
-								TypeId,
-								ResourceIndex),
-							CommonAtlasPath,
-							Resources[ResourceIndex].IconRect,
-							CommonAtlasSize,
-							FVector2D(42.0f)),
-						FVector2D(ResourceX, 354.0f),
-						FVector2D(42.0f),
-						7);
-					UTextBlock* Amount = MakeScreenText(
-						*FString::Printf(
-							TEXT("BuildCityCardResourceAmount_%d_%d"),
-							TypeId,
-							ResourceIndex),
-						15,
-						FLinearColor(0.20f, 0.17f, 0.12f, 1.0f),
-						true);
-					ApplyCardFont(Amount, 20);
-					Amount->SetText(
-						FText::AsNumber(Resources[ResourceIndex].Amount));
-					PlaceOnCanvas(
-						Card,
-						Amount,
-						FVector2D(ResourceX + 42.0f, 362.0f),
-						FVector2D(65.0f, 24.0f),
-						8);
-				}
-
-				// UI_Item_BuildCityBuilding/pl_claim/time/titleCount,titleTime.
-				// Language 180304/180303; source bottom-aligned titles above values.
-				for (int32 TitleIndex = 0; TitleIndex < 2; ++TitleIndex)
-				{
-					const bool bTimeTitle = TitleIndex == 1;
-					const FName TitleName(*FString::Printf(TEXT("BuildCityCard%sTitle_%d"), bTimeTitle ? TEXT("Duration") : TEXT("Count"), TypeId));
-					UTextBlock* Title = MakeScreenText(TitleName, 14,
-						FLinearColor(0.13725491f, 0.13725491f, 0.1254902f, 1), false,
-						bTimeTitle ? ETextJustify::Right : ETextJustify::Left);
-					ApplyCardFont(Title, 18);
-					Title->SetText(bTimeTitle ? NSLOCTEXT("RokBuildCity", "Language180303", "建造时间")
-						: NSLOCTEXT("RokBuildCity", "Language180304", "已建造"));
-					const FVector2D TitleSize(bTimeTitle ? 155.72f : 136.9f, 38.4f);
-					USizeBox* TitleBox = WrapFixedSize(Title,
-						*FString::Printf(TEXT("%sLayout"), *TitleName.ToString()), TitleSize);
-					CastChecked<USizeBoxSlot>(Title->Slot)->SetVerticalAlignment(VAlign_Bottom);
-					PlaceOnCanvas(Card, TitleBox, FVector2D(bTimeTitle ? 139.24f : 35.75f, 387.1f), TitleSize, 8);
-				}
-				UTextBlock* Count = MakeScreenText(
-					*FString::Printf(TEXT("BuildCityCardCount_%d"), TypeId),
-					17,
-					FLinearColor(0.8509804f, 0.83137256f, 0.7294118f, 1),
-					false,
-					ETextJustify::Left);
-				ApplyCardFont(Count, 18);
-				Count->SetText(FText::Format(
-					NSLOCTEXT("RokBuildCity", "CountFormat", "{0}/{1}"),
-					FText::AsNumber(CurrentCount),
-					FText::AsNumber(CurrentLimit)));
-				PlaceOnCanvas(
-					Card,
-					Count,
-					FVector2D(41.5f, 439.0f),
-					FVector2D(86.0f, 42.0f),
-					8);
-
-				UTextBlock* Duration = MakeScreenText(
-					*FString::Printf(TEXT("BuildCityCardDuration_%d"), TypeId),
-					17,
-					FLinearColor(0.8509804f, 0.83137256f, 0.7294118f, 1),
-					false,
-					ETextJustify::Right);
-				ApplyCardFont(Duration, 18);
-				Duration->SetText(
-					FormatBuildDuration(BuildingType.Level1BuildSeconds));
-				PlaceOnCanvas(
-					Card,
-					Duration,
-					FVector2D(106.5f, 439.0f),
-					FVector2D(184.0f, 42.0f),
-					8);
-
-				URokUnityIndexedButton* CardButton = MakeActionButton(
-					*FString::Printf(TEXT("BuildCityCardButton_%d"), TypeId),
-					1320 + Index,
-					nullptr,
-					FIntRect(),
-					FIntPoint::ZeroValue,
-					FVector2D(318.0f, 501.0f));
-				CardButton->SetClickMethod(EButtonClickMethod::PreciseClick);
-				CardButton->SetToolTipText(FText::Format(
-					NSLOCTEXT(
-						"RokBuildCity",
-						"BuildableTooltip",
-						"建造 {0}"),
-					Name->GetText()));
-				PlaceOnCanvas(
-					Card,
-					CardButton,
-					FVector2D(7.0f, 0.2f),
-					FVector2D(318.0f, 501.0f),
-					10);
-			}
-			else
-			{
-				UTextBlock* Locked = MakeScreenText(
-					*FString::Printf(TEXT("BuildCityCardLocked_%d"), TypeId),
-					18,
-					FLinearColor(0.8509804f, 0.83137256f, 0.7294118f, 1),
-					false,
-					ETextJustify::Center);
-				ApplyCardFont(Locked, 18);
-				Locked->SetText(
-					BuildState == 2
-						? NSLOCTEXT(
-							"RokBuildCity",
-							"MaximumBuilt",
-							"已达建造上限")
-						: FText::Format(
-							NSLOCTEXT(
-								"RokBuildCity",
-								"TownHallUnlock",
-								"市政厅达到 {0} 级后解锁"),
-							FText::AsNumber(FMath::Max(
-								TownHallLevel + 1,
-								UnlockTownHallLevel))));
-				Locked->SetAutoWrapText(true);
-				PlaceOnCanvas(
-					Card,
-					Locked,
-					FVector2D(46.0f, 373.0f),
-					FVector2D(240.0f, 64.0f),
-					8);
-			}
-
-			BuildingScroll->AddChild(WrapFixedSize(Card,
-				*FString::Printf(TEXT("BuildCityCardSize_%d"), TypeId), FVector2D(BuildCityCardStride, CardHeight)));
-			if (TypeId == BuildCityGuideTypeId)
-			{
-				if (!TaskGuideTexture)
-					TaskGuideTexture = FImageUtils::ImportFileAsTexture2D(RokDataPaths::Resolve(TEXT("WorldSearch/finger001.png")));
-				if (TaskGuideTexture)
-				{
-					auto* Guide = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("BuildCityTaskGuide"));
-					Guide->SetBrushFromTexture(TaskGuideTexture);
-					Guide->SetRenderTransformAngle(180.0f);
-					Guide->SetVisibility(ESlateVisibility::HitTestInvisible);
-					const FVector2D GuideSize(49.0f, 149.0f);
-					PlaceOnCanvas(Card, Guide, FVector2D((BuildCityCardStride - GuideSize.X) * 0.5f, -GuideSize.Y),
-						GuideSize, 10);
-				}
-			}
-		}
-	}
-
-	// Unity's pl_buildingImg_side stretches only the strip between the
-	// eagle and the base. Keep both ends at their source pixel height.
-	const FVector2D RailSize(158.0f, 609.82f);
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeAtlasBorder(TEXT("BuildCitySideDecoration"), BuildCityImageAtlasPath,
-			BuildCitySideDecorationRect, BuildCityImageAtlasSize, RailSize,
-			FMargin(0.0f, 232.0f / 324.0f, 0.0f, 69.0f / 324.0f)),
-		FVector2D(-4.0f, -599.37f), RailSize, 5);
-
-	const FText CategoryNames[] = {
-		NSLOCTEXT("RokBuildCity", "EconomyCategory", "经济类"),
-		NSLOCTEXT("RokBuildCity", "MilitaryCategory", "军事类"),
-		NSLOCTEXT("RokBuildCity", "DecorationCategory", "装饰类"),
-	};
-	static const FIntRect NormalTabIcons[] = {
-		SpriteRect(434, 961, 69, 62),
-		SpriteRect(322, 816, 64, 52),
-		SpriteRect(162, 491, 78, 50),
-	};
-	static const FIntRect SelectedTabIcons[] = {
-		SpriteRect(322, 870, 75, 67),
-		SpriteRect(162, 431, 67, 58),
-		SpriteRect(162, 543, 84, 56),
-	};
-	for (int32 Category = 0; Category < 3; ++Category)
-	{
-		const bool bSelected = Category == SelectedBuildCityCategory;
-		const FVector2D TabPosition(16.5f, -417.0f + Category * 135.27f);
-		const FVector2D TabSize(116.5f, 92.0f);
-		URokUnityIndexedButton* CategoryButton = MakeActionButton(
-			*FString::Printf(TEXT("BuildCityCategory_%d"), Category),
-			1300 + Category,
-			BuildCityImageAtlasPath,
-			bSelected ? BuildCitySelectedTabRect : BuildCityNormalTabRect,
-			BuildCityImageAtlasSize,
-			TabSize);
-		// UI_Item_BuildCityBtn switches iconOn/iconOff immediately.
-		CategoryButton->SetPressAnimationEnabled(false);
-		PlaceOnCanvas(ModeCanvas, CategoryButton, TabPosition, TabSize, 7);
-		UTextBlock* Label = MakeScreenText(
-			*FString::Printf(TEXT("BuildCityCategoryName_%d"), Category),
-			15, FLinearColor(0.85f, 0.83f, 0.73f, 1), true, ETextJustify::Center);
-		ApplyCardFont(Label, 20);
-		Label->SetText(CategoryNames[Category]);
-		PlaceOnCanvas(ModeCanvas, Label, TabPosition + FVector2D(0.0f, 96.0f),
-			FVector2D(TabSize.X, 32.0f), 8);
-		const FIntRect IconRect = bSelected
-			? SelectedTabIcons[Category]
-			: NormalTabIcons[Category];
-		const FVector2D IconSize(
-			static_cast<float>(IconRect.Width()),
-			static_cast<float>(IconRect.Height()));
-		PlaceOnCanvas(
-			ModeCanvas,
-			MakeAtlasImage(
-				*FString::Printf(TEXT("BuildCityCategoryIcon_%d"), Category),
-				BuildCityImageAtlasPath,
-				IconRect,
-				BuildCityImageAtlasSize,
-				IconSize),
-			TabPosition + (TabSize - IconSize) * 0.5f,
-			IconSize,
-			8);
-		if (Category < 2 && CategoryBuildableCounts[Category] > 0)
-		{
-			PlaceOnCanvas(
-				ModeCanvas,
-				MakeAtlasImage(
-					*FString::Printf(TEXT("BuildCityCategoryRed_%d"), Category),
-					CommonAtlasPath,
-					RedPointRect,
-					CommonAtlasSize,
-					FVector2D(27.0f, 29.0f)),
-				TabPosition + FVector2D(93.0f, -3.0f),
-				FVector2D(27.0f, 29.0f),
-				9);
-			UTextBlock* RedCount = MakeScreenText(
-				*FString::Printf(TEXT("BuildCityCategoryRedCount_%d"), Category),
-				13,
-				FLinearColor::White,
-				true,
-				ETextJustify::Center);
-			RedCount->SetText(FText::AsNumber(
-				CategoryBuildableCounts[Category]));
-			PlaceOnCanvas(
-				ModeCanvas,
-				RedCount,
-				TabPosition + FVector2D(93.0f, 0.0f),
-				FVector2D(27.0f, 22.0f),
-				10);
-		}
-	}
-
-	const TArray<UWidget*> DrawerChildren = ModeCanvas->GetAllChildren();
-	BuildCityAnimatedRoot = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("BuildCityAnimatedRoot"));
-	BuildCityAnimatedRoot->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-	auto* DrawerSlot = ModeCanvas->AddChildToCanvas(BuildCityAnimatedRoot);
-	DrawerSlot->SetAnchors(FAnchors(0, 0, 1, 1));
-	DrawerSlot->SetOffsets(FMargin(0));
-	DrawerSlot->SetZOrder(2);
-	for (UWidget* Child : DrawerChildren)
-	{
-		if (Child->GetFName() == TEXT("BuildCityMaskClose")) continue;
-		const auto* OldSlot = CastChecked<UCanvasPanelSlot>(Child->Slot);
-		const FVector2D Position = OldSlot->GetPosition();
-		const FVector2D Size = OldSlot->GetSize();
-		const int32 ZOrder = OldSlot->GetZOrder();
-		Child->RemoveFromParent();
-		auto* ChildSlot = BuildCityAnimatedRoot->AddChildToCanvas(Child);
-		const FName Name = Child->GetFName();
-		const bool bStretch = Name == TEXT("BuildCityListMask")
-			|| Name == TEXT("BuildCityDrawerBackground") || Name == TEXT("BuildCityDrawerInputShield");
-		ChildSlot->SetAnchors(FAnchors(0, 1, bStretch ? 1.0f : 0.0f, 1));
-		ChildSlot->SetOffsets(FMargin(Position.X, Position.Y,
-			bStretch ? UnityReferenceWidth - Position.X - Size.X : Size.X, Size.Y));
-		ChildSlot->SetZOrder(ZOrder);
-	}
-	UE_LOG(
-		LogTemp,
-		Display,
-		TEXT("Rok build city screen: category=%d types=%d server_city=%d."),
-		SelectedBuildCityCategory,
-		VisibleBuildCityTypeIds.Num(), ServerCity && ServerCity->HasAppliedServerCity());
-}
+#include "RokFeatureBuildCity.inl"
 
 namespace
 {
+FRokServerBuildQueueSnapshot ReadBuildingSpeedUpSnapshot(const URokServerCitySubsystem* City)
+{
+	if (GetBuildingSpeedUpPreview() == INDEX_NONE)
+	{
+		return City ? City->GetBuildQueueSnapshot() : FRokServerBuildQueueSnapshot();
+	}
+	FRokServerBuildQueueSnapshot Snapshot;
+	Snapshot.bAvailable = true;
+	Snapshot.bTimeSynchronized = true;
+	auto& Queue = Snapshot.Queues.AddDefaulted_GetRef();
+	Queue.QueueIndex = 1;
+	Queue.State = ERokServerBuildQueueState::Busy;
+	Queue.BuildingIndex = 5;
+	Queue.BuildingName = TEXT("市政厅");
+	Queue.TargetLevel = 3;
+	Queue.bCountdownKnown = Queue.bProgressKnown = true;
+	Queue.RemainingSeconds = 90;
+	Queue.TotalSeconds = 180;
+	Queue.Progress = 0.5f;
+	return Snapshot;
+}
+
+FRokServerBuildQueueSnapshot ReadWorkerQueuePresentation(const URokServerCitySubsystem* City)
+{
+	const int32 Preview = ReadLocalUiPreviewOption(TEXT("RokWorkerQueueFixture="), 1, 3);
+	if (Preview == INDEX_NONE)
+	{
+		return ReadBuildingSpeedUpSnapshot(City);
+	}
+	FRokServerBuildQueueSnapshot Snapshot;
+	Snapshot.bAvailable = true;
+	Snapshot.bTimeSynchronized = true;
+	Snapshot.Queues.SetNum(2);
+	FRokServerBuildQueueView& Primary = Snapshot.Queues[0];
+	FRokServerBuildQueueView& Secondary = Snapshot.Queues[1];
+	Primary.QueueIndex = 1;
+	Secondary.QueueIndex = 2;
+	Primary.State = ERokServerBuildQueueState::Idle;
+	Secondary.State = Preview == 1 ? ERokServerBuildQueueState::Locked : ERokServerBuildQueueState::Idle;
+	if (Preview == 2)
+	{
+		Primary.State = Secondary.State = ERokServerBuildQueueState::Busy;
+		Primary.BuildingName = TEXT("市政厅");
+		Secondary.BuildingName = TEXT("农场");
+		Primary.TargetLevel = 3;
+		Secondary.TargetLevel = 2;
+		Primary.bCountdownKnown = Primary.bProgressKnown = true;
+		Secondary.bCountdownKnown = Secondary.bProgressKnown = true;
+		Primary.Progress = 0.5f;
+		Secondary.Progress = 0.25f;
+		Primary.RemainingSeconds = 90;
+		Secondary.RemainingSeconds = 45;
+	}
+	else if (Preview == 3)
+	{
+		Secondary.LeaseRemainingSeconds = 5;
+	}
+	return Snapshot;
+}
+
 ERokServerBuildQueueState ResolveWorkerQueueState(
 	const FRokServerBuildQueueView* Queue)
 {
@@ -5575,7 +4972,7 @@ FText FormatWorkerCountdown(double Remaining)
 void URokUnityFeatureScreenWidget::BuildWorkerQueue()
 {
 	const auto* City = GetWorld() ? GetWorld()->GetSubsystem<URokServerCitySubsystem>() : nullptr;
-	const auto Queues = City ? City->GetBuildQueueSnapshot() : FRokServerBuildQueueSnapshot();
+	const auto Queues = ReadWorkerQueuePresentation(City);
 	const auto* Secondary = Queues.FindQueue(2);
 	const auto* Upgrades = GetWorld() ? GetWorld()->GetSubsystem<URokBuildingUpgradeSubsystem>() : nullptr;
 	bWorkerQueueRenderedServer = Queues.bAvailable;
@@ -5605,6 +5002,153 @@ void URokUnityFeatureScreenWidget::BuildWorkerQueue()
 	const FText Title = bRenew ? NSLOCTEXT("RokWorkerQueue", "ContractExpires", "您的额外建造队列很快就要到期啦")
 		: WorkerRequiredSeconds > 0 ? NSLOCTEXT("RokWorkerQueue", "WorkersBusy", "建筑工人正忙着呢！")
 		: NSLOCTEXT("RokWorkerQueue", "ManageWorkers", "建筑工人管理");
+	const FText Currency = bWorkerHireUsesItem ? NSLOCTEXT("RokWorkerQueue", "HireItem", "建筑工人雇佣券")
+		: NSLOCTEXT("RokWorkerQueue", "HireGems", "宝石");
+	FText PlacementNote;
+	if (WorkerRequiredSeconds > 0)
+	{
+		if (bRenew)
+		{
+			PlacementNote = FText::Format(NSLOCTEXT("RokWorkerQueue", "RenewForPlacement",
+				"城主，额外建筑工人的雇佣合同将在{0}后到期，而新的建造队列需要{1}来完成。您可以选择使用{2}来延长雇佣合同，或者使用道具来加速正在进行中的建造队列。"),
+				FormatWorkerCountdown(Secondary->LeaseRemainingSeconds), FormatWorkerCountdown(WorkerRequiredSeconds), Currency);
+		}
+		else if (bHire)
+		{
+			PlacementNote = FText::Format(NSLOCTEXT("RokWorkerQueue", "HireForPlacement",
+				"城主，您的建筑工人正在忙碌中。您可以选择使用{0}来雇佣额外的建筑工人，或者使用道具来加速正在进行中的建造队列。"), Currency);
+		}
+		else if (SecondaryState == ERokServerBuildQueueState::Busy)
+		{
+			PlacementNote = NSLOCTEXT("RokWorkerQueue", "SpeedForPlacement",
+				"城主，您的建筑工人正在忙碌中。您可以选择加速完成进行中的建造队列，再开始新的建造。");
+		}
+	}
+	const TCHAR* HireIconPath = CommonAtlasPath;
+	FIntRect HireIconRect = GemRect;
+	FIntPoint HireIconSize = CommonAtlasSize;
+	FRokUnityEconomyItem HireItem;
+	if ((bHire || bRenew) && bWorkerHireUsesItem && GetEconomyCatalogSubsystem()
+		&& GetEconomyCatalogSubsystem()->FindItemById(URokGameNetSubsystem::WorkerHireItemId, HireItem))
+	{
+		ResolveEconomyItemIcon(HireItem, HireIconPath, HireIconRect, HireIconSize);
+	}
+	const FText PriceText = bWorkerHireUsesItem ? FText::FromString(TEXT("x 1")) : FText::AsNumber(WorkerHirePrice);
+	const FLinearColor PriceColor = bWorkerHireAffordable ? FLinearColor::White : FLinearColor(1, .32f, .26f);
+	const auto ActionText = [](bool bContract, bool bBusy)
+	{
+		return bContract ? NSLOCTEXT("RokWorkerQueue", "Hire", "雇佣")
+			: bBusy ? NSLOCTEXT("RokWorkerQueue", "SpeedUp", "加速") : NSLOCTEXT("RokWorkerQueue", "StartBuild", "建造");
+	};
+	const auto IllustrationRect = [](ERokServerBuildQueueState State)
+	{
+		return State == ERokServerBuildQueueState::Busy ? WorkerBusyRect
+			: State == ERokServerBuildQueueState::Idle ? WorkerIdleRect : WorkerLockedRect;
+	};
+
+	UClass* PrimaryClass = ResolveFeaturePageClass(TEXT("WorkerQueuePrimaryRow"));
+	UClass* SecondaryClass = ResolveFeaturePageClass(TEXT("WorkerQueueSecondaryRow"));
+	if (const URokUiPageWidget* Page = PrimaryClass && SecondaryClass ? MountModePage() : nullptr)
+	{
+		SetFeaturePageText(*Page, TEXT("FeatureFrameTitle"), Title);
+		UTextBlock* Note = Page->Get<UTextBlock>(TEXT("WorkerQueuePlacementNote"));
+		Page->SetPresent(Note, WorkerRequiredSeconds > 0);
+		if (Note)
+		{
+			Note->SetText(PlacementNote);
+		}
+		auto ApplyAtlas = [this](UImage* Image, const TCHAR* Path, const FIntRect& Rect, const FIntPoint& Size)
+		{
+			if (Image)
+			{
+				UTexture2D* Atlas = LoadUiTexture(Path);
+				if (!Atlas)
+				{
+					Image->SetVisibility(ESlateVisibility::Collapsed);
+					return;
+				}
+				FSlateBrush Brush = Image->GetBrush();
+				const FSlateBrush AtlasBrush = MakeAtlasBrush(Atlas, Rect, Size, Brush.GetImageSize());
+				Brush.SetResourceObject(Atlas);
+				Brush.SetUVRegion(static_cast<FBox2f>(AtlasBrush.GetUVRegion()));
+				Image->SetBrush(Brush);
+			}
+		};
+		for (int32 Index : {1, 2})
+		{
+			const bool bSecond = Index == 2;
+			const auto State = bSecond ? SecondaryState : PrimaryState;
+			const bool bBusy = State == ERokServerBuildQueueState::Busy;
+			const bool bContract = bSecond && (bHire || bRenew);
+			const auto Name = [bSecond](const TCHAR* First, const TCHAR* Second) { return bSecond ? Second : First; };
+			const URokUiPageWidget* Row = MountPageItem(
+				Page->Get<UCanvasPanel>(Name(TEXT("WorkerQueuePrimaryRowSlot"), TEXT("WorkerQueueSecondaryRowSlot"))),
+				bSecond ? SecondaryClass : PrimaryClass, TEXT(""), Index);
+			if (!Row)
+			{
+				continue;
+			}
+
+			ApplyAtlas(Row->Get<UImage>(Name(TEXT("WorkerQueuePrimaryIllustration"), TEXT("WorkerQueueSecondaryIllustration"))),
+				WorkerMatrixAtlasPath, IllustrationRect(State), WorkerMatrixAtlasSize);
+			auto* RowTitle = Row->Get<UTextBlock>(Name(TEXT("WorkerQueuePrimaryTitle"), TEXT("WorkerQueueSecondaryTitle")));
+			auto* RowNote = Row->Get<UTextBlock>(Name(TEXT("WorkerQueueRuntimeState"), TEXT("WorkerQueueSecondaryNote")));
+			auto* Progress = Row->Get<UProgressBar>(Name(TEXT("WorkerQueuePrimaryProgress"), TEXT("WorkerQueueSecondaryProgress")));
+			auto* Time = Row->Get<UTextBlock>(Name(TEXT("WorkerQueuePrimaryProgressText"), TEXT("WorkerQueueSecondaryProgressText")));
+			Row->SetShown(Time, bBusy);
+			if (bSecond)
+			{
+				WorkerQueueSecondaryTitleText = RowTitle;
+				WorkerQueueSecondaryNoteText = RowNote;
+				WorkerQueueSecondaryProgress = Progress;
+				WorkerQueueSecondaryProgressText = Time;
+			}
+			else
+			{
+				WorkerQueuePrimaryTitleText = RowTitle;
+				WorkerQueueRuntimeStateText = RowNote;
+				WorkerQueuePrimaryProgress = Progress;
+				WorkerQueuePrimaryProgressText = Time;
+			}
+
+			const FName ActionName = Name(TEXT("WorkerQueuePrimaryAction"), TEXT("WorkerQueueSecondQueueUnlockOrExtend"));
+			BindPageAction(*Row, ActionName, bSecond ? 1420 : 1400);
+			if (UButton* Button = Row->Get<UButton>(ActionName))
+			{
+				Button->SetIsEnabled(bContract ? bWorkerQueueCanWrite && bItemsKnown : State != ERokServerBuildQueueState::Unknown);
+			}
+			const bool bTwoLines = bContract || bBusy;
+			Row->SetPresent(Row->Get<UTextBlock>(Name(TEXT("WorkerQueuePrimaryActionLabel"), TEXT("WorkerQueueSecondQueueUnlockOrExtendLabel"))), !bTwoLines);
+			UTextBlock* ButtonLabel = Row->Get<UTextBlock>(Name(TEXT("WorkerQueuePrimaryButtonLabel"), TEXT("WorkerQueueSecondaryButtonLabel")));
+			Row->SetPresent(ButtonLabel, bTwoLines);
+			if (ButtonLabel)
+			{
+				ButtonLabel->SetText(ActionText(bContract, bBusy));
+			}
+			if (bSecond)
+			{
+				Row->SetPresent(Row->Get<UCanvasPanel>(TEXT("WorkerQueueSecondQueueUnlockOrExtendBackground")), !bContract);
+				Row->SetPresent(Row->Get<UCanvasPanel>(TEXT("WorkerQueueHireBackground")), bContract);
+				UImage* Icon = Row->Get<UImage>(TEXT("WorkerQueueHireCurrency"));
+				UTextBlock* Price = Row->Get<UTextBlock>(TEXT("WorkerQueueHireCost"));
+				Row->SetPresent(Icon, bContract && HireIconPath);
+				Row->SetPresent(Price, bContract);
+				Row->SetPresent(Row->Get<UTextBlock>(TEXT("WorkerQueueHireTerm")), bContract);
+				if (bContract)
+				{
+					ApplyAtlas(Icon, HireIconPath, HireIconRect, HireIconSize);
+					if (Price)
+					{
+						Price->SetText(PriceText);
+						Price->SetColorAndOpacity(PriceColor);
+					}
+				}
+			}
+		}
+		UpdateWorkerQueuePresentation();
+		return;
+	}
+
 	BuildSplitWindowFrame(CapturePoint(160, 100), FVector2D(1120, 700), Title, CapturePoint(1210, 92), nullptr, 1, 0, 30);
 	PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("WorkerQueueContentShade"), FLinearColor(.045f, .047f, .043f, .99f)),
 		CapturePoint(208, 162), FVector2D(1024, 612), 2);
@@ -5618,7 +5162,7 @@ void URokUnityFeatureScreenWidget::BuildWorkerQueue()
 		const float Y = bSecond ? 323.5f : 186.5f;
 		const auto Name = [bSecond](const TCHAR* First, const TCHAR* Second) { return bSecond ? Second : First; };
 		PlaceOnCanvas(ModeCanvas, MakeAtlasImage(Name(TEXT("WorkerQueuePrimaryIllustration"), TEXT("WorkerQueueSecondaryIllustration")),
-			WorkerMatrixAtlasPath, bBusy ? WorkerBusyRect : (State == ERokServerBuildQueueState::Idle ? WorkerIdleRect : WorkerLockedRect),
+			WorkerMatrixAtlasPath, IllustrationRect(State),
 			WorkerMatrixAtlasSize, FVector2D(179, 137)), CapturePoint(1029.5f, Y), FVector2D(179, 137), 4);
 		auto* RowTitle = MakeScreenText(Name(TEXT("WorkerQueuePrimaryTitle"), TEXT("WorkerQueueSecondaryTitle")), 26,
 			FLinearColor(.886f, .82f, .608f), false);
@@ -5656,8 +5200,7 @@ void URokUnityFeatureScreenWidget::BuildWorkerQueue()
 		}
 		const FVector2D ButtonPosition = CapturePoint(238, Y + 32);
 		const bool bTwoLines = bContract || bBusy;
-		const auto Label = bContract ? NSLOCTEXT("RokWorkerQueue", "Hire", "雇佣")
-			: bBusy ? NSLOCTEXT("RokWorkerQueue", "SpeedUp", "加速") : NSLOCTEXT("RokWorkerQueue", "StartBuild", "建造");
+		const FText Label = ActionText(bContract, bBusy);
 		auto* Button = MakeActionButton(Name(TEXT("WorkerQueuePrimaryAction"), TEXT("WorkerQueueSecondQueueUnlockOrExtend")),
 			bSecond ? 1420 : 1400, CommonAtlasPath, bContract ? MediumGoldButtonRect : MediumBlueButtonRect,
 			CommonAtlasSize, FVector2D(202, 84), bTwoLines ? FText::GetEmpty() : Label, 24,
@@ -5674,20 +5217,10 @@ void URokUnityFeatureScreenWidget::BuildWorkerQueue()
 		if (bBusy) PlaceOnCanvas(ModeCanvas, Time, ButtonPosition + FVector2D(0, 47), FVector2D(202, 28), 7);
 		if (bContract)
 		{
-			const TCHAR* IconPath = CommonAtlasPath;
-			FIntRect IconRect = GemRect;
-			FIntPoint IconSize = CommonAtlasSize;
-			FRokUnityEconomyItem Item;
-			if (bWorkerHireUsesItem && GetEconomyCatalogSubsystem()
-				&& GetEconomyCatalogSubsystem()->FindItemById(URokGameNetSubsystem::WorkerHireItemId, Item))
-			{
-				ResolveEconomyItemIcon(Item, IconPath, IconRect, IconSize);
-			}
-			if (IconPath) PlaceOnCanvas(ModeCanvas, MakeAtlasImage(TEXT("WorkerQueueHireCurrency"), IconPath, IconRect,
-				IconSize, FVector2D(32)), ButtonPosition + FVector2D(58, 45), FVector2D(32), 7);
-			auto* Price = MakeScreenText(TEXT("WorkerQueueHireCost"), 20, bWorkerHireAffordable
-				? FLinearColor::White : FLinearColor(1, .32f, .26f), true);
-			Price->SetText(bWorkerHireUsesItem ? FText::FromString(TEXT("x 1")) : FText::AsNumber(WorkerHirePrice));
+			if (HireIconPath) PlaceOnCanvas(ModeCanvas, MakeAtlasImage(TEXT("WorkerQueueHireCurrency"), HireIconPath, HireIconRect,
+				HireIconSize, FVector2D(32)), ButtonPosition + FVector2D(58, 45), FVector2D(32), 7);
+			auto* Price = MakeScreenText(TEXT("WorkerQueueHireCost"), 20, PriceColor, true);
+			Price->SetText(PriceText);
 			PlaceOnCanvas(ModeCanvas, Price, ButtonPosition + FVector2D(95, 48), FVector2D(94, 29), 7);
 			auto* Term = MakeScreenText(TEXT("WorkerQueueHireTerm"), 18, FLinearColor::White, false, ETextJustify::Center);
 			Term->SetText(NSLOCTEXT("RokWorkerQueue", "TwoDayContract", "签订2天合同"));
@@ -5698,24 +5231,7 @@ void URokUnityFeatureScreenWidget::BuildWorkerQueue()
 	{
 		auto* Note = MakeScreenText(TEXT("WorkerQueuePlacementNote"), 20, FLinearColor(.93f, .90f, .78f));
 		Note->SetAutoWrapText(true);
-		const FText Currency = bWorkerHireUsesItem ? NSLOCTEXT("RokWorkerQueue", "HireItem", "建筑工人雇佣券")
-			: NSLOCTEXT("RokWorkerQueue", "HireGems", "宝石");
-		if (bRenew)
-		{
-			Note->SetText(FText::Format(NSLOCTEXT("RokWorkerQueue", "RenewForPlacement",
-				"城主，额外建筑工人的雇佣合同将在{0}后到期，而新的建造队列需要{1}来完成。您可以选择使用{2}来延长雇佣合同，或者使用道具来加速正在进行中的建造队列。"),
-				FormatWorkerCountdown(Secondary->LeaseRemainingSeconds), FormatWorkerCountdown(WorkerRequiredSeconds), Currency));
-		}
-		else if (bHire)
-		{
-			Note->SetText(FText::Format(NSLOCTEXT("RokWorkerQueue", "HireForPlacement",
-				"城主，您的建筑工人正在忙碌中。您可以选择使用{0}来雇佣额外的建筑工人，或者使用道具来加速正在进行中的建造队列。"), Currency));
-		}
-		else if (SecondaryState == ERokServerBuildQueueState::Busy)
-		{
-			Note->SetText(NSLOCTEXT("RokWorkerQueue", "SpeedForPlacement",
-				"城主，您的建筑工人正在忙碌中。您可以选择加速完成进行中的建造队列，再开始新的建造。"));
-		}
+		Note->SetText(PlacementNote);
 		PlaceOnCanvas(ModeCanvas, Note, CapturePoint(243.6f, 482), FVector2D(952.8f, 180), 5);
 	}
 	UpdateWorkerQueuePresentation();
@@ -5723,12 +5239,9 @@ void URokUnityFeatureScreenWidget::BuildWorkerQueue()
 
 void URokUnityFeatureScreenWidget::BuildHospital()
 {
-	// UI_Win_Hospital uses the 1440x810 UIRoot, centred in the 16:10 capture.
-	BuildSplitWindowFrame(FVector2D(174, 63), FVector2D(1092, 697),
-		NSLOCTEXT("RokHospital", "TreatmentTitle", "治疗伤员"), FVector2D(1193, 56), nullptr, 1, 0.0f, 30);
 	auto* Instance = GetGameInstance();
-	auto* Net = Instance ? Instance->GetSubsystem<URokGameNetSubsystem>() : nullptr;
-	const auto Role = Net && Net->GetState() == ERokGameNetState::RoleReady ? Net->GetRoleInfo() : nullptr;
+	const auto* Net = Instance ? Instance->GetSubsystem<URokGameNetSubsystem>() : nullptr;
+	const auto Role = ReadHospitalDisplayRole(Net, GetHospitalPreviewState());
 	const auto Previous = HospitalState;
 	HospitalState = FRokHospitalState::Read(Role);
 	const bool bQueue = HospitalState.FinishTime > 0;
@@ -5744,6 +5257,107 @@ void URokUnityFeatureScreenWidget::BuildHospital()
 	}
 	HospitalQuantities.Reset();
 	HospitalConfirmation = nullptr;
+
+	int64 Country = 0;
+	int32 HospitalMark = INDEX_NONE;
+	auto* Config = Instance ? Instance->GetSubsystem<URokUnityConfigSubsystem>() : nullptr;
+	// HospitalMediator.LoadFinish uses Civilization.hospitalMark to index RS.HospitalMarkFrame.
+	if (!Config || !RokSprotoJson::TryGetInt64(Role, TEXT("country"), Country) || Country <= 0 || Country > MAX_int32
+		|| !Config->GetIntFieldByKey(TEXT("Civilization"), TEXT("ID"), int32(Country), TEXT("hospitalMark"), HospitalMark)
+		|| (HospitalMark != 0 && HospitalMark != 1))
+	{
+		HospitalMark = INDEX_NONE;
+	}
+	if (!BuildHospitalPage(Units, bQueue, HospitalMark))
+	{
+		BuildLegacyHospitalPage(Units, bQueue, HospitalMark);
+	}
+
+	HospitalExplanationWidget = WidgetTree->ConstructWidget<URokHospitalExplanationWidget>(
+		URokHospitalExplanationWidget::ResolvePresentationClass(), TEXT("HospitalExplanationWidget"));
+	if (HospitalExplanationWidget->InitializeExplanation())
+	{
+		PlaceOnCanvas(ModeCanvas, HospitalExplanationWidget, HospitalExplanationWidget->GetSourcePosition(),
+			HospitalExplanationWidget->GetSourceSize(), 9);
+		HospitalExplanationWidget->SetVisibility(ESlateVisibility::Collapsed);
+	}
+	else
+	{
+		UE_LOG(LogTemp, Error, TEXT("Hospital explanation: %s"), *HospitalExplanationWidget->GetLoadError());
+		HospitalExplanationWidget = nullptr;
+	}
+	SetHospitalExplanationVisible(bHospitalExplanationVisible);
+	UpdateHospitalActions();
+}
+
+bool URokUnityFeatureScreenWidget::BuildHospitalPage(const TArray<FRokHospitalSoldier>& Units,
+	bool bQueue, int32 HospitalMark)
+{
+	UClass* RowClass = ResolveFeaturePageClass(TEXT("HospitalTroopRow"));
+	auto* Page = RowClass ? MountModePage(TEXT("Hospital")) : nullptr;
+	if (!Page)
+	{
+		return false;
+	}
+	auto* List = Page->Get<UScrollBox>(TEXT("HospitalTreatmentList"));
+	HospitalMainContent = Page->Get<UCanvasPanel>(TEXT("HospitalMainContent"));
+	if (!HospitalMainContent || !List)
+	{
+		Page->RemoveFromParent();
+		ActiveModePage = nullptr;
+		return false;
+	}
+
+	const bool bFull = !Units.IsEmpty();
+	for (const FName Name : {FName(TEXT("HospitalBed")), FName(TEXT("HospitalBedEmpty"))})
+	{
+		if (auto* Bed = Page->Get<UImage>(Name))
+		{
+			const bool bFullBed = Name == TEXT("HospitalBed");
+			UTexture2D* Texture = bFull == bFullBed ? FImageUtils::ImportFileAsTexture2D(RokDataPaths::Resolve(
+				bFull ? TEXT("Hospital/bed_full.png") : TEXT("Hospital/bed_empty.png"))) : nullptr;
+			if (Texture)
+			{
+				Bed->SetBrushFromTexture(Texture);
+			}
+			Page->SetShown(Bed, Texture != nullptr);
+		}
+	}
+	if (auto* Mark = Page->Get<UImage>(TEXT("HospitalCivilizationMark")))
+	{
+		Page->SetShown(Mark, HospitalMark != INDEX_NONE);
+		if (HospitalMark != INDEX_NONE)
+		{
+			Mark->SetBrush(MakeAtlasBrush(LoadUiTexture(CommonAtlasPath),
+				SpriteRect(HospitalMark == 0 ? 1074 : 1029, 280, 43, 43), CommonAtlasSize, FVector2D(43)));
+		}
+	}
+	if (auto* State = Page->Get<UTextBlock>(TEXT("HospitalWoundedState")))
+	{
+		Page->SetShown(State, !bFull);
+		State->SetText(HospitalState.bKnown ? NSLOCTEXT("RokHospital", "NoWounded", "没有受伤单位")
+			: NSLOCTEXT("RokHospital", "WoundedLoading", "伤员信息尚未同步"));
+	}
+	if (auto* Title = Page->Get<UTextBlock>(TEXT("HospitalListTitle")))
+	{
+		Title->SetText(bQueue ? NSLOCTEXT("RokHospital", "InTreatment", "正在治疗的单位")
+			: NSLOCTEXT("RokHospital", "ChooseWounded", "选择受伤单位"));
+	}
+	Page->SetShown(Page->Get<UCanvasPanel>(TEXT("HospitalTreatmentContent")), bFull);
+	BindPageAction(*Page, TEXT("HospitalCapacityInfo"), 2000);
+	BindPageAction(*Page, TEXT("HospitalHealButton"), 2001);
+	BindPageAction(*Page, TEXT("HospitalHealNowButton"), 2002);
+	BindPageAction(*Page, TEXT("HospitalMaxButton"), 2003);
+	BindPageAction(*Page, TEXT("HospitalExplanationBackButton"), 2004);
+	PopulateHospitalTroopRows(*List, RowClass, Units, bQueue);
+	return true;
+}
+
+void URokUnityFeatureScreenWidget::BuildLegacyHospitalPage(const TArray<FRokHospitalSoldier>& Units, bool bQueue, int32 HospitalMark)
+{
+	// UI_Win_Hospital uses the 1440x810 UIRoot, centred in the 16:10 capture.
+	BuildSplitWindowFrame(FVector2D(174, 63), FVector2D(1092, 697),
+		NSLOCTEXT("RokHospital", "TreatmentTitle", "治疗伤员"), FVector2D(1193, 56), nullptr, 1, 0.0f, 30);
 	HospitalMainContent = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("HospitalMainContent"));
 	HospitalMainContent->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
 	PlaceOnCanvas(ModeCanvas, HospitalMainContent, FVector2D::ZeroVector, CurrentExpandedDesignSize, 3);
@@ -5776,18 +5390,11 @@ void URokUnityFeatureScreenWidget::BuildHospital()
 			bFull ? FVector2D(431, 437) : FVector2D(426, 248), 1);
 	}
 
-	auto* Catalog = GetGameplayCatalogSubsystem();
 	Place(MakeSolidBorder(TEXT("HospitalCapacityBadge"), FLinearColor(0, 0, 0, 0.24f)), {252, 629}, {378, 65});
 	Label(TEXT("HospitalCapacityValue"), FText::GetEmpty(), 20, Beige, {312, 652}, {252, 28}, ETextJustify::Center);
 	Place(MakeActionButton(TEXT("HospitalCapacityInfo"), 2000, CommonAtlasPath, VipHelpRect,
 		CommonAtlasSize, FVector2D(37)), {270, 644}, {37, 37}, 6);
-	int64 Country = 0;
-	int32 HospitalMark = INDEX_NONE;
-	auto* Config = Instance ? Instance->GetSubsystem<URokUnityConfigSubsystem>() : nullptr;
-	// HospitalMediator.LoadFinish uses Civilization.hospitalMark to index RS.HospitalMarkFrame.
-	if (Config && RokSprotoJson::TryGetInt64(Role, TEXT("country"), Country) && Country > 0 && Country <= MAX_int32
-		&& Config->GetIntFieldByKey(TEXT("Civilization"), TEXT("ID"), int32(Country), TEXT("hospitalMark"), HospitalMark)
-		&& (HospitalMark == 0 || HospitalMark == 1))
+	if (HospitalMark != INDEX_NONE)
 	{
 		Place(MakeAtlasImage(TEXT("HospitalCivilizationMark"), CommonAtlasPath,
 			SpriteRect(HospitalMark == 0 ? 1074 : 1029, 280, 43, 43), CommonAtlasSize, FVector2D(43)),
@@ -5808,80 +5415,7 @@ void URokUnityFeatureScreenWidget::BuildHospital()
 		Place(MakeSolidBorder(TEXT("HospitalTreatmentPanel"), FLinearColor(0, 0, 0, 0.27f)), {659, 173}, {565, 352});
 		auto* List = WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("HospitalTreatmentList"));
 		Place(List, {674, 187}, {532, 324}, 3);
-		for (const auto& Unit : Units)
-		{
-			const int32 Id = Unit.Id;
-			const FString Key = FString::FromInt(Id);
-			auto* Row = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), *(TEXT("HospitalTroopRow_") + Key));
-			Row->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-			auto* Size = WidgetTree->ConstructWidget<USizeBox>();
-			Size->SetHeightOverride(101);
-			Size->AddChild(Row);
-			List->AddChild(Size);
-			FIntRect Icon;
-			FRokUnityCatalogTroop Troop;
-			if (Catalog && Catalog->GetTroop(Id, Troop) && RokTroopPortrait::Resolve(Troop.Icon, Icon))
-			{
-				PlaceOnCanvas(Row, MakeAtlasImage(*(TEXT("HospitalTroopIcon_") + Key), TroopHeadAtlasPath,
-					Icon, TroopHeadAtlasSize, FVector2D(88)), {0, 0}, {88, 88});
-			}
-			FRokTrainArmyDetail Detail;
-			FString DetailError;
-			const FText Name = RokTrainArmyDetail::Load(Id, Detail, DetailError) && !Detail.Name.IsEmpty()
-				? FText::FromString(Detail.Name)
-				: FText::Format(NSLOCTEXT("RokHospital", "UnitFallback", "{0}级部队"), FText::AsNumber(Unit.Level));
-			auto* UnitLabel = MakeScreenText(*(TEXT("HospitalTroopLabel_") + Key), 18, Beige);
-			UnitLabel->SetFont(URokMainHudWidget::MakeUnitySourceFont(18, false));
-			UnitLabel->SetShadowOffset(FVector2D::ZeroVector);
-			UnitLabel->SetShadowColorAndOpacity(FLinearColor::Transparent);
-			UnitLabel->SetText(FText::Format(NSLOCTEXT("RokHospital", "UnitCount", "{0} {1}"), Name, FText::AsNumber(Unit.Count)));
-			PlaceOnCanvas(Row, UnitLabel, {94, 12}, {330, 30});
-			// UI_Item_HospitalArmyCount/bg spans the slider and its quantity editor.
-			PlaceOnCanvas(Row, MakeAtlasBorder(*(TEXT("HospitalQuantityStrip_") + Key), CommonAtlasPath,
-				CommonPanelRect, CommonAtlasSize, FVector2D(435, 51), CommonPanelMargin), {94, 37}, {435, 51});
-			PlaceOnCanvas(Row, MakeAtlasBorder(*(TEXT("HospitalSliderTrack_") + Key), CommonAtlasPath,
-				ResourceSearchSliderBackgroundRect, CommonAtlasSize, FVector2D(343, 23), FMargin(.4f)), {97, 49}, {343, 23});
-			PlaceOnCanvas(Row, MakeAtlasBorder(*(TEXT("HospitalSliderFill_") + Key), CommonAtlasPath,
-				ResourceSearchSliderFillRect, CommonAtlasSize, FVector2D(HospitalSliderFillWidth, 19), FMargin(.4f)), {97, 51}, {HospitalSliderFillWidth, 19}, 1);
-			auto* Slider = WidgetTree->ConstructWidget<USlider>(USlider::StaticClass(), *(TEXT("HospitalSlider_") + Key));
-			Slider->SetIndentHandle(false);
-			Slider->SetIsEnabled(!bQueue);
-			FSlateBrush Empty;
-			Empty.DrawAs = ESlateBrushDrawType::NoDrawType;
-			const FSlateBrush Thumb = MakeAtlasBrush(LoadUiTexture(CommonAtlasPath), ResourceSearchSliderThumbRect,
-				CommonAtlasSize, FVector2D(20, 37));
-			FSliderStyle SliderStyle;
-			SliderStyle.SetNormalBarImage(Empty).SetHoveredBarImage(Empty).SetDisabledBarImage(Empty);
-			SliderStyle.SetNormalThumbImage(Thumb).SetHoveredThumbImage(Thumb).SetDisabledThumbImage(Thumb);
-			Slider->SetWidgetStyle(SliderStyle);
-			PlaceOnCanvas(Row, Slider, {97, 42}, {343, 37}, 3);
-			auto* Number = WidgetTree->ConstructWidget<UEditableTextBox>(UEditableTextBox::StaticClass(), *(TEXT("HospitalTroopValue_") + Key));
-			Number->SetJustification(ETextJustify::Center);
-			Number->SetIsReadOnly(bQueue);
-			FEditableTextBoxStyle NumberStyle = FCoreStyle::Get().GetWidgetStyle<FEditableTextBoxStyle>(TEXT("NormalEditableTextBox"));
-			NumberStyle.SetBackgroundImageNormal(Empty).SetBackgroundImageHovered(Empty)
-				.SetBackgroundImageFocused(Empty).SetBackgroundImageReadOnly(Empty);
-			NumberStyle.SetFont(URokMainHudWidget::MakeUnitySourceFont(18, false))
-				.SetPadding(FMargin(0))
-				.SetForegroundColor(FSlateColor(FLinearColor::White))
-				.SetReadOnlyForegroundColor(FSlateColor(FLinearColor::White));
-			Number->SetWidgetStyle(NumberStyle);
-			PlaceOnCanvas(Row, Number, {446, 37}, {73, 51}, 3);
-
-			if (!HospitalCounts.Contains(Id)) HospitalCounts.Add(Id, Unit.Count);
-			auto* Quantity = NewObject<URokHospitalQuantity>(this);
-			HospitalQuantities.Add(Id, Quantity);
-			Quantity->Bind(Unit.Count, Slider, Number, [this, Id, Maximum = Unit.Count](int32 Count)
-			{
-				if (ActiveMode != ERokUnityFeatureScreenMode::Hospital || HospitalState.FinishTime > 0) return;
-				const int32 Selected = FMath::Clamp(Count, 0, Maximum);
-				HospitalCounts.Add(Id, Selected);
-				if (auto* Quantity = HospitalQuantities.FindRef(Id).Get()) Quantity->SetCount(Selected);
-				UpdateHospitalActions();
-			});
-			HospitalCounts[Id] = FMath::Clamp(HospitalCounts[Id], 0, Unit.Count);
-			Quantity->SetCount(bQueue ? Unit.Count : HospitalCounts[Id]);
-		}
+		PopulateHospitalTroopRows(*List, nullptr, Units, bQueue);
 
 		Place(MakeSolidBorder(TEXT("HospitalCostPlate"), FLinearColor(0, 0, 0, .27f)), {659, 537}, {565, 64});
 		const FIntRect ResourceIcons[] = {FoodRect, WoodRect, StoneRect, GoldRect};
@@ -5913,25 +5447,129 @@ void URokUnityFeatureScreenWidget::BuildHospital()
 			CommonAtlasSize, FVector2D(21, 23)), {1040, 657}, {21, 23}, 7);
 		Label(TEXT("HospitalDuration"), FText::GetEmpty(), 18, FLinearColor::White, {1062, 660}, {150, 24}, ETextJustify::Left, 7, true);
 	}
-
-	HospitalExplanationWidget = WidgetTree->ConstructWidget<URokHospitalExplanationWidget>(
-		URokHospitalExplanationWidget::StaticClass(), TEXT("HospitalExplanationWidget"));
-	if (HospitalExplanationWidget->InitializeExplanation())
-	{
-		PlaceOnCanvas(ModeCanvas, HospitalExplanationWidget, HospitalExplanationWidget->GetSourcePosition(),
-			HospitalExplanationWidget->GetSourceSize(), 9);
-		HospitalExplanationWidget->SetVisibility(ESlateVisibility::Collapsed);
-	}
-	else
-	{
-		UE_LOG(LogTemp, Error, TEXT("Hospital explanation: %s"), *HospitalExplanationWidget->GetLoadError());
-		HospitalExplanationWidget = nullptr;
-	}
 	auto* Back = MakeActionButton(TEXT("HospitalExplanationBackButton"), 2004, CommonAtlasPath,
 		CommanderBackRect, CommonAtlasSize, FVector2D(69));
 	PlaceOnCanvas(ModeCanvas, Back, FVector2D(174, 63), FVector2D(69), 10);
-	SetHospitalExplanationVisible(bHospitalExplanationVisible);
-	UpdateHospitalActions();
+}
+
+void URokUnityFeatureScreenWidget::PopulateHospitalTroopRows(UScrollBox& List, UClass* RowClass,
+	const TArray<FRokHospitalSoldier>& Units, bool bQueue)
+{
+	const FLinearColor Beige = FLinearColor::FromSRGBColor(FColor(226, 209, 155));
+	const auto* Catalog = GetGameplayCatalogSubsystem();
+	for (const auto& Unit : Units)
+	{
+		const int32 Id = Unit.Id;
+		const FString Key = FString::FromInt(Id);
+		FIntRect Icon;
+		FRokUnityCatalogTroop Troop;
+		const bool bHasIcon = Catalog && Catalog->GetTroop(Id, Troop) && RokTroopPortrait::Resolve(Troop.Icon, Icon);
+		FRokTrainArmyDetail Detail;
+		FString DetailError;
+		const FText Name = RokTrainArmyDetail::Load(Id, Detail, DetailError) && !Detail.Name.IsEmpty()
+			? FText::FromString(Detail.Name)
+			: FText::Format(NSLOCTEXT("RokHospital", "UnitFallback", "{0}级部队"), FText::AsNumber(Unit.Level));
+		const FText UnitText = FText::Format(NSLOCTEXT("RokHospital", "UnitCount", "{0} {1}"), Name, FText::AsNumber(Unit.Count));
+		USlider* Slider = nullptr;
+		UEditableTextBox* Number = nullptr;
+		if (auto* Item = RowClass ? CreateWidget<URokUiPageWidget>(this, RowClass) : nullptr)
+		{
+			Item->LegacyPrefix = TEXT("Hospital");
+			Item->LegacySuffix = TEXT("_") + Key;
+			Slider = Item->Get<USlider>(TEXT("Slider"));
+			Number = Item->Get<UEditableTextBox>(TEXT("TroopValue"));
+			auto* Label = Item->Get<UTextBlock>(TEXT("TroopLabel"));
+			auto* Art = Item->Get<UImage>(TEXT("TroopIcon"));
+			if (Slider && Number && Label && Art)
+			{
+				Label->SetText(UnitText);
+				Art->SetVisibility(bHasIcon ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+				if (bHasIcon)
+				{
+					Art->SetBrush(MakeAtlasBrush(LoadUiTexture(TroopHeadAtlasPath), Icon,
+						TroopHeadAtlasSize, FVector2D(88)));
+				}
+				Slider->SetIsEnabled(!bQueue);
+				Number->SetIsReadOnly(bQueue);
+				// The Unity font is built at runtime and cannot be serialized into the text box style.
+				FEditableTextBoxStyle NumberStyle = Number->GetWidgetStyle();
+				NumberStyle.SetFont(URokMainHudWidget::MakeUnitySourceFont(18, false));
+				Number->SetWidgetStyle(NumberStyle);
+				Item->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+				List.AddChild(Item);
+			}
+			else
+			{
+				Slider = nullptr;
+				Number = nullptr;
+			}
+		}
+		if (!Slider || !Number)
+		{
+			auto* Row = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), *(TEXT("HospitalTroopRow_") + Key));
+			Row->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+			auto* Size = WidgetTree->ConstructWidget<USizeBox>();
+			Size->SetHeightOverride(101);
+			Size->AddChild(Row);
+			List.AddChild(Size);
+			if (bHasIcon)
+			{
+				PlaceOnCanvas(Row, MakeAtlasImage(*(TEXT("HospitalTroopIcon_") + Key), TroopHeadAtlasPath,
+					Icon, TroopHeadAtlasSize, FVector2D(88)), {0, 0}, {88, 88});
+			}
+			auto* UnitLabel = MakeScreenText(*(TEXT("HospitalTroopLabel_") + Key), 18, Beige);
+			UnitLabel->SetFont(URokMainHudWidget::MakeUnitySourceFont(18, false));
+			UnitLabel->SetShadowOffset(FVector2D::ZeroVector);
+			UnitLabel->SetShadowColorAndOpacity(FLinearColor::Transparent);
+			UnitLabel->SetText(UnitText);
+			PlaceOnCanvas(Row, UnitLabel, {94, 12}, {330, 30});
+			// UI_Item_HospitalArmyCount/bg spans the slider and its quantity editor.
+			PlaceOnCanvas(Row, MakeAtlasBorder(*(TEXT("HospitalQuantityStrip_") + Key), CommonAtlasPath,
+				CommonPanelRect, CommonAtlasSize, FVector2D(435, 51), CommonPanelMargin), {94, 37}, {435, 51});
+			PlaceOnCanvas(Row, MakeAtlasBorder(*(TEXT("HospitalSliderTrack_") + Key), CommonAtlasPath,
+				ResourceSearchSliderBackgroundRect, CommonAtlasSize, FVector2D(343, 23), FMargin(.4f)), {97, 49}, {343, 23});
+			PlaceOnCanvas(Row, MakeAtlasBorder(*(TEXT("HospitalSliderFill_") + Key), CommonAtlasPath,
+				ResourceSearchSliderFillRect, CommonAtlasSize, FVector2D(HospitalSliderFillWidth, 19), FMargin(.4f)), {97, 51}, {HospitalSliderFillWidth, 19}, 1);
+			Slider = WidgetTree->ConstructWidget<USlider>(USlider::StaticClass(), *(TEXT("HospitalSlider_") + Key));
+			Slider->SetIndentHandle(false);
+			Slider->SetIsEnabled(!bQueue);
+			FSlateBrush Empty;
+			Empty.DrawAs = ESlateBrushDrawType::NoDrawType;
+			const FSlateBrush Thumb = MakeAtlasBrush(LoadUiTexture(CommonAtlasPath), ResourceSearchSliderThumbRect,
+				CommonAtlasSize, FVector2D(20, 37));
+			FSliderStyle SliderStyle;
+			SliderStyle.SetNormalBarImage(Empty).SetHoveredBarImage(Empty).SetDisabledBarImage(Empty);
+			SliderStyle.SetNormalThumbImage(Thumb).SetHoveredThumbImage(Thumb).SetDisabledThumbImage(Thumb);
+			Slider->SetWidgetStyle(SliderStyle);
+			PlaceOnCanvas(Row, Slider, {97, 42}, {343, 37}, 3);
+			Number = WidgetTree->ConstructWidget<UEditableTextBox>(UEditableTextBox::StaticClass(), *(TEXT("HospitalTroopValue_") + Key));
+			Number->SetJustification(ETextJustify::Center);
+			Number->SetIsReadOnly(bQueue);
+			FEditableTextBoxStyle NumberStyle = FCoreStyle::Get().GetWidgetStyle<FEditableTextBoxStyle>(TEXT("NormalEditableTextBox"));
+			NumberStyle.SetBackgroundImageNormal(Empty).SetBackgroundImageHovered(Empty)
+				.SetBackgroundImageFocused(Empty).SetBackgroundImageReadOnly(Empty);
+			NumberStyle.SetFont(URokMainHudWidget::MakeUnitySourceFont(18, false))
+				.SetPadding(FMargin(0))
+				.SetForegroundColor(FSlateColor(FLinearColor::White))
+				.SetReadOnlyForegroundColor(FSlateColor(FLinearColor::White));
+			Number->SetWidgetStyle(NumberStyle);
+			PlaceOnCanvas(Row, Number, {446, 37}, {73, 51}, 3);
+		}
+
+		if (!HospitalCounts.Contains(Id)) HospitalCounts.Add(Id, Unit.Count);
+		auto* Quantity = NewObject<URokHospitalQuantity>(this);
+		HospitalQuantities.Add(Id, Quantity);
+		Quantity->Bind(Unit.Count, Slider, Number, [this, Id, Maximum = Unit.Count](int32 Count)
+		{
+			if (ActiveMode != ERokUnityFeatureScreenMode::Hospital || HospitalState.FinishTime > 0) return;
+			const int32 Selected = FMath::Clamp(Count, 0, Maximum);
+			HospitalCounts.Add(Id, Selected);
+			if (auto* Quantity = HospitalQuantities.FindRef(Id).Get()) Quantity->SetCount(Selected);
+			UpdateHospitalActions();
+		});
+		HospitalCounts[Id] = FMath::Clamp(HospitalCounts[Id], 0, Unit.Count);
+		Quantity->SetCount(bQueue ? Unit.Count : HospitalCounts[Id]);
+	}
 }
 
 void URokUnityFeatureScreenWidget::SetHospitalExplanationVisible(bool bVisible)
@@ -5951,7 +5589,7 @@ void URokUnityFeatureScreenWidget::RefreshHospital()
 {
 	const auto* Instance = GetGameInstance();
 	const auto* Net = Instance ? Instance->GetSubsystem<URokGameNetSubsystem>() : nullptr;
-	const auto Role = Net && Net->GetState() == ERokGameNetState::RoleReady ? Net->GetRoleInfo() : nullptr;
+	const auto Role = ReadHospitalDisplayRole(Net, GetHospitalPreviewState());
 	if (FRokHospitalState::Read(Role) != HospitalState)
 	{
 		RebuildModeContent(false);
@@ -5964,11 +5602,17 @@ void URokUnityFeatureScreenWidget::UpdateHospitalActions()
 {
 	auto* Instance = GetGameInstance();
 	const auto* Net = Instance ? Instance->GetSubsystem<URokGameNetSubsystem>() : nullptr;
-	const auto Role = Net && Net->GetState() == ERokGameNetState::RoleReady ? Net->GetRoleInfo() : nullptr;
+	const EHospitalLocalPreview Preview = GetHospitalPreviewState();
+	const auto Role = ReadHospitalDisplayRole(Net, Preview);
 	auto* Config = Instance ? Instance->GetSubsystem<URokUnityConfigSubsystem>() : nullptr;
 	const bool bQueue = HospitalState.FinishTime > 0;
 	double Now = 0;
-	const bool bClockKnown = Net && Net->TryGetServerTimeSeconds(Now);
+	bool bClockKnown = Net && Net->TryGetServerTimeSeconds(Now);
+	if (Preview == EHospitalLocalPreview::Treating || Preview == EHospitalLocalPreview::Ready)
+	{
+		Now = Preview == EHospitalLocalPreview::Treating ? HospitalPreviewFinishTime - 280 : HospitalPreviewFinishTime;
+		bClockKnown = true;
+	}
 	const int64 Remaining = bQueue && bClockKnown ? FMath::Max<int64>(0, FMath::CeilToInt64(HospitalState.FinishTime - Now)) : 0;
 	const bool bReady = bQueue && bClockKnown && Remaining == 0 && !HospitalState.InTreatment.IsEmpty();
 	const bool bPending = Net && Net->IsHospitalTreatmentPending();
@@ -6087,23 +5731,42 @@ void URokUnityFeatureScreenWidget::OpenHospitalInstantConfirmation()
 	UpdateHospitalActions();
 	if (!HospitalQuote.bValid || !HospitalQuote.bHasGems) return;
 	HospitalConfirmationPrice = HospitalQuote.Gems;
-	HospitalConfirmation = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("HospitalConfirmation"));
-	PlaceOnCanvas(ModeCanvas, HospitalConfirmation, FVector2D::ZeroVector, CurrentExpandedDesignSize, 90);
+	const FText Message = FText::Format(NSLOCTEXT("RokHospital", "ConfirmGems", "消耗 {0} 宝石立即治疗？"),
+		FText::AsNumber(HospitalConfirmationPrice));
+	UClass* ConfirmClass = ActiveModePage ? ResolveFeaturePageClass(TEXT("HospitalConfirm")) : nullptr;
+	if (auto* Dialog = ConfirmClass ? CreateWidget<URokUiPageWidget>(this, ConfirmClass) : nullptr)
+	{
+		if (auto* Text = Dialog->Get<UTextBlock>(TEXT("HospitalConfirmationText")); Text
+			&& Dialog->Get<URokUnityIndexedButton>(TEXT("HospitalInstantCancel"))
+			&& Dialog->Get<URokUnityIndexedButton>(TEXT("HospitalInstantConfirm")))
+		{
+			Text->SetText(Message);
+			BindPageAction(*Dialog, TEXT("HospitalInstantCancel"), 2005);
+			BindPageAction(*Dialog, TEXT("HospitalInstantConfirm"), 2006);
+			Dialog->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+			PlaceOnCanvas(ModeCanvas, Dialog, FVector2D::ZeroVector, CurrentExpandedDesignSize, 90);
+			HospitalConfirmation = Dialog;
+			return;
+		}
+	}
+
+	auto* Canvas = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("HospitalConfirmation"));
+	HospitalConfirmation = Canvas;
+	PlaceOnCanvas(ModeCanvas, Canvas, FVector2D::ZeroVector, CurrentExpandedDesignSize, 90);
 	auto* Shade = MakeSolidBorder(TEXT("HospitalConfirmationMask"), FLinearColor(0, 0, 0, .68f));
 	Shade->SetVisibility(ESlateVisibility::Visible);
-	PlaceOnCanvas(HospitalConfirmation, Shade, FVector2D::ZeroVector, CurrentExpandedDesignSize);
+	PlaceOnCanvas(Canvas, Shade, FVector2D::ZeroVector, CurrentExpandedDesignSize);
 	const FVector2D Size(538, 200);
 	const FVector2D Origin = (CurrentExpandedDesignSize - Size) * .5f;
-	PlaceOnCanvas(HospitalConfirmation, MakeAtlasBorder(TEXT("HospitalConfirmationFrame"), FrameAtlasPath,
+	PlaceOnCanvas(Canvas, MakeAtlasBorder(TEXT("HospitalConfirmationFrame"), FrameAtlasPath,
 		WindowBodyRect, FrameAtlasSize, Size, WindowBodyMargin), Origin, Size, 1);
 	auto* Text = MakeScreenText(TEXT("HospitalConfirmationText"), 22, FLinearColor::White, false, ETextJustify::Center);
-	Text->SetText(FText::Format(NSLOCTEXT("RokHospital", "ConfirmGems", "消耗 {0} 宝石立即治疗？"),
-		FText::AsNumber(HospitalConfirmationPrice)));
-	PlaceOnCanvas(HospitalConfirmation, Text, Origin + FVector2D(20, 50), FVector2D(498, 40), 2);
-	PlaceOnCanvas(HospitalConfirmation, MakeActionButton(TEXT("HospitalInstantCancel"), 2005,
+	Text->SetText(Message);
+	PlaceOnCanvas(Canvas, Text, Origin + FVector2D(20, 50), FVector2D(498, 40), 2);
+	PlaceOnCanvas(Canvas, MakeActionButton(TEXT("HospitalInstantCancel"), 2005,
 		CommonAtlasPath, MediumBlueButtonRect, CommonAtlasSize, FVector2D(175, 62),
 		NSLOCTEXT("RokHospital", "Cancel", "取消"), 22), Origin + FVector2D(74, 120), FVector2D(175, 62), 3);
-	PlaceOnCanvas(HospitalConfirmation, MakeActionButton(TEXT("HospitalInstantConfirm"), 2006,
+	PlaceOnCanvas(Canvas, MakeActionButton(TEXT("HospitalInstantConfirm"), 2006,
 		CommonAtlasPath, MediumGoldButtonRect, CommonAtlasSize, FVector2D(175, 62),
 		NSLOCTEXT("RokHospital", "Confirm", "确认"), 22), Origin + FVector2D(289, 120), FVector2D(175, 62), 3);
 }
@@ -6174,29 +5837,98 @@ void URokUnityFeatureScreenWidget::BuildCityManager()
 		{604, 6, TEXT("铁矿石产量"), TEXT("提升城市中的铁矿石产量"), Item3AtlasPath, SpriteRect(1, 129, 126, 126), Item3AtlasSize, 0},
 		{605, 6, TEXT("金币产量"), TEXT("提升城市中的金币产量"), Item3AtlasPath, SpriteRect(1, 1, 126, 126), Item3AtlasSize, 0}};
 
-	BuildSplitWindowFrame(
-		FVector2D(160.0f, 55.0f),
-		FVector2D(1120.0f, 700.0f),
-		NSLOCTEXT("RokCityManager", "Title", "城市管理"),
-		FVector2D(1191.5f, 54.5f));
-	if (SelectedCityManagerPage != 0)
+	UClass* GroupClass = ResolveFeaturePageClass(TEXT("CityManagerGroupRow"));
+	UClass* WarLevelClass = ResolveFeaturePageClass(TEXT("CityManagerWarLevelRow"));
+	UClass* DetailClass = ResolveFeaturePageClass(TEXT("CityManagerDetailRow"));
+	const URokUiPageWidget* Page = GroupClass && WarLevelClass && DetailClass ? MountModePage() : nullptr;
+	const auto ApplyIcon = [this](UImage* Image, const TCHAR* Path, const FIntRect& Rect, const FIntPoint& AtlasSize)
 	{
-		PlaceOnCanvas(
-			ModeCanvas,
-			MakeActionButton(
-				TEXT("CityManagerBack"),
-				2100,
-				CommonAtlasPath,
-				CityManagerBackRect,
-				CommonAtlasSize,
-				FVector2D(69.0f)),
-			FVector2D(179.5f, 54.5f),
-			FVector2D(69.0f),
-			10);
+		if (!Image) return;
+		UTexture2D* Texture = LoadUiTexture(Path);
+		if (!Texture)
+		{
+			Image->SetVisibility(ESlateVisibility::Collapsed);
+			return;
+		}
+		FSlateBrush Brush = Image->GetBrush();
+		const FSlateBrush AtlasBrush = MakeAtlasBrush(Texture, Rect, AtlasSize, Brush.GetImageSize());
+		Brush.SetResourceObject(Texture);
+		Brush.SetUVRegion(static_cast<FBox2f>(AtlasBrush.GetUVRegion()));
+		Image->SetBrush(Brush);
+	};
+	if (Page)
+	{
+		const bool bMain = SelectedCityManagerPage == 0;
+		const bool bWar = SelectedCityManagerPage == 2;
+		Page->SetPresent(Page->Get<UScrollBox>(TEXT("CityManagerListScroll")), bMain);
+		for (const FName Name : {FName(TEXT("CityManagerWarDescriptionPanel")), FName(TEXT("CityManagerWarDescription")),
+			FName(TEXT("CityManagerWarState")), FName(TEXT("CityManagerWarLevelScroll"))})
+		{
+			Page->SetPresent(Page->Get<UWidget>(Name), bWar);
+		}
+		Page->SetPresent(Page->Get<UTextBlock>(TEXT("CityManagerDetailTitle")), !bMain && !bWar);
+		Page->SetPresent(Page->Get<UScrollBox>(TEXT("CityManagerDetailScroll")), !bMain && !bWar);
+		Page->SetPresent(Page->Get<UButton>(TEXT("CityManagerBack")), !bMain);
+		if (!bMain)
+		{
+			BindPageAction(*Page, TEXT("CityManagerBack"), 2100);
+		}
+	}
+	else
+	{
+		BuildSplitWindowFrame(
+			FVector2D(160.0f, 55.0f),
+			FVector2D(1120.0f, 700.0f),
+			NSLOCTEXT("RokCityManager", "Title", "城市管理"),
+			FVector2D(1191.5f, 54.5f));
+		if (SelectedCityManagerPage != 0)
+		{
+			PlaceOnCanvas(
+				ModeCanvas,
+				MakeActionButton(
+					TEXT("CityManagerBack"),
+					2100,
+					CommonAtlasPath,
+					CityManagerBackRect,
+					CommonAtlasSize,
+					FVector2D(69.0f)),
+				FVector2D(179.5f, 54.5f),
+				FVector2D(69.0f),
+				10);
+		}
 	}
 
 	if (SelectedCityManagerPage == 0)
 	{
+		if (Page)
+		{
+			for (int32 Index = 0; Index < UE_ARRAY_COUNT(Groups); ++Index)
+			{
+				const FCityManagerGroupPresentation& Group = Groups[Index];
+				UCanvasPanel* GroupSlot = Page->Get<UCanvasPanel>(*FString::Printf(TEXT("CityManagerGroupSlot_%d"), Group.GroupId));
+				if (const URokUiPageWidget* Row = MountPageItem(GroupSlot, GroupClass, TEXT("CityManager"), Group.GroupId))
+				{
+					SetFeaturePageText(*Row, TEXT("GroupName"), FText::FromString(Group.Name));
+					SetFeaturePageText(*Row, TEXT("GroupDescription"), FText::FromString(Group.Description));
+					ApplyIcon(Row->Get<UImage>(TEXT("GroupIcon")), Group.AtlasPath, Group.IconRect, Group.AtlasSize);
+					const bool bRelocate = Group.Function == 1;
+					Row->SetPresent(Row->Get<UButton>(TEXT("RelocateButton")), bRelocate);
+					Row->SetPresent(Row->Get<UButton>(TEXT("GroupButton")), !bRelocate);
+					Row->SetPresent(Row->Get<UImage>(TEXT("GroupArrow")), !bRelocate);
+					if (bRelocate)
+					{
+						BindPageAction(*Row, TEXT("RelocateButton"), 2101);
+					}
+					else
+					{
+						BindPageAction(*Row, TEXT("GroupButton"), 2102 + Index);
+					}
+				}
+			}
+			UE_LOG(LogTemp, Display, TEXT("Rok city manager: page=main series=6 groups=13 authority=config_only."));
+			return;
+		}
+
 		UScrollBox* ListScroll = WidgetTree->ConstructWidget<UScrollBox>(
 			UScrollBox::StaticClass(), TEXT("CityManagerListScroll"));
 		ListScroll->SetOrientation(Orient_Vertical);
@@ -6320,6 +6052,29 @@ void URokUnityFeatureScreenWidget::BuildCityManager()
 
 	if (SelectedCityManagerPage == 2)
 	{
+		static const TCHAR* LevelLabels[] = {
+			TEXT("10-12"), TEXT("13-14"), TEXT("15"), TEXT("16"), TEXT("17"),
+			TEXT("18"), TEXT("19"), TEXT("20"), TEXT("21"), TEXT("22"),
+			TEXT("23"), TEXT("24"), TEXT("25")};
+		static const TCHAR* DurationLabels[] = {
+			TEXT("60秒"), TEXT("2分钟"), TEXT("3分钟"), TEXT("4分钟"), TEXT("5分钟"),
+			TEXT("6分钟"), TEXT("7分钟"), TEXT("8分钟"), TEXT("9分钟"), TEXT("10分钟"),
+			TEXT("11分钟"), TEXT("12分钟"), TEXT("15分钟")};
+		if (Page)
+		{
+			for (int32 Index = 0; Index < UE_ARRAY_COUNT(LevelLabels); ++Index)
+			{
+				UCanvasPanel* LevelSlot = Page->Get<UCanvasPanel>(*FString::Printf(TEXT("CityManagerWarSlot_%d"), Index));
+				if (const URokUiPageWidget* Row = MountPageItem(LevelSlot, WarLevelClass, TEXT("CityManagerWar"), Index))
+				{
+					SetFeaturePageText(*Row, TEXT("Level"), FText::FromString(LevelLabels[Index]));
+					SetFeaturePageText(*Row, TEXT("Duration"), FText::FromString(DurationLabels[Index]));
+				}
+			}
+			UE_LOG(LogTemp, Display, TEXT("Rok city manager: page=war_frenzy authority=server_unsynced state=inactive."));
+			return;
+		}
+
 		PlaceOnCanvas(
 			ModeCanvas, MakeAtlasBorder(
 				TEXT("CityManagerWarDescriptionPanel"), CommonAtlasPath,
@@ -6346,14 +6101,6 @@ void URokUnityFeatureScreenWidget::BuildCityManager()
 		PlaceOnCanvas(
 			ModeCanvas, State, FVector2D(586.15f, 331.0f),
 			FVector2D(267.7f, 30.0f), 5);
-		static const TCHAR* LevelLabels[] = {
-			TEXT("10-12"), TEXT("13-14"), TEXT("15"), TEXT("16"), TEXT("17"),
-			TEXT("18"), TEXT("19"), TEXT("20"), TEXT("21"), TEXT("22"),
-			TEXT("23"), TEXT("24"), TEXT("25")};
-		static const TCHAR* DurationLabels[] = {
-			TEXT("60秒"), TEXT("2分钟"), TEXT("3分钟"), TEXT("4分钟"), TEXT("5分钟"),
-			TEXT("6分钟"), TEXT("7分钟"), TEXT("8分钟"), TEXT("9分钟"), TEXT("10分钟"),
-			TEXT("11分钟"), TEXT("12分钟"), TEXT("15分钟")};
 		UScrollBox* WarScroll = WidgetTree->ConstructWidget<UScrollBox>(
 			UScrollBox::StaticClass(), TEXT("CityManagerWarLevelScroll"));
 		WarScroll->SetScrollBarVisibility(ESlateVisibility::Collapsed);
@@ -6391,18 +6138,30 @@ void URokUnityFeatureScreenWidget::BuildCityManager()
 		RebuildModeContent();
 		return;
 	}
-	UTextBlock* DetailTitle = MakeScreenText(
-		TEXT("CityManagerDetailTitle"), 28,
-		FLinearColor(0.96f, 0.88f, 0.58f, 1.0f), true,
-		ETextJustify::Center);
-	DetailTitle->SetText(FText::FromString(SelectedGroup->Name));
-	PlaceOnCanvas(ModeCanvas, DetailTitle, FVector2D(208.0f, 132.0f), FVector2D(1024.0f, 44.0f), 5);
-	UScrollBox* DetailScroll = WidgetTree->ConstructWidget<UScrollBox>(
-		UScrollBox::StaticClass(), TEXT("CityManagerDetailScroll"));
-	DetailScroll->SetOrientation(Orient_Vertical);
-	DetailScroll->SetScrollBarVisibility(ESlateVisibility::Collapsed);
-	PlaceOnCanvas(ModeCanvas, DetailScroll, FVector2D(208.0f, 182.0f), FVector2D(1024.0f, 547.0f), 4);
-	UCanvasPanel* DetailContent = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("CityManagerDetailContent"));
+	UScrollBox* DetailScroll = nullptr;
+	UCanvasPanel* DetailContent = nullptr;
+	if (Page)
+	{
+		SetFeaturePageText(*Page, TEXT("CityManagerDetailTitle"), FText::FromString(SelectedGroup->Name));
+		DetailScroll = Page->Get<UScrollBox>(TEXT("CityManagerDetailScroll"));
+		DetailContent = Page->Get<UCanvasPanel>(TEXT("CityManagerDetailContent"));
+	}
+	else
+	{
+		UTextBlock* DetailTitle = MakeScreenText(
+			TEXT("CityManagerDetailTitle"), 28,
+			FLinearColor(0.96f, 0.88f, 0.58f, 1.0f), true,
+			ETextJustify::Center);
+		DetailTitle->SetText(FText::FromString(SelectedGroup->Name));
+		PlaceOnCanvas(ModeCanvas, DetailTitle, FVector2D(208.0f, 132.0f), FVector2D(1024.0f, 44.0f), 5);
+		DetailScroll = WidgetTree->ConstructWidget<UScrollBox>(
+			UScrollBox::StaticClass(), TEXT("CityManagerDetailScroll"));
+		DetailScroll->SetOrientation(Orient_Vertical);
+		DetailScroll->SetScrollBarVisibility(ESlateVisibility::Collapsed);
+		PlaceOnCanvas(ModeCanvas, DetailScroll, FVector2D(208.0f, 182.0f), FVector2D(1024.0f, 547.0f), 4);
+		DetailContent = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("CityManagerDetailContent"));
+	}
+	if (!DetailScroll || !DetailContent) return;
 
 	URokUnityConfigSubsystem* Config = GetGameInstance()
 		? GetGameInstance()->GetSubsystem<URokUnityConfigSubsystem>() : nullptr;
@@ -6441,29 +6200,154 @@ void URokUnityFeatureScreenWidget::BuildCityManager()
 		}
 	}
 	const float DetailHeight = FMath::Max(547.0f, DetailItems.Num() * 156.0f);
-	DetailScroll->AddChild(WrapFixedSize(DetailContent, TEXT("CityManagerDetailContentSize"), FVector2D(1024.0f, DetailHeight)));
+	if (Page)
+	{
+		if (USizeBox* SizeBox = Page->Get<USizeBox>(TEXT("CityManagerDetailContentSize")))
+		{
+			SizeBox->SetHeightOverride(DetailHeight);
+		}
+	}
+	else
+	{
+		DetailScroll->AddChild(WrapFixedSize(DetailContent, TEXT("CityManagerDetailContentSize"), FVector2D(1024.0f, DetailHeight)));
+	}
 	for (int32 Index = 0; Index < DetailItems.Num(); ++Index)
 	{
 		const FRokUnityEconomyItem& Item = DetailItems[Index];
 		const float Y = Index * 156.0f;
-		PlaceOnCanvas(DetailContent, MakeAtlasBorder(*FString::Printf(TEXT("CityManagerDetailRowBackground_%d"), Index), CommonAtlasPath, CommonPanelRect, CommonAtlasSize, FVector2D(1024.0f, 154.0f), CommonPanelMargin), FVector2D(0.0f, Y), FVector2D(1024.0f, 154.0f), 0);
 		const TCHAR* IconAtlasPath = nullptr;
 		FIntRect IconRect;
 		FIntPoint IconAtlasSize;
-		if (ResolveEconomyItemIcon(Item, IconAtlasPath, IconRect, IconAtlasSize))
+		const bool bHasIcon = ResolveEconomyItemIcon(Item, IconAtlasPath, IconRect, IconAtlasSize);
+		const FText ItemTitle = FText::FromString(Item.DisplayNameZhCn);
+		const FText DescriptionText = FText::FromString(ResolveEconomyItemDescription(Item));
+		if (URokUiPageWidget* Row = Page ? CreateWidget<URokUiPageWidget>(this, DetailClass) : nullptr)
+		{
+			Row->LegacyPrefix = TEXT("CityManagerDetail");
+			Row->LegacySuffix = FString::Printf(TEXT("_%d"), Index);
+			Row->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+			PlaceOnCanvas(DetailContent, Row, FVector2D(0.0f, Y), FVector2D(1024.0f, 156.0f), 1);
+			UImage* Icon = Row->Get<UImage>(TEXT("Icon"));
+			Row->SetPresent(Icon, bHasIcon);
+			if (bHasIcon)
+			{
+				ApplyIcon(Icon, IconAtlasPath, IconRect, IconAtlasSize);
+			}
+			SetFeaturePageText(*Row, TEXT("ItemName"), ItemTitle);
+			SetFeaturePageText(*Row, TEXT("ItemDescription"), DescriptionText);
+			BindPageAction(*Row, TEXT("Action"), 2160 + Index);
+			continue;
+		}
+		PlaceOnCanvas(DetailContent, MakeAtlasBorder(*FString::Printf(TEXT("CityManagerDetailRowBackground_%d"), Index), CommonAtlasPath, CommonPanelRect, CommonAtlasSize, FVector2D(1024.0f, 154.0f), CommonPanelMargin), FVector2D(0.0f, Y), FVector2D(1024.0f, 154.0f), 0);
+		if (bHasIcon)
 		{
 			PlaceOnCanvas(DetailContent, MakeAtlasImage(*FString::Printf(TEXT("CityManagerDetailIcon_%d"), Index), IconAtlasPath, IconRect, IconAtlasSize, FVector2D(112.0f)), FVector2D(884.0f, Y + 21.0f), FVector2D(112.0f), 3);
 		}
 		UTextBlock* ItemName = MakeScreenText(*FString::Printf(TEXT("CityManagerDetailItemName_%d"), Index), 22, FLinearColor(0.96f, 0.88f, 0.58f, 1.0f), true, ETextJustify::Right);
-		ItemName->SetText(FText::FromString(Item.DisplayNameZhCn));
+		ItemName->SetText(ItemTitle);
 		PlaceOnCanvas(DetailContent, ItemName, FVector2D(410.0f, Y + 20.0f), FVector2D(450.0f, 35.0f), 3);
 		UTextBlock* ItemDescription = MakeScreenText(*FString::Printf(TEXT("CityManagerDetailItemDescription_%d"), Index), 17, FLinearColor(0.82f, 0.82f, 0.78f, 1.0f), false, ETextJustify::Right);
 		ItemDescription->SetAutoWrapText(true);
-		ItemDescription->SetText(FText::FromString(ResolveEconomyItemDescription(Item)));
+		ItemDescription->SetText(DescriptionText);
 		PlaceOnCanvas(DetailContent, ItemDescription, FVector2D(330.0f, Y + 60.0f), FVector2D(530.0f, 65.0f), 3);
 		PlaceOnCanvas(DetailContent, MakeActionButton(*FString::Printf(TEXT("CityManagerDetailAction_%d"), Index), 2160 + Index, CommonAtlasPath, MiniBlueButtonRect, CommonAtlasSize, FVector2D(188.0f, 54.0f), NSLOCTEXT("RokCityManager", "InventoryUnavailable", "库存未同步"), 16, FLinearColor(0.04f, 0.14f, 0.24f, 1.0f), ESlateBrushDrawType::Box, MiniBlueMargin), FVector2D(50.0f, Y + 51.0f), FVector2D(188.0f, 54.0f), 7);
 	}
 	UE_LOG(LogTemp, Display, TEXT("Rok city manager: page=buff_detail group=%d config_items=%d authority=inventory_unsynced."), SelectedGroup->GroupId, DetailItems.Num());
+}
+
+namespace
+{
+TOptional<FRokServerArmySnapshot> MakeArmyShowPreviewSnapshot()
+{
+#if !UE_BUILD_SHIPPING
+	if (!FParse::Param(FCommandLine::Get(), TEXT("RokLocalOnly")))
+	{
+		return {};
+	}
+	FString State;
+	FParse::Value(FCommandLine::Get(), TEXT("RokArmyShowFixture="), State);
+	if (State != TEXT("waiting") && State != TEXT("empty") && State != TEXT("marches"))
+	{
+		return {};
+	}
+
+	FRokServerArmySnapshot Snapshot;
+	Snapshot.Signature = State;
+	Snapshot.bAvailable = true;
+	Snapshot.bLoaded = Snapshot.bArmiesKnown = State != TEXT("waiting");
+	if (State == TEXT("marches"))
+	{
+		FRokServerMarch& Active = Snapshot.Marches.AddDefaulted_GetRef();
+		Active.ArmyIndex = 81;
+		Active.Phase = ERokServerMarchPhase::Marching;
+		Active.bTargetKnown = Active.bSoldiersKnown = Active.bTimeKnown = true;
+		Active.TargetName = TEXT("本地行军演示");
+		Active.Count = 640;
+		Active.RemainingSeconds = 78;
+		FRokServerMarch& Returning = Snapshot.Marches.AddDefaulted_GetRef();
+		Returning.ArmyIndex = 83;
+		Returning.Phase = ERokServerMarchPhase::Returning;
+	}
+	return Snapshot;
+#else
+	return {};
+#endif
+}
+
+TOptional<FRokServerArmySnapshot> MakeArmyStatisticsPreviewSnapshot()
+{
+	const int32 Preview = ReadLocalUiPreviewOption(TEXT("RokArmyStatisticsFixture="), 1, 2);
+	if (Preview == INDEX_NONE)
+	{
+		return {};
+	}
+	FRokServerArmySnapshot Snapshot;
+	Snapshot.bAvailable = true;
+	Snapshot.Signature = Preview == 1 ? TEXT("statistics_waiting") : TEXT("statistics_loaded");
+	if (Preview == 1)
+	{
+		return Snapshot;
+	}
+	Snapshot.bLoaded = true;
+	Snapshot.bCityKnown = true;
+	Snapshot.bArmiesKnown = true;
+	Snapshot.bTotalCountKnown = true;
+	Snapshot.bCityPowerKnown = true;
+	Snapshot.CityCount = 120;
+	Snapshot.CityPower = 240;
+	Snapshot.FieldCount = 30;
+	Snapshot.FieldMinorCount = 5;
+	Snapshot.TotalCount = 155;
+	FRokServerSoldierStack& City = Snapshot.CitySoldiers.AddDefaulted_GetRef();
+	City.Id = 1001;
+	City.FamilyType = 1;
+	City.Tier = 1;
+	City.Count = 120;
+	City.TotalPower = 240;
+	City.Name = TEXT("持盾步兵");
+	City.bCatalogKnown = true;
+	FRokServerSoldierStack& Field = Snapshot.FieldSoldiers.AddDefaulted_GetRef();
+	Field.Id = 4013;
+	Field.FamilyType = 4;
+	Field.Tier = 3;
+	Field.Count = 30;
+	Snapshot.AllSoldiers = {City, Field};
+	return Snapshot;
+}
+
+FText FormatArmyShowMarchRemaining(const FRokServerMarch& March)
+{
+	if (!March.bTimeKnown)
+	{
+		return NSLOCTEXT("RokArmyShow", "MarchTimeUnknown", "时间待同步");
+	}
+	if (March.RemainingSeconds <= 0.0)
+	{
+		return NSLOCTEXT("RokArmyShow", "MarchAwaitingServer", "等待服务器确认");
+	}
+	return FText::Format(NSLOCTEXT("RokArmyShow", "MarchRemaining", "剩余 {0}"),
+		FormatBuildDuration(FMath::CeilToInt(March.RemainingSeconds)));
+}
 }
 
 void URokUnityFeatureScreenWidget::BuildArmyShow()
@@ -6471,9 +6355,10 @@ void URokUnityFeatureScreenWidget::BuildArmyShow()
 	const UGameInstance* ArmyInstance = GetGameInstance();
 	const URokServerArmySubsystem* ServerArmy = ArmyInstance
 		? ArmyInstance->GetSubsystem<URokServerArmySubsystem>() : nullptr;
-	FRokServerArmySnapshot ArmySnapshot = ServerArmy
-		? ServerArmy->GetSnapshot() : FRokServerArmySnapshot();
-	if (ArmySnapshot.bAvailable && !ArmySnapshot.bLoaded)
+	const auto Preview = MakeArmyShowPreviewSnapshot();
+	FRokServerArmySnapshot ArmySnapshot = Preview.IsSet() ? Preview.GetValue()
+		: ServerArmy ? ServerArmy->GetSnapshot() : FRokServerArmySnapshot();
+	if (!Preview.IsSet() && ArmySnapshot.bAvailable && !ArmySnapshot.bLoaded)
 	{
 		if (URokUnityGameplayCatalogSubsystem* Catalog = GetGameplayCatalogSubsystem())
 		{
@@ -6483,14 +6368,40 @@ void URokUnityFeatureScreenWidget::BuildArmyShow()
 	}
 	bLastServerArmyAvailable = ArmySnapshot.bAvailable;
 	LastServerArmySignature = ArmySnapshot.Signature;
-	BuildSplitWindowFrame(
-		CapturePoint(133.5f, 85.5f),
-		FVector2D(1173.0f, 729.0f),
-		NSLOCTEXT("RokArmyShow", "Title", "部队一览"),
-		CapturePoint(1230.0f, 77.0f));
+	UClass* MarchClass = nullptr;
+	UClass* MessageClass = nullptr;
+	const URokUiPageWidget* Page = nullptr;
+	if (bArmyShowRulesVisible)
+	{
+		Page = MountModePage(TEXT("ArmyShowRules"));
+	}
+	else
+	{
+		MarchClass = ResolveFeaturePageClass(TEXT("ArmyShowMarchRow"));
+		MessageClass = ResolveFeaturePageClass(TEXT("ArmyShowMessage"));
+		if (MarchClass && MessageClass)
+		{
+			Page = MountModePage();
+		}
+	}
+	if (!Page)
+	{
+		BuildSplitWindowFrame(
+			CapturePoint(133.5f, 85.5f),
+			FVector2D(1173.0f, 729.0f),
+			NSLOCTEXT("RokArmyShow", "Title", "部队一览"),
+			CapturePoint(1230.0f, 77.0f));
+	}
 
 	if (bArmyShowRulesVisible)
 	{
+		if (Page)
+		{
+			BindPageAction(*Page, TEXT("ArmyShowRulesBackButton"), 2201);
+			ArmyShowPanelAnimationWidgets.Add(Page->Get<UScrollBox>(TEXT("ArmyShowRulesScroll")));
+			AdvanceArmyShowPanelAnimation(0.0f);
+			return;
+		}
 		PlaceOnCanvas(
 			ModeCanvas,
 			MakeActionButton(
@@ -6554,81 +6465,107 @@ void URokUnityFeatureScreenWidget::BuildArmyShow()
 	}
 
 	const int32 ArmyListFirstChild = ModeCanvas->GetChildrenCount();
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeAtlasImage(
-			TEXT("ArmyShowRuleBar"),
-			CommonAtlasPath,
-			ArmyShowRuleBarRect,
-			CommonAtlasSize,
-			FVector2D(986.0f, 48.0f)),
-		CapturePoint(227.0f, 167.6f),
-		FVector2D(986.0f, 48.0f),
-		4);
-	UTextBlock* RuleLabel = MakeScreenText(
-		TEXT("ArmyShowRuleLabel"),
-		24,
-		FLinearColor(0.91f, 0.90f, 0.80f, 1.0f),
-		false,
-		ETextJustify::Center);
-	RuleLabel->SetText(NSLOCTEXT(
-		"RokArmyShow",
-		"RuleLabel",
-		"自由行军、部队多选和进攻驻扎的相关规则说明"));
-	PlaceOnCanvas(
-		ModeCanvas,
-		RuleLabel,
-		CapturePoint(308.3f, 167.0f),
-		FVector2D(835.6f, 40.0f),
-		6);
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeActionButton(
-			TEXT("ArmyShowRulesButton"),
-			2200,
-			nullptr,
-			FIntRect(),
-			FIntPoint::ZeroValue,
-			FVector2D(60.0f)),
-		CapturePoint(248.2f, 161.6f),
-		FVector2D(60.0f),
-		8);
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeAtlasImage(
-			TEXT("ArmyShowRulesIcon"),
-			CommonAtlasPath,
-			ArmyShowRuleIconRect,
-			CommonAtlasSize,
-			FVector2D(40.0f)),
-		CapturePoint(258.2f, 171.6f),
-		FVector2D(40.0f),
-		9);
+	UScrollBox* ArmyList = nullptr;
+	if (Page)
+	{
+		ArmyList = Page->Get<UScrollBox>(TEXT("ArmyShowListScroll"));
+		BindPageAction(*Page, TEXT("ArmyShowRulesButton"), 2200);
+		for (const FName Name : {FName(TEXT("ArmyShowRuleBar")), FName(TEXT("ArmyShowRuleLabel")),
+			FName(TEXT("ArmyShowRulesButton")), FName(TEXT("ArmyShowRulesIcon")), FName(TEXT("ArmyShowListScroll"))})
+		{
+			ArmyShowPanelAnimationWidgets.Add(Page->Get<UWidget>(Name));
+		}
+	}
+	else
+	{
+		PlaceOnCanvas(
+			ModeCanvas,
+			MakeAtlasImage(
+				TEXT("ArmyShowRuleBar"),
+				CommonAtlasPath,
+				ArmyShowRuleBarRect,
+				CommonAtlasSize,
+				FVector2D(986.0f, 48.0f)),
+			CapturePoint(227.0f, 167.6f),
+			FVector2D(986.0f, 48.0f),
+			4);
+		UTextBlock* RuleLabel = MakeScreenText(
+			TEXT("ArmyShowRuleLabel"),
+			24,
+			FLinearColor(0.91f, 0.90f, 0.80f, 1.0f),
+			false,
+			ETextJustify::Center);
+		RuleLabel->SetText(NSLOCTEXT(
+			"RokArmyShow",
+			"RuleLabel",
+			"自由行军、部队多选和进攻驻扎的相关规则说明"));
+		PlaceOnCanvas(
+			ModeCanvas,
+			RuleLabel,
+			CapturePoint(308.3f, 167.0f),
+			FVector2D(835.6f, 40.0f),
+			6);
+		PlaceOnCanvas(
+			ModeCanvas,
+			MakeActionButton(
+				TEXT("ArmyShowRulesButton"),
+				2200,
+				nullptr,
+				FIntRect(),
+				FIntPoint::ZeroValue,
+				FVector2D(60.0f)),
+			CapturePoint(248.2f, 161.6f),
+			FVector2D(60.0f),
+			8);
+		PlaceOnCanvas(
+			ModeCanvas,
+			MakeAtlasImage(
+				TEXT("ArmyShowRulesIcon"),
+				CommonAtlasPath,
+				ArmyShowRuleIconRect,
+				CommonAtlasSize,
+				FVector2D(40.0f)),
+			CapturePoint(258.2f, 171.6f),
+			FVector2D(40.0f),
+			9);
 
-	UScrollBox* ArmyList = WidgetTree->ConstructWidget<UScrollBox>(
-		UScrollBox::StaticClass(),
-		TEXT("ArmyShowListScroll"));
-	ArmyList->SetOrientation(Orient_Vertical);
-	ArmyList->SetScrollBarVisibility(ESlateVisibility::Collapsed);
-	ArmyList->SetAllowOverscroll(true);
-	ArmyList->SetAnimateWheelScrolling(true);
-	ArmyList->SetWheelScrollMultiplier(10.0f);
-	PlaceOnCanvas(
-		ModeCanvas,
-		ArmyList,
-		CapturePoint(183.0f, 215.84f),
-		FVector2D(1074.0f, 584.16f),
-		4);
-	if (ArmySnapshot.bAvailable)
+		ArmyList = WidgetTree->ConstructWidget<UScrollBox>(
+			UScrollBox::StaticClass(),
+			TEXT("ArmyShowListScroll"));
+		ArmyList->SetOrientation(Orient_Vertical);
+		ArmyList->SetScrollBarVisibility(ESlateVisibility::Collapsed);
+		ArmyList->SetAllowOverscroll(true);
+		ArmyList->SetAnimateWheelScrolling(true);
+		ArmyList->SetWheelScrollMultiplier(10.0f);
+		PlaceOnCanvas(
+			ModeCanvas,
+			ArmyList,
+			CapturePoint(183.0f, 215.84f),
+			FVector2D(1074.0f, 584.16f),
+			4);
+	}
+	int32 RenderedRows = 0;
+	if (ArmyList && ArmySnapshot.bAvailable)
 	{
 		if (!ArmySnapshot.bLoaded || !ArmySnapshot.bArmiesKnown || ArmySnapshot.Marches.IsEmpty())
 		{
-			UTextBlock* Empty = MakeScreenText(TEXT("ArmyShowServerEmpty"), 23,
-				FLinearColor(0.84f, 0.84f, 0.80f, 1.0f), false, ETextJustify::Center);
-			Empty->SetText(ArmySnapshot.bLoaded && ArmySnapshot.bArmiesKnown
+			const FText Message = ArmySnapshot.bLoaded && ArmySnapshot.bArmiesKnown
 				? NSLOCTEXT("RokArmyShow", "NoActiveMarches", "暂无行军部队")
-				: NSLOCTEXT("RokArmyShow", "MarchesWaiting", "等待服务器同步行军部队"));
-			ArmyList->AddChild(WrapFixedSize(Empty, TEXT("ArmyShowServerEmptySize"), FVector2D(1050.0f, 120.0f)));
+				: NSLOCTEXT("RokArmyShow", "MarchesWaiting", "等待服务器同步行军部队");
+			URokUiPageWidget* MessageRow = Page ? CreateWidget<URokUiPageWidget>(this, MessageClass) : nullptr;
+			if (MessageRow)
+			{
+				MessageRow->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+				SetFeaturePageText(*MessageRow, TEXT("ArmyShowServerEmpty"), Message);
+				ArmyList->AddChild(WrapFixedSize(MessageRow, TEXT("ArmyShowMessageSize"), FVector2D(1050.0f, 120.0f)));
+			}
+			else
+			{
+				UTextBlock* Empty = MakeScreenText(TEXT("ArmyShowServerEmpty"), 23,
+					FLinearColor(0.84f, 0.84f, 0.80f, 1.0f), false, ETextJustify::Center);
+				Empty->SetText(Message);
+				ArmyList->AddChild(WrapFixedSize(Empty, TEXT("ArmyShowServerEmptySize"), FVector2D(1050.0f, 120.0f)));
+			}
 		}
 		for (int32 Index = 0; ArmySnapshot.bLoaded && ArmySnapshot.bArmiesKnown
 			&& Index < ArmySnapshot.Marches.Num(); ++Index)
@@ -6649,9 +6586,36 @@ void URokUnityFeatureScreenWidget::BuildArmyShow()
 									: March.Phase == ERokServerMarchPhase::Rallying
 										? NSLOCTEXT("RokArmyShow", "Rallying", "集结中")
 										: NSLOCTEXT("RokArmyShow", "PhaseUnknown", "状态待同步");
+			++RenderedRows;
+			const FText StatusText = FText::Format(NSLOCTEXT("RokArmyShow", "MarchStatusFormat", "{0} · 兵力 {1}"),
+				Phase, March.bSoldiersKnown ? FText::AsNumber(March.Count)
+					: NSLOCTEXT("RokArmyShow", "MarchSoldiersUnknown", "待同步"));
+			const FText TargetText = March.bTargetKnown
+				? FText::FromString(March.TargetName.IsEmpty() ? TEXT("目标地点") : March.TargetName)
+				: NSLOCTEXT("RokArmyShow", "TargetUnknown", "目标待同步");
+			const FText RemainingText = FormatArmyShowMarchRemaining(March);
+			const FText Tooltip = FText::AsNumber(March.ArmyIndex);
+			if (URokUiPageWidget* MarchRow = Page ? CreateWidget<URokUiPageWidget>(this, MarchClass) : nullptr)
+			{
+				MarchRow->LegacyPrefix = TEXT("ArmyShowMarch");
+				MarchRow->LegacySuffix = FString::Printf(TEXT("_%d"), Index);
+				MarchRow->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+				if (UCanvasPanel* Row = MarchRow->Get<UCanvasPanel>(TEXT("Row")))
+				{
+					Row->SetToolTipText(Tooltip);
+				}
+				SetFeaturePageText(*MarchRow, TEXT("Status"), StatusText);
+				SetFeaturePageText(*MarchRow, TEXT("Target"), TargetText);
+				SetFeaturePageText(*MarchRow, TEXT("Remaining"), RemainingText);
+				BindPageAction(*MarchRow, TEXT("Recall"), 6200 + Index);
+				ArmyList->AddChild(WrapFixedSize(MarchRow,
+					*FString::Printf(TEXT("ArmyShowMarchPresentationSize_%d"), Index), FVector2D(1050.0f, 124.0f)));
+				continue;
+			}
+
 			UCanvasPanel* Row = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(),
 				*FString::Printf(TEXT("ArmyShowMarchRow_%d"), Index));
-			Row->SetToolTipText(FText::AsNumber(March.ArmyIndex));
+			Row->SetToolTipText(Tooltip);
 			ArmyList->AddChild(WrapFixedSize(Row,
 				*FString::Printf(TEXT("ArmyShowMarchRowSize_%d"), Index), FVector2D(1050.0f, 124.0f)));
 			PlaceOnCanvas(Row, MakeAtlasBorder(*FString::Printf(TEXT("ArmyShowMarchBackground_%d"), Index),
@@ -6659,24 +6623,15 @@ void URokUnityFeatureScreenWidget::BuildArmyShow()
 				FVector2D(8.0f, 2.0f), FVector2D(1030.0f, 116.0f), 0);
 			UTextBlock* Status = MakeScreenText(*FString::Printf(TEXT("ArmyShowMarchStatus_%d"), Index), 23,
 				FLinearColor(0.96f, 0.90f, 0.65f, 1.0f), true);
-			Status->SetText(FText::Format(NSLOCTEXT("RokArmyShow", "MarchStatusFormat", "{0} · 兵力 {1}"),
-				Phase, March.bSoldiersKnown ? FText::AsNumber(March.Count)
-					: NSLOCTEXT("RokArmyShow", "MarchSoldiersUnknown", "待同步")));
+			Status->SetText(StatusText);
 			PlaceOnCanvas(Row, Status, FVector2D(30.0f, 14.0f), FVector2D(550.0f, 36.0f), 1);
 			UTextBlock* Target = MakeScreenText(*FString::Printf(TEXT("ArmyShowMarchTarget_%d"), Index), 18,
 				FLinearColor::White);
-			Target->SetText(March.bTargetKnown
-				? FText::FromString(March.TargetName.IsEmpty() ? TEXT("目标地点") : March.TargetName)
-				: NSLOCTEXT("RokArmyShow", "TargetUnknown", "目标待同步"));
+			Target->SetText(TargetText);
 			PlaceOnCanvas(Row, Target, FVector2D(30.0f, 60.0f), FVector2D(550.0f, 30.0f), 1);
 			UTextBlock* Remaining = MakeScreenText(*FString::Printf(TEXT("ArmyShowMarchRemaining_%d"), Index), 18,
 				FLinearColor(0.82f, 0.82f, 0.78f, 1.0f), false, ETextJustify::Right);
-			Remaining->SetText(March.bTimeKnown
-				? (March.RemainingSeconds > 0.0
-					? FText::Format(NSLOCTEXT("RokArmyShow", "MarchRemaining", "剩余 {0}"),
-						FormatBuildDuration(FMath::CeilToInt(March.RemainingSeconds)))
-					: NSLOCTEXT("RokArmyShow", "MarchAwaitingServer", "等待服务器确认"))
-				: NSLOCTEXT("RokArmyShow", "MarchTimeUnknown", "时间待同步"));
+			Remaining->SetText(RemainingText);
 			PlaceOnCanvas(Row, Remaining, FVector2D(650.0f, 17.0f), FVector2D(340.0f, 30.0f), 1);
 			PlaceOnCanvas(Row, MakeActionButton(*FString::Printf(TEXT("ArmyShowMarchRecall_%d"), Index),
 				6200 + Index, CommonAtlasPath, MiniBlueButtonRect, CommonAtlasSize,
@@ -6687,15 +6642,19 @@ void URokUnityFeatureScreenWidget::BuildArmyShow()
 	}
 
 	// pl_blet and sv_armys share ContentShow; keep the frame/back button still.
-	for (int32 Index = ArmyListFirstChild; Index < ModeCanvas->GetChildrenCount(); ++Index)
+	if (!Page)
 	{
-		ArmyShowPanelAnimationWidgets.Add(ModeCanvas->GetChildAt(Index));
+		for (int32 Index = ArmyListFirstChild; Index < ModeCanvas->GetChildrenCount(); ++Index)
+		{
+			ArmyShowPanelAnimationWidgets.Add(ModeCanvas->GetChildAt(Index));
+		}
 	}
 	AdvanceArmyShowPanelAnimation(0.0f);
 	UE_LOG(
 		LogTemp,
 		Display,
-		TEXT("Rok ArmyShow screen: source=UI_Win_ArmyShow rendered_rows=0 placeholder_rows=0 authority=server."));
+		TEXT("Rok ArmyShow screen: source=UI_Win_ArmyShow rendered_rows=%d placeholder_rows=0 authority=%s."),
+		RenderedRows, Preview.IsSet() ? TEXT("fixture") : TEXT("server"));
 }
 
 void URokUnityFeatureScreenWidget::RefreshServerArmyPresentation()
@@ -6706,8 +6665,17 @@ void URokUnityFeatureScreenWidget::RefreshServerArmyPresentation()
 	const UGameInstance* Instance = GetGameInstance();
 	const URokServerArmySubsystem* Server = Instance
 		? Instance->GetSubsystem<URokServerArmySubsystem>() : nullptr;
-	const FRokServerArmySnapshot Snapshot = Server
-		? Server->GetSnapshot() : FRokServerArmySnapshot();
+	TOptional<FRokServerArmySnapshot> Preview;
+	if (ActiveMode == ERokUnityFeatureScreenMode::ArmyShow)
+	{
+		Preview = MakeArmyShowPreviewSnapshot();
+	}
+	else if (ActiveMode == ERokUnityFeatureScreenMode::ArmyStatistics)
+	{
+		Preview = MakeArmyStatisticsPreviewSnapshot();
+	}
+	const FRokServerArmySnapshot Snapshot = Preview.IsSet() ? Preview.GetValue()
+		: Server ? Server->GetSnapshot() : FRokServerArmySnapshot();
 	if (Snapshot.bAvailable != bLastServerArmyAvailable || Snapshot.Signature != LastServerArmySignature)
 	{
 		const TCHAR* ScrollName = ActiveMode == ERokUnityFeatureScreenMode::ArmyStatistics
@@ -6753,12 +6721,7 @@ void URokUnityFeatureScreenWidget::RefreshServerArmyPresentation()
 				*FString::Printf(TEXT("ArmyShowMarchRemaining_%d"), Index)));
 			if (!Remaining) continue;
 			const FRokServerMarch& March = Snapshot.Marches[Index];
-			Remaining->SetText(March.bTimeKnown
-				? (March.RemainingSeconds > 0.0
-					? FText::Format(NSLOCTEXT("RokArmyShow", "MarchRemaining", "剩余 {0}"),
-						FormatBuildDuration(FMath::CeilToInt(March.RemainingSeconds)))
-					: NSLOCTEXT("RokArmyShow", "MarchAwaitingServer", "等待服务器确认"))
-				: NSLOCTEXT("RokArmyShow", "MarchTimeUnknown", "时间待同步"));
+			Remaining->SetText(FormatArmyShowMarchRemaining(March));
 		}
 	}
 }
@@ -6778,8 +6741,57 @@ void URokUnityFeatureScreenWidget::AdvanceArmyShowPanelAnimation(float DeltaSeco
 	}
 }
 
+namespace
+{
+const FName SettingsHubButtonNames[] = {
+	TEXT("SettingsHubCharacterButton"),
+	TEXT("SettingsHubNotificationButton"),
+	TEXT("SettingsHubGeneralButton"),
+	TEXT("SettingsHubLanguageButton"),
+	TEXT("SettingsHubCommunityButton"),
+	TEXT("SettingsHubHelpButton"),
+	TEXT("SettingsHubAccountButton")
+};
+constexpr int32 SettingsHubActionIds[] = {1455, 1454, 1453, 1450, 1458, 1457, 1456};
+const FName LanguageOptionButtonNames[] = {
+	TEXT("LanguageOptionEnglishButton"),
+	TEXT("LanguageOptionArabicButton"),
+	TEXT("LanguageOptionChineseButton"),
+	TEXT("LanguageOptionTurkishButton")
+};
+
+FText FormatSettingsHubDate()
+{
+	return FText::Format(NSLOCTEXT("RokSettings", "DateFormat", "日期  {0}"),
+		FText::FromString(FDateTime::Now().ToString(TEXT("%Y-%m-%d"))));
+}
+
+FText FormatSettingsHubVersion()
+{
+	return FText::Format(NSLOCTEXT("RokSettings", "VersionFormat", "版本  {0}"),
+		FText::FromString(FString::Printf(TEXT("%s Preview"), FApp::GetProjectName())));
+}
+}
+
 void URokUnityFeatureScreenWidget::BuildSettingsHub()
 {
+	if (const URokUiPageWidget* Page = MountModePage())
+	{
+		if (UTextBlock* Date = Page->Get<UTextBlock>(TEXT("SettingsHubDate")))
+		{
+			Date->SetText(FormatSettingsHubDate());
+		}
+		if (UTextBlock* Version = Page->Get<UTextBlock>(TEXT("SettingsHubVersion")))
+		{
+			Version->SetText(FormatSettingsHubVersion());
+		}
+		for (int32 Index = 0; Index < UE_ARRAY_COUNT(SettingsHubButtonNames); ++Index)
+		{
+			BindPageAction(*Page, SettingsHubButtonNames[Index], SettingsHubActionIds[Index]);
+		}
+		UE_LOG(LogTemp, Log, TEXT("Rok settings hub: entries=7 active_routes=4 server_gates=1 platform_gates=2."));
+		return;
+	}
 	BuildSplitWindowFrame(
 		CapturePoint(146.0f, 73.0f),
 		FVector2D(1148.0f, 754.0f),
@@ -6800,9 +6812,7 @@ void URokUnityFeatureScreenWidget::BuildSettingsHub()
 		FLinearColor(0.78f, 0.78f, 0.75f, 1.0f),
 		false,
 		ETextJustify::Center);
-	DateText->SetText(FText::Format(
-		NSLOCTEXT("RokSettings", "DateFormat", "日期  {0}"),
-		FText::FromString(FDateTime::Now().ToString(TEXT("%Y-%m-%d")))));
+	DateText->SetText(FormatSettingsHubDate());
 	PlaceOnCanvas(
 		ModeCanvas,
 		DateText,
@@ -6810,22 +6820,13 @@ void URokUnityFeatureScreenWidget::BuildSettingsHub()
 		FVector2D(396.0f, 40.0f),
 		5);
 
-	FString ProjectVersion = FString::Printf(
-		TEXT("%s Preview"),
-		FApp::GetProjectName());
-	if (ProjectVersion.IsEmpty())
-	{
-		ProjectVersion = TEXT("UE 5.8");
-	}
 	UTextBlock* VersionText = MakeScreenText(
 		TEXT("SettingsHubVersion"),
 		17,
 		FLinearColor(0.78f, 0.78f, 0.75f, 1.0f),
 		false,
 		ETextJustify::Center);
-	VersionText->SetText(FText::Format(
-		NSLOCTEXT("RokSettings", "VersionFormat", "版本  {0}"),
-		FText::FromString(ProjectVersion)));
+	VersionText->SetText(FormatSettingsHubVersion());
 	PlaceOnCanvas(
 		ModeCanvas,
 		VersionText,
@@ -6833,14 +6834,6 @@ void URokUnityFeatureScreenWidget::BuildSettingsHub()
 		FVector2D(396.0f, 40.0f),
 		5);
 
-	static const FName ButtonNames[] = {
-		TEXT("SettingsHubCharacterButton"),
-		TEXT("SettingsHubNotificationButton"),
-		TEXT("SettingsHubGeneralButton"),
-		TEXT("SettingsHubLanguageButton"),
-		TEXT("SettingsHubCommunityButton"),
-		TEXT("SettingsHubHelpButton"),
-		TEXT("SettingsHubAccountButton")};
 	static const FText Labels[] = {
 		NSLOCTEXT("RokSettings", "Character", "角色管理"),
 		NSLOCTEXT("RokSettings", "Notification", "通知"),
@@ -6865,7 +6858,6 @@ void URokUnityFeatureScreenWidget::BuildSettingsHub()
 		FVector2D(529.0f, 402.0f),
 		FVector2D(793.0f, 402.0f),
 		FVector2D(1057.0f, 402.0f)};
-	static const int32 ActionIds[] = {1455, 1454, 1453, 1450, 1458, 1457, 1456};
 	static const bool Enabled[] = {false, true, true, true, false, true, true};
 	static const FText GateLabels[] = {
 		NSLOCTEXT("RokSettings", "CharacterGate", "需服务器"),
@@ -6876,7 +6868,7 @@ void URokUnityFeatureScreenWidget::BuildSettingsHub()
 		NSLOCTEXT("RokSettings", "HelpGate", "待客服接入"),
 		FText::GetEmpty()};
 
-	for (int32 Index = 0; Index < UE_ARRAY_COUNT(ButtonNames); ++Index)
+	for (int32 Index = 0; Index < UE_ARRAY_COUNT(SettingsHubButtonNames); ++Index)
 	{
 		const FVector2D Position = Positions[Index];
 		PlaceOnCanvas(
@@ -6925,8 +6917,8 @@ void URokUnityFeatureScreenWidget::BuildSettingsHub()
 		}
 
 		URokUnityIndexedButton* HitButton = MakeActionButton(
-			ButtonNames[Index],
-			ActionIds[Index],
+			SettingsHubButtonNames[Index],
+			SettingsHubActionIds[Index],
 			nullptr,
 			FIntRect(),
 			FIntPoint::ZeroValue,
@@ -6944,6 +6936,52 @@ void URokUnityFeatureScreenWidget::BuildSettingsHub()
 		LogTemp,
 		Log,
 		TEXT("Rok settings hub: entries=7 active_routes=4 server_gates=1 platform_gates=2."));
+}
+
+namespace
+{
+void ApplyGraphicsSettingsRecommendation(URichTextBlock& Recommendation)
+{
+	using RokGraphicsSettingsLayout::RecommendedTier;
+	static const TCHAR* Levels[] = { TEXT("低"), TEXT("中"), TEXT("高") };
+	FTextBlockStyle Style = Recommendation.GetDefaultTextStyle();
+	// The transient data table colors only the recommended tier word.
+	Style.SetFont(FCoreStyle::GetDefaultFontStyle(TEXT("Regular"), 15))
+		.SetColorAndOpacity(FSlateColor(FLinearColor::White)).SetShadowOffset(FVector2D::ZeroVector);
+	auto* Styles = NewObject<UDataTable>(&Recommendation);
+	Styles->RowStruct = FRichTextStyleRow::StaticStruct();
+	FRichTextStyleRow Default;
+	Default.TextStyle = Style;
+	Styles->AddRow(TEXT("Default"), Default);
+	FRichTextStyleRow Green;
+	Green.TextStyle = Style;
+	Green.TextStyle.SetColorAndOpacity(FSlateColor(FLinearColor(83.f / 255, 219.f / 255, 91.f / 255, 1)));
+	Styles->AddRow(TEXT("Recommended"), Green);
+	Recommendation.SetTextStyleSet(Styles);
+	Recommendation.SetDefaultTextStyle(Style);
+	const int32 Tier = RecommendedTier(FPlatformMemory::GetConstants().TotalPhysical / (1024ull * 1024ull));
+	Recommendation.SetText(FText::FromString(FString::Printf(
+		TEXT("根据您的设备性能，我们推荐您选择图像质量:<Recommended>%s</>"), Levels[Tier - 1])));
+}
+
+TArray<FRokPersonalityToggleDefinition> GetVisiblePersonalityToggleDefinitions(const URokClientSettingsSubsystem* Settings)
+{
+	TArray<FRokPersonalityToggleDefinition> Definitions = Settings
+		? Settings->GetPersonalityToggleDefinitions() : TArray<FRokPersonalityToggleDefinition>();
+	Definitions.RemoveAll([](const FRokPersonalityToggleDefinition& Definition) { return !Definition.bVisibleInUnity; });
+	Definitions.Sort([](const FRokPersonalityToggleDefinition& Left, const FRokPersonalityToggleDefinition& Right)
+	{
+		return Left.UnityDisplayOrder < Right.UnityDisplayOrder;
+	});
+	return Definitions;
+}
+
+FText FormatPersonalityToggleGate(const FRokPersonalityToggleDefinition& Definition)
+{
+	return Definition.UnityResetSeconds > 0
+		? NSLOCTEXT("RokGeneralSettings", "ServerTimedGate", "由服务器时间控制，状态尚未同步")
+		: NSLOCTEXT("RokGeneralSettings", "ConsumerGate", "相关功能尚未接入，当前不可更改");
+}
 }
 
 void URokUnityFeatureScreenWidget::BuildGraphicsSettingsCard(UCanvasPanel* Content, float GraphicsValue, float FrameValue, bool bEnabled)
@@ -6972,13 +7010,7 @@ void URokUnityFeatureScreenWidget::BuildGraphicsSettingsCard(UCanvasPanel* Conte
 	Text(TEXT("GeneralSettingsFrameRateLabel"), FText::FromString(TEXT("帧率")), 18, TitleColor, FVector2D(16, 198.45), FVector2D(505.8, 55.1));
 	static const TCHAR* Levels[] = { TEXT("低"), TEXT("中"), TEXT("高") };
 	auto* Recommendation = WidgetTree->ConstructWidget<URichTextBlock>(URichTextBlock::StaticClass(), TEXT("GeneralSettingsGraphicsRecommendation"));
-	FTextBlockStyle Style; Style.SetFont(FCoreStyle::GetDefaultFontStyle(TEXT("Regular"), 15)).SetColorAndOpacity(FSlateColor(FLinearColor::White)).SetShadowOffset(FVector2D::ZeroVector);
-	auto* Styles = NewObject<UDataTable>(Recommendation); Styles->RowStruct = FRichTextStyleRow::StaticStruct();
-	FRichTextStyleRow Default; Default.TextStyle = Style; Styles->AddRow(TEXT("Default"), Default);
-	FRichTextStyleRow Green; Green.TextStyle = Style; Green.TextStyle.SetColorAndOpacity(FSlateColor(FLinearColor(83.f / 255, 219.f / 255, 91.f / 255, 1)));
-	Styles->AddRow(TEXT("Recommended"), Green); Recommendation->SetTextStyleSet(Styles); Recommendation->SetDefaultTextStyle(Style);
-	Recommendation->SetText(FText::FromString(FString::Printf(TEXT("根据您的设备性能，我们推荐您选择图像质量:<Recommended>%s</>"),
-		Levels[RecommendedTier(FPlatformMemory::GetConstants().TotalPhysical / (1024ull * 1024ull)) - 1])));
+	ApplyGraphicsSettingsRecommendation(*Recommendation);
 	Recommendation->SetAutoWrapText(true); Recommendation->SetWrapTextAt(524.05f); Recommendation->SetJustification(ETextJustify::Left);
 	auto* RecommendationRegion = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("GeneralSettingsGraphicsRecommendationRegion"));
 	RecommendationRegion->SetBrushColor(FLinearColor::Transparent); RecommendationRegion->SetPadding(FMargin(0));
@@ -7042,11 +7074,127 @@ void URokUnityFeatureScreenWidget::UpdateGraphicsSettingsSlider(const FName Pref
 				FillSlot->SetPosition(FVector2D(Patch == 0 ? 0.f : Patch == 1 ? 5.f : FMath::Max(5.f, Width - 3.f), 0));
 				FillSlot->SetSize(FVector2D(Patch == 0 ? 5.f : Patch == 1 ? FMath::Max(0.f, Width - 8.f) : 3.f, 17.4));
 			}
-	PlaySourceScrollFeedback();
+}
+
+void URokUnityFeatureScreenWidget::BindGeneralSettingsPage(const URokUiPageWidget& Page)
+{
+	using namespace RokGraphicsSettingsLayout;
+	URokClientSettingsSubsystem* Settings = GetClientSettingsSubsystem();
+	auto InitializeGraphicsSlider = [this, &Page, Settings](const FString& Prefix, float Value)
+	{
+		if (USlider* Slider = Page.Get<USlider>(*(Prefix + TEXT("Slider"))))
+		{
+			Slider->SetIsEnabled(Settings != nullptr);
+			UpdateGraphicsSettingsSlider(*Prefix, Tier(Value));
+		}
+	};
+	InitializeGraphicsSlider(TEXT("GeneralSettingsGraphics"),
+		Settings ? static_cast<float>(Settings->GetGraphicsQualityTier()) : 3.0f);
+	InitializeGraphicsSlider(TEXT("GeneralSettingsFrameRate"),
+		Settings ? static_cast<float>(Settings->GetFrameRateOption()) : 3.0f);
+	if (Settings)
+	{
+		if (USlider* Slider = Page.Get<USlider>(TEXT("GeneralSettingsGraphicsSlider")))
+		{
+			Slider->OnValueChanged.AddDynamic(this, &URokUnityFeatureScreenWidget::HandleGraphicsQualitySliderChanged);
+		}
+		if (USlider* Slider = Page.Get<USlider>(TEXT("GeneralSettingsFrameRateSlider")))
+		{
+			Slider->OnValueChanged.AddDynamic(this, &URokUnityFeatureScreenWidget::HandleFrameRateSliderChanged);
+		}
+	}
+	GeneralSettingsGraphicsValueText = Page.Get<UTextBlock>(TEXT("GeneralSettingsGraphicsValue"));
+	GeneralSettingsFrameRateValueText = Page.Get<UTextBlock>(TEXT("GeneralSettingsFrameRateValue"));
+	if (GeneralSettingsGraphicsValueText)
+	{
+		static const TCHAR* Labels[] = { TEXT("低"), TEXT("中"), TEXT("高") };
+		const int32 Tier = Settings ? static_cast<int32>(Settings->GetGraphicsQualityTier()) : 3;
+		GeneralSettingsGraphicsValueText->SetText(FText::FromString(Labels[RokGraphicsSettingsLayout::Tier(Tier) - 1]));
+	}
+	if (GeneralSettingsFrameRateValueText)
+	{
+		const int32 Option = Settings ? static_cast<int32>(Settings->GetFrameRateOption()) : 3;
+		GeneralSettingsFrameRateValueText->SetText(FText::FromString(Option == 3 ? TEXT("60 FPS") : TEXT("30 FPS")));
+	}
+	if (URichTextBlock* Recommendation = Page.Get<URichTextBlock>(TEXT("GeneralSettingsGraphicsRecommendation")))
+	{
+		ApplyGraphicsSettingsRecommendation(*Recommendation);
+	}
+	if (USlider* SfxSlider = Page.Get<USlider>(TEXT("GeneralSettingsSfxSlider")))
+	{
+		const float Volume = Settings ? Settings->GetSfxVolume() : 1.0f;
+		SfxSlider->SetValue(Volume);
+		UpdateGeneralSettingsAudioFill(TEXT("GeneralSettingsSfx"), Volume);
+		SfxSlider->OnValueChanged.AddDynamic(this, &URokUnityFeatureScreenWidget::HandleSfxVolumeSliderChanged);
+	}
+	if (USlider* MusicSlider = Page.Get<USlider>(TEXT("GeneralSettingsMusicSlider")))
+	{
+		const float Volume = Settings ? Settings->GetMusicVolume() : 1.0f;
+		MusicSlider->SetValue(Volume);
+		UpdateGeneralSettingsAudioFill(TEXT("GeneralSettingsMusic"), Volume);
+		MusicSlider->OnValueChanged.AddDynamic(this, &URokUnityFeatureScreenWidget::HandleMusicVolumeSliderChanged);
+	}
+
+	const TArray<FRokPersonalityToggleDefinition> Definitions = GetVisiblePersonalityToggleDefinitions(Settings);
+	VisiblePersonalityToggleNames.Reset();
+	for (int32 Index = 0; Index < 6; ++Index)
+	{
+		const FName Row(*FString::Printf(TEXT("GeneralSettingsPersonalityRow_%d"), Index));
+		const FName Label(*FString::Printf(TEXT("GeneralSettingsPersonalityLabel_%d"), Index));
+		const FName Gate(*FString::Printf(TEXT("GeneralSettingsPersonalityGate_%d"), Index));
+		const FName Toggle(*FString::Printf(TEXT("GeneralSettingsPersonality_%d"), Index));
+		const FName Knob(*FString::Printf(TEXT("GeneralSettingsPersonalityKnob_%d"), Index));
+		if (!Definitions.IsValidIndex(Index))
+		{
+			for (const FName Name : {Row, Label, Gate, Toggle, Knob})
+			{
+				Page.SetPresent(Page.Get<UWidget>(Name), false);
+			}
+			continue;
+		}
+
+		const FRokPersonalityToggleDefinition& Definition = Definitions[Index];
+		VisiblePersonalityToggleNames.Add(Definition.Name);
+		if (UTextBlock* LabelText = Page.Get<UTextBlock>(Label))
+		{
+			LabelText->SetText(ResolvePersonalityToggleLabel(Definition.Name));
+		}
+		if (UTextBlock* GateText = Page.Get<UTextBlock>(Gate))
+		{
+			GateText->SetText(FormatPersonalityToggleGate(Definition));
+		}
+		BindPageAction(Page, Toggle, 1540 + Index);
+		const bool bEnabled = Settings->GetPersonalityToggle(Definition.Name);
+		if (bEnabled == Definition.bDefaultEnabled)
+		{
+			continue;
+		}
+		if (UImage* Background = Page.Get<UImage>(*(Toggle.ToString() + TEXT("Background"))))
+		{
+			FSlateBrush Brush = Background->GetBrush();
+			const FSlateBrush StateBrush = MakeAtlasBrush(LoadUiTexture(CommonAtlasPath),
+				bEnabled ? SettingSwitchOnRect : SettingSwitchOffRect, CommonAtlasSize, Brush.ImageSize);
+			Brush.SetUVRegion(static_cast<FBox2f>(StateBrush.GetUVRegion()));
+			Background->SetBrush(Brush);
+		}
+		if (UWidget* KnobImage = Page.Get<UWidget>(Knob))
+		{
+			FWidgetTransform Transform = KnobImage->GetRenderTransform();
+			Transform.Translation.X += bEnabled ? 37.0f : -37.0f;
+			KnobImage->SetRenderTransform(Transform);
+		}
+	}
+	UE_LOG(LogTemp, Log, TEXT("Rok general settings: video=applied audio=router_enabled personality=unconsumed_disabled rows=%d."),
+		VisiblePersonalityToggleNames.Num());
 }
 
 void URokUnityFeatureScreenWidget::BuildGeneralSettings()
 {
+	if (const URokUiPageWidget* Page = MountModePage())
+	{
+		BindGeneralSettingsPage(*Page);
+		return;
+	}
 	BuildSplitWindowFrame(
 		CapturePoint(146.0f, 73.0f),
 		FVector2D(1148.0f, 754.0f),
@@ -7231,37 +7379,11 @@ void URokUnityFeatureScreenWidget::BuildGeneralSettings()
 		&URokUnityFeatureScreenWidget::HandleMusicVolumeSliderChanged);
 
 	VisiblePersonalityToggleNames.Reset();
-	TArray<FRokPersonalityToggleDefinition> Definitions;
-	if (Settings)
+	const TArray<FRokPersonalityToggleDefinition> Definitions = GetVisiblePersonalityToggleDefinitions(Settings);
+	for (int32 Index = 0; Index < Definitions.Num(); ++Index)
 	{
-		Definitions = Settings->GetPersonalityToggleDefinitions();
-		Definitions.Sort(
-			[](const FRokPersonalityToggleDefinition& Left,
-				const FRokPersonalityToggleDefinition& Right)
-			{
-				return Left.UnityDisplayOrder < Right.UnityDisplayOrder;
-			});
-	}
-	for (const FRokPersonalityToggleDefinition& Definition : Definitions)
-	{
-		if (Definition.bVisibleInUnity)
-		{
-			VisiblePersonalityToggleNames.Add(Definition.Name);
-		}
-	}
-
-	for (int32 Index = 0; Index < VisiblePersonalityToggleNames.Num(); ++Index)
-	{
-		const FName ToggleName = VisiblePersonalityToggleNames[Index];
-		const FRokPersonalityToggleDefinition* Definition = Definitions.FindByPredicate(
-			[ToggleName](const FRokPersonalityToggleDefinition& Candidate)
-			{
-				return Candidate.Name == ToggleName;
-			});
-		if (!Definition)
-		{
-			continue;
-		}
+		const FRokPersonalityToggleDefinition* Definition = &Definitions[Index];
+		VisiblePersonalityToggleNames.Add(Definition->Name);
 		const float RowY = 734.0f + Index * 94.1f;
 		const bool bEnabled = Settings
 			&& Settings->GetPersonalityToggle(Definition->Name);
@@ -7293,10 +7415,7 @@ void URokUnityFeatureScreenWidget::BuildGeneralSettings()
 			*FString::Printf(TEXT("GeneralSettingsPersonalityGate_%d"), Index),
 			14,
 			FLinearColor(0.70f, 0.66f, 0.54f, 1.0f));
-		GateText->SetText(
-			Definition->UnityResetSeconds > 0
-				? NSLOCTEXT("RokGeneralSettings", "ServerTimedGate", "由服务器时间控制，状态尚未同步")
-				: NSLOCTEXT("RokGeneralSettings", "ConsumerGate", "相关功能尚未接入，当前不可更改"));
+		GateText->SetText(FormatPersonalityToggleGate(*Definition));
 		PlaceOnCanvas(
 			ExistingRows,
 			GateText,
@@ -7342,6 +7461,15 @@ void URokUnityFeatureScreenWidget::BuildGeneralSettings()
 
 void URokUnityFeatureScreenWidget::BuildNotificationSettings()
 {
+	if (const URokUiPageWidget* Page = MountModePage())
+	{
+		for (int32 Index = 0; Index < 10; ++Index)
+		{
+			BindPageAction(*Page, *FString::Printf(TEXT("NotificationSetting_%d"), Index + 1), 1470 + Index);
+		}
+		UE_LOG(LogTemp, Log, TEXT("Rok notification settings: rows=10 state=unknown authority=server optimistic_update=0."));
+		return;
+	}
 	BuildSplitWindowFrame(
 		CapturePoint(133.5f, 85.5f),
 		FVector2D(1173.0f, 729.0f),
@@ -7469,6 +7597,16 @@ void URokUnityFeatureScreenWidget::BuildNotificationSettings()
 
 void URokUnityFeatureScreenWidget::BuildLanguageSettings()
 {
+	if (const URokUiPageWidget* Page = MountModePage())
+	{
+		for (int32 Index = 0; Index < UE_ARRAY_COUNT(LanguageOptionButtonNames); ++Index)
+		{
+			BindPageAction(*Page, LanguageOptionButtonNames[Index], 1460 + Index);
+		}
+		BindPageAction(*Page, TEXT("LanguageConfirmButton"), 1464);
+		UpdateLanguageDraftSelection();
+		return;
+	}
 	using namespace RokLanguageSettingsLayout;
 	// TypeMid is a sibling of rect, not its child: the -25.9 list offset does not move this frame.
 	PlaceOnCanvas(ModeCanvas, MakeAtlasImage(TEXT("LanguageSettingsSourceFrame"), FrameAtlasPath,
@@ -7485,7 +7623,6 @@ void URokUnityFeatureScreenWidget::BuildLanguageSettings()
 	auto* Viewport = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("LanguageSettingsViewport"));
 	Viewport->SetClipping(EWidgetClipping::ClipToBoundsAlways);
 	PlaceOnCanvas(ModeCanvas, Viewport, ViewportPosition(), ViewportSize(), 4);
-	static const FName Names[] = { TEXT("LanguageOptionEnglishButton"), TEXT("LanguageOptionArabicButton"), TEXT("LanguageOptionChineseButton"), TEXT("LanguageOptionTurkishButton") };
 	static const TCHAR* Labels[] = { TEXT("English"), TEXT("العربية"), TEXT("简体中文"), TEXT("Türkçe") };
 	for (int32 Index=0; Index<4; ++Index)
 	{
@@ -7508,7 +7645,7 @@ void URokUnityFeatureScreenWidget::BuildLanguageSettings()
 		Region->SetPadding(FMargin(0));Region->SetBrushColor(FLinearColor::Transparent);Region->SetVerticalAlignment(VAlign_Center);
 		Region->SetContent(Label);Region->SetVisibility(ESlateVisibility::HitTestInvisible);
 		PlaceOnCanvas(Cell,Region,FVector2D(83.015,0),FVector2D(282.37,114),3);
-		PlaceOnCanvas(Cell,MakeActionButton(Names[Index],1460+Index,nullptr,FIntRect(),FIntPoint::ZeroValue,FVector2D(388,114)),FVector2D::ZeroVector,FVector2D(388,114),4);
+		PlaceOnCanvas(Cell,MakeActionButton(LanguageOptionButtonNames[Index],1460+Index,nullptr,FIntRect(),FIntPoint::ZeroValue,FVector2D(388,114)),FVector2D::ZeroVector,FVector2D(388,114),4);
 	}
 	auto* Gate=MakeScreenText(TEXT("LanguageSettingsResourceGate"),15,FLinearColor(0.86f,0.72f,0.42f,1),false,ETextJustify::Center);
 	Gate->SetText(NSLOCTEXT("RokLanguageSettings","DraftOnly","仅预览选择，暂不应用语言更改。"));Gate->SetShadowOffset(FVector2D::ZeroVector);
@@ -7544,6 +7681,14 @@ void URokUnityFeatureScreenWidget::UpdateLanguageDraftSelection()
 
 void URokUnityFeatureScreenWidget::BuildAccountSettings()
 {
+	if (const URokUiPageWidget* Page = MountModePage())
+	{
+		BindPageAction(*Page, TEXT("AccountDeviceBindButton"), 1480);
+		BindPageAction(*Page, TEXT("AccountIggBindButton"), 1481);
+		BindPageAction(*Page, TEXT("AccountChangeButton"), 1482);
+		UE_LOG(LogTemp, Log, TEXT("Rok account settings: platform_session=unknown igg_sdk=missing bind=disabled change_account=disabled."));
+		return;
+	}
 	BuildSplitWindowFrame(
 		CapturePoint(133.5f, 85.5f),
 		FVector2D(1173.0f, 729.0f),
@@ -7715,9 +7860,10 @@ void URokUnityFeatureScreenWidget::BuildArmyStatistics()
 	const UGameInstance* ArmyInstance = GetGameInstance();
 	const URokServerArmySubsystem* ServerArmy = ArmyInstance
 		? ArmyInstance->GetSubsystem<URokServerArmySubsystem>() : nullptr;
-	FRokServerArmySnapshot ArmySnapshot = ServerArmy
-		? ServerArmy->GetSnapshot() : FRokServerArmySnapshot();
-	if (ArmySnapshot.bAvailable && !ArmySnapshot.bLoaded)
+	const auto Preview = MakeArmyStatisticsPreviewSnapshot();
+	FRokServerArmySnapshot ArmySnapshot = Preview.IsSet() ? Preview.GetValue()
+		: ServerArmy ? ServerArmy->GetSnapshot() : FRokServerArmySnapshot();
+	if (!Preview.IsSet() && ArmySnapshot.bAvailable && !ArmySnapshot.bLoaded)
 	{
 		if (URokUnityGameplayCatalogSubsystem* Catalog = GetGameplayCatalogSubsystem())
 		{
@@ -7727,53 +7873,172 @@ void URokUnityFeatureScreenWidget::BuildArmyStatistics()
 	}
 	bLastServerArmyAvailable = ArmySnapshot.bAvailable;
 	LastServerArmySignature = ArmySnapshot.Signature;
-	BuildSplitWindowFrame(
-		CapturePoint(170.0f, 73.0f),
-		FVector2D(1100.0f, 754.0f),
-		NSLOCTEXT("RokArmyStatistics", "Title", "部队统计"),
-		CapturePoint(1230.0f, 77.0f));
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeSolidBorder(
-			TEXT("ArmyStatisticsContentShade"),
-			FLinearColor(0.065f, 0.065f, 0.065f, 0.98f)),
-		CapturePoint(184.0f, 153.0f),
-		FVector2D(1072.0f, 664.0f),
-		2);
+
+	UClass* RowClass = ResolveFeaturePageClass(TEXT("ArmyStatisticsRow"));
+	UClass* MessageClass = ResolveFeaturePageClass(TEXT("ArmyStatisticsMessage"));
+	const URokUiPageWidget* Page = RowClass && MessageClass ? MountModePage() : nullptr;
+	if (!Page)
+	{
+		BuildSplitWindowFrame(
+			CapturePoint(170.0f, 73.0f),
+			FVector2D(1100.0f, 754.0f),
+			NSLOCTEXT("RokArmyStatistics", "Title", "部队统计"),
+			CapturePoint(1230.0f, 77.0f));
+		PlaceOnCanvas(
+			ModeCanvas,
+			MakeSolidBorder(
+				TEXT("ArmyStatisticsContentShade"),
+				FLinearColor(0.065f, 0.065f, 0.065f, 0.98f)),
+			CapturePoint(184.0f, 153.0f),
+			FVector2D(1072.0f, 664.0f),
+			2);
+	}
 
 	static const FText PageLabels[] = {
 		NSLOCTEXT("RokArmyStatistics", "AllTroops", "本地汇总"),
 		NSLOCTEXT("RokArmyStatistics", "InsideCity", "城内"),
 		NSLOCTEXT("RokArmyStatistics", "OutsideCity", "城外")};
-	for (int32 Page = 0; Page < 3; ++Page)
+	for (int32 Tab = 0; Tab < UE_ARRAY_COUNT(PageLabels); ++Tab)
 	{
-		const bool bSelected =
-			Page == SelectedArmyStatisticsPage;
-		PlaceOnCanvas(
-			ModeCanvas,
-			MakeActionButton(
-				*FString::Printf(
-					TEXT("ArmyStatisticsPage_%d"),
-					Page),
-				1600 + Page,
-				CommonAtlasPath,
-				bSelected
-					? PageSelectedRect
-					: PageNormalRect,
-				CommonAtlasSize,
-				FVector2D(330.0f, 48.0f),
-					ArmySnapshot.bAvailable && Page == 0
-						? NSLOCTEXT("RokArmyStatistics", "ServerAllTroops", "全部") : PageLabels[Page],
-				23,
-				bSelected
-					? FLinearColor::White
-					: FLinearColor(0.72f, 0.72f, 0.70f, 1.0f),
-				ESlateBrushDrawType::Box,
-				FMargin(0.42f, 0.0f, 0.42f, 0.0f)),
-			CapturePoint(220.0f + Page * 330.0f, 166.0f),
-			FVector2D(330.0f, 48.0f),
-			6);
+		const bool bSelected = Tab == SelectedArmyStatisticsPage;
+		const FString Prefix = FString::Printf(TEXT("ArmyStatisticsPage_%d"), Tab);
+		const FText Label = ArmySnapshot.bAvailable && Tab == 0
+			? NSLOCTEXT("RokArmyStatistics", "ServerAllTroops", "全部") : PageLabels[Tab];
+		if (Page)
+		{
+			BindPageAction(*Page, *Prefix, 1600 + Tab);
+			Page->SetShown(Page->Get<UCanvasPanel>(*(Prefix + TEXT("Selected"))), bSelected);
+			Page->SetShown(Page->Get<UCanvasPanel>(*(Prefix + TEXT("Normal"))), !bSelected);
+			SetFeaturePageText(*Page, *(Prefix + TEXT("SelectedLabel")), Label);
+			SetFeaturePageText(*Page, *(Prefix + TEXT("NormalLabel")), Label);
+		}
+		else
+		{
+			PlaceOnCanvas(ModeCanvas, MakeActionButton(*Prefix, 1600 + Tab, CommonAtlasPath,
+				bSelected ? PageSelectedRect : PageNormalRect, CommonAtlasSize, FVector2D(330.0f, 48.0f),
+				Label, 23, bSelected ? FLinearColor::White : FLinearColor(0.72f, 0.72f, 0.70f, 1.0f),
+				ESlateBrushDrawType::Box, FMargin(0.42f, 0.0f, 0.42f, 0.0f)),
+				CapturePoint(220.0f + Tab * 330.0f, 166.0f), FVector2D(330.0f, 48.0f), 6);
+		}
 	}
+
+	const bool bShowSummary = ArmySnapshot.bAvailable || SelectedArmyStatisticsPage == 0;
+	const bool bLocalLocationUnavailable = !ArmySnapshot.bAvailable && SelectedArmyStatisticsPage != 0;
+	const bool bInsideCity = SelectedArmyStatisticsPage == 1;
+	if (Page)
+	{
+		Page->SetPresent(Page->Get<UBorder>(TEXT("ArmyStatisticsSummaryShade")), bShowSummary);
+		Page->SetPresent(Page->Get<UTextBlock>(TEXT("ArmyStatisticsTotalCount")), bShowSummary);
+		Page->SetPresent(Page->Get<UTextBlock>(TEXT("ArmyStatisticsTotalPower")), bShowSummary);
+		Page->SetPresent(Page->Get<UScrollBox>(TEXT("ArmyStatisticsTroopList")), !bLocalLocationUnavailable);
+		Page->SetPresent(Page->Get<UBorder>(TEXT("ArmyStatisticsInsideEmptyShade")), bLocalLocationUnavailable && bInsideCity);
+		Page->SetPresent(Page->Get<UBorder>(TEXT("ArmyStatisticsOutsideEmptyShade")), bLocalLocationUnavailable && !bInsideCity);
+		Page->SetPresent(Page->Get<UTextBlock>(TEXT("ArmyStatisticsInsideEmpty")), bLocalLocationUnavailable && bInsideCity);
+		Page->SetPresent(Page->Get<UTextBlock>(TEXT("ArmyStatisticsOutsideEmpty")), bLocalLocationUnavailable && !bInsideCity);
+	}
+	else if (bShowSummary)
+	{
+		PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("ArmyStatisticsSummaryShade"),
+			FLinearColor(0.18f, 0.19f, 0.18f, 0.96f)), CapturePoint(220.0f, 232.0f), FVector2D(990.0f, 112.0f), 4);
+	}
+
+	const auto DrawText = [this, Page](FName Name, const FText& Text, int32 Size, const FLinearColor& Color,
+		bool bBold, const FVector2D& Position, const FVector2D& Extent)
+	{
+		if (Page)
+		{
+			SetFeaturePageText(*Page, Name, Text);
+		}
+		else
+		{
+			UTextBlock* Label = MakeScreenText(Name, Size, Color, bBold);
+			Label->SetText(Text);
+			PlaceOnCanvas(ModeCanvas, Label, Position, Extent, 6);
+		}
+	};
+	const auto DrawSummary = [&DrawText](const FText& Count, const FText& Power)
+	{
+		const FLinearColor Color(0.96f, 0.90f, 0.65f, 1.0f);
+		DrawText(TEXT("ArmyStatisticsTotalCount"), Count, 25, Color, true, CapturePoint(250.0f, 252.0f), FVector2D(330.0f, 38.0f));
+		DrawText(TEXT("ArmyStatisticsTotalPower"), Power, 25, Color, true, CapturePoint(600.0f, 252.0f), FVector2D(330.0f, 38.0f));
+	};
+	const auto DrawDataSource = [&DrawText](const FText& Source)
+	{
+		DrawText(TEXT("ArmyStatisticsDataSource"), Source, 17, FLinearColor(0.76f, 0.76f, 0.73f, 1.0f), false,
+			CapturePoint(250.0f, 301.0f), FVector2D(850.0f, 28.0f));
+	};
+	const auto MakeList = [this, Page]()
+	{
+		if (Page)
+		{
+			return Page->Get<UScrollBox>(TEXT("ArmyStatisticsTroopList"));
+		}
+		UScrollBox* TroopList = WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("ArmyStatisticsTroopList"));
+		TroopList->SetOrientation(Orient_Vertical);
+		TroopList->SetScrollBarVisibility(ESlateVisibility::Visible);
+		PlaceOnCanvas(ModeCanvas, TroopList, CapturePoint(220.0f, 364.0f), FVector2D(990.0f, 370.0f), 5);
+		return TroopList;
+	};
+	const auto DrawStack = [this, Page, RowClass](UScrollBox& List, int32 Index, const FText& Name,
+		const FText& Count, const FText& Power, const FText& Source, const FText& Tooltip)
+	{
+		const FLinearColor Shade = Index % 2 == 0 ? FLinearColor(0.20f, 0.21f, 0.20f, 0.98f)
+			: FLinearColor(0.16f, 0.17f, 0.16f, 0.98f);
+		if (URokUiPageWidget* Row = Page ? CreateWidget<URokUiPageWidget>(this, RowClass) : nullptr)
+		{
+			Row->LegacyPrefix = TEXT("ArmyStatistics");
+			Row->LegacySuffix = FString::Printf(TEXT("_%d"), Index);
+			Row->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+			if (UCanvasPanel* Content = Row->Get<UCanvasPanel>(TEXT("Row")))
+			{
+				Content->SetToolTipText(Tooltip);
+			}
+			if (UBorder* Border = Row->Get<UBorder>(TEXT("RowShade")))
+			{
+				Border->SetBrushColor(Shade);
+			}
+			SetFeaturePageText(*Row, TEXT("RowName"), Name);
+			SetFeaturePageText(*Row, TEXT("RowCount"), Count);
+			SetFeaturePageText(*Row, TEXT("RowPower"), Power);
+			UTextBlock* SourceLabel = Row->Get<UTextBlock>(TEXT("RowSource"));
+			Row->SetPresent(SourceLabel, !Source.IsEmpty());
+			if (SourceLabel)
+			{
+				SourceLabel->SetText(Source);
+			}
+			List.AddChild(WrapFixedSize(Row,
+				*FString::Printf(TEXT("ArmyStatisticsPresentationSize_%d"), Index), FVector2D(965.0f, 92.0f)));
+			return;
+		}
+		UCanvasPanel* Row = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(),
+			*FString::Printf(TEXT("ArmyStatisticsRow_%d"), Index));
+		Row->SetToolTipText(Tooltip);
+		List.AddChild(WrapFixedSize(Row,
+			*FString::Printf(TEXT("ArmyStatisticsRowSize_%d"), Index), FVector2D(965.0f, 92.0f)));
+		PlaceOnCanvas(Row, MakeSolidBorder(*FString::Printf(TEXT("ArmyStatisticsRowShade_%d"), Index), Shade),
+			FVector2D::ZeroVector, FVector2D(955.0f, 84.0f), 0);
+		const auto Label = [this, Row, Index](const TCHAR* Role, const FText& Text, int32 Size,
+			const FLinearColor& Color, bool bBold, const FVector2D& Position, const FVector2D& Extent)
+		{
+			UTextBlock* Widget = MakeScreenText(*FString::Printf(TEXT("ArmyStatisticsRow%s_%d"), Role, Index), Size, Color, bBold);
+			Widget->SetText(Text);
+			PlaceOnCanvas(Row, Widget, Position, Extent, 2);
+		};
+		Label(TEXT("Name"), Name, 23, FLinearColor(0.96f, 0.90f, 0.65f, 1.0f), true, FVector2D(24.0f, 12.0f), FVector2D(450.0f, 36.0f));
+		Label(TEXT("Count"), Count, 21, FLinearColor::White, true, FVector2D(520.0f, 13.0f), FVector2D(180.0f, 34.0f));
+		Label(TEXT("Power"), Power, 21, FLinearColor::White, true, FVector2D(735.0f, 13.0f), FVector2D(200.0f, 34.0f));
+		if (!Source.IsEmpty())
+		{
+			Label(TEXT("Source"), Source, 16, FLinearColor(0.72f, 0.72f, 0.70f, 1.0f), false, FVector2D(24.0f, 50.0f), FVector2D(650.0f, 28.0f));
+		}
+	};
+	const auto SetBreakdownPresence = [Page](bool bShow)
+	{
+		if (Page)
+		{
+			Page->SetPresent(Page->Get<UTextBlock>(TEXT("ArmyStatisticsBreakdown")), bShow);
+		}
+	};
 	if (ArmySnapshot.bAvailable)
 	{
 		const bool bFieldCountKnown = ArmySnapshot.bArmiesKnown
@@ -7793,87 +8058,62 @@ void URokUnityFeatureScreenWidget::BuildArmyStatistics()
 			: SelectedArmyStatisticsPage == 1 ? ArmySnapshot.CityPower : ArmySnapshot.FieldPower;
 		const bool bPowerKnown = SelectedArmyStatisticsPage == 0 ? ArmySnapshot.bTotalPowerKnown
 			: SelectedArmyStatisticsPage == 1 ? ArmySnapshot.bCityPowerKnown : ArmySnapshot.bFieldPowerKnown;
-		PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("ArmyStatisticsSummaryShade"),
-			FLinearColor(0.18f, 0.19f, 0.18f, 0.96f)),
-			CapturePoint(220.0f, 232.0f), FVector2D(990.0f, 112.0f), 4);
-		UTextBlock* TotalCount = MakeScreenText(TEXT("ArmyStatisticsTotalCount"), 25,
-			FLinearColor(0.96f, 0.90f, 0.65f, 1.0f), true);
-		TotalCount->SetText(bKnown
-			? FText::Format(NSLOCTEXT("RokArmyStatistics", "ServerCount", "兵力：{0}"), FText::AsNumber(Count))
-			: NSLOCTEXT("RokArmyStatistics", "ServerCountWaiting", "兵力：等待同步"));
-		PlaceOnCanvas(ModeCanvas, TotalCount, CapturePoint(250.0f, 252.0f), FVector2D(330.0f, 38.0f), 6);
-		UTextBlock* TotalPower = MakeScreenText(TEXT("ArmyStatisticsTotalPower"), 25,
-			FLinearColor(0.96f, 0.90f, 0.65f, 1.0f), true);
-		TotalPower->SetText(bKnown && bPowerKnown
-			? FText::Format(NSLOCTEXT("RokArmyStatistics", "ServerPower", "战力：{0}"), FText::AsNumber(Power))
+		DrawSummary(bKnown ? FText::Format(NSLOCTEXT("RokArmyStatistics", "ServerCount", "兵力：{0}"), FText::AsNumber(Count))
+			: NSLOCTEXT("RokArmyStatistics", "ServerCountWaiting", "兵力：等待同步"),
+			bKnown && bPowerKnown ? FText::Format(NSLOCTEXT("RokArmyStatistics", "ServerPower", "战力：{0}"), FText::AsNumber(Power))
 			: NSLOCTEXT("RokArmyStatistics", "ServerPowerWaiting", "战力：待同步"));
-		PlaceOnCanvas(ModeCanvas, TotalPower, CapturePoint(600.0f, 252.0f), FVector2D(330.0f, 38.0f), 6);
-		UTextBlock* DataSource = MakeScreenText(TEXT("ArmyStatisticsDataSource"), 17,
-			FLinearColor(0.76f, 0.76f, 0.73f, 1.0f));
-		DataSource->SetText(bKnown
+		DrawDataSource(bKnown
 			? SelectedArmyStatisticsPage == 2
 				? FText::Format(NSLOCTEXT("RokArmyStatistics", "ServerFieldSource",
 					"当前野外部队 · 轻伤 {0} 另计入全部"), FText::AsNumber(ArmySnapshot.FieldMinorCount))
 				: NSLOCTEXT("RokArmyStatistics", "ServerSource", "当前账号部队")
 			: NSLOCTEXT("RokArmyStatistics", "ServerSourceWaiting", "等待服务器部队数据"));
-		PlaceOnCanvas(ModeCanvas, DataSource, CapturePoint(250.0f, 301.0f), FVector2D(850.0f, 28.0f), 6);
-		if (bKnown && SelectedArmyStatisticsPage == 0)
+		const bool bShowBreakdown = bKnown && SelectedArmyStatisticsPage == 0;
+		SetBreakdownPresence(bShowBreakdown);
+		if (bShowBreakdown)
 		{
-			UTextBlock* Breakdown = MakeScreenText(TEXT("ArmyStatisticsBreakdown"), 15,
-				FLinearColor(0.76f, 0.76f, 0.73f, 1.0f));
-			Breakdown->SetText(FText::Format(NSLOCTEXT("RokArmyStatistics", "ServerBreakdown",
+			const FText Breakdown = FText::Format(NSLOCTEXT("RokArmyStatistics", "ServerBreakdown",
 				"城内 {0} · 城外 {1} · 轻伤 {2} · 晋升中 {3} · 战力不含轻伤"),
 				FText::AsNumber(ArmySnapshot.CityCount), FText::AsNumber(ArmySnapshot.FieldCount),
-				FText::AsNumber(ArmySnapshot.FieldMinorCount), FText::AsNumber(ArmySnapshot.UpgradingCount)));
-			PlaceOnCanvas(ModeCanvas, Breakdown, CapturePoint(250.0f, 327.0f), FVector2D(940.0f, 24.0f), 6);
+				FText::AsNumber(ArmySnapshot.FieldMinorCount), FText::AsNumber(ArmySnapshot.UpgradingCount));
+			DrawText(TEXT("ArmyStatisticsBreakdown"), Breakdown, 15, FLinearColor(0.76f, 0.76f, 0.73f, 1.0f), false,
+				CapturePoint(250.0f, 327.0f), FVector2D(940.0f, 24.0f));
 		}
-		UScrollBox* TroopList = WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(),
-			TEXT("ArmyStatisticsTroopList"));
-		TroopList->SetOrientation(Orient_Vertical);
-		TroopList->SetScrollBarVisibility(ESlateVisibility::Visible);
-		PlaceOnCanvas(ModeCanvas, TroopList, CapturePoint(220.0f, 364.0f), FVector2D(990.0f, 370.0f), 5);
+		UScrollBox* List = MakeList();
+		if (!List) return;
 		if (!bKnown || Stacks.IsEmpty())
 		{
-			UTextBlock* Empty = MakeScreenText(TEXT("ArmyStatisticsServerEmpty"), 23,
-				FLinearColor(0.84f, 0.84f, 0.80f, 1.0f), false, ETextJustify::Center);
-			Empty->SetText(bKnown ? NSLOCTEXT("RokArmyStatistics", "ServerEmpty", "暂无部队")
-				: NSLOCTEXT("RokArmyStatistics", "ServerWaiting", "等待服务器同步部队位置与兵力"));
-			TroopList->AddChild(WrapFixedSize(Empty, TEXT("ArmyStatisticsServerEmptySize"), FVector2D(965.0f, 90.0f)));
+			const FText Message = bKnown ? NSLOCTEXT("RokArmyStatistics", "ServerEmpty", "暂无部队")
+				: NSLOCTEXT("RokArmyStatistics", "ServerWaiting", "等待服务器同步部队位置与兵力");
+			if (URokUiPageWidget* Row = Page ? CreateWidget<URokUiPageWidget>(this, MessageClass) : nullptr)
+			{
+				Row->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+				SetFeaturePageText(*Row, TEXT("ArmyStatisticsServerEmpty"), Message);
+				List->AddChild(WrapFixedSize(Row, TEXT("ArmyStatisticsMessageSize"), FVector2D(965.0f, 90.0f)));
+			}
+			else
+			{
+				UTextBlock* Empty = MakeScreenText(TEXT("ArmyStatisticsServerEmpty"), 23,
+					FLinearColor(0.84f, 0.84f, 0.80f, 1.0f), false, ETextJustify::Center);
+				Empty->SetText(Message);
+				List->AddChild(WrapFixedSize(Empty, TEXT("ArmyStatisticsServerEmptySize"), FVector2D(965.0f, 90.0f)));
+			}
 			return;
 		}
 		for (int32 Index = 0; Index < Stacks.Num(); ++Index)
 		{
 			const FRokServerSoldierStack& Stack = Stacks[Index];
-			UCanvasPanel* Row = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(),
-				*FString::Printf(TEXT("ArmyStatisticsRow_%d"), Index));
-			Row->SetToolTipText(FText::AsNumber(Stack.Id));
-			TroopList->AddChild(WrapFixedSize(Row,
-				*FString::Printf(TEXT("ArmyStatisticsRowSize_%d"), Index), FVector2D(965.0f, 92.0f)));
-			PlaceOnCanvas(Row, MakeSolidBorder(*FString::Printf(TEXT("ArmyStatisticsRowShade_%d"), Index),
-				Index % 2 == 0 ? FLinearColor(0.20f, 0.21f, 0.20f, 0.98f)
-					: FLinearColor(0.16f, 0.17f, 0.16f, 0.98f)),
-				FVector2D::ZeroVector, FVector2D(955.0f, 84.0f), 0);
-			UTextBlock* Name = MakeScreenText(*FString::Printf(TEXT("ArmyStatisticsRowName_%d"), Index), 23,
-				FLinearColor(0.96f, 0.90f, 0.65f, 1.0f), true);
-			Name->SetText(Stack.bCatalogKnown && !Stack.Name.IsEmpty()
-				? FText::FromString(Stack.Name)
+			const FText Name = Stack.bCatalogKnown && !Stack.Name.IsEmpty() ? FText::FromString(Stack.Name)
 				: Stack.FamilyType >= 1 && Stack.FamilyType <= 4 && Stack.Tier > 0
 					? FText::Format(NSLOCTEXT("RokArmyStatistics", "UnknownSoldierName", "{0} T{1}"),
 						ResolveTroopTypeLabel(Stack.FamilyType), FText::AsNumber(Stack.Tier))
-					: NSLOCTEXT("RokArmyStatistics", "UnknownSoldier", "兵种待同步"));
-			PlaceOnCanvas(Row, Name, FVector2D(24.0f, 12.0f), FVector2D(450.0f, 36.0f), 2);
-			UTextBlock* CountLabel = MakeScreenText(*FString::Printf(TEXT("ArmyStatisticsRowCount_%d"), Index), 21,
-				FLinearColor::White, true);
-			CountLabel->SetText(FText::Format(NSLOCTEXT("RokArmyStatistics", "ServerTroopCount", "数量 {0}"),
-				FText::AsNumber(Stack.Count)));
-			PlaceOnCanvas(Row, CountLabel, FVector2D(520.0f, 13.0f), FVector2D(180.0f, 34.0f), 2);
-			UTextBlock* PowerLabel = MakeScreenText(*FString::Printf(TEXT("ArmyStatisticsRowPower_%d"), Index), 21,
-				FLinearColor::White, true);
-			PowerLabel->SetText(Stack.bCatalogKnown
-				? FText::Format(NSLOCTEXT("RokArmyStatistics", "ServerTroopPower", "战力 {0}"),
-					FText::AsNumber(Stack.TotalPower))
-				: NSLOCTEXT("RokArmyStatistics", "ServerTroopPowerUnknown", "战力待同步"));
-			PlaceOnCanvas(Row, PowerLabel, FVector2D(735.0f, 13.0f), FVector2D(200.0f, 34.0f), 2);
+					: NSLOCTEXT("RokArmyStatistics", "UnknownSoldier", "兵种待同步");
+			const FText PowerLabel = Stack.bCatalogKnown
+				? FText::Format(NSLOCTEXT("RokArmyStatistics", "ServerTroopPower", "战力 {0}"), FText::AsNumber(Stack.TotalPower))
+				: NSLOCTEXT("RokArmyStatistics", "ServerTroopPowerUnknown", "战力待同步");
+			DrawStack(*List, Index, Name,
+				FText::Format(NSLOCTEXT("RokArmyStatistics", "ServerTroopCount", "数量 {0}"), FText::AsNumber(Stack.Count)),
+				PowerLabel, FText::GetEmpty(), FText::AsNumber(Stack.Id));
 		}
 		return;
 	}
@@ -7894,711 +8134,53 @@ void URokUnityFeatureScreenWidget::BuildArmyStatistics()
 				RuntimeState->GetStarterTroopStacks();
 		}
 	}
-
-	if (SelectedArmyStatisticsPage == 0)
+	SetBreakdownPresence(false);
+	if (!bLocalLocationUnavailable)
 	{
-		PlaceOnCanvas(
-			ModeCanvas,
-			MakeSolidBorder(
-				TEXT("ArmyStatisticsSummaryShade"),
-				FLinearColor(0.18f, 0.19f, 0.18f, 0.96f)),
-			CapturePoint(220.0f, 232.0f),
-			FVector2D(990.0f, 112.0f),
-			4);
-		UTextBlock* TotalCount = MakeScreenText(
-			TEXT("ArmyStatisticsTotalCount"),
-			25,
-			FLinearColor(0.96f, 0.90f, 0.65f, 1.0f),
-			true);
-		TotalCount->SetText(FText::Format(
-			NSLOCTEXT(
-				"RokArmyStatistics",
-				"TotalCountFormat",
-				"本地预览兵力：{0}"),
-			FText::AsNumber(Summary.TotalTroopCount)));
-		PlaceOnCanvas(
-			ModeCanvas,
-			TotalCount,
-			CapturePoint(250.0f, 252.0f),
-			FVector2D(330.0f, 38.0f),
-			6);
-		UTextBlock* TotalPower = MakeScreenText(
-			TEXT("ArmyStatisticsTotalPower"),
-			25,
-			FLinearColor(0.96f, 0.90f, 0.65f, 1.0f),
-			true);
-		TotalPower->SetText(FText::Format(
-			NSLOCTEXT(
-				"RokArmyStatistics",
-				"TotalPowerFormat",
-				"本地预览战力：{0}"),
-			FText::AsNumber(Summary.TotalTroopPower)));
-		PlaceOnCanvas(
-			ModeCanvas,
-			TotalPower,
-			CapturePoint(600.0f, 252.0f),
-			FVector2D(330.0f, 38.0f),
-			6);
+		DrawSummary(FText::Format(NSLOCTEXT("RokArmyStatistics", "TotalCountFormat", "本地预览兵力：{0}"),
+				FText::AsNumber(Summary.TotalTroopCount)),
+			FText::Format(NSLOCTEXT("RokArmyStatistics", "TotalPowerFormat", "本地预览战力：{0}"),
+				FText::AsNumber(Summary.TotalTroopPower)));
 	}
-
-	UTextBlock* DataSource = MakeScreenText(
-		TEXT("ArmyStatisticsDataSource"),
-		17,
-		FLinearColor(0.76f, 0.76f, 0.73f, 1.0f));
-	DataSource->SetText(
-		!bRuntimeLoaded
-			? NSLOCTEXT(
-				"RokArmyStatistics",
-				"RuntimeUnavailable",
-				"运行态尚未加载，当前显示安全空态。")
-			: SelectedArmyStatisticsPage == 0
-				? NSLOCTEXT(
-					"RokArmyStatistics",
-					"BootstrapSource",
-					"本地预览汇总：仅包含本地引导兵力；非账号部队状态。")
-				: NSLOCTEXT(
-					"RokArmyStatistics",
-					"LocationUnavailableSource",
-					"位置归属数据未接入；不按配置兵种推断城内或城外。"));
-	PlaceOnCanvas(
-		ModeCanvas,
-		DataSource,
-		CapturePoint(250.0f, 301.0f),
-		FVector2D(850.0f, 28.0f),
-		6);
-
-	if (SelectedArmyStatisticsPage != 0)
+	DrawDataSource(!bRuntimeLoaded
+		? NSLOCTEXT("RokArmyStatistics", "RuntimeUnavailable", "运行态尚未加载，当前显示安全空态。")
+		: !bLocalLocationUnavailable
+			? NSLOCTEXT("RokArmyStatistics", "BootstrapSource", "本地预览汇总：仅包含本地引导兵力；非账号部队状态。")
+			: NSLOCTEXT("RokArmyStatistics", "LocationUnavailableSource", "位置归属数据未接入；不按配置兵种推断城内或城外。"));
+	if (bLocalLocationUnavailable)
 	{
-		const bool bInsideCity = SelectedArmyStatisticsPage == 1;
-		PlaceOnCanvas(
-			ModeCanvas,
-			MakeSolidBorder(
-				bInsideCity
-					? TEXT("ArmyStatisticsInsideEmptyShade")
-					: TEXT("ArmyStatisticsOutsideEmptyShade"),
-				FLinearColor(0.13f, 0.14f, 0.13f, 0.96f)),
-			CapturePoint(220.0f, 364.0f),
-			FVector2D(990.0f, 370.0f),
-			4);
-		UTextBlock* Empty = MakeScreenText(
-			bInsideCity
-				? TEXT("ArmyStatisticsInsideEmpty")
-				: TEXT("ArmyStatisticsOutsideEmpty"),
-			23,
-			FLinearColor(0.84f, 0.84f, 0.80f, 1.0f),
-			false,
-			ETextJustify::Center);
-		Empty->SetText(
-			bInsideCity
-			? NSLOCTEXT(
-				"RokArmyStatistics",
-				"InsideLocationUnavailable",
-				"城内兵力位置数据尚未接入。\n当前无法按城内归属显示部队。")
-			: NSLOCTEXT(
-				"RokArmyStatistics",
-				"OutsideLocationUnavailable",
-				"城外兵力位置数据尚未接入。\n当前无法按城外归属显示部队。"));
-		Empty->SetAutoWrapText(true);
-		PlaceOnCanvas(
-			ModeCanvas,
-			Empty,
-			CapturePoint(345.0f, 490.0f),
-			FVector2D(740.0f, 120.0f),
-			6);
+		if (!Page)
+		{
+			PlaceOnCanvas(ModeCanvas, MakeSolidBorder(
+				bInsideCity ? TEXT("ArmyStatisticsInsideEmptyShade") : TEXT("ArmyStatisticsOutsideEmptyShade"),
+				FLinearColor(0.13f, 0.14f, 0.13f, 0.96f)), CapturePoint(220.0f, 364.0f), FVector2D(990.0f, 370.0f), 4);
+			UTextBlock* Empty = MakeScreenText(bInsideCity ? TEXT("ArmyStatisticsInsideEmpty") : TEXT("ArmyStatisticsOutsideEmpty"),
+				23, FLinearColor(0.84f, 0.84f, 0.80f, 1.0f), false, ETextJustify::Center);
+			Empty->SetText(bInsideCity ? NSLOCTEXT("RokArmyStatistics", "InsideLocationUnavailable",
+					"城内兵力位置数据尚未接入。\n当前无法按城内归属显示部队。")
+				: NSLOCTEXT("RokArmyStatistics", "OutsideLocationUnavailable",
+					"城外兵力位置数据尚未接入。\n当前无法按城外归属显示部队。"));
+			Empty->SetAutoWrapText(true);
+			PlaceOnCanvas(ModeCanvas, Empty, CapturePoint(345.0f, 490.0f), FVector2D(740.0f, 120.0f), 6);
+		}
 		return;
 	}
-
-	UScrollBox* TroopList =
-		WidgetTree->ConstructWidget<UScrollBox>(
-			UScrollBox::StaticClass(),
-			TEXT("ArmyStatisticsTroopList"));
-	TroopList->SetOrientation(Orient_Vertical);
-	TroopList->SetScrollBarVisibility(
-		ESlateVisibility::Visible);
-	PlaceOnCanvas(
-		ModeCanvas,
-		TroopList,
-		CapturePoint(220.0f, 364.0f),
-		FVector2D(990.0f, 370.0f),
-		5);
-
+	UScrollBox* List = MakeList();
+	if (!List) return;
 	for (int32 Index = 0; Index < TroopStacks.Num(); ++Index)
 	{
-		const FRokUnityRuntimeTroopStack& Stack =
-			TroopStacks[Index];
-		UCanvasPanel* Row =
-			WidgetTree->ConstructWidget<UCanvasPanel>(
-				UCanvasPanel::StaticClass(),
-				*FString::Printf(
-					TEXT("ArmyStatisticsRow_%d"),
-					Index));
-		TroopList->AddChild(
-			WrapFixedSize(
-				Row,
-				*FString::Printf(
-					TEXT("ArmyStatisticsRowSize_%d"),
-					Index),
-				FVector2D(965.0f, 92.0f)));
-		PlaceOnCanvas(
-			Row,
-			MakeSolidBorder(
-				*FString::Printf(
-					TEXT("ArmyStatisticsRowShade_%d"),
-					Index),
-				Index % 2 == 0
-					? FLinearColor(0.20f, 0.21f, 0.20f, 0.98f)
-					: FLinearColor(0.16f, 0.17f, 0.16f, 0.98f)),
-			FVector2D::ZeroVector,
-			FVector2D(955.0f, 84.0f),
-			0);
-		UTextBlock* Name = MakeScreenText(
-			*FString::Printf(
-				TEXT("ArmyStatisticsRowName_%d"),
-				Index),
-			23,
-			FLinearColor(0.96f, 0.90f, 0.65f, 1.0f),
-			true);
-		Name->SetText(FText::Format(
-			NSLOCTEXT(
-				"RokArmyStatistics",
-				"TroopNameFormat",
-				"{0} T{1}  ·  配置 {2}"),
-			ResolveTroopTypeLabel(Stack.ArmsType),
-			FText::AsNumber(Stack.Level),
-			FText::AsNumber(Stack.TroopId)));
-		PlaceOnCanvas(
-			Row,
-			Name,
-			FVector2D(24.0f, 12.0f),
-			FVector2D(450.0f, 36.0f),
-			2);
-		UTextBlock* Count = MakeScreenText(
-			*FString::Printf(
-				TEXT("ArmyStatisticsRowCount_%d"),
-				Index),
-			21,
-			FLinearColor::White,
-			true);
-		Count->SetText(FText::Format(
-			NSLOCTEXT(
-				"RokArmyStatistics",
-				"TroopCountFormat",
-				"数量 {0}"),
-			FText::AsNumber(Stack.Count)));
-		PlaceOnCanvas(
-			Row,
-			Count,
-			FVector2D(520.0f, 13.0f),
-			FVector2D(180.0f, 34.0f),
-			2);
-		UTextBlock* Power = MakeScreenText(
-			*FString::Printf(
-				TEXT("ArmyStatisticsRowPower_%d"),
-				Index),
-			21,
-			FLinearColor::White,
-			true);
-		Power->SetText(FText::Format(
-			NSLOCTEXT(
-				"RokArmyStatistics",
-				"TroopPowerFormat",
-				"战力 {0}"),
-			FText::AsNumber(Stack.TotalPower)));
-		PlaceOnCanvas(
-			Row,
-			Power,
-			FVector2D(735.0f, 13.0f),
-			FVector2D(200.0f, 34.0f),
-			2);
-		UTextBlock* Source = MakeScreenText(
-			*FString::Printf(
-				TEXT("ArmyStatisticsRowSource_%d"),
-				Index),
-			16,
-			FLinearColor(0.72f, 0.72f, 0.70f, 1.0f));
-		Source->SetText(FText::Format(
-			NSLOCTEXT(
-				"RokArmyStatistics",
-				"TroopSourceFormat",
-				"单兵战力 {0}  ·  训练耗时 {1} 秒"),
-			FText::AsNumber(Stack.PowerPerUnit),
-			FText::AsNumber(Stack.TrainSeconds)));
-		PlaceOnCanvas(
-			Row,
-			Source,
-			FVector2D(24.0f, 50.0f),
-			FVector2D(650.0f, 28.0f),
-			2);
+		const FRokUnityRuntimeTroopStack& Stack = TroopStacks[Index];
+		DrawStack(*List, Index,
+			FText::Format(NSLOCTEXT("RokArmyStatistics", "TroopNameFormat", "{0} T{1}  ·  配置 {2}"),
+				ResolveTroopTypeLabel(Stack.ArmsType), FText::AsNumber(Stack.Level), FText::AsNumber(Stack.TroopId)),
+			FText::Format(NSLOCTEXT("RokArmyStatistics", "TroopCountFormat", "数量 {0}"), FText::AsNumber(Stack.Count)),
+			FText::Format(NSLOCTEXT("RokArmyStatistics", "TroopPowerFormat", "战力 {0}"), FText::AsNumber(Stack.TotalPower)),
+			FText::Format(NSLOCTEXT("RokArmyStatistics", "TroopSourceFormat", "单兵战力 {0}  ·  训练耗时 {1} 秒"),
+				FText::AsNumber(Stack.PowerPerUnit), FText::AsNumber(Stack.TrainSeconds)), FText::GetEmpty());
 	}
 }
 
-void URokUnityFeatureScreenWidget::BuildStore()
-{
-	BuildSplitWindowFrame(
-		CapturePoint(170.0f, 73.0f),
-		FVector2D(1100.0f, 754.0f),
-		NSLOCTEXT("RokStore", "Title", "商店"),
-		CapturePoint(1230.0f, 77.0f));
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeSolidBorder(
-			TEXT("StoreContentShade"),
-			FLinearColor(0.065f, 0.065f, 0.065f, 0.98f)),
-		CapturePoint(184.0f, 153.0f),
-		FVector2D(1072.0f, 664.0f),
-		2);
-
-	static const int32 StoreCategoryTypes[] = {1, 2, 3, 5};
-	static const FText StoreCategoryLabels[] = {
-		NSLOCTEXT("RokStore", "Resources", "资源"),
-		NSLOCTEXT("RokStore", "Speedups", "加速"),
-		NSLOCTEXT("RokStore", "Boosts", "增益"),
-		NSLOCTEXT("RokStore", "Other", "其他")};
-	for (int32 Category = 0; Category < 4; ++Category)
-	{
-		const bool bSelected =
-			Category == SelectedStoreCategory;
-		PlaceOnCanvas(
-			ModeCanvas,
-			MakeActionButton(
-				*FString::Printf(
-					TEXT("StoreCategory_%d"),
-					Category),
-				1700 + Category,
-				CommonAtlasPath,
-				bSelected
-					? PageSelectedRect
-					: PageNormalRect,
-				CommonAtlasSize,
-				FVector2D(260.0f, 48.0f),
-				StoreCategoryLabels[Category],
-				23,
-				bSelected
-					? FLinearColor::White
-					: FLinearColor(0.72f, 0.72f, 0.70f, 1.0f),
-				ESlateBrushDrawType::Box,
-				FMargin(0.42f, 0.0f, 0.42f, 0.0f)),
-			CapturePoint(
-				195.0f + Category * 260.0f,
-				160.0f),
-			FVector2D(260.0f, 48.0f),
-			6);
-	}
-
-	URokUnityEconomyCatalogSubsystem* Catalog =
-		GetEconomyCatalogSubsystem();
-	TArray<FRokUnityEconomyItem> StoreItems;
-	if (Catalog)
-	{
-		StoreItems = Catalog->GetShopItemsByCategory(
-			StoreCategoryTypes[
-				FMath::Clamp(
-					SelectedStoreCategory,
-					0,
-					3)]);
-	}
-	constexpr int32 StoreItemsPerPage = 12;
-	const int32 PageCount = FMath::Max(
-		1,
-		FMath::DivideAndRoundUp(
-			StoreItems.Num(),
-			StoreItemsPerPage));
-	SelectedStorePage = FMath::Clamp(
-		SelectedStorePage,
-		0,
-		PageCount - 1);
-	const int32 FirstItemIndex =
-		SelectedStorePage * StoreItemsPerPage;
-	const int32 PageItemCount = FMath::Min(
-		StoreItemsPerPage,
-		StoreItems.Num() - FirstItemIndex);
-	VisibleStoreItemIds.Reset();
-	for (int32 Index = 0; Index < PageItemCount; ++Index)
-	{
-		VisibleStoreItemIds.Add(
-			StoreItems[FirstItemIndex + Index].Id);
-	}
-	SelectedStoreItemIndex = FMath::Clamp(
-		SelectedStoreItemIndex,
-		0,
-		FMath::Max(0, VisibleStoreItemIds.Num() - 1));
-
-	auto ResolveQualityColor =
-		[](int32 Quality)
-		{
-			switch (Quality)
-			{
-			case 2:
-				return FLinearColor(0.14f, 0.34f, 0.58f, 1.0f);
-			case 3:
-				return FLinearColor(0.42f, 0.20f, 0.58f, 1.0f);
-			case 4:
-				return FLinearColor(0.72f, 0.39f, 0.12f, 1.0f);
-			case 5:
-				return FLinearColor(0.74f, 0.63f, 0.20f, 1.0f);
-			default:
-				return FLinearColor(0.28f, 0.31f, 0.29f, 1.0f);
-			}
-		};
-
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeSolidBorder(
-			TEXT("StoreGridShade"),
-			FLinearColor(0.10f, 0.11f, 0.10f, 0.98f)),
-		CapturePoint(200.0f, 222.0f),
-		FVector2D(670.0f, 505.0f),
-		3);
-	for (int32 LocalIndex = 0;
-		LocalIndex < VisibleStoreItemIds.Num();
-		++LocalIndex)
-	{
-		const FRokUnityEconomyItem& Item =
-			StoreItems[FirstItemIndex + LocalIndex];
-		const int32 Column = LocalIndex % 4;
-		const int32 Row = LocalIndex / 4;
-		const FVector2D Position(
-			213.0f + Column * 162.0f,
-			236.0f + Row * 155.0f);
-		const bool bSelected =
-			LocalIndex == SelectedStoreItemIndex;
-		UCanvasPanel* Cell =
-			WidgetTree->ConstructWidget<UCanvasPanel>(
-				UCanvasPanel::StaticClass(),
-				*FString::Printf(
-					TEXT("StoreCell_%d"),
-					LocalIndex));
-		PlaceOnCanvas(
-			Cell,
-			MakeSolidBorder(
-				*FString::Printf(
-					TEXT("StoreCellQuality_%d"),
-					LocalIndex),
-				ResolveQualityColor(Item.Quality)),
-			FVector2D::ZeroVector,
-			FVector2D(148.0f, 142.0f),
-			0);
-		if (bSelected)
-		{
-			PlaceOnCanvas(
-				Cell,
-				MakeAtlasBorder(
-					*FString::Printf(
-						TEXT("StoreCellSelected_%d"),
-						LocalIndex),
-					CommonAtlasPath,
-					TaskRowRect,
-					CommonAtlasSize,
-					FVector2D(148.0f, 142.0f),
-					TaskRowMargin),
-				FVector2D::ZeroVector,
-				FVector2D(148.0f, 142.0f),
-				2);
-		}
-		UTextBlock* Name = MakeScreenText(
-			*FString::Printf(
-				TEXT("StoreCellName_%d"),
-				LocalIndex),
-			17,
-			FLinearColor::White,
-			true,
-			ETextJustify::Center);
-		Name->SetText(
-			Item.DisplayNameZhCn.IsEmpty()
-				? FText::Format(
-					NSLOCTEXT(
-						"RokStore",
-						"FallbackItemName",
-						"道具 {0}"),
-					FText::AsNumber(Item.Id))
-				: FText::FromString(
-					Item.DisplayNameZhCn));
-		Name->SetAutoWrapText(true);
-		PlaceOnCanvas(
-			Cell,
-			Name,
-			FVector2D(8.0f, 12.0f),
-			FVector2D(132.0f, 72.0f),
-			3);
-		UTextBlock* Price = MakeScreenText(
-			*FString::Printf(
-				TEXT("StoreCellPrice_%d"),
-				LocalIndex),
-			17,
-			FLinearColor(0.98f, 0.91f, 0.57f, 1.0f),
-			true,
-			ETextJustify::Center);
-		Price->SetText(FText::Format(
-			NSLOCTEXT(
-				"RokStore",
-				"PriceFormat",
-				"宝石 {0}"),
-			FText::AsNumber(Item.ShopPrice)));
-		PlaceOnCanvas(
-			Cell,
-			Price,
-			FVector2D(8.0f, 102.0f),
-			FVector2D(132.0f, 30.0f),
-			3);
-		PlaceOnCanvas(
-			Cell,
-			MakeActionButton(
-				*FString::Printf(
-					TEXT("StoreCellHit_%d"),
-					LocalIndex),
-				1720 + LocalIndex,
-				nullptr,
-				FIntRect(),
-				FIntPoint::ZeroValue,
-				FVector2D(148.0f, 142.0f)),
-			FVector2D::ZeroVector,
-			FVector2D(148.0f, 142.0f),
-			8);
-		PlaceOnCanvas(
-			ModeCanvas,
-			Cell,
-			CapturePoint(Position.X, Position.Y),
-			FVector2D(148.0f, 142.0f),
-			5);
-	}
-
-	FRokUnityEconomyItem SelectedItem;
-	const bool bHasSelectedItem =
-		Catalog
-		&& VisibleStoreItemIds.IsValidIndex(
-			SelectedStoreItemIndex)
-		&& Catalog->FindItemById(
-			VisibleStoreItemIds[SelectedStoreItemIndex],
-			SelectedItem);
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeSolidBorder(
-			TEXT("StoreDetailShade"),
-			FLinearColor(0.18f, 0.19f, 0.18f, 0.98f)),
-		CapturePoint(890.0f, 222.0f),
-		FVector2D(345.0f, 505.0f),
-		4);
-	UTextBlock* DetailName = MakeScreenText(
-		TEXT("StoreDetailName"),
-		24,
-		FLinearColor(0.96f, 0.90f, 0.65f, 1.0f),
-		true,
-		ETextJustify::Center);
-	DetailName->SetText(
-		bHasSelectedItem
-			? FText::FromString(
-				SelectedItem.DisplayNameZhCn.IsEmpty()
-					? FString::Printf(
-						TEXT("道具 %d"),
-						SelectedItem.Id)
-					: SelectedItem.DisplayNameZhCn)
-			: NSLOCTEXT(
-				"RokStore",
-				"NoItem",
-				"当前分类无商品"));
-	DetailName->SetAutoWrapText(true);
-	PlaceOnCanvas(
-		ModeCanvas,
-		DetailName,
-		CapturePoint(910.0f, 247.0f),
-		FVector2D(305.0f, 68.0f),
-		6);
-	UTextBlock* DetailSource = MakeScreenText(
-		TEXT("StoreDetailSource"),
-		16,
-		FLinearColor(0.74f, 0.74f, 0.71f, 1.0f),
-		false,
-		ETextJustify::Center);
-	DetailSource->SetText(
-		bHasSelectedItem
-			? FText::Format(
-				NSLOCTEXT(
-					"RokStore",
-					"SourceFormat",
-					"Item {0}  ·  品质 {1}  ·  货币 {2}"),
-				FText::AsNumber(SelectedItem.Id),
-				FText::AsNumber(SelectedItem.Quality),
-				FText::AsNumber(
-					SelectedItem.ShopCurrencyTypeId))
-			: FText::GetEmpty());
-	PlaceOnCanvas(
-		ModeCanvas,
-		DetailSource,
-		CapturePoint(905.0f, 322.0f),
-		FVector2D(315.0f, 34.0f),
-		6);
-	UTextBlock* Description = MakeScreenText(
-		TEXT("StoreDetailDescription"),
-		17,
-		FLinearColor::White,
-		false,
-		ETextJustify::Center);
-	Description->SetText(
-		bHasSelectedItem
-			? FText::FromString(
-				ResolveEconomyItemDescription(SelectedItem))
-			: FText::GetEmpty());
-	Description->SetAutoWrapText(true);
-	PlaceOnCanvas(
-		ModeCanvas,
-		Description,
-		CapturePoint(915.0f, 365.0f),
-		FVector2D(295.0f, 95.0f),
-		6);
-
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeActionButton(
-			TEXT("StoreQuantityMinus"),
-			1750,
-			CommonAtlasPath,
-			ItemMinusRect,
-			CommonAtlasSize,
-			FVector2D(46.0f),
-			FText::FromString(TEXT("−")),
-			23),
-		CapturePoint(912.0f, 480.0f),
-		FVector2D(46.0f),
-		7);
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeSolidBorder(
-			TEXT("StoreQuantityShade"),
-			FLinearColor(0.11f, 0.12f, 0.11f, 0.98f)),
-		CapturePoint(966.0f, 482.0f),
-		FVector2D(135.0f, 43.0f),
-		6);
-	UTextBlock* Quantity = MakeScreenText(
-		TEXT("StoreQuantity"),
-		22,
-		FLinearColor::White,
-		true,
-		ETextJustify::Center);
-	Quantity->SetText(FText::AsNumber(SelectedStoreQuantity));
-	PlaceOnCanvas(
-		ModeCanvas,
-		Quantity,
-		CapturePoint(966.0f, 487.0f),
-		FVector2D(135.0f, 34.0f),
-		7);
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeActionButton(
-			TEXT("StoreQuantityPlus"),
-			1751,
-			CommonAtlasPath,
-			ItemPlusRect,
-			CommonAtlasSize,
-			FVector2D(46.0f),
-			FText::FromString(TEXT("+")),
-			23),
-		CapturePoint(1109.0f, 480.0f),
-		FVector2D(46.0f),
-		7);
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeActionButton(
-			TEXT("StoreQuantityMax"),
-			1752,
-			CommonAtlasPath,
-			MiniBlueButtonRect,
-			CommonAtlasSize,
-			FVector2D(67.0f, 46.0f),
-			NSLOCTEXT("RokStore", "Max", "最大"),
-			17),
-		CapturePoint(1162.0f, 480.0f),
-		FVector2D(67.0f, 46.0f),
-		7);
-
-	const int64 TotalPrice = bHasSelectedItem
-		? static_cast<int64>(SelectedItem.ShopPrice)
-			* SelectedStoreQuantity
-		: 0;
-	UTextBlock* Total = MakeScreenText(
-		TEXT("StoreTotalPrice"),
-		22,
-		FLinearColor(0.98f, 0.91f, 0.57f, 1.0f),
-		true,
-		ETextJustify::Center);
-	Total->SetText(FText::Format(
-		NSLOCTEXT(
-			"RokStore",
-			"TotalPriceFormat",
-			"总价：{0} 宝石"),
-		FText::AsNumber(TotalPrice)));
-	PlaceOnCanvas(
-		ModeCanvas,
-		Total,
-		CapturePoint(910.0f, 550.0f),
-		FVector2D(305.0f, 38.0f),
-		7);
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeActionButton(
-			TEXT("StoreBuyButton"),
-			1753,
-			CommonAtlasPath,
-			MediumGoldButtonRect,
-			CommonAtlasSize,
-			FVector2D(220.0f, 75.0f),
-			NSLOCTEXT("RokStore", "Buy", "购买"),
-			26,
-			FLinearColor(0.25f, 0.13f, 0.02f, 1.0f),
-			ESlateBrushDrawType::Box,
-			FMargin(0.42f, 0.0f, 0.42f, 0.0f)),
-		CapturePoint(952.0f, 618.0f),
-		FVector2D(220.0f, 75.0f),
-		8);
-
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeActionButton(
-			TEXT("StorePreviousPage"),
-			1740,
-			CommonAtlasPath,
-			MiniBlueButtonRect,
-			CommonAtlasSize,
-			FVector2D(110.0f, 46.0f),
-			NSLOCTEXT("RokStore", "Previous", "上一页"),
-			17),
-		CapturePoint(395.0f, 744.0f),
-		FVector2D(110.0f, 46.0f),
-		7);
-	UTextBlock* Page = MakeScreenText(
-		TEXT("StorePage"),
-		18,
-		FLinearColor::White,
-		true,
-		ETextJustify::Center);
-	Page->SetText(FText::Format(
-		NSLOCTEXT(
-			"RokStore",
-			"PageFormat",
-			"{0}/{1}  ·  本类 {2} 项"),
-		FText::AsNumber(SelectedStorePage + 1),
-		FText::AsNumber(PageCount),
-		FText::AsNumber(StoreItems.Num())));
-	PlaceOnCanvas(
-		ModeCanvas,
-		Page,
-		CapturePoint(510.0f, 752.0f),
-		FVector2D(240.0f, 32.0f),
-		7);
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeActionButton(
-			TEXT("StoreNextPage"),
-			1741,
-			CommonAtlasPath,
-			MiniBlueButtonRect,
-			CommonAtlasSize,
-			FVector2D(110.0f, 46.0f),
-			NSLOCTEXT("RokStore", "Next", "下一页"),
-			17),
-		CapturePoint(755.0f, 744.0f),
-		FVector2D(110.0f, 46.0f),
-		7);
-}
+#include "RokFeatureStore.inl"
 
 #if !UE_BUILD_SHIPPING
 AActor* URokUnityFeatureScreenWidget::GetFeatureContextActorForAudit() const
@@ -8630,15 +8212,27 @@ void URokUnityFeatureScreenWidget::BuildTrainArmy()
 	TrainArmyAnimatedChildren.Reset();
 	TrainArmyTipLayer = nullptr;
 	const FText ArmyLabel = ResolveTroopTypeLabel(SelectedTrainArmyType);
-	BuildSplitWindowFrame(
-		FVector2D(133.5, 40.5),
-		FVector2D(1173, 729),
-		FText::Format(
-			NSLOCTEXT("RokTrainArmy", "TitleFormat", "{0}单位训练"),
-			ArmyLabel),
-		CapturePoint(1230.0f, 77.0f), nullptr, 1, 32.0f);
-	if (auto* Title = Cast<UTextBlock>(GetWidgetFromName(TEXT("FeatureFrameTitle"))))
-		Title->SetFont(FCoreStyle::GetDefaultFontStyle(TEXT("Regular"), 24));
+	const FText TitleText = FText::Format(NSLOCTEXT("RokTrainArmy", "TitleFormat", "{0}单位训练"), ArmyLabel);
+	auto* SharedFrame = MountModePage(TEXT("TrainArmyFrame"));
+	auto* FrameTitle = SharedFrame ? SharedFrame->Get<UTextBlock>(TEXT("FeatureFrameTitle")) : nullptr;
+	if (FrameTitle)
+	{
+		FrameTitle->SetText(TitleText);
+	}
+	else
+	{
+		if (SharedFrame)
+		{
+			SharedFrame->RemoveFromParent();
+			ActiveModePage = nullptr;
+		}
+		BuildSplitWindowFrame(FVector2D(133.5, 40.5), FVector2D(1173, 729), TitleText,
+			CapturePoint(1230.0f, 77.0f), nullptr, 1, 32.0f);
+		if (auto* Title = Cast<UTextBlock>(GetWidgetFromName(TEXT("FeatureFrameTitle"))))
+		{
+			Title->SetFont(FCoreStyle::GetDefaultFontStyle(TEXT("Regular"), 24));
+		}
+	}
 
 	URokUnityGameplayCatalogSubsystem* GameplayCatalog =
 		GetGameplayCatalogSubsystem();
@@ -8728,17 +8322,14 @@ void URokUnityFeatureScreenWidget::BuildTrainArmy()
 		BuildTrainArmyDetail(SelectedTroop->Id);
 		return;
 	}
-	const int32 TrainFirstChild = ModeCanvas->GetChildrenCount();
-	UTextBlock* BuildingContext = MakeScreenText(
-		TEXT("TrainArmyBuildingContext"),
-		19,
-		FLinearColor(0.82f, 0.81f, 0.75f, 1.0f),
-		false,
-		ETextJustify::Center);
+	const bool bIdle = !ArmySnapshot.bAvailable || (ServerBuilding && ArmySnapshot.bLoaded
+		&& ArmySnapshot.bTrainingKnown && (!ServerQueue || ServerQueue->State == ERokServerTrainingState::Idle));
+	bTrainArmyQuantityEditable = bTierUnlocked && TrainArmyBaseCapacity > 0 && bIdle;
+	bTrainCanStart = bTrainArmyQuantityEditable;
 	const FText BuildingContextFormat = ArmySnapshot.bAvailable
 		? NSLOCTEXT("RokTrainArmy", "ServerBuildingContextFormat", "{0}  ·  等级 {1}  ·  可选数量 {2}")
 		: NSLOCTEXT("RokTrainArmy", "BuildingContextFormat", "{0}  ·  等级 {1}  ·  单队容量 {2}");
-	BuildingContext->SetText(ArmySnapshot.bAvailable && BuildingLevel <= 0
+	const FText ContextText = ArmySnapshot.bAvailable && BuildingLevel <= 0
 		? NSLOCTEXT("RokTrainArmy", "ServerBuildingContextWaiting", "训练建筑状态待同步")
 		: FText::Format(BuildingContextFormat,
 		BuildingName,
@@ -8748,7 +8339,22 @@ void URokUnityFeatureScreenWidget::BuildTrainArmy()
 			: NSLOCTEXT(
 				"RokTrainArmy",
 				"CapacityUnavailable",
-				"未载入")));
+				"未载入"));
+	if (SelectedTroop && BuildTrainArmyParameterPage(*SelectedTroop, Troops, ArmySnapshot, ServerArmy,
+		ServerQueue, ContextText, bTierUnlocked, bIdle))
+	{
+		RefreshTrainArmyAction();
+		AdvanceTrainArmyDetailAnimation(0.0f);
+		return;
+	}
+	const int32 TrainFirstChild = ModeCanvas->GetChildrenCount();
+	UTextBlock* BuildingContext = MakeScreenText(
+		TEXT("TrainArmyBuildingContext"),
+		19,
+		FLinearColor(0.82f, 0.81f, 0.75f, 1.0f),
+		false,
+		ETextJustify::Center);
+	BuildingContext->SetText(ContextText);
 	PlaceOnCanvas(
 		ModeCanvas,
 		BuildingContext,
@@ -9050,10 +8656,6 @@ void URokUnityFeatureScreenWidget::BuildTrainArmy()
 		CapturePoint(905.0f, 622.0f),
 		FVector2D(250.0f, 76.0f),
 		9);
-	const bool bIdle = !ArmySnapshot.bAvailable || (ServerBuilding && ArmySnapshot.bLoaded
-		&& ArmySnapshot.bTrainingKnown && (!ServerQueue || ServerQueue->State == ERokServerTrainingState::Idle));
-	bTrainArmyQuantityEditable = bTierUnlocked && TrainArmyBaseCapacity > 0 && bIdle;
-	bTrainCanStart = bTrainArmyQuantityEditable;
 	BuildTrainArmyQuantityControls();
 	BuildTrainResourceCost();
 	if (ArmySnapshot.bAvailable)
@@ -9145,24 +8747,43 @@ void URokUnityFeatureScreenWidget::OpenTrainArmyInstantConfirmation()
 		return;
 	}
 	TrainArmyConfirmationPrice = TrainArmyInstantPrice;
-	TrainArmyInstantConfirmation = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("TrainArmyInstantConfirmation"));
-	PlaceOnCanvas(ModeCanvas, TrainArmyInstantConfirmation, FVector2D::ZeroVector, CurrentExpandedDesignSize, 90);
+	const FText Message = FText::Format(NSLOCTEXT("RokTrainArmy", "InstantConfirmText",
+		"预计消耗 {0} 宝石，立即训练 {1} 名士兵。\n实际费用由服务器结算。"),
+		FText::AsNumber(TrainArmyConfirmationPrice), FText::AsNumber(SelectedTrainCount));
+	UClass* ConfirmClass = ActiveModePage ? ResolveFeaturePageClass(TEXT("TrainArmyInstantConfirm")) : nullptr;
+	if (auto* Dialog = ConfirmClass ? CreateWidget<URokUiPageWidget>(this, ConfirmClass) : nullptr)
+	{
+		if (auto* Text = Dialog->Get<UTextBlock>(TEXT("TrainArmyConfirmText")); Text
+			&& Dialog->Get<URokUnityIndexedButton>(TEXT("TrainArmyInstantCancel"))
+			&& Dialog->Get<URokUnityIndexedButton>(TEXT("TrainArmyInstantConfirm")))
+		{
+			Text->SetText(Message);
+			BindPageAction(*Dialog, TEXT("TrainArmyInstantCancel"), 1942);
+			BindPageAction(*Dialog, TEXT("TrainArmyInstantConfirm"), 1943);
+			Dialog->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+			PlaceOnCanvas(ModeCanvas, Dialog, FVector2D::ZeroVector, CurrentExpandedDesignSize, 90);
+			TrainArmyInstantConfirmation = Dialog;
+			return;
+		}
+	}
+
+	auto* ConfirmationCanvas = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("TrainArmyInstantConfirmation"));
+	TrainArmyInstantConfirmation = ConfirmationCanvas;
+	PlaceOnCanvas(ModeCanvas, ConfirmationCanvas, FVector2D::ZeroVector, CurrentExpandedDesignSize, 90);
 	auto* Shade = MakeSolidBorder(TEXT("TrainArmyConfirmMask"), FLinearColor(0, 0, 0, .68f));
 	Shade->SetVisibility(ESlateVisibility::Visible);
-	PlaceOnCanvas(TrainArmyInstantConfirmation, Shade, FVector2D::ZeroVector, CurrentExpandedDesignSize);
+	PlaceOnCanvas(ConfirmationCanvas, Shade, FVector2D::ZeroVector, CurrentExpandedDesignSize);
 	const FVector2D Size(538, 200);
 	const FVector2D Origin = (CurrentExpandedDesignSize - Size) * .5f;
-	PlaceOnCanvas(TrainArmyInstantConfirmation, MakeAtlasBorder(TEXT("TrainArmyConfirmFrame"), FrameAtlasPath,
+	PlaceOnCanvas(ConfirmationCanvas, MakeAtlasBorder(TEXT("TrainArmyConfirmFrame"), FrameAtlasPath,
 		WindowBodyRect, FrameAtlasSize, Size, WindowBodyMargin), Origin, Size, 1);
 	auto* Text = MakeScreenText(TEXT("TrainArmyConfirmText"), 22, FLinearColor::White, false, ETextJustify::Center);
-	Text->SetText(FText::Format(NSLOCTEXT("RokTrainArmy", "InstantConfirmText",
-		"预计消耗 {0} 宝石，立即训练 {1} 名士兵。\n实际费用由服务器结算。"),
-		FText::AsNumber(TrainArmyConfirmationPrice), FText::AsNumber(SelectedTrainCount)));
-	PlaceOnCanvas(TrainArmyInstantConfirmation, Text, Origin + FVector2D(22, 29), FVector2D(494, 85), 2);
-	PlaceOnCanvas(TrainArmyInstantConfirmation, MakeActionButton(TEXT("TrainArmyInstantCancel"), 1942,
+	Text->SetText(Message);
+	PlaceOnCanvas(ConfirmationCanvas, Text, Origin + FVector2D(22, 29), FVector2D(494, 85), 2);
+	PlaceOnCanvas(ConfirmationCanvas, MakeActionButton(TEXT("TrainArmyInstantCancel"), 1942,
 		CommonAtlasPath, MediumBlueButtonRect, CommonAtlasSize, FVector2D(175, 62),
 		NSLOCTEXT("RokTrainArmy", "InstantCancel", "取消"), 22), Origin + FVector2D(74, 120), FVector2D(175, 62), 3);
-	PlaceOnCanvas(TrainArmyInstantConfirmation, MakeActionButton(TEXT("TrainArmyInstantConfirm"), 1943,
+	PlaceOnCanvas(ConfirmationCanvas, MakeActionButton(TEXT("TrainArmyInstantConfirm"), 1943,
 		CommonAtlasPath, MediumGoldButtonRect, CommonAtlasSize, FVector2D(175, 62),
 		NSLOCTEXT("RokTrainArmy", "InstantConfirm", "确认"), 22), Origin + FVector2D(289, 120), FVector2D(175, 62), 3);
 }
@@ -9363,30 +8984,53 @@ void URokUnityFeatureScreenWidget::BuildTrainArmySharedDisplay(int32 TroopId)
 	if (!RokTrainArmyDetail::Load(TroopId, Detail, Error)) { UE_LOG(LogTemp, Error, TEXT("%s"), *Error); return; }
 	const TCHAR* TroopAtlas = *Detail.Attributes[0].Texture;
 	const auto TroopAtlasSize = Detail.Attributes[0].AtlasSize;
-	// Source left art stays fixed while the pl_spine mesh keeps its own idle clock.
-	auto* LeftBack = MakeAtlasBorder(TEXT("TrainParameterLeftBacking"), CommonAtlasPath, SpriteRect(1003, 932, 400, 42),
-		CommonAtlasSize, FVector2D(464.9, 656), FMargin(182.f / 400, 13.f / 42, 115.f / 400, 12.f / 42));
-	PlaceOnCanvas(ModeCanvas, LeftBack, FVector2D(175.95, 99.9), FVector2D(464.9, 656), 3);
-	LeftBack->SetRenderTransformPivot(FVector2D(.5, .5)); LeftBack->SetRenderScale(FVector2D(-1, 1));
-	auto* LeftImage = MakeAtlasImage(TEXT("TrainParameterLeftArt"), TroopAtlas, SpriteRect(1, 1392, 447, 655), TroopAtlasSize, FVector2D(453.5, 656));
-	PlaceOnCanvas(ModeCanvas, LeftImage, FVector2D(179.05, 99.8), FVector2D(453.5, 656), 4);
-	LeftImage->SetRenderTransformPivot(FVector2D(.5, .5)); LeftImage->SetRenderScale(FVector2D(-1, 1));
+	UCanvasPanel* ModelParent = ModeCanvas;
+	if (ActiveModePage)
+	{
+		auto* Backing = ActiveModePage->Get<UCanvasPanel>(TEXT("TrainParameterLeftBacking"));
+		auto* Art = ActiveModePage->Get<UImage>(TEXT("TrainParameterLeftArt"));
+		auto* Host = ActiveModePage->Get<UCanvasPanel>(TEXT("TrainArmyModelHost"));
+		if (Backing && Art && Host)
+		{
+			Backing->SetVisibility(ESlateVisibility::HitTestInvisible);
+			UTexture2D* Texture = LoadUiTexture(TroopAtlas);
+			Art->SetVisibility(Texture ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+			if (Texture)
+			{
+				Art->SetBrush(MakeAtlasBrush(Texture, SpriteRect(1, 1392, 447, 655), TroopAtlasSize, FVector2D(453.5, 656)));
+			}
+			ModelParent = Host;
+		}
+	}
+	if (ModelParent == ModeCanvas)
+	{
+		// Source left art stays fixed while the pl_spine mesh keeps its own idle clock.
+		auto* LeftBack = MakeAtlasBorder(TEXT("TrainParameterLeftBacking"), CommonAtlasPath, SpriteRect(1003, 932, 400, 42),
+			CommonAtlasSize, FVector2D(464.9, 656), FMargin(182.f / 400, 13.f / 42, 115.f / 400, 12.f / 42));
+		PlaceOnCanvas(ModeCanvas, LeftBack, FVector2D(175.95, 99.9), FVector2D(464.9, 656), 3);
+		LeftBack->SetRenderTransformPivot(FVector2D(.5, .5)); LeftBack->SetRenderScale(FVector2D(-1, 1));
+		auto* LeftImage = MakeAtlasImage(TEXT("TrainParameterLeftArt"), TroopAtlas, SpriteRect(1, 1392, 447, 655), TroopAtlasSize, FVector2D(453.5, 656));
+		PlaceOnCanvas(ModeCanvas, LeftImage, FVector2D(179.05, 99.8), FVector2D(453.5, 656), 4);
+		LeftImage->SetRenderTransformPivot(FVector2D(.5, .5)); LeftImage->SetRenderScale(FVector2D(-1, 1));
+	}
 	if (!TrainArmyAnimatedModel)
 		TrainArmyAnimatedModel = WidgetTree->ConstructWidget<URokTrainArmyMeshWidget>(URokTrainArmyMeshWidget::StaticClass(), TEXT("TrainArmyAnimatedModel"));
 	if (TrainArmyAnimatedModel->LoadArms(TroopId))
 	{
 		TrainArmyAnimatedModel->SetVisibility(ESlateVisibility::HitTestInvisible);
-		PlaceOnCanvas(ModeCanvas, TrainArmyAnimatedModel, FVector2D::ZeroVector, FVector2D(1440, 810), 4);
+		const auto* HostSlot = ModelParent != ModeCanvas ? Cast<UCanvasPanelSlot>(ModelParent->Slot) : nullptr;
+		const FVector2D Extent = HostSlot ? HostSlot->GetSize() : FVector2D(1440, 810);
+		PlaceOnCanvas(ModelParent, TrainArmyAnimatedModel, FVector2D::ZeroVector, Extent, 4);
 		return;
 	}
 	// Missing source is a visible diagnostic, never a fabricated animated model.
 	FIntRect PortraitRect;
 	if (ResolveTroopHeadRect(SelectedTrainArmyType, SelectedTrainTier, PortraitRect))
-		PlaceOnCanvas(ModeCanvas, MakeAtlasImage(bTrainArmyDetailVisible ? TEXT("TrainArmyDetailPortrait") : TEXT("TrainArmySelectedIcon"),
+		PlaceOnCanvas(ModelParent, MakeAtlasImage(bTrainArmyDetailVisible ? TEXT("TrainArmyDetailPortrait") : TEXT("TrainArmySelectedIcon"),
 			TroopHeadAtlasPath, PortraitRect, TroopHeadAtlasSize, FVector2D(280)), FVector2D(270, 250), FVector2D(280), 6);
 	auto* Preview = MakeScreenText(TEXT("TrainParameterStaticPreview"), 15, FLinearColor::White, false, ETextJustify::Center);
 	Preview->SetText(FText::FromString(TEXT("模型加载失败 · 静态诊断预览"))); Preview->SetShadowOffset(FVector2D::ZeroVector);
-	PlaceOnCanvas(ModeCanvas, Preview, FVector2D(270, 540), FVector2D(280, 30), 6);
+	PlaceOnCanvas(ModelParent, Preview, FVector2D(270, 540), FVector2D(280, 30), 6);
 }
 
 void URokUnityFeatureScreenWidget::ApplyTrainParameterLayout(int32 TroopId)
@@ -9456,7 +9100,11 @@ void URokUnityFeatureScreenWidget::ApplyTrainParameterLayout(int32 TroopId)
 	Move(TEXT("TrainArmyQuantityInput"), InputPosition(), FVector2D(136.53, 40));
 	if (auto* Input = Cast<UEditableTextBox>(GetWidgetFromName(TEXT("TrainArmyQuantityInput"))))
 	{
-		auto Style = Input->GetWidgetStyle(); Style.TextStyle.Font.Size = 15; Input->SetWidgetStyle(Style);
+		FEditableTextBoxStyle Style = Input->GetWidgetStyle();
+		Style.TextStyle.Font.Size = 15;
+		Input->SetWidgetStyle(Style);
+		// UE 5.8 Slate retains the supplied style pointer once the box is mounted.
+		Input->SetWidgetStyle(Input->GetWidgetStyle());
 	}
 	Move(TEXT("TrainArmyQuantity"), InputPosition(), FVector2D(136.53, 40));
 	if (auto* Quantity = Cast<UTextBlock>(GetWidgetFromName(TEXT("TrainArmyQuantity"))))
@@ -9550,6 +9198,165 @@ void URokUnityFeatureScreenWidget::ApplyTrainParameterLayout(int32 TroopId)
 	UpdateTrainResourceCost();
 }
 
+bool URokUnityFeatureScreenWidget::BuildTrainArmyParameterPage(const FRokUnityCatalogTroop& SelectedTroop,
+	const TArray<FRokUnityCatalogTroop>& Troops, const FRokServerArmySnapshot& ArmySnapshot,
+	const URokServerArmySubsystem* ServerArmy, const FRokServerTrainingQueue* ServerQueue,
+	const FText& ContextText, bool bTierUnlocked, bool bIdle)
+{
+	UClass* TierClass = ResolveFeaturePageClass(TEXT("TrainArmyTierCard"));
+	if (!TierClass)
+	{
+		return false;
+	}
+	FRokTrainArmyDetail Detail;
+	FString DetailError;
+	if (!RokTrainArmyDetail::Load(SelectedTroop.Id, Detail, DetailError) || Detail.Attributes.IsEmpty())
+	{
+		return false;
+	}
+	auto* Page = MountModePage(TEXT("TrainArmyParameter"), false, 5);
+	if (!Page)
+	{
+		return false;
+	}
+	auto* Right = Page->Get<UCanvasPanel>(TEXT("TrainParameterRoot"));
+	if (!Right)
+	{
+		Page->RemoveFromParent();
+		ActiveModePage = nullptr;
+		return false;
+	}
+
+	const auto SetText = [](const URokUiPageWidget& Owner, FName Name, const FText& Text)
+	{
+		if (auto* Label = Owner.Get<UTextBlock>(Name)) Label->SetText(Text);
+	};
+	const auto SetShown = [Page](FName Name, bool bVisible, ESlateVisibility Shown = ESlateVisibility::HitTestInvisible)
+	{
+		if (auto* Widget = Page->Get<UWidget>(Name))
+		{
+			Widget->SetVisibility(bVisible ? Shown : ESlateVisibility::Collapsed);
+		}
+	};
+	UMaterialInstanceDynamic* GrayPortrait = nullptr;
+	auto* HeadTexture = LoadUiTexture(TroopHeadAtlasPath);
+	if (auto* Gray = LoadObject<UMaterialInterface>(nullptr,
+		TEXT("/Game/RokPrototype/UI/Research/M_RokResearchGrayUI.M_RokResearchGrayUI")))
+	{
+		GrayPortrait = UMaterialInstanceDynamic::Create(Gray, this);
+		GrayPortrait->SetTextureParameterValue(TEXT("SourceAtlas"), HeadTexture);
+	}
+	for (int32 Index = 0; Index < 5; ++Index)
+	{
+		auto* CardSlot = Page->Get<UCanvasPanel>(*FString::Printf(TEXT("TrainArmyTierSlot_%d"), Index));
+		auto* Card = MountPageItem(CardSlot, TierClass, TEXT("TrainArmy"), Index);
+		if (!Card) continue;
+		const int32 Tier = Index + 1;
+		const auto* TierTroop = Troops.FindByPredicate([Tier](const auto& Troop) { return Troop.Level == Tier; });
+		const bool bUnlocked = TierTroop && (TierTroop->StudyId == 0
+			|| (ServerArmy && ServerArmy->IsTrainingTierUnlocked(TierTroop->StudyId)));
+		if (auto* Portrait = Card->Get<UImage>(TEXT("TierIcon")))
+		{
+			FIntRect Rect;
+			const bool bHasArt = HeadTexture && ResolveTroopHeadRect(SelectedTrainArmyType, Tier, Rect);
+			Card->SetPresent(Portrait, bHasArt);
+			if (bHasArt)
+			{
+				FSlateBrush Brush = MakeAtlasBrush(HeadTexture, Rect, TroopHeadAtlasSize, FVector2D(116));
+				if (!bUnlocked && GrayPortrait) Brush.SetResourceObject(GrayPortrait);
+				Portrait->SetBrush(Brush);
+			}
+		}
+		int64 Owned = 0;
+		for (const auto& Stack : ArmySnapshot.CitySoldiers)
+		{
+			if (Stack.FamilyType == SelectedTrainArmyType && Stack.Tier == Tier) Owned += Stack.Count;
+		}
+		if (auto* Label = Card->Get<UTextBlock>(TEXT("TierLabel")))
+		{
+			Label->SetText(ArmySnapshot.bCityKnown ? FText::AsNumber(Owned) : FText::FromString(TEXT("—")));
+			Label->SetColorAndOpacity(bUnlocked ? FLinearColor::White : FLinearColor(.35f, .35f, .34f));
+		}
+		Card->SetShown(Card->Get<UImage>(TEXT("TrainParameterHeadSelect")), Tier == SelectedTrainTier);
+		BindPageAction(*Card, TEXT("Tier"), 1900 + Index);
+	}
+
+	SetText(*Page, TEXT("TrainArmyBuildingContext"), ContextText);
+	SetText(*Page, TEXT("TrainArmySelectedName"), FText::FromString(Detail.Name));
+	SetText(*Page, TEXT("TrainArmySelectedStats"), FText::FromString(Detail.Description));
+	if (auto* TypeIcon = Page->Get<UImage>(TEXT("TrainArmyParameterTypeIcon")))
+	{
+		const FIntRect Types[] = {SpriteRect(450, 1906, 38, 38), SpriteRect(87, 413, 38, 38),
+			SpriteRect(44, 369, 38, 38), SpriteRect(1, 92, 38, 38)};
+		const auto& Source = Detail.Attributes[0];
+		auto* Texture = LoadUiTexture(*Source.Texture);
+		TypeIcon->SetVisibility(Texture ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+		if (Texture) TypeIcon->SetBrush(MakeAtlasBrush(Texture, Types[SelectedTrainArmyType - 1], Source.AtlasSize, FVector2D(38)));
+	}
+
+	const bool bLocked = !bTierUnlocked && !bTrainActionReceives;
+	SetShown(TEXT("TrainArmyQuantity"), !bLocked);
+	SetShown(TEXT("TrainArmyQuantityRegion"), bTrainArmyQuantityEditable);
+	SetShown(TEXT("TrainArmyQuantityInput"), bTrainArmyQuantityEditable, ESlateVisibility::Visible);
+	SetShown(TEXT("TrainArmyQuantitySlider"), bTrainArmyQuantityEditable, ESlateVisibility::Visible);
+	for (const FName Name : {FName(TEXT("TrainArmyQuantitySliderBackground")), FName(TEXT("TrainArmyQuantitySliderFill")),
+		FName(TEXT("TrainArmyParameterCostBackground")), FName(TEXT("TrainArmyParameterQuantityBand"))})
+	{
+		SetShown(Name, bTrainArmyQuantityEditable);
+	}
+	SetShown(TEXT("TrainResourceCostRoot"), bTrainArmyQuantityEditable, ESlateVisibility::SelfHitTestInvisible);
+	SetShown(TEXT("TrainArmyStart"), !bLocked, ESlateVisibility::Visible);
+	SetShown(TEXT("TrainArmyDurationIcon"), bTrainCanStart);
+	SetShown(TEXT("TrainResourceBaseTime"), bTrainCanStart);
+	Page->SetPresent(Page->Get<UWidget>(TEXT("TrainArmyInstant")), bTrainCanStart);
+	BindPageAction(*Page, TEXT("TrainArmyStart"), 1940);
+	BindPageAction(*Page, TEXT("TrainArmyDetailButton"), 1950);
+	if (bTrainCanStart) BindPageAction(*Page, TEXT("TrainArmyInstant"), 1941);
+	if (auto* Label = Page->Get<UTextBlock>(TEXT("TrainArmyStartLabel")))
+	{
+		if (auto* LabelSlot = Cast<UCanvasPanelSlot>(Label->Slot))
+		{
+			LabelSlot->SetPosition(FVector2D(LabelSlot->GetPosition().X, bTrainCanStart ? 12 : 23));
+		}
+	}
+	SetShown(TEXT("TrainArmyStudyStatus"), bLocked);
+	SetText(*Page, TEXT("TrainArmyStudyStatus"), ArmySnapshot.bAvailable
+		? NSLOCTEXT("RokTrainArmy", "StudyStatusRequired", "当前兵阶需要完成对应科技。可查看兵种详情。")
+		: NSLOCTEXT("RokTrainArmy", "StudyStatusUnknown", "当前兵阶需要科技解锁，解锁状态待同步。可查看兵种详情。"));
+
+	Page->SetPresent(Page->Get<UWidget>(TEXT("TrainArmyServerQueueStatus")), ArmySnapshot.bAvailable);
+	Page->SetPresent(Page->Get<UWidget>(TEXT("TrainArmyServerQueueProgress")), ArmySnapshot.bAvailable);
+	if (ArmySnapshot.bAvailable)
+	{
+		SetShown(TEXT("TrainArmyServerQueueStatus"), !bIdle);
+		SetText(*Page, TEXT("TrainArmyServerQueueStatus"),
+			DescribeServerTrainingQueue(ArmySnapshot, SelectedServerTrainBuildingIndex, SelectedTrainArmyType));
+		if (auto* QueueProgress = Page->Get<UProgressBar>(TEXT("TrainArmyServerQueueProgress")))
+		{
+			const bool bTiming = ServerQueue && ServerQueue->bTimeKnown
+				&& (ServerQueue->State == ERokServerTrainingState::Training || ServerQueue->State == ERokServerTrainingState::Upgrading);
+			QueueProgress->SetPercent(bTiming ? FMath::Clamp(static_cast<float>(ServerQueue->Progress01), 0.0f, 1.0f) : 0.0f);
+			QueueProgress->SetVisibility(bTiming ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+		}
+	}
+	if (auto* Input = Page->Get<UEditableTextBox>(TEXT("TrainArmyQuantityInput")))
+	{
+		Input->SetText(FText::FromString(FString::FromInt(SelectedTrainCount)));
+		Input->SetIsEnabled(bTrainArmyQuantityEditable);
+		Input->OnTextChanged.AddDynamic(this, &URokUnityFeatureScreenWidget::HandleTrainArmyQuantityTextChanged);
+	}
+	if (auto* Slider = Page->Get<USlider>(TEXT("TrainArmyQuantitySlider")))
+	{
+		Slider->SetIsEnabled(bTrainArmyQuantityEditable);
+		Slider->OnValueChanged.AddDynamic(this, &URokUnityFeatureScreenWidget::HandleTrainArmyQuantitySliderChanged);
+	}
+	SetText(*Page, TEXT("TrainArmyQuantity"), FText::AsNumber(SelectedTrainCount));
+	if (bTrainArmyQuantityEditable) UpdateTrainArmyQuantity(SelectedTrainCount);
+	UpdateTrainResourceCost();
+	TrainArmyAnimatedChildren.Add(Right);
+	return true;
+}
+
 void URokUnityFeatureScreenWidget::BuildTrainArmyDetail(int32 TroopId)
 {
 	FRokTrainArmyDetail Detail; FString Error;
@@ -9559,6 +9366,10 @@ void URokUnityFeatureScreenWidget::BuildTrainArmyDetail(int32 TroopId)
 		auto* Missing = MakeScreenText(TEXT("TrainArmyDetailMissing"), 22, FLinearColor::White);
 		Missing->SetText(FText::FromString(TEXT("兵种详情配置未载入")));
 		PlaceOnCanvas(ModeCanvas, Missing, CapturePoint(650, 300), FVector2D(540, 60), 10);
+	}
+	else if (BuildTrainArmyDetailPage(Detail))
+	{
+		return;
 	}
 	else
 	{
@@ -9622,6 +9433,77 @@ void URokUnityFeatureScreenWidget::BuildTrainArmyDetail(int32 TroopId)
 		CapturePoint(198, 735), FVector2D(130, 48), 10);
 }
 
+bool URokUnityFeatureScreenWidget::BuildTrainArmyDetailPage(const FRokTrainArmyDetail& Detail)
+{
+	UClass* AttributeClass = ResolveFeaturePageClass(TEXT("TrainArmyDetailAttribute"));
+	UClass* SkillClass = ResolveFeaturePageClass(TEXT("TrainArmyDetailSkill"));
+	const int32 SkillCount = Detail.Skills.Num();
+	auto* Page = AttributeClass && SkillClass && SkillCount <= 3 && Detail.Attributes.Num() <= 7
+		? MountModePage(TEXT("TrainArmyDetail"), false, 5) : nullptr;
+	if (!Page)
+	{
+		return false;
+	}
+	auto* Panel = Page->Get<UCanvasPanel>(TEXT("TrainArmyDetailRoot"));
+	if (!Panel)
+	{
+		Page->RemoveFromParent();
+		ActiveModePage = nullptr;
+		return false;
+	}
+
+	const auto SetText = [](const URokUiPageWidget& Owner, FName Name, const FString& Text)
+	{
+		if (auto* Label = Owner.Get<UTextBlock>(Name)) Label->SetText(FText::FromString(Text));
+	};
+	const auto SetIcon = [this](const URokUiPageWidget& Owner, FName Name,
+		const FString& TexturePath, const FIntRect& Rect, const FIntPoint& AtlasSize, double Size)
+	{
+		if (auto* Icon = Owner.Get<UImage>(Name))
+		{
+			auto* Texture = LoadUiTexture(*TexturePath);
+			Icon->SetVisibility(Texture ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+			if (Texture) Icon->SetBrush(MakeAtlasBrush(Texture, Rect, AtlasSize, FVector2D(Size)));
+		}
+	};
+	SetText(*Page, TEXT("TrainArmyDetailName"), Detail.Name);
+	SetText(*Page, TEXT("TrainArmyDetailDescription"), Detail.Description);
+	if (!Detail.Attributes.IsEmpty())
+	{
+		// RS.ArmyTypeIcon keeps cavalry and archer sprite IDs in source order 1,3,2,4.
+		const FIntRect TypeRects[] = {SpriteRect(450, 1906, 38, 38), SpriteRect(87, 413, 38, 38),
+			SpriteRect(44, 369, 38, 38), SpriteRect(1, 92, 38, 38)};
+		SetIcon(*Page, TEXT("TrainArmyDetailTypeIcon"), Detail.Attributes[0].Texture,
+			TypeRects[SelectedTrainArmyType - 1], Detail.Attributes[0].AtlasSize, 38);
+	}
+	for (int32 Index = 0; Index < Detail.Attributes.Num(); ++Index)
+	{
+		auto* RowSlot = Page->Get<UCanvasPanel>(*FString::Printf(TEXT("TrainArmyDetailAttributeSlot_%d"), Index));
+		if (const auto* Row = MountPageItem(RowSlot, AttributeClass, TEXT("TrainArmyDetail"), Index))
+		{
+			const auto& Attribute = Detail.Attributes[Index];
+			SetText(*Row, TEXT("Label"), Attribute.Label);
+			SetText(*Row, TEXT("Attribute"), Attribute.Value + (Attribute.bModifierUnknown ? TEXT(" + —") : TEXT("")));
+			SetIcon(*Row, TEXT("AttrIcon"), Attribute.Texture, Attribute.Rect, Attribute.AtlasSize, 30);
+			BindPageAction(*Row, TEXT("AttrButton"), 1960 + Index);
+		}
+	}
+	for (int32 Index = 0; Index < SkillCount; ++Index)
+	{
+		auto* IconSlot = Page->Get<UCanvasPanel>(*FString::Printf(TEXT("TrainArmyDetailSkillSlot%d_%d"), SkillCount, Index));
+		if (const auto* Item = MountPageItem(IconSlot, SkillClass, TEXT("TrainArmyDetail"), Index))
+		{
+			const auto& Skill = Detail.Skills[Index];
+			SetIcon(*Item, TEXT("SkillIcon"), Skill.Texture, Skill.Rect, Skill.AtlasSize, 72);
+			BindPageAction(*Item, TEXT("SkillButton"), 1970 + Index);
+		}
+	}
+	BindPageAction(*Page, TEXT("TrainArmyDetailBackButton"), 1951);
+	TrainArmyAnimatedChildren.Add(Panel);
+	AdvanceTrainArmyDetailAnimation(0.0f);
+	return true;
+}
+
 void URokUnityFeatureScreenWidget::AdvanceTrainArmyDetailAnimation(float DeltaSeconds)
 {
 	if (ActiveMode != ERokUnityFeatureScreenMode::TrainArmy) return;
@@ -9645,15 +9527,25 @@ void URokUnityFeatureScreenWidget::ShowTrainArmyDetailTip(int32 Index, bool bSki
 	if (!Troop || !RokTrainArmyDetail::Load(Troop->Id, Detail, Error)) return;
 	if ((bSkill && !Detail.Skills.IsValidIndex(Index)) || (!bSkill && !Detail.Attributes.IsValidIndex(Index))) return;
 	if (TrainArmyTipLayer) TrainArmyTipLayer->RemoveFromParent();
-	TrainArmyTipLayer = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("TrainArmyDetailTipLayer"));
-	PlaceOnCanvas(ModeCanvas, TrainArmyTipLayer, FVector2D::ZeroVector, CurrentExpandedDesignSize, 100);
-	auto* Mask = MakeActionButton(TEXT("TrainArmyDetailTipClickAway"), 1952, nullptr, FIntRect(), FIntPoint(1, 1), CurrentExpandedDesignSize);
-	PlaceOnCanvas(TrainArmyTipLayer, Mask, FVector2D::ZeroVector, CurrentExpandedDesignSize);
+	UClass* TipClass = ActiveModePage ? ResolveFeaturePageClass(TEXT("TrainArmyDetailTip")) : nullptr;
+	auto* TipPage = TipClass ? CreateWidget<URokUiPageWidget>(this, TipClass) : nullptr;
+	UTextBlock* Body = TipPage ? TipPage->Get<UTextBlock>(TEXT("TrainArmyDetailTipText")) : nullptr;
+	auto* Content = TipPage ? TipPage->Get<UCanvasPanel>(TEXT("TrainArmyDetailTipContent")) : nullptr;
+	auto* Arrow = TipPage ? TipPage->Get<UImage>(TEXT("TrainArmyDetailTipArrow")) : nullptr;
+	auto* ContentSlot = Content ? Cast<UCanvasPanelSlot>(Content->Slot) : nullptr;
+	auto* ArrowSlot = Arrow ? Cast<UCanvasPanelSlot>(Arrow->Slot) : nullptr;
+	const bool bUsePage = Body && ContentSlot && ArrowSlot;
+	if (!bUsePage)
+	{
+		Body = MakeScreenText(TEXT("TrainArmyDetailTipText"), 14, FLinearColor(0.137f, 0.137f, 0.125f, 1));
+		Body->SetFont(FCoreStyle::GetDefaultFontStyle(TEXT("Regular"), 18.0f * 72.0f / 96.0f));
+		Body->SetShadowOffset(FVector2D::ZeroVector);
+		Body->SetWrapTextAt(500);
+		Body->SetAutoWrapText(true);
+	}
+
 	const FString Text = bSkill ? Detail.Skills[Index].Tip : Detail.Attributes[Index].Tip;
-	auto* Body = MakeScreenText(TEXT("TrainArmyDetailTipText"), 14, FLinearColor(0.137f, 0.137f, 0.125f, 1));
-	Body->SetFont(FCoreStyle::GetDefaultFontStyle(TEXT("Regular"), 18.0f * 72.0f / 96.0f));
-	Body->SetShadowOffset(FVector2D::ZeroVector);
-	Body->SetText(FText::FromString(Text)); Body->SetWrapTextAt(500); Body->SetAutoWrapText(true);
+	Body->SetText(FText::FromString(Text));
 	// HelpTip.SetWidth is text width, plus Frame(40,40); offsets reference the
 	// clicked button center and include the 12px arrow. Keep source atlas alpha.
 	const TSharedRef<SWidget> BodySlate = Body->TakeWidget();
@@ -9663,64 +9555,124 @@ void URokUnityFeatureScreenWidget::ShowTrainArmyDetailTip(int32 Index, bool bSki
 	const float AnchorX = bSkill ? 618 + RokTrainArmyDetail::SkillCellX(Detail.Skills.Num(), Index) + 50 : 930;
 	const float Left = FMath::Clamp(AnchorX - 270.0f, 0.0f, 900.0f);
 	const FVector2D Position = CapturePoint(Left, AnchorY - (bSkill ? 30 : 23) - 12 - Height);
-	PlaceOnCanvas(TrainArmyTipLayer, MakeActionButton(TEXT("TrainArmyDetailTipInside"), 1953, nullptr,
+	if (bUsePage)
+	{
+		ContentSlot->SetPosition(Position);
+		ContentSlot->SetSize(FVector2D(540, Height));
+		ArrowSlot->SetPosition(FVector2D(AnchorX - Left - 7.5f, ArrowSlot->GetPosition().Y));
+		BindPageAction(*TipPage, TEXT("TrainArmyDetailTipClickAway"), 1952);
+		BindPageAction(*TipPage, TEXT("TrainArmyDetailTipInside"), 1953);
+		TipPage->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+		TrainArmyTipLayer = TipPage;
+		PlaceOnCanvas(ModeCanvas, TipPage, FVector2D::ZeroVector, CurrentExpandedDesignSize, 100);
+		return;
+	}
+	auto* TipCanvas = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("TrainArmyDetailTipLayer"));
+	TrainArmyTipLayer = TipCanvas;
+	PlaceOnCanvas(ModeCanvas, TipCanvas, FVector2D::ZeroVector, CurrentExpandedDesignSize, 100);
+	auto* Mask = MakeActionButton(TEXT("TrainArmyDetailTipClickAway"), 1952, nullptr, FIntRect(), FIntPoint(1, 1), CurrentExpandedDesignSize);
+	PlaceOnCanvas(TipCanvas, Mask, FVector2D::ZeroVector, CurrentExpandedDesignSize);
+	PlaceOnCanvas(TipCanvas, MakeActionButton(TEXT("TrainArmyDetailTipInside"), 1953, nullptr,
 		FIntRect(), FIntPoint(1, 1), FVector2D(540, Height)), Position, FVector2D(540, Height), 1);
-	PlaceOnCanvas(TrainArmyTipLayer, MakeAtlasBorder(TEXT("TrainArmyDetailTipBackground"), CommonAtlasPath,
+	PlaceOnCanvas(TipCanvas, MakeAtlasBorder(TEXT("TrainArmyDetailTipBackground"), CommonAtlasPath,
 		SpriteRect(774, 276, 72, 72), CommonAtlasSize, FVector2D(540, Height),
 		FMargin(21.0f / 72, 23.0f / 72, 21.0f / 72, 24.0f / 72)), Position, FVector2D(540, Height), 2);
-	PlaceOnCanvas(TrainArmyTipLayer, Body, Position + FVector2D(20), FVector2D(500, Height - 40), 3);
-	PlaceOnCanvas(TrainArmyTipLayer, MakeAtlasImage(TEXT("TrainArmyDetailTipArrow"), CommonAtlasPath,
+	PlaceOnCanvas(TipCanvas, Body, Position + FVector2D(20), FVector2D(500, Height - 40), 3);
+	PlaceOnCanvas(TipCanvas, MakeAtlasImage(TEXT("TrainArmyDetailTipArrow"), CommonAtlasPath,
 		SpriteRect(120, 137, 15, 12), CommonAtlasSize, FVector2D(15, 12)), Position + FVector2D(AnchorX - Left - 7.5f, Height - 1.4f), FVector2D(15, 12), 3);
 }
 
 void URokUnityFeatureScreenWidget::BuildServerBuildingSpeedUp()
 {
-	BuildSplitWindowFrame(CapturePoint(167, 100), FVector2D(1106, 700), NSLOCTEXT("RokSpeedUp", "BuildingSpeed", "建造加速"),
-		CapturePoint(1205, 92), nullptr, 1, 0, 30);
-	const auto* Net = GetGameInstance() ? GetGameInstance()->GetSubsystem<URokGameNetSubsystem>() : nullptr;
-	const auto* City = GetWorld()->GetSubsystem<URokServerCitySubsystem>();
-	const auto Queues = City->GetBuildQueueSnapshot();
-	const auto* Queue = Queues.FindQueue(ServerSpeedUpQueueIndex);
-	if (!Queue || Queue->BuildingIndex != ServerSpeedUpBuildingIndex) return;
-	int32 BuildingType = 0, HallLevel = 1;
-	for (const auto& Building : City->GetAppliedBuildings())
+	UClass* OwnedClass = ResolveFeaturePageClass(TEXT("BuildingSpeedUpOwnedRow"));
+	UClass* BuyClass = ResolveFeaturePageClass(TEXT("BuildingSpeedUpBuyRow"));
+	auto* Page = OwnedClass && BuyClass ? MountModePage(TEXT("BuildingSpeedUp")) : nullptr;
+	if (!Page)
 	{
-		if (Building.Index == Queue->BuildingIndex) BuildingType = Building.Type;
-		if (Building.Type == 1) HallLevel = Building.Level;
+		BuildSplitWindowFrame(CapturePoint(167, 100), FVector2D(1106, 700), NSLOCTEXT("RokSpeedUp", "BuildingSpeed", "建造加速"),
+			CapturePoint(1205, 92), nullptr, 1, 0, 30);
+	}
+	const bool bPreview = GetBuildingSpeedUpPreview() != INDEX_NONE;
+	const auto* Net = GetGameInstance() ? GetGameInstance()->GetSubsystem<URokGameNetSubsystem>() : nullptr;
+	const auto* City = GetWorld() ? GetWorld()->GetSubsystem<URokServerCitySubsystem>() : nullptr;
+	const auto Queues = ReadBuildingSpeedUpSnapshot(City);
+	const auto* Queue = Queues.FindQueue(ServerSpeedUpQueueIndex);
+	const bool bQueueMatches = Queue && Queue->BuildingIndex == ServerSpeedUpBuildingIndex;
+	if (Page)
+	{
+		Page->SetShown(Page->Get<UCanvasPanel>(TEXT("BuildingSpeedUpQueueContent")), bQueueMatches);
+	}
+	if (!bQueueMatches) return;
+	int32 BuildingType = bPreview ? 1 : 0, HallLevel = 1;
+	if (City)
+	{
+		for (const auto& Building : City->GetAppliedBuildings())
+		{
+			if (Building.Index == Queue->BuildingIndex) BuildingType = Building.Type;
+			if (Building.Type == 1) HallLevel = Building.Level;
+		}
 	}
 	const FIntPoint Profile = RokBuildingSourcePreview::ResolveProfile(GetGameInstance(), HallLevel);
 	RokBuildingSourcePreview::FVisual Art;
-	if (RokBuildingSourcePreview::FindVisual(BuildingType, Profile.X, Profile.Y, Art))
+	UTexture2D* ArtTexture = RokBuildingSourcePreview::FindVisual(BuildingType, Profile.X, Profile.Y, Art)
+		? RokBuildingSourcePreview::LoadTexture(Art) : nullptr;
+	auto* Image = Page ? Page->Get<UImage>(TEXT("BuildingSpeedUpIcon")) : nullptr;
+	if (ArtTexture)
 	{
-		if (auto* Texture = RokBuildingSourcePreview::LoadTexture(Art))
+		const FVector2D Pane(108, 82);
+		const FBox2D Draw = Art.FitInPane(Pane * .5f, Pane);
+		const FVector2D Position = CapturePoint(222, 161) + Draw.Min;
+		if (!Page)
 		{
-			auto* Image = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("BuildingSpeedUpIcon"));
-			Image->SetBrushFromTexture(Texture);
+			Image = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("BuildingSpeedUpIcon"));
+			PlaceOnCanvas(ModeCanvas, Image, Position, Draw.GetSize(), 4);
+		}
+		if (Image)
+		{
+			Image->SetBrushFromTexture(ArtTexture);
 			Image->SetVisibility(ESlateVisibility::HitTestInvisible);
-			const FVector2D Pane(108, 82);
-			const FBox2D Draw = Art.FitInPane(Pane * .5f, Pane);
-			PlaceOnCanvas(ModeCanvas, Image, CapturePoint(222, 161) + Draw.Min, Draw.GetSize(), 4);
+			if (auto* ArtSlot = Cast<UCanvasPanelSlot>(Image->Slot))
+			{
+				ArtSlot->SetPosition(Position);
+				ArtSlot->SetSize(Draw.GetSize());
+			}
 		}
 	}
-	SpeedUpQueueDescriptionText = MakeScreenText(TEXT("SpeedUpQueueDescription"), 24, FLinearColor(.95f, .92f, .76f), true);
+	else if (Image)
+	{
+		Image->SetVisibility(ESlateVisibility::Collapsed);
+	}
+
+	UScrollBox* List = nullptr;
+	if (Page)
+	{
+		SpeedUpQueueDescriptionText = Page->Get<UTextBlock>(TEXT("SpeedUpQueueDescription"));
+		SpeedUpQueueProgress = Page->Get<UProgressBar>(TEXT("SpeedUpQueueProgress"));
+		SpeedUpQueueProgressText = Page->Get<UTextBlock>(TEXT("SpeedUpQueueProgressText"));
+		List = Page->Get<UScrollBox>(TEXT("BuildingSpeedUpItems"));
+	}
+	else
+	{
+		SpeedUpQueueDescriptionText = MakeScreenText(TEXT("SpeedUpQueueDescription"), 24, FLinearColor(.95f, .92f, .76f), true);
+		PlaceOnCanvas(ModeCanvas, SpeedUpQueueDescriptionText, CapturePoint(350, 160), FVector2D(476, 35), 5);
+		SpeedUpQueueProgress = WidgetTree->ConstructWidget<UProgressBar>(UProgressBar::StaticClass(), TEXT("SpeedUpQueueProgress"));
+		FProgressBarStyle Style;
+		auto Track = MakeAtlasBrush(LoadUiTexture(CommonAtlasPath), SpriteRect(401, 112, 20, 23), CommonAtlasSize, FVector2D(20, 23));
+		Track.DrawAs = ESlateBrushDrawType::Box;
+		Track.Margin = FMargin(.5f, 7.f/23, .5f, 6.f/23);
+		Style.SetBackgroundImage(Track).SetFillImage(MakeAtlasBrush(LoadUiTexture(CommonAtlasPath),
+			VipProgressFillRect, CommonAtlasSize, FVector2D(12, 19)));
+		SpeedUpQueueProgress->SetWidgetStyle(Style);
+		PlaceOnCanvas(ModeCanvas, SpeedUpQueueProgress, CapturePoint(350, 210), FVector2D(480, 24), 5);
+		SpeedUpQueueProgressText = MakeScreenText(TEXT("SpeedUpQueueProgressText"), 18, FLinearColor::White, true, ETextJustify::Center);
+		PlaceOnCanvas(ModeCanvas, SpeedUpQueueProgressText, CapturePoint(350, 209), FVector2D(480, 26), 6);
+		List = WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("BuildingSpeedUpItems"));
+		List->SetScrollBarVisibility(ESlateVisibility::Collapsed);
+		PlaceOnCanvas(ModeCanvas, List, CapturePoint(205, 263), FVector2D(1030, 503.7f), 4);
+	}
+	if (!SpeedUpQueueDescriptionText || !SpeedUpQueueProgress || !SpeedUpQueueProgressText || !List) return;
 	SpeedUpQueueDescriptionText->SetText(FText::Format(NSLOCTEXT("RokSpeedUp", "BuildingLevelTitle", "等级{0}{1}"),
 		FText::AsNumber(Queue->TargetLevel), FText::FromString(Queue->BuildingName)));
-	PlaceOnCanvas(ModeCanvas, SpeedUpQueueDescriptionText, CapturePoint(350, 160), FVector2D(476, 35), 5);
-	SpeedUpQueueProgress = WidgetTree->ConstructWidget<UProgressBar>(UProgressBar::StaticClass(), TEXT("SpeedUpQueueProgress"));
-	FProgressBarStyle Style;
-	auto Track = MakeAtlasBrush(LoadUiTexture(CommonAtlasPath), SpriteRect(401, 112, 20, 23), CommonAtlasSize, FVector2D(20, 23));
-	Track.DrawAs = ESlateBrushDrawType::Box;
-	Track.Margin = FMargin(.5f, 7.f/23, .5f, 6.f/23);
-	Style.SetBackgroundImage(Track).SetFillImage(MakeAtlasBrush(LoadUiTexture(CommonAtlasPath),
-		VipProgressFillRect, CommonAtlasSize, FVector2D(12, 19)));
-	SpeedUpQueueProgress->SetWidgetStyle(Style);
-	PlaceOnCanvas(ModeCanvas, SpeedUpQueueProgress, CapturePoint(350, 210), FVector2D(480, 24), 5);
-	SpeedUpQueueProgressText = MakeScreenText(TEXT("SpeedUpQueueProgressText"), 18, FLinearColor::White, true, ETextJustify::Center);
-	PlaceOnCanvas(ModeCanvas, SpeedUpQueueProgressText, CapturePoint(350, 209), FVector2D(480, 26), 6);
-
-	auto* List = WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("BuildingSpeedUpItems"));
-	List->SetScrollBarVisibility(ESlateVisibility::Collapsed);
-	PlaceOnCanvas(ModeCanvas, List, CapturePoint(205, 263), FVector2D(1030, 503.7f), 4);
 	auto* Catalog = GetEconomyCatalogSubsystem();
 	TArray<FRokUnityEconomyItem> Items = Catalog ? Catalog->GetItems() : TArray<FRokUnityEconomyItem>();
 	Items.RemoveAll([](const FRokUnityEconomyItem& Item)
@@ -9734,37 +9686,77 @@ void URokUnityFeatureScreenWidget::BuildServerBuildingSpeedUp()
 	VisibleSpeedUpItemIds.Reset();
 	ServerSpeedUpItemCostsGems.Reset();
 	FString Failure;
-	const bool bCanWrite = Net && Net->CanRequestCityWrite(Failure);
-	int64 Gems = 0;
-	if (Net) RokSprotoJson::TryGetInt64(Net->GetRoleInfo(), TEXT("denar"), Gems);
+	const bool bCanWrite = bPreview || (Net && Net->CanRequestCityWrite(Failure));
+	int64 Gems = bPreview ? 1000 : 0;
+	if (!bPreview && Net) RokSprotoJson::TryGetInt64(Net->GetRoleInfo(), TEXT("denar"), Gems);
+	const auto* PreviewOwned = bPreview ? Items.FindByPredicate([](const FRokUnityEconomyItem& Item)
+	{
+		return Item.SubType == 20102 && Item.SpeedDurationSeconds > 12 * 60;
+	}) : nullptr;
+	const auto ReadCount = [Net, bPreview, PreviewOwned](int32 ItemId, int64& OutCount)
+	{
+		if (!bPreview) return Net && Net->TryGetOwnedItemCount(ItemId, OutCount);
+		OutCount = PreviewOwned && PreviewOwned->Id == ItemId ? 2 : 0;
+		return true;
+	};
 	const auto AddItemRow = [&](const FRokUnityEconomyItem& Item, int64 Count, bool bBuy)
 	{
 		const int32 Index = VisibleSpeedUpItemIds.Add(Item.Id);
 		ServerSpeedUpItemCostsGems.Add(bBuy);
+		const bool bEnabled = bCanWrite && !bServerSpeedUpPending && Queue->bCountdownKnown && Queue->RemainingSeconds > 0
+			&& (!bBuy || Gems >= Item.ShortcutPrice);
+		const TCHAR* IconPath = nullptr;
+		FIntRect Rect;
+		FIntPoint Size;
+		const bool bHasIcon = ResolveEconomyItemIcon(Item, IconPath, Rect, Size);
+		const FText ItemName = FText::FromString(Item.DisplayNameZhCn);
+		const FText ItemAmount = bBuy ? FText::GetEmpty() : FText::Format(
+			NSLOCTEXT("RokSpeedUp", "OwnedCount", "拥有数量:{0}"), FText::AsNumber(Count));
+		if (auto* ItemPage = Page ? CreateWidget<URokUiPageWidget>(this, bBuy ? BuyClass : OwnedClass) : nullptr)
+		{
+			ItemPage->LegacyPrefix = TEXT("SpeedUp");
+			ItemPage->LegacySuffix = FString::Printf(TEXT("_%d"), Index);
+			if (auto* Icon = ItemPage->Get<UImage>(TEXT("ItemIcon")))
+			{
+				ItemPage->SetPresent(Icon, bHasIcon);
+				if (bHasIcon) Icon->SetBrush(MakeAtlasBrush(LoadUiTexture(IconPath), Rect, Size, FVector2D(82)));
+			}
+			if (auto* Label = ItemPage->Get<UTextBlock>(TEXT("ItemName"))) Label->SetText(ItemName);
+			if (auto* Amount = ItemPage->Get<UTextBlock>(TEXT("ItemCount"))) Amount->SetText(ItemAmount);
+			if (auto* Button = ItemPage->Get<URokUnityIndexedButton>(TEXT("ItemAction"))) Button->SetIsEnabled(bEnabled);
+			BindPageAction(*ItemPage, TEXT("ItemAction"), 21000 + Index);
+			if (bBuy)
+			{
+				if (auto* Price = ItemPage->Get<UTextBlock>(TEXT("BuyPrice")))
+				{
+					Price->SetText(FText::AsNumber(Item.ShortcutPrice));
+					Price->SetColorAndOpacity(Gems >= Item.ShortcutPrice ? FLinearColor::White : FLinearColor(1, .32f, .26f));
+				}
+			}
+			ItemPage->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+			List->AddChild(ItemPage);
+			return;
+		}
 		auto* Row = WidgetTree->ConstructWidget<USizeBox>();
 		Row->SetHeightOverride(100);
 		auto* Canvas = WidgetTree->ConstructWidget<UCanvasPanel>();
 		Row->AddChild(Canvas);
 		List->AddChild(Row);
-		const TCHAR* IconPath = nullptr;
-		FIntRect Rect;
-		FIntPoint Size;
-		if (ResolveEconomyItemIcon(Item, IconPath, Rect, Size))
+		if (bHasIcon)
 			PlaceOnCanvas(Canvas, MakeAtlasImage(*FString::Printf(TEXT("SpeedUpItemIcon_%d"), Index),
 				IconPath, Rect, Size, FVector2D(82)), FVector2D(14, 7), FVector2D(82), 1);
 		auto* Name = MakeScreenText(*FString::Printf(TEXT("SpeedUpItemName_%d"), Index), 24, FLinearColor::White, true);
-		Name->SetText(FText::FromString(Item.DisplayNameZhCn));
+		Name->SetText(ItemName);
 		PlaceOnCanvas(Canvas, Name, FVector2D(117, 16), FVector2D(560, 33), 1);
 		auto* Amount = MakeScreenText(*FString::Printf(TEXT("SpeedUpItemCount_%d"), Index), 19, FLinearColor(.90f, .87f, .76f));
-		Amount->SetText(bBuy ? FText::GetEmpty() : FText::Format(NSLOCTEXT("RokSpeedUp", "OwnedCount", "拥有数量:{0}"), FText::AsNumber(Count)));
+		Amount->SetText(ItemAmount);
 		PlaceOnCanvas(Canvas, Amount, FVector2D(117, 50), FVector2D(460, 28), 1);
 		const FVector2D ButtonPosition(804, 14);
 		auto* Button = MakeActionButton(*FString::Printf(TEXT("SpeedUpItemAction_%d"), Index), 21000 + Index,
 			CommonAtlasPath, bBuy ? MediumGoldButtonRect : MediumBlueButtonRect, CommonAtlasSize, FVector2D(196, 72),
 			bBuy ? FText::GetEmpty() : NSLOCTEXT("RokSpeedUp", "UseItem", "使用"), 23,
 			FLinearColor(.07f, .13f, .17f), ESlateBrushDrawType::Box, FMargin(.42f, 0, .42f, 0));
-		Button->SetIsEnabled(bCanWrite && !bServerSpeedUpPending && Queue->bCountdownKnown && Queue->RemainingSeconds > 0
-			&& (!bBuy || Gems >= Item.ShortcutPrice));
+		Button->SetIsEnabled(bEnabled);
 		PlaceOnCanvas(Canvas, Button, ButtonPosition, FVector2D(196, 72), 2);
 		if (bBuy)
 		{
@@ -9785,22 +9777,22 @@ void URokUnityFeatureScreenWidget::BuildServerBuildingSpeedUp()
 	for (const FRokUnityEconomyItem& Item : Items)
 	{
 		int64 Count = 0;
-		if (Net && Net->TryGetOwnedItemCount(Item.Id, Count) && Count > 0) AddItemRow(Item, Count, false);
+		if (ReadCount(Item.Id, Count) && Count > 0) AddItemRow(Item, Count, false);
 	}
 	for (const FRokUnityEconomyItem& Item : Items)
 	{
 		int64 Count = 0;
-		if (Item.SubType == 20101 && Item.ShortcutPrice > 0 && Net && Net->TryGetOwnedItemCount(Item.Id, Count)
+		if (Item.SubType == 20101 && Item.ShortcutPrice > 0 && ReadCount(Item.Id, Count)
 			&& (Count > 0 || Item.ShopPrice > 0)) AddItemRow(Item, 0, true);
 	}
 	SpeedUpQueueProgress->SetPercent(Queue->Progress);
-	if (Queue->bCountdownKnown) SpeedUpQueueProgressText->SetText(FormatWorkerCountdown(Queue->RemainingSeconds));
+	SpeedUpQueueProgressText->SetText(Queue->bCountdownKnown ? FormatWorkerCountdown(Queue->RemainingSeconds) : FText::GetEmpty());
 }
 
 void URokUnityFeatureScreenWidget::UpdateServerBuildingSpeedUp()
 {
-	const auto* City = GetWorld()->GetSubsystem<URokServerCitySubsystem>();
-	const auto Queues = City->GetBuildQueueSnapshot();
+	const auto* City = GetWorld() ? GetWorld()->GetSubsystem<URokServerCitySubsystem>() : nullptr;
+	const auto Queues = ReadBuildingSpeedUpSnapshot(City);
 	const auto* Queue = Queues.FindQueue(ServerSpeedUpQueueIndex);
 	if (!Queue || Queue->BuildingIndex != ServerSpeedUpBuildingIndex || Queue->State != ERokServerBuildQueueState::Busy)
 	{
@@ -9815,8 +9807,8 @@ void URokUnityFeatureScreenWidget::UpdateServerBuildingSpeedUp()
 void URokUnityFeatureScreenWidget::HandleServerSpeedUpItem(int32 Index, bool bConfirmed)
 {
 	if (!VisibleSpeedUpItemIds.IsValidIndex(Index) || !ServerSpeedUpItemCostsGems.IsValidIndex(Index) || bServerSpeedUpPending) return;
-	const auto* City = GetWorld()->GetSubsystem<URokServerCitySubsystem>();
-	const auto Queues = City->GetBuildQueueSnapshot();
+	const auto* City = GetWorld() ? GetWorld()->GetSubsystem<URokServerCitySubsystem>() : nullptr;
+	const auto Queues = ReadBuildingSpeedUpSnapshot(City);
 	const auto* Queue = Queues.FindQueue(ServerSpeedUpQueueIndex);
 	if (!Queue || Queue->BuildingIndex != ServerSpeedUpBuildingIndex || !Queue->bCountdownKnown || Queue->RemainingSeconds <= 0) return;
 	const int32 ItemId = VisibleSpeedUpItemIds[Index];
@@ -9827,31 +9819,51 @@ void URokUnityFeatureScreenWidget::HandleServerSpeedUpItem(int32 Index, bool bCo
 	const int32 ExcessMinutes = (Item.SpeedDurationSeconds - FMath::CeilToInt(Queue->RemainingSeconds)) / 60;
 	if (!bConfirmed && (bBuy || ExcessMinutes > 10))
 	{
-		ServerSpeedUpConfirmIndex = Index;
-		ServerSpeedUpConfirmation = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("BuildingSpeedUpConfirmation"));
-		PlaceOnCanvas(ModeCanvas, ServerSpeedUpConfirmation, FVector2D::ZeroVector, CurrentExpandedDesignSize, 90);
-		auto* Shade = MakeSolidBorder(TEXT("BuildingSpeedUpConfirmShade"), FLinearColor(0, 0, 0, .68f));
-		Shade->SetVisibility(ESlateVisibility::Visible);
-		PlaceOnCanvas(ServerSpeedUpConfirmation, Shade, FVector2D::ZeroVector, CurrentExpandedDesignSize);
-		const FVector2D Size(538, 200);
-		const FVector2D Origin = (CurrentExpandedDesignSize - Size) * .5f;
-		PlaceOnCanvas(ServerSpeedUpConfirmation, MakeAtlasBorder(TEXT("BuildingSpeedUpConfirmFrame"), FrameAtlasPath,
-			WindowBodyRect, FrameAtlasSize, Size, WindowBodyMargin), Origin, Size, 1);
-		auto* Text = MakeScreenText(TEXT("BuildingSpeedUpConfirmText"), 22, FLinearColor::White, false, ETextJustify::Center);
-		Text->SetText(ExcessMinutes > 10
+		const FText Message = ExcessMinutes > 10
 			? FText::Format(NSLOCTEXT("RokSpeedUp", "ConfirmOvertime", "您使用的加速道具已超出所需时间{0}分钟，确定使用吗？"),
 				FText::AsNumber(ExcessMinutes))
-			: FText::Format(NSLOCTEXT("RokSpeedUp", "ConfirmGemSpend", "消耗{0}宝石使用加速？"), FText::AsNumber(Item.ShortcutPrice)));
+			: FText::Format(NSLOCTEXT("RokSpeedUp", "ConfirmGemSpend", "消耗{0}宝石使用加速？"), FText::AsNumber(Item.ShortcutPrice));
+		UClass* ConfirmClass = ActiveModePage ? ResolveFeaturePageClass(TEXT("BuildingSpeedUpConfirm")) : nullptr;
+		if (auto* Dialog = ConfirmClass ? CreateWidget<URokUiPageWidget>(this, ConfirmClass) : nullptr)
+		{
+			if (auto* Text = Dialog->Get<UTextBlock>(TEXT("BuildingSpeedUpConfirmText")); Text
+				&& Dialog->Get<URokUnityIndexedButton>(TEXT("BuildingSpeedUpConfirmCancel"))
+				&& Dialog->Get<URokUnityIndexedButton>(TEXT("BuildingSpeedUpConfirmAccept")))
+			{
+				Text->SetText(Message);
+				BindPageAction(*Dialog, TEXT("BuildingSpeedUpConfirmCancel"), 21100);
+				BindPageAction(*Dialog, TEXT("BuildingSpeedUpConfirmAccept"), 21101);
+				Dialog->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+				PlaceOnCanvas(ModeCanvas, Dialog, FVector2D::ZeroVector, CurrentExpandedDesignSize, 90);
+				ServerSpeedUpConfirmIndex = Index;
+				ServerSpeedUpConfirmation = Dialog;
+				return;
+			}
+		}
+		ServerSpeedUpConfirmIndex = Index;
+		auto* ConfirmationCanvas = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("BuildingSpeedUpConfirmation"));
+		ServerSpeedUpConfirmation = ConfirmationCanvas;
+		PlaceOnCanvas(ModeCanvas, ConfirmationCanvas, FVector2D::ZeroVector, CurrentExpandedDesignSize, 90);
+		auto* Shade = MakeSolidBorder(TEXT("BuildingSpeedUpConfirmShade"), FLinearColor(0, 0, 0, .68f));
+		Shade->SetVisibility(ESlateVisibility::Visible);
+		PlaceOnCanvas(ConfirmationCanvas, Shade, FVector2D::ZeroVector, CurrentExpandedDesignSize);
+		const FVector2D Size(538, 200);
+		const FVector2D Origin = (CurrentExpandedDesignSize - Size) * .5f;
+		PlaceOnCanvas(ConfirmationCanvas, MakeAtlasBorder(TEXT("BuildingSpeedUpConfirmFrame"), FrameAtlasPath,
+			WindowBodyRect, FrameAtlasSize, Size, WindowBodyMargin), Origin, Size, 1);
+		auto* Text = MakeScreenText(TEXT("BuildingSpeedUpConfirmText"), 22, FLinearColor::White, false, ETextJustify::Center);
+		Text->SetText(Message);
 		Text->SetAutoWrapText(true);
-		PlaceOnCanvas(ServerSpeedUpConfirmation, Text, Origin + FVector2D(20, 42), FVector2D(498, 68), 2);
-		PlaceOnCanvas(ServerSpeedUpConfirmation, MakeActionButton(TEXT("BuildingSpeedUpConfirmCancel"), 21100,
+		PlaceOnCanvas(ConfirmationCanvas, Text, Origin + FVector2D(20, 42), FVector2D(498, 68), 2);
+		PlaceOnCanvas(ConfirmationCanvas, MakeActionButton(TEXT("BuildingSpeedUpConfirmCancel"), 21100,
 			CommonAtlasPath, MediumBlueButtonRect, CommonAtlasSize, FVector2D(175, 62), NSLOCTEXT("RokSpeedUp", "Cancel", "取消"), 22),
 			Origin + FVector2D(74, 120), FVector2D(175, 62), 3);
-		PlaceOnCanvas(ServerSpeedUpConfirmation, MakeActionButton(TEXT("BuildingSpeedUpConfirmAccept"), 21101,
+		PlaceOnCanvas(ConfirmationCanvas, MakeActionButton(TEXT("BuildingSpeedUpConfirmAccept"), 21101,
 			CommonAtlasPath, MediumGoldButtonRect, CommonAtlasSize, FVector2D(175, 62), NSLOCTEXT("RokSpeedUp", "Confirm", "确认"), 22),
 			Origin + FVector2D(289, 120), FVector2D(175, 62), 3);
 		return;
 	}
+	if (GetBuildingSpeedUpPreview() != INDEX_NONE) return;
 	FString Failure;
 	auto* Net = GetGameInstance() ? GetGameInstance()->GetSubsystem<URokGameNetSubsystem>() : nullptr;
 	if (!Net) return;
@@ -9882,21 +9894,32 @@ void URokUnityFeatureScreenWidget::BuildSpeedUp()
 		BuildServerBuildingSpeedUp();
 		return;
 	}
-	BuildSplitWindowFrame(
-		CapturePoint(146.0f, 73.0f),
-		FVector2D(1148.0f, 754.0f),
-		FText::Format(
-			NSLOCTEXT("RokSpeedUp", "TitleFormat", "{0}加速"),
-			ResolveSpeedUpQueueLabel(SpeedUpQueueType)),
-		CapturePoint(1230.0f, 77.0f));
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeSolidBorder(
-			TEXT("SpeedUpContentShade"),
-			FLinearColor(0.033f, 0.036f, 0.034f, 0.98f)),
-		CapturePoint(162.0f, 145.0f),
-		FVector2D(1116.0f, 626.0f),
-		2);
+	UClass* CardClass = ResolveFeaturePageClass(TEXT("SpeedUpCatalogCard"));
+	auto* Page = CardClass ? MountModePage(TEXT("SpeedUp")) : nullptr;
+	const FText Title = FText::Format(NSLOCTEXT("RokSpeedUp", "TitleFormat", "{0}加速"),
+		ResolveSpeedUpQueueLabel(SpeedUpQueueType));
+	if (Page)
+	{
+		if (auto* Label = Page->Get<UTextBlock>(TEXT("FeatureFrameTitle"))) Label->SetText(Title);
+		BindPageAction(*Page, TEXT("SpeedUpPreviousPage"), 1840);
+		BindPageAction(*Page, TEXT("SpeedUpNextPage"), 1841);
+	}
+	else
+	{
+		BuildSplitWindowFrame(
+			CapturePoint(146.0f, 73.0f),
+			FVector2D(1148.0f, 754.0f),
+			Title,
+			CapturePoint(1230.0f, 77.0f));
+		PlaceOnCanvas(
+			ModeCanvas,
+			MakeSolidBorder(
+				TEXT("SpeedUpContentShade"),
+				FLinearColor(0.033f, 0.036f, 0.034f, 0.98f)),
+			CapturePoint(162.0f, 145.0f),
+			FVector2D(1116.0f, 626.0f),
+			2);
+	}
 
 	bool bHasActiveQueue = false;
 	float QueueProgress = 0.0f;
@@ -9952,55 +9975,44 @@ void URokUnityFeatureScreenWidget::BuildSpeedUp()
 		}
 	}
 
-	SpeedUpQueueDescriptionText = MakeScreenText(
-		TEXT("SpeedUpQueueDescription"),
-		20,
-		bHasActiveQueue
-			? FLinearColor(0.94f, 0.90f, 0.65f, 1.0f)
-			: FLinearColor(0.78f, 0.78f, 0.74f, 1.0f),
-		true,
-		ETextJustify::Center);
-	SpeedUpQueueDescriptionText->SetText(QueueDescription);
-	SpeedUpQueueDescriptionText->SetAutoWrapText(true);
-	PlaceOnCanvas(
-		ModeCanvas,
-		SpeedUpQueueDescriptionText,
-		CapturePoint(195.0f, 158.0f),
-		FVector2D(1050.0f, 55.0f),
-		6);
-
-	SpeedUpQueueProgress = WidgetTree->ConstructWidget<UProgressBar>(
-		UProgressBar::StaticClass(),
-		TEXT("SpeedUpQueueProgress"));
-	SpeedUpQueueProgress->SetPercent(QueueProgress);
-	SpeedUpQueueProgress->SetFillColorAndOpacity(
-		bHasActiveQueue
-			? FLinearColor(0.25f, 0.76f, 0.34f, 1.0f)
-			: FLinearColor(0.25f, 0.28f, 0.26f, 1.0f));
-	SpeedUpQueueProgress->SetVisibility(ESlateVisibility::HitTestInvisible);
-	PlaceOnCanvas(
-		ModeCanvas,
-		SpeedUpQueueProgress,
-		CapturePoint(245.0f, 220.0f),
-		FVector2D(950.0f, 24.0f),
-		6);
-	SpeedUpQueueProgressText = MakeScreenText(
-		TEXT("SpeedUpQueueProgressText"),
-		16,
-		FLinearColor::White,
-		true,
-		ETextJustify::Center);
-	SpeedUpQueueProgressText->SetText(bHasActiveQueue
-		? FText::Format(
-			NSLOCTEXT("RokSpeedUp", "ProgressFormat", "已完成 {0}%"),
-			FText::AsNumber(FMath::RoundToInt(QueueProgress * 100.0f)))
-		: NSLOCTEXT("RokSpeedUp", "NoProgress", "无活动队列"));
-	PlaceOnCanvas(
-		ModeCanvas,
-		SpeedUpQueueProgressText,
-		CapturePoint(245.0f, 217.0f),
-		FVector2D(950.0f, 28.0f),
-		7);
+	if (Page)
+	{
+		SpeedUpQueueDescriptionText = Page->Get<UTextBlock>(TEXT("SpeedUpQueueDescription"));
+		SpeedUpQueueProgress = Page->Get<UProgressBar>(TEXT("SpeedUpQueueProgress"));
+		SpeedUpQueueProgressText = Page->Get<UTextBlock>(TEXT("SpeedUpQueueProgressText"));
+	}
+	else
+	{
+		SpeedUpQueueDescriptionText = MakeScreenText(TEXT("SpeedUpQueueDescription"), 20,
+			FLinearColor(0.78f, 0.78f, 0.74f, 1.0f), true, ETextJustify::Center);
+		SpeedUpQueueDescriptionText->SetAutoWrapText(true);
+		PlaceOnCanvas(ModeCanvas, SpeedUpQueueDescriptionText, CapturePoint(195, 158), {1050, 55}, 6);
+		SpeedUpQueueProgress = WidgetTree->ConstructWidget<UProgressBar>(UProgressBar::StaticClass(), TEXT("SpeedUpQueueProgress"));
+		SpeedUpQueueProgress->SetVisibility(ESlateVisibility::HitTestInvisible);
+		PlaceOnCanvas(ModeCanvas, SpeedUpQueueProgress, CapturePoint(245, 220), {950, 24}, 6);
+		SpeedUpQueueProgressText = MakeScreenText(TEXT("SpeedUpQueueProgressText"), 16,
+			FLinearColor::White, true, ETextJustify::Center);
+		PlaceOnCanvas(ModeCanvas, SpeedUpQueueProgressText, CapturePoint(245, 217), {950, 28}, 7);
+	}
+	if (SpeedUpQueueDescriptionText)
+	{
+		SpeedUpQueueDescriptionText->SetText(QueueDescription);
+		SpeedUpQueueDescriptionText->SetColorAndOpacity(bHasActiveQueue
+			? FLinearColor(0.94f, 0.90f, 0.65f, 1.0f) : FLinearColor(0.78f, 0.78f, 0.74f, 1.0f));
+	}
+	if (SpeedUpQueueProgress)
+	{
+		SpeedUpQueueProgress->SetPercent(QueueProgress);
+		SpeedUpQueueProgress->SetFillColorAndOpacity(bHasActiveQueue
+			? FLinearColor(0.25f, 0.76f, 0.34f, 1.0f) : FLinearColor(0.25f, 0.28f, 0.26f, 1.0f));
+	}
+	if (SpeedUpQueueProgressText)
+	{
+		SpeedUpQueueProgressText->SetText(bHasActiveQueue
+			? FText::Format(NSLOCTEXT("RokSpeedUp", "ProgressFormat", "已完成 {0}%"),
+				FText::AsNumber(FMath::RoundToInt(QueueProgress * 100.0f)))
+			: NSLOCTEXT("RokSpeedUp", "NoProgress", "无活动队列"));
+	}
 
 	URokUnityEconomyCatalogSubsystem* EconomyCatalog =
 		GetEconomyCatalogSubsystem();
@@ -10033,6 +10045,11 @@ void URokUnityFeatureScreenWidget::BuildSpeedUp()
 			return Left.Id < Right.Id;
 		});
 
+	if (ReadLocalUiPreviewOption(TEXT("RokSpeedUpCatalogEmpty="), 1, 1) == 1)
+	{
+		SpeedItems.Reset();
+	}
+
 	constexpr int32 ItemsPerPage = 6;
 	const int32 PageCount = FMath::Max(
 		1,
@@ -10064,13 +10081,45 @@ void URokUnityFeatureScreenWidget::BuildSpeedUp()
 			205.0f + Column * 520.0f,
 			280.0f + Row * 142.0f);
 		const bool bSelected = SelectedSpeedUpItemIndex == LocalIndex;
+		const FLinearColor Shade = bSelected
+			? FLinearColor(0.24f, 0.20f, 0.10f, 0.98f) : FLinearColor(0.075f, 0.08f, 0.07f, 0.98f);
+		const FText ItemName = Item.DisplayNameZhCn.IsEmpty()
+			? FText::Format(NSLOCTEXT("RokSpeedUp", "FallbackItemName", "加速道具 {0}"), FText::AsNumber(Item.Id))
+			: FText::FromString(Item.DisplayNameZhCn);
+		const FText ItemDetails = FText::Format(NSLOCTEXT("RokSpeedUp", "ItemDetailsFormat",
+			"加速 {0}  ·  Item {1}\n库存：--（等待服务器背包）"),
+			FormatBuildDuration(Item.SpeedDurationSeconds), FText::AsNumber(Item.Id));
+		const TCHAR* IconAtlasPath = nullptr;
+		FIntRect IconRect;
+		FIntPoint IconAtlasSize;
+		const bool bHasIcon = ResolveEconomyItemIcon(Item, IconAtlasPath, IconRect, IconAtlasSize);
+		if (Page)
+		{
+			auto* CardSlot = Page->Get<UCanvasPanel>(*FString::Printf(TEXT("SpeedUpCardSlot_%d"), LocalIndex));
+			if (const auto* Card = MountPageItem(CardSlot, CardClass, TEXT("SpeedUp"), LocalIndex))
+			{
+				if (auto* Border = Card->Get<UBorder>(TEXT("ItemShade"))) Border->SetBrushColor(Shade);
+				if (auto* Quality = Card->Get<UImage>(TEXT("ItemQuality")))
+				{
+					Quality->SetBrush(MakeAtlasBrush(LoadUiTexture(Item0AtlasPath),
+						ResolveBagQualityRect(Item.Quality), Item0AtlasSize, FVector2D(102)));
+				}
+				if (auto* Icon = Card->Get<UImage>(TEXT("ItemIcon")))
+				{
+					Card->SetPresent(Icon, bHasIcon);
+					if (bHasIcon) Icon->SetBrush(MakeAtlasBrush(LoadUiTexture(IconAtlasPath), IconRect, IconAtlasSize, FVector2D(92)));
+				}
+				if (auto* Name = Card->Get<UTextBlock>(TEXT("ItemName"))) Name->SetText(ItemName);
+				if (auto* Details = Card->Get<UTextBlock>(TEXT("ItemDetails"))) Details->SetText(ItemDetails);
+				BindPageAction(*Card, TEXT("ItemAction"), 1800 + LocalIndex);
+				continue;
+			}
+		}
 		PlaceOnCanvas(
 			ModeCanvas,
 			MakeSolidBorder(
 				*FString::Printf(TEXT("SpeedUpItemShade_%d"), LocalIndex),
-				bSelected
-					? FLinearColor(0.24f, 0.20f, 0.10f, 0.98f)
-					: FLinearColor(0.075f, 0.08f, 0.07f, 0.98f)),
+				Shade),
 			Position,
 			FVector2D(480.0f, 122.0f),
 			4);
@@ -10085,14 +10134,7 @@ void URokUnityFeatureScreenWidget::BuildSpeedUp()
 			Position + FVector2D(10.0f, 10.0f),
 			FVector2D(102.0f),
 			5);
-		const TCHAR* IconAtlasPath = nullptr;
-		FIntRect IconRect;
-		FIntPoint IconAtlasSize;
-		if (ResolveEconomyItemIcon(
-			Item,
-			IconAtlasPath,
-			IconRect,
-			IconAtlasSize))
+		if (bHasIcon)
 		{
 			PlaceOnCanvas(
 				ModeCanvas,
@@ -10111,11 +10153,7 @@ void URokUnityFeatureScreenWidget::BuildSpeedUp()
 			20,
 			FLinearColor(0.96f, 0.91f, 0.65f, 1.0f),
 			true);
-		Name->SetText(Item.DisplayNameZhCn.IsEmpty()
-			? FText::Format(
-				NSLOCTEXT("RokSpeedUp", "FallbackItemName", "加速道具 {0}"),
-				FText::AsNumber(Item.Id))
-			: FText::FromString(Item.DisplayNameZhCn));
+		Name->SetText(ItemName);
 		Name->SetAutoWrapText(true);
 		PlaceOnCanvas(
 			ModeCanvas,
@@ -10128,13 +10166,7 @@ void URokUnityFeatureScreenWidget::BuildSpeedUp()
 			17,
 			FLinearColor(0.80f, 0.80f, 0.77f, 1.0f),
 			false);
-		Details->SetText(FText::Format(
-			NSLOCTEXT(
-				"RokSpeedUp",
-				"ItemDetailsFormat",
-				"加速 {0}  ·  Item {1}\n库存：--（等待服务器背包）"),
-			FormatBuildDuration(Item.SpeedDurationSeconds),
-			FText::AsNumber(Item.Id)));
+		Details->SetText(ItemDetails);
 		PlaceOnCanvas(
 			ModeCanvas,
 			Details,
@@ -10153,6 +10185,15 @@ void URokUnityFeatureScreenWidget::BuildSpeedUp()
 			Position,
 			FVector2D(480.0f, 122.0f),
 			10);
+	}
+
+	const FText PageLabel = FText::Format(NSLOCTEXT("RokSpeedUp", "PageFormat", "{0}/{1}  ·  {2} 项"),
+		FText::AsNumber(SelectedSpeedUpPage + 1), FText::AsNumber(PageCount), FText::AsNumber(SpeedItems.Num()));
+	if (Page)
+	{
+		Page->SetPresent(Page->Get<UCanvasPanel>(TEXT("SpeedUpFallback")), SpeedItems.IsEmpty());
+		if (auto* Label = Page->Get<UTextBlock>(TEXT("SpeedUpPage"))) Label->SetText(PageLabel);
+		return;
 	}
 
 	if (SpeedItems.IsEmpty())
@@ -10208,23 +10249,12 @@ void URokUnityFeatureScreenWidget::BuildSpeedUp()
 		CapturePoint(470.0f, 734.0f),
 		FVector2D(120.0f, 46.0f),
 		8);
-	UTextBlock* Page = MakeScreenText(
-		TEXT("SpeedUpPage"),
-		18,
-		FLinearColor::White,
-		true,
+	auto* LegacyPageLabel = MakeScreenText(TEXT("SpeedUpPage"), 18, FLinearColor::White, true,
 		ETextJustify::Center);
-	Page->SetText(FText::Format(
-		NSLOCTEXT(
-			"RokSpeedUp",
-			"PageFormat",
-			"{0}/{1}  ·  {2} 项"),
-		FText::AsNumber(SelectedSpeedUpPage + 1),
-		FText::AsNumber(PageCount),
-		FText::AsNumber(SpeedItems.Num())));
+	LegacyPageLabel->SetText(PageLabel);
 	PlaceOnCanvas(
 		ModeCanvas,
-		Page,
+		LegacyPageLabel,
 		CapturePoint(595.0f, 741.0f),
 		FVector2D(250.0f, 32.0f),
 		8);
@@ -10356,7 +10386,7 @@ void URokUnityFeatureScreenWidget::UpdateWorkerQueuePresentation()
 {
 	if (!WorkerQueuePrimaryTitleText || !WorkerQueueSecondaryTitleText) return;
 	const auto* City = GetWorld() ? GetWorld()->GetSubsystem<URokServerCitySubsystem>() : nullptr;
-	const auto Queues = City ? City->GetBuildQueueSnapshot() : FRokServerBuildQueueSnapshot();
+	const auto Queues = ReadWorkerQueuePresentation(City);
 	auto* Upgrades = GetWorld() ? GetWorld()->GetSubsystem<URokBuildingUpgradeSubsystem>() : nullptr;
 	AActor* LocalActor = !Queues.bAvailable && Upgrades ? Upgrades->GetFirstActiveUpgradeActor() : nullptr;
 	const auto* Primary = Queues.FindQueue(1);
@@ -10386,6 +10416,7 @@ void URokUnityFeatureScreenWidget::UpdateWorkerQueuePresentation()
 	const auto UpdateSlot = [](const FRokServerBuildQueueView* Queue, ERokServerBuildQueueState State, bool bSecond,
 		bool bExtend, UTextBlock* Title, UTextBlock* Note, UProgressBar* Progress, UTextBlock* Time)
 	{
+		if (!Title || !Note || !Progress || !Time) return;
 		const bool bBusy = State == ERokServerBuildQueueState::Busy;
 		Title->SetText(FText::GetEmpty());
 		Note->SetText(FText::GetEmpty());
@@ -10435,7 +10466,7 @@ void URokUnityFeatureScreenWidget::HandleWorkerQueueAction(int32 ActionId)
 {
 	const int32 QueueIndex = ActionId == 1400 ? 1 : 2;
 	const auto* City = GetWorld() ? GetWorld()->GetSubsystem<URokServerCitySubsystem>() : nullptr;
-	const auto Snapshot = City ? City->GetBuildQueueSnapshot() : FRokServerBuildQueueSnapshot();
+	const auto Snapshot = ReadBuildingSpeedUpSnapshot(City);
 	if (!Snapshot.bAvailable)
 	{
 		const auto* Upgrades = GetWorld() ? GetWorld()->GetSubsystem<URokBuildingUpgradeSubsystem>() : nullptr;
@@ -10455,6 +10486,20 @@ void URokUnityFeatureScreenWidget::HandleWorkerQueueAction(int32 ActionId)
 		bServerSpeedUpPending = false;
 		SpeedUpRefreshAccumulator = 0;
 		RebuildModeContent(true);
+		const int32 Preview = GetBuildingSpeedUpPreview();
+		if (Preview == 2 || Preview == 3)
+		{
+			const int32 Index = ServerSpeedUpItemCostsGems.Find(Preview == 2);
+			if (Index != INDEX_NONE)
+			{
+				const FName Name(*FString::Printf(TEXT("SpeedUpItemAction_%d"), Index));
+				if (auto* Button = Cast<UButton>(GetWidgetFromName(Name)); Button && Button->GetIsEnabled())
+				{
+					Button->OnClicked.Broadcast();
+					UE_LOG(LogTemp, Display, TEXT("Rok building speed-up preview: clicked %s."), *Name.ToString());
+				}
+			}
+		}
 		return;
 	}
 	const bool bRenew = QueueIndex == 2 && State == ERokServerBuildQueueState::Idle
@@ -10516,8 +10561,120 @@ void URokUnityFeatureScreenWidget::BuildActivityFrame()
 		10);
 }
 
+namespace
+{
+const FText& ActivityMenuTitle(int32 Index)
+{
+	static const FText Titles[] = {
+		NSLOCTEXT("RokFeature", "ActivityCalendar", "活动日历"),
+		NSLOCTEXT("RokFeature", "ActivityLordWarA", "城主之战"),
+		NSLOCTEXT("RokFeature", "ActivityLordWarB", "城主之战"),
+		NSLOCTEXT("RokFeature", "ActivityHarvestMoon", "丰收之月"),
+		NSLOCTEXT("RokFeature", "ActivityLogin", "累计登陆")};
+	return Titles[Index];
+}
+
+const FIntRect& ActivityMenuIconRect(int32 Index)
+{
+	static const FIntRect IconRects[] = {
+		SpriteRect(497, 195, 60, 60),
+		SpriteRect(431, 71, 60, 60),
+		SpriteRect(431, 71, 60, 60),
+		SpriteRect(369, 71, 60, 60),
+		SpriteRect(369, 71, 60, 60)};
+	return IconRects[Index];
+}
+}
+
+void URokUnityFeatureScreenWidget::SetActivityIcon(UImage* Image, UTexture2D* Atlas, const FIntRect& Rect) const
+{
+	if (!Image) return;
+	if (!Atlas)
+	{
+		Image->SetVisibility(ESlateVisibility::Collapsed);
+		return;
+	}
+	FSlateBrush Brush = Image->GetBrush();
+	const FSlateBrush AtlasBrush = MakeAtlasBrush(Atlas, Rect, ActivityIconAtlasSize, Brush.GetImageSize());
+	Brush.SetResourceObject(Atlas);
+	Brush.SetUVRegion(static_cast<FBox2f>(AtlasBrush.GetUVRegion()));
+	Image->SetBrush(Brush);
+}
+
 void URokUnityFeatureScreenWidget::BuildActivityCenter()
 {
+	UE_LOG(
+		LogTemp,
+		Display,
+		TEXT("Rok activity screen: tab=%d countdown_seconds=%d authority=local_preview."),
+		SelectedActivityIndex,
+		FMath::FloorToInt(ActivityPreviewSecondsRemaining));
+
+	UClass* MenuClass = ResolveFeaturePageClass(TEXT("ActivityMenuRow"));
+	UClass* CalendarRowClass = ResolveFeaturePageClass(TEXT("ActivityCalendarRow"));
+	if (const URokUiPageWidget* Page = MenuClass && CalendarRowClass ? MountModePage(NAME_None, false) : nullptr)
+	{
+		BindPageAction(*Page, TEXT("ActivityClose"), 1);
+		const bool bCalendar = SelectedActivityIndex == 0;
+		const FName LordsWarContent[] = {
+			TEXT("ActivityLordsWarBackground"), TEXT("ActivityTitle"), TEXT("ActivityTagline"),
+			TEXT("ActivityDescriptionShade"), TEXT("ActivityDescription"), TEXT("ActivityRewardGem"),
+			TEXT("ActivityRewardHero"), TEXT("ActivityRewardSpeed"), TEXT("ActivityRewardChest"),
+			TEXT("ActivityCountdown"), TEXT("ActivityHistoryButton")
+		};
+		for (FName Name : LordsWarContent)
+		{
+			Page->SetPresent(Page->Get<UWidget>(Name), !bCalendar);
+		}
+		if (bCalendar)
+		{
+			BuildActivityCalendarReadonly(Page, CalendarRowClass);
+		}
+		else
+		{
+			for (const FName Name : {FName(TEXT("ActivityCalendarReferencePanel")), FName(TEXT("ActivityCalendarReferenceScope")),
+				FName(TEXT("ActivityCalendarReferenceScroll")), FName(TEXT("ActivityCalendarSelectedIcon")),
+				FName(TEXT("ActivityCalendarSelectedNeutralIcon")), FName(TEXT("ActivityCalendarSelectedTitle")),
+				FName(TEXT("ActivityCalendarSelectedSketch")), FName(TEXT("ActivityCalendarSourceUnavailable"))})
+			{
+				Page->SetPresent(Page->Get<UWidget>(Name), false);
+			}
+			ActivityCountdownText = Page->Get<UTextBlock>(TEXT("ActivityCountdown"));
+			LastRenderedActivitySecond = INDEX_NONE;
+			UpdateActivityCountdown(0.0f);
+			BindPageAction(*Page, TEXT("ActivityHistoryButton"), 190);
+		}
+
+		UTexture2D* Atlas = LoadUiTexture(ActivityIconAtlasPath);
+		for (int32 Index = 0; Index < 5; ++Index)
+		{
+			UCanvasPanel* MenuSlot = Page->Get<UCanvasPanel>(*FString::Printf(TEXT("ActivityMenuSlot_%d"), Index));
+			if (const URokUiPageWidget* Row = MountPageItem(MenuSlot, MenuClass, TEXT("ActivityMenu"), Index))
+			{
+				const bool bSelected = Index == SelectedActivityIndex;
+				Row->SetPresent(Row->Get<UCanvasPanel>(TEXT("Background")), !bSelected);
+				Row->SetPresent(Row->Get<UCanvasPanel>(TEXT("SelectedBackground")), bSelected);
+				SetActivityIcon(Row->Get<UImage>(TEXT("Icon")), Atlas, ActivityMenuIconRect(Index));
+				if (UTextBlock* Label = Row->Get<UTextBlock>(TEXT("Label")))
+				{
+					Label->SetText(ActivityMenuTitle(Index));
+					Label->SetColorAndOpacity(bSelected ? FLinearColor(0.40f, 0.39f, 0.33f, 1.0f) : FLinearColor::White);
+				}
+				Row->SetPresent(Row->Get<UImage>(TEXT("New")), Index != 1);
+				Row->SetPresent(Row->Get<UTextBlock>(TEXT("NewText")), Index != 1);
+				Row->SetPresent(Row->Get<UImage>(TEXT("Red")), Index >= 3);
+				UTextBlock* Count = Row->Get<UTextBlock>(TEXT("RedCount"));
+				Row->SetPresent(Count, Index >= 3);
+				if (Count)
+				{
+					Count->SetText(FText::AsNumber(Index == 3 ? 8 : 1));
+				}
+				BindPageAction(*Row, TEXT("Hit"), 100 + Index);
+			}
+		}
+		return;
+	}
+
 	BuildActivityFrame();
 	if (SelectedActivityIndex == 0)
 	{
@@ -10564,6 +10721,7 @@ void URokUnityFeatureScreenWidget::BuildActivityCenter()
 
 	ActivityCountdownText = MakeScreenText(TEXT("ActivityCountdown"), 18, FLinearColor::White, false, ETextJustify::Center);
 	PlaceOnCanvas(ModeCanvas, ActivityCountdownText, CapturePoint(522.0f, 647.7f), FVector2D(700.0f, 30.0f), 6);
+	LastRenderedActivitySecond = INDEX_NONE;
 	UpdateActivityCountdown(0.0f);
 	PlaceOnCanvas(
 		ModeCanvas,
@@ -10599,19 +10757,29 @@ void URokUnityFeatureScreenWidget::BuildActivityCenter()
 	ActivityPreviewTag->SetText(NSLOCTEXT("RokFeature", "ActivityPreviewTag", "活动 · 本地参考态（非账号状态）"));
 	PlaceOnCanvas(ModeCanvas, ActivityPreviewTag, CapturePoint(900.0f, 700.0f), FVector2D(328.0f, 24.0f), 7);
 
-	UE_LOG(
-		LogTemp,
-		Display,
-		TEXT("Rok activity screen: tab=%d countdown_seconds=%d authority=local_preview."),
-		SelectedActivityIndex,
-		FMath::FloorToInt(ActivityPreviewSecondsRemaining));
 }
 
-void URokUnityFeatureScreenWidget::BuildActivityCalendarReadonly()
+void URokUnityFeatureScreenWidget::BuildActivityCalendarReadonly(const URokUiPageWidget* Page, UClass* RowClass)
 {
 	URokUnityGameplayCatalogSubsystem* Catalog = GetGameInstance()
 		? GetGameInstance()->GetSubsystem<URokUnityGameplayCatalogSubsystem>() : nullptr;
-	if (!Catalog || !Catalog->LoadActivityCalendarReadonly())
+	const bool bLoaded = Catalog && Catalog->LoadActivityCalendarReadonly();
+	if (Page)
+	{
+		Page->SetPresent(Page->Get<UTextBlock>(TEXT("ActivityCalendarSourceUnavailable")), !bLoaded);
+		if (!bLoaded)
+		{
+			for (const FName Name : {FName(TEXT("ActivityCalendarReferencePanel")), FName(TEXT("ActivityCalendarReferenceScope")),
+				FName(TEXT("ActivityCalendarReferenceScroll")), FName(TEXT("ActivityCalendarSelectedIcon")),
+				FName(TEXT("ActivityCalendarSelectedNeutralIcon")), FName(TEXT("ActivityCalendarSelectedTitle")),
+				FName(TEXT("ActivityCalendarSelectedSketch"))})
+			{
+				Page->SetPresent(Page->Get<UWidget>(Name), false);
+			}
+			return;
+		}
+	}
+	else if (!bLoaded)
 	{
 		UTextBlock* Error = MakeScreenText(TEXT("ActivityCalendarSourceUnavailable"), 22,
 			FLinearColor::White, false, ETextJustify::Center);
@@ -10629,6 +10797,61 @@ void URokUnityFeatureScreenWidget::BuildActivityCalendarReadonly()
 		if (Row.Id == SelectedActivityCalendarId) { Selected = &Row; break; }
 	}
 	if (!Selected) return;
+	if (Page)
+	{
+		UScrollBox* Scroll = Page->Get<UScrollBox>(TEXT("ActivityCalendarReferenceScroll"));
+		USizeBox* Extent = Page->Get<USizeBox>(TEXT("ActivityCalendarReferenceExtent"));
+		UCanvasPanel* Content = Page->Get<UCanvasPanel>(TEXT("ActivityCalendarReferenceContent"));
+		if (!Scroll || !Extent || !Content) return;
+		Extent->SetHeightOverride(Rows.Num() * 110.0f);
+		UTexture2D* Atlas = LoadUiTexture(ActivityIconAtlasPath);
+		for (int32 Index = 0; Index < Rows.Num(); ++Index)
+		{
+			const FRokUnityActivityCalendarReadonlyRow& Row = Rows[Index];
+			URokUiPageWidget* Item = CreateWidget<URokUiPageWidget>(this, RowClass);
+			if (!Item) continue;
+			Item->LegacyPrefix = TEXT("ActivityCalendar");
+			Item->LegacySuffix = FString::Printf(TEXT("_%d"), Row.Id);
+			Item->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+			PlaceOnCanvas(Content, Item, FVector2D(0.0f, Index * 110.0f), FVector2D(324.0f, 110.0f), 1);
+			const bool bSelected = Row.Id == SelectedActivityCalendarId;
+			Item->SetPresent(Item->Get<UCanvasPanel>(TEXT("ReferenceRowFrame")), !bSelected);
+			Item->SetPresent(Item->Get<UCanvasPanel>(TEXT("SelectedRowFrame")), bSelected);
+			FIntRect IconRect;
+			const bool bHasIcon = Atlas && ResolveActivityCalendarIcon(Row.IconReference, IconRect);
+			UImage* Icon = Item->Get<UImage>(TEXT("ReferenceIcon"));
+			Item->SetPresent(Icon, bHasIcon);
+			Item->SetPresent(Item->Get<UCanvasPanel>(TEXT("NeutralIcon")), !bHasIcon);
+			if (bHasIcon)
+			{
+				SetActivityIcon(Icon, Atlas, IconRect);
+			}
+			if (UTextBlock* Title = Item->Get<UTextBlock>(TEXT("ReferenceTitle")))
+			{
+				Title->SetText(FText::FromString(Row.TitleZhCn));
+				Title->SetColorAndOpacity(bSelected ? FLinearColor(0.33f, 0.30f, 0.25f, 1.0f) : FLinearColor::White);
+			}
+			BindPageAction(*Item, TEXT("ReferenceHit"), 16000 + Index);
+		}
+		Scroll->SetScrollOffset(ActivityCalendarScrollOffset);
+		FIntRect DetailRect;
+		const bool bHasDetailIcon = Atlas && ResolveActivityCalendarIcon(Selected->IconReference, DetailRect);
+		UImage* DetailIcon = Page->Get<UImage>(TEXT("ActivityCalendarSelectedIcon"));
+		Page->SetPresent(DetailIcon, bHasDetailIcon);
+		Page->SetPresent(Page->Get<UCanvasPanel>(TEXT("ActivityCalendarSelectedNeutralIcon")), !bHasDetailIcon);
+		if (bHasDetailIcon)
+		{
+			SetActivityIcon(DetailIcon, Atlas, DetailRect);
+		}
+		SetFeaturePageText(*Page, TEXT("ActivityCalendarSelectedTitle"), FText::FromString(Selected->TitleZhCn));
+		UTextBlock* Sketch = Page->Get<UTextBlock>(TEXT("ActivityCalendarSelectedSketch"));
+		Page->SetPresent(Sketch, !Selected->SketchZhCn.IsEmpty());
+		if (Sketch)
+		{
+			Sketch->SetText(FText::FromString(Selected->SketchZhCn));
+		}
+		return;
+	}
 
 	PlaceOnCanvas(ModeCanvas, MakeAtlasBorder(TEXT("ActivityCalendarReferencePanel"),
 		CommonAtlasPath, CommonPanelRect, CommonAtlasSize, FVector2D(700.0f, 550.0f),
@@ -10720,18 +10943,6 @@ void URokUnityFeatureScreenWidget::BuildActivityCalendarReadonly()
 
 UCanvasPanel* URokUnityFeatureScreenWidget::MakeActivityMenuRow(int32 Index)
 {
-	static const FText Titles[] = {
-		NSLOCTEXT("RokFeature", "ActivityCalendar", "活动日历"),
-		NSLOCTEXT("RokFeature", "ActivityLordWarA", "城主之战"),
-		NSLOCTEXT("RokFeature", "ActivityLordWarB", "城主之战"),
-		NSLOCTEXT("RokFeature", "ActivityHarvestMoon", "丰收之月"),
-		NSLOCTEXT("RokFeature", "ActivityLogin", "累计登陆")};
-	static const FIntRect IconRects[] = {
-		SpriteRect(497, 195, 60, 60),
-		SpriteRect(431, 71, 60, 60),
-		SpriteRect(431, 71, 60, 60),
-		SpriteRect(369, 71, 60, 60),
-		SpriteRect(369, 71, 60, 60)};
 	const bool bSelected = Index == SelectedActivityIndex;
 	UCanvasPanel* Row = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), *FString::Printf(TEXT("ActivityMenuRow_%d"), Index));
 	Row->SetClipping(EWidgetClipping::Inherit);
@@ -10753,9 +10964,9 @@ UCanvasPanel* URokUnityFeatureScreenWidget::MakeActivityMenuRow(int32 Index)
 		RowBackground,
 		FVector2D::ZeroVector,
 		BackgroundSize);
-	PlaceOnCanvas(Row, MakeAtlasImage(*FString::Printf(TEXT("ActivityMenuIcon_%d"), Index), ActivityIconAtlasPath, IconRects[Index], ActivityIconAtlasSize, FVector2D(60.0f)), FVector2D(14.0f, 20.0f), FVector2D(60.0f), 2);
+	PlaceOnCanvas(Row, MakeAtlasImage(*FString::Printf(TEXT("ActivityMenuIcon_%d"), Index), ActivityIconAtlasPath, ActivityMenuIconRect(Index), ActivityIconAtlasSize, FVector2D(60.0f)), FVector2D(14.0f, 20.0f), FVector2D(60.0f), 2);
 	UTextBlock* Label = MakeScreenText(*FString::Printf(TEXT("ActivityMenuLabel_%d"), Index), 20, bSelected ? FLinearColor(0.40f, 0.39f, 0.33f, 1.0f) : FLinearColor::White, true);
-	Label->SetText(Titles[Index]);
+	Label->SetText(ActivityMenuTitle(Index));
 	PlaceOnCanvas(Row, Label, FVector2D(86.0f, 32.0f), FVector2D(178.0f, 38.0f), 3);
 	if (Index == 0 || Index == 2 || Index >= 3)
 	{
@@ -10840,9 +11051,11 @@ void URokUnityFeatureScreenWidget::HandleResearchDetailVisibilityChanged(bool bV
 {
 	if (ActiveMode != ERokUnityFeatureScreenMode::Research || !WidgetTree) return;
 	// UIManager.ShowLastMask keeps only the top PopWin mask active.
-	if (UWidget* Dimmer = WidgetTree->FindWidget(TEXT("FeatureScreenDimmer")))
+	if (UWidget* Dimmer = GetWidgetFromName(TEXT("FeatureScreenDimmer")))
 		Dimmer->SetVisibility(bVisible ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
 }
+
+#include "RokFeatureMailReference.inl"
 
 void URokUnityFeatureScreenWidget::BuildMail()
 {
@@ -10876,6 +11089,95 @@ void URokUnityFeatureScreenWidget::BuildMail()
 				*Payload, GetEconomyCatalogSubsystem(), GetGameplayCatalogSubsystem());
 		}
 	}
+	if (bReferenceMailCaptureState && TryBuildMailReferencePage(MailTemplate, bHasMailTemplate, MailTemplateError))
+	{
+		return;
+	}
+	const bool bLocalTabHasMail = bLocalMailUnreadFixtureState
+		&& MailLocalUnreadState.FirstIndexForTab(SelectedMailTab) != INDEX_NONE;
+	const bool bUsesCommonMailPage = !bReferenceMailCaptureState && !bReadOnlyMailRewardFixtureState;
+	const bool bReportTab = bUsesCommonMailPage && !bLocalMailUnreadFixtureState && SelectedMailTab == 1;
+	if (bUsesCommonMailPage)
+	{
+		UClass* RowClass = bReportTab ? nullptr : ResolveFeaturePageClass(TEXT("MailLocalRow"));
+		UClass* SelectedRowClass = bReportTab ? nullptr : ResolveFeaturePageClass(TEXT("MailLocalRowSelected"));
+		auto* Page = bReportTab || (RowClass && SelectedRowClass) ? MountModePage(TEXT("MailLocal")) : nullptr;
+		UScrollBox* List = Page ? Page->Get<UScrollBox>(TEXT("MailListScroll")) : nullptr;
+		if (Page && !List)
+		{
+			Page->RemoveFromParent();
+			ActiveModePage = nullptr;
+		}
+		if (Page && List)
+		{
+			BindMailPageControls(*Page);
+			for (int32 Tab = 0; Tab < 6; ++Tab)
+			{
+				const int32 Unread = bLocalMailUnreadFixtureState ? MailLocalUnreadState.UnreadCount(Tab) : 0;
+				UWidget* Dot = Page->Get<UImage>(*FString::Printf(TEXT("MailLocalTabRedPoint_%d"), Tab));
+				UTextBlock* Count = Page->Get<UTextBlock>(*FString::Printf(TEXT("MailLocalTabUnreadCount_%d"), Tab));
+				Page->SetPresent(Dot, Unread > 0);
+				Page->SetPresent(Count, Unread > 0);
+				if (Unread > 0 && Count)
+				{
+					Count->SetText(FText::AsNumber(Unread));
+				}
+			}
+			Page->SetPresent(Page->Get<UTextBlock>(TEXT("MailLocalUnreadNotice")), bLocalMailUnreadFixtureState);
+			Page->SetPresent(Page->Get<UTextBlock>(TEXT("MailEmptyState")), !bReportTab && !bLocalTabHasMail);
+			Page->SetPresent(Page->Get<UCanvasPanel>(TEXT("MailDetailPanel")), bLocalTabHasMail);
+			UTextBlock* DetailTitle = Page->Get<UTextBlock>(TEXT("MailLocalDetailTitle"));
+			UTextBlock* DetailBody = Page->Get<UTextBlock>(TEXT("MailLocalDetailBody"));
+			Page->SetPresent(DetailTitle, bLocalTabHasMail);
+			Page->SetPresent(DetailBody, bLocalTabHasMail);
+			if (bReportTab)
+			{
+				BuildBattleReportMail(List);
+				return;
+			}
+			int32 VisibleCount = 0;
+			if (bLocalTabHasMail)
+			{
+				for (int32 Index = 0; Index < MailLocalUnreadState.Rows.Num(); ++Index)
+				{
+					const FRokMailLocalUnreadRow& LocalRow = MailLocalUnreadState.Rows[Index];
+					if (LocalRow.Tab != SelectedMailTab)
+					{
+						continue;
+					}
+					UClass* StyleClass = Index == SelectedMailIndex ? SelectedRowClass : RowClass;
+					URokUiPageWidget* Row = CreateWidget<URokUiPageWidget>(this, StyleClass);
+					if (!Row)
+					{
+						continue;
+					}
+					Row->LegacyPrefix = TEXT("Mail");
+					Row->LegacySuffix = FString::Printf(TEXT("_%d"), Index);
+					Row->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+					List->AddChild(Row);
+					SetFeaturePageText(*Row, TEXT("RowTitle"), FText::FromString(LocalRow.Title));
+					SetFeaturePageText(*Row, TEXT("RowSubject"), FText::FromString(LocalRow.Summary));
+					Row->SetPresent(Row->Get<UImage>(TEXT("Unread")), !LocalRow.bRead);
+					BindPageAction(*Row, TEXT("RowHit"), 220 + Index);
+					++VisibleCount;
+				}
+				const FRokMailLocalUnreadRow* Selected = MailLocalUnreadState.Find(SelectedMailIndex);
+				if (DetailTitle)
+				{
+					DetailTitle->SetText(Selected ? FText::FromString(Selected->Title)
+						: NSLOCTEXT("RokFeature", "MailLocalSelectRow", "请选择一封邮件"));
+				}
+				if (DetailBody)
+				{
+					DetailBody->SetText(Selected ? FText::FromString(Selected->Summary) : FText::GetEmpty());
+				}
+			}
+			UE_LOG(LogTemp, Display, TEXT("Rok mail screen: source=UI_Win_Mail logical_page=%d rendered_rows=%d authority=%s."),
+				SelectedMailTab, VisibleCount, bLocalMailUnreadFixtureState ? TEXT("explicit_local_unread_fixture") : TEXT("unbound"));
+			return;
+		}
+	}
+
 	// UI_Win_Mail owns four frame pieces over the full 1440x810 canvas.
 	// Mail is the only current screen whose Unity source uses this full-size
 	// placement, so keep the source coordinates instead of CapturePoint.
@@ -10954,7 +11256,7 @@ void URokUnityFeatureScreenWidget::BuildMail()
 				FVector2D(TabX[Index] + 170.0f, 70.0f), FVector2D(27.0f, 22.0f), 11);
 		}
 		const FName TabLabelName(*FString::Printf(TEXT("MailTab_%dLabel"), Index));
-		if (UTextBlock* TabLabel = Cast<UTextBlock>(WidgetTree->FindWidget(TabLabelName)))
+		if (UTextBlock* TabLabel = Cast<UTextBlock>(GetWidgetFromName(TabLabelName)))
 		{
 			TabLabel->SetFont(FCoreStyle::GetDefaultFontStyle(TEXT("Regular"), 22.0f * 72.0f / 96.0f));
 			TabLabel->SetShadowOffset(FVector2D::ZeroVector);
@@ -11028,9 +11330,7 @@ void URokUnityFeatureScreenWidget::BuildMail()
 	MailListScroll->SetAnimateWheelScrolling(true);
 	MailListScroll->SetWheelScrollMultiplier(12.0f);
 	PlaceOnCanvas(ModeCanvas, MailListScroll, FVector2D(56.0f, 128.0f), FVector2D(478.5f, 590.0f), 5);
-	const bool bLocalTabHasMail = bLocalMailUnreadFixtureState
-		&& MailLocalUnreadState.FirstIndexForTab(SelectedMailTab) != INDEX_NONE;
-	if (SelectedMailTab == 1 && !bLocalMailUnreadFixtureState && !bReferenceMailCaptureState && !bReadOnlyMailRewardFixtureState)
+	if (bReportTab)
 	{
 		BuildBattleReportMail(MailListScroll);
 		return;
@@ -11337,6 +11637,12 @@ void URokUnityFeatureScreenWidget::BuildMailRewards(UCanvasPanel* DetailContent)
 	}
 
 	const bool bLegacyReference = !bReadOnlyMailRewardFixtureState && RenderedMailRewardRows.Num() == 1;
+	UClass* ReferenceCardClass = ActiveModePage && bLegacyReference
+		? ResolveFeaturePageClass(TEXT("MailRewardReferenceCard")) : nullptr;
+	UClass* ItemCardClass = ActiveModePage && !bLegacyReference
+		? ResolveFeaturePageClass(TEXT("MailRewardItemCard")) : nullptr;
+	UClass* CurrencyCardClass = ActiveModePage && !bLegacyReference
+		? ResolveFeaturePageClass(TEXT("MailRewardCurrencyCard")) : nullptr;
 	UCanvasPanel* RewardGrid = nullptr;
 	if (!bLegacyReference)
 	{
@@ -11353,6 +11659,19 @@ void URokUnityFeatureScreenWidget::BuildMailRewards(UCanvasPanel* DetailContent)
 			: *FString::Printf(TEXT("MailRewardFixtureRoot_%d"), Index));
 		const float QualitySize = 93.8f;
 		const FVector2D RootSize(130.0f, 140.0f);
+		UClass* CardClass = bLegacyReference ? ReferenceCardClass
+			: Row.Kind == ERokMailRewardKind::Currency ? CurrencyCardClass : ItemCardClass;
+		if (CardClass)
+		{
+			if (auto* Card = CreateWidget<URokUiPageWidget>(this, CardClass))
+			{
+				BindMailRewardCard(*Card, Row, Index, bLegacyReference);
+				PlaceOnCanvas(bLegacyReference ? DetailContent : RewardGrid, Card,
+					bLegacyReference ? FVector2D(25.0f, 237.0f) : FVector2D(20.0f + (Index % 5) * 150.0f, (Index / 5) * 170.0f),
+					RootSize, bLegacyReference ? 6 : 1);
+				continue;
+			}
+		}
 		UCanvasPanel* Root = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), RootName);
 		const FName QualityName(bLegacyReference ? TEXT("MailRewardItemQuality")
 			: *FString::Printf(TEXT("MailRewardFixtureQuality_%d"), Index));
@@ -11472,6 +11791,32 @@ void URokUnityFeatureScreenWidget::BuildMailRewardTooltip()
 		10.0f, CurrentExpandedDesignSize.X - Width - 10.0f);
 	const float Top = FMath::Max(90.0f, MailRewardTooltipAnchor.Y - TipSize.Y - 12.0f);
 	const FVector2D Position(Left, Top);
+	const float ArrowX = MailRewardTooltipAnchor.X - Left - 7.5f;
+	if (ActiveModePage)
+	{
+		if (UClass* TooltipClass = ResolveFeaturePageClass(TEXT("MailRewardTooltip")))
+		{
+			if (auto* Page = CreateWidget<URokUiPageWidget>(this, TooltipClass))
+			{
+				Page->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+				SetFeaturePageText(*Page, TEXT("MailRewardTooltipText"), FText::FromString(Name));
+				for (const FName WidgetName : {FName(TEXT("MailRewardTooltipArrow")), FName(TEXT("MailRewardTooltipArrowHit"))})
+				{
+					if (auto* Widget = Page->Get<UWidget>(WidgetName))
+					{
+						if (auto* ArrowSlot = Cast<UCanvasPanelSlot>(Widget->Slot))
+						{
+							ArrowSlot->SetPosition(FVector2D(ArrowX, ArrowSlot->GetPosition().Y));
+						}
+					}
+				}
+				BindPageAction(*Page, TEXT("MailRewardTooltipBodyHit"), -2698);
+				BindPageAction(*Page, TEXT("MailRewardTooltipArrowHit"), -2698);
+				PlaceOnCanvas(MailRewardTooltipRoot, Page, Position, TipSize);
+				return;
+			}
+		}
+	}
 	PlaceOnCanvas(MailRewardTooltipRoot, MakeAtlasBorder(
 		TEXT("MailRewardTooltipBackground"), CommonAtlasPath,
 		SpriteRect(774, 276, 72, 72), CommonAtlasSize, TipSize,
@@ -11542,23 +11887,11 @@ UCanvasPanel* URokUnityFeatureScreenWidget::MakeMailRow(int32 Index, const FRokM
 	}
 	if (!LocalRow && Index != 1)
 	{
-		// The parent legacy pulse and child SkeletonGraphic have different clocks.
-		// Reuse the child's source instance across row selection and tab rebuilds.
-		auto& Mesh = MailAttachmentMeshes.FindOrAdd(Index);
-		if (!Mesh)
-		{
-			Mesh = WidgetTree->ConstructWidget<URokMailAttachmentMeshWidget>(URokMailAttachmentMeshWidget::StaticClass(),
-				*FString::Printf(TEXT("MailAttachmentMesh_%d"), Index));
-			Mesh->LoadSource(); // Missing source is reported by the strict loader.
-		}
-		Mesh->RemoveFromParent();
-		Mesh->SetVisibility(ESlateVisibility::HitTestInvisible);
 		auto* Pulse = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(),
 			*FString::Printf(TEXT("MailAttachmentPulse_%d"), Index));
 		Pulse->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-		PlaceOnCanvas(Pulse, Mesh, FVector2D::ZeroVector, FVector2D(28.0f, 25.0f), 1);
+		AttachMailGiftMesh(Index, *Pulse);
 		PlaceOnCanvas(Row, Pulse, FVector2D(392.32f, 31.43f), FVector2D(28.0f, 25.0f), 4);
-		MailAttachmentPulse.Register(Index, Pulse);
 	}
 	PlaceOnCanvas(Row, MakeActionButton(*FString::Printf(TEXT("MailRowHit_%d"), Index), 220 + Index, nullptr, FIntRect(), FIntPoint(1, 1), FVector2D(457.0f, 114.24f)), FVector2D::ZeroVector, FVector2D(457.0f, 114.24f), 10);
 	return Row;
@@ -11742,6 +12075,8 @@ void URokUnityFeatureScreenWidget::RefreshTaskMainProjection()
 	bTaskMainLocalConditionMet = Projection.bProjected && Projection.bConditionMet;
 	TaskMainDisplayedCurrent = Task.Current;
 }
+
+#include "RokFeatureTaskChapterServer.inl"
 
 void URokUnityFeatureScreenWidget::BuildServerTaskChapter(const FRokServerTaskSnapshot& Snapshot)
 {
@@ -11928,10 +12263,19 @@ void URokUnityFeatureScreenWidget::BuildServerTaskChapterGuide(const FRokTaskCha
 		DialogPosition + FVector2D(262, 129), FVector2D(13, 11), 4);
 
 	auto* Dialogue = WidgetTree->ConstructWidget<URichTextBlock>(URichTextBlock::StaticClass(), TEXT("TaskChapterDialogue"));
+	Dialogue->SetWrapTextAt(230);
+	Dialogue->SetVisibility(ESlateVisibility::HitTestInvisible);
+	PlaceOnCanvas(ModeCanvas, Dialogue, DialogPosition + FVector2D(26, 19), FVector2D(247, 114), 5);
+	PopulateServerTaskChapterGuide(Metadata, *Dialogue, nullptr);
+}
+
+void URokUnityFeatureScreenWidget::PopulateServerTaskChapterGuide(const FRokTaskChapterPreviewRow& Metadata,
+	URichTextBlock& Dialogue, UCanvasPanel* ModelSlot)
+{
 	FTextBlockStyle TextStyle;
 	TextStyle.SetFont(URokMainHudWidget::MakeUnitySourceFont(17, true))
 		.SetColorAndOpacity(FSlateColor(FLinearColor::White));
-	auto* Styles = NewObject<UDataTable>(Dialogue);
+	auto* Styles = NewObject<UDataTable>(&Dialogue);
 	Styles->RowStruct = FRichTextStyleRow::StaticStruct();
 	FRichTextStyleRow Default;
 	Default.TextStyle = TextStyle;
@@ -11939,16 +12283,13 @@ void URokUnityFeatureScreenWidget::BuildServerTaskChapterGuide(const FRokTaskCha
 	FRichTextStyleRow Emphasis = Default;
 	Emphasis.TextStyle.SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 0.43f, 0.02f)));
 	Styles->AddRow(TEXT("Emphasis"), Emphasis);
-	Dialogue->SetTextStyleSet(Styles);
+	Dialogue.SetTextStyleSet(Styles);
 	FString Story = Metadata.Description2.ZhCn;
 	Story.ReplaceInline(TEXT("<b>"), TEXT(""));
 	Story.ReplaceInline(TEXT("</b>"), TEXT(""));
 	Story.ReplaceInline(TEXT("<color=orange>"), TEXT("<Emphasis>"));
 	Story.ReplaceInline(TEXT("</color>"), TEXT("</>"));
-	Dialogue->SetText(FText::FromString(Story));
-	Dialogue->SetWrapTextAt(230);
-	Dialogue->SetVisibility(ESlateVisibility::HitTestInvisible);
-	PlaceOnCanvas(ModeCanvas, Dialogue, DialogPosition + FVector2D(26, 19), FVector2D(247, 114), 5);
+	Dialogue.SetText(FText::FromString(Story));
 
 	const auto* Instance = GetGameInstance();
 	const auto* Net = Instance ? Instance->GetSubsystem<URokGameNetSubsystem>() : nullptr;
@@ -11966,19 +12307,39 @@ void URokUnityFeatureScreenWidget::BuildServerTaskChapterGuide(const FRokTaskCha
 		{
 			Guide->SetClipping(EWidgetClipping::ClipToBoundsAlways);
 			Guide->SetVisibility(ESlateVisibility::HitTestInvisible);
-			PlaceOnCanvas(ModeCanvas, Guide, CapturePoint(124, 350), FVector2D(365, 458), 3);
+#if !UE_BUILD_SHIPPING
+			if (FParse::Param(FCommandLine::Get(), TEXT("RokLocalOnly"))
+				&& FParse::Param(FCommandLine::Get(), TEXT("RokNoNet"))
+				&& FParse::Param(FCommandLine::Get(), TEXT("RokTaskChapterStaticCapture")))
+			{
+				Guide->FreezeAnimationForCapture(0.75f);
+			}
+#endif
+			if (ModelSlot)
+			{
+				auto* ModelCanvasSlot = ModelSlot->AddChildToCanvas(Guide);
+				ModelCanvasSlot->SetAnchors(FAnchors(0, 0, 1, 1));
+				ModelCanvasSlot->SetOffsets(FMargin(0));
+			}
+			else
+			{
+				PlaceOnCanvas(ModeCanvas, Guide, CapturePoint(124, 350), FVector2D(365, 458), 3);
+			}
 		}
 	}
 }
 
-void URokUnityFeatureScreenWidget::BuildTaskChapter()
+void URokUnityFeatureScreenWidget::BuildTaskChapter(const URokUiPageWidget* Page, UClass* RowClass,
+	UClass* AggregateRewardClass, UClass* TaskRewardClass)
 {
-	// The source quest viewport is 737 x 468.5 with 740 x 104 zero-spacing rows.
-	// The group chooser is a local config browser: Unity's live current chapter
+	// The group chooser is a local config browser. Unity's live current chapter
 	// depends on account state that is unavailable in this read-only screen.
-	const FVector2D ChapterSize(1088.0f, 664.0f);
-	UCanvasPanel* ChapterRoot = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("TaskChapterRoot"));
-	PlaceOnCanvas(ModeCanvas, ChapterRoot, CapturePoint(176.0f, 136.0f), ChapterSize, 5);
+	UCanvasPanel* ChapterRoot = Page ? Page->Get<UCanvasPanel>(TEXT("TaskChapterRoot")) : nullptr;
+	if (!ChapterRoot)
+	{
+		ChapterRoot = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("TaskChapterRoot"));
+		PlaceOnCanvas(ModeCanvas, ChapterRoot, CapturePoint(176.0f, 136.0f), FVector2D(1088.0f, 664.0f), 5);
+	}
 	RenderedTaskChapterTaskIds.Reset();
 	RenderedTaskChapterTaskRewardPackageIds.Reset();
 	RenderedTaskChapterAggregateRewardPackageIds.Reset();
@@ -11986,12 +12347,22 @@ void URokUnityFeatureScreenWidget::BuildTaskChapter()
 	for (int32 GroupId = 1; GroupId <= 7; ++GroupId)
 	{
 		const bool bSelected = GroupId == SelectedTaskChapterGroupId;
+		const FString ButtonName = FString::Printf(TEXT("TaskChapterGroupButton_%d"), GroupId);
+		const FLinearColor LabelColor = bSelected ? FLinearColor::White : FLinearColor(0.78f, 0.74f, 0.66f, 1.0f);
+		if (Page)
+		{
+			BindPageAction(*Page, *ButtonName, 339 + GroupId);
+			if (auto* Label = Page->Get<UTextBlock>(*(ButtonName + TEXT("Label"))))
+			{
+				Label->SetColorAndOpacity(LabelColor);
+			}
+			continue;
+		}
 		const FVector2D Position(28.0f + (GroupId - 1) * 105.0f, 31.0f);
 		PlaceOnCanvas(ChapterRoot,
-			MakeActionButton(*FString::Printf(TEXT("TaskChapterGroupButton_%d"), GroupId),
-				339 + GroupId, CommonAtlasPath, CommonPanelRect, CommonAtlasSize,
+			MakeActionButton(*ButtonName, 339 + GroupId, CommonAtlasPath, CommonPanelRect, CommonAtlasSize,
 				FVector2D(99.0f, 43.0f), FText::Format(NSLOCTEXT("RokFeature", "TaskChapterGroupButton", "第{0}组"), FText::AsNumber(GroupId)),
-				16, bSelected ? FLinearColor::White : FLinearColor(0.78f, 0.74f, 0.66f, 1.0f),
+				16, LabelColor,
 				ESlateBrushDrawType::Box, CommonPanelMargin),
 			Position, FVector2D(99.0f, 43.0f), 2);
 	}
@@ -12000,22 +12371,30 @@ void URokUnityFeatureScreenWidget::BuildTaskChapter()
 	const bool bChapterFound = RokTaskChapterConfigPreviewData::FindChapterById(
 		TaskChapterGroups, SelectedTaskChapterGroupId, Chapter);
 	bSelectedTaskChapterMetadataKnown = bChapterFound && Chapter.bMetadataKnown;
-	UTextBlock* GroupTitle = MakeScreenText(TEXT("TaskChapterGroupTitle"), 23,
-		FLinearColor::FromSRGBColor(FColor(230, 217, 180)), true);
-	GroupTitle->SetText(bChapterFound ? FText::FromString(Chapter.DisplayTitle())
-		: NSLOCTEXT("RokFeature", "TaskChapterUnavailable", "章节配置不可用"));
-	PlaceOnCanvas(ChapterRoot, GroupTitle, FVector2D(27.0f, 105.0f), FVector2D(720.0f, 39.0f), 2);
-
-	UTextBlock* Notice = MakeScreenText(TEXT("TaskChapterMetaNotice"), 15,
-		FLinearColor(0.78f, 0.75f, 0.67f, 1.0f));
-	Notice->SetText(!TaskChapterLoadError.IsEmpty()
+	const FText GroupTitle = bChapterFound ? FText::FromString(Chapter.DisplayTitle())
+		: NSLOCTEXT("RokFeature", "TaskChapterUnavailable", "章节配置不可用");
+	const FText Notice = !TaskChapterLoadError.IsEmpty()
 		? FText::FromString(TEXT("章节配置暂不可浏览。"))
 		: !TaskChapterRewardLoadError.IsEmpty()
 			? NSLOCTEXT("RokFeature", "TaskChapterRewardUnavailable", "奖励配置暂不可浏览；章节任务配置仍可查看。")
 		: !bSelectedTaskChapterMetadataKnown
 			? NSLOCTEXT("RokFeature", "TaskChapterMissingMetadata", "本组章节标题资料缺失；仅展示任务配置，账号进度未同步。")
-			: NSLOCTEXT("RokFeature", "TaskChapterConfigOnly", "本地配置浏览 · 账号章节进度与领取状态未同步"));
-	PlaceOnCanvas(ChapterRoot, Notice, FVector2D(27.0f, 151.0f), FVector2D(1010.0f, 29.0f), 2);
+			: NSLOCTEXT("RokFeature", "TaskChapterConfigOnly", "本地配置浏览 · 账号章节进度与领取状态未同步");
+	if (Page)
+	{
+		SetFeaturePageText(*Page, TEXT("TaskChapterGroupTitle"), GroupTitle);
+		SetFeaturePageText(*Page, TEXT("TaskChapterMetaNotice"), Notice);
+	}
+	else
+	{
+		auto* GroupTitleText = MakeScreenText(TEXT("TaskChapterGroupTitle"), 23,
+			FLinearColor::FromSRGBColor(FColor(230, 217, 180)), true);
+		GroupTitleText->SetText(GroupTitle);
+		PlaceOnCanvas(ChapterRoot, GroupTitleText, FVector2D(27.0f, 105.0f), FVector2D(720.0f, 39.0f), 2);
+		auto* NoticeText = MakeScreenText(TEXT("TaskChapterMetaNotice"), 15, FLinearColor(0.78f, 0.75f, 0.67f, 1.0f));
+		NoticeText->SetText(Notice);
+		PlaceOnCanvas(ChapterRoot, NoticeText, FVector2D(27.0f, 151.0f), FVector2D(1010.0f, 29.0f), 2);
+	}
 	// Unity's ResourcesConsumeReward and UI_Model_Item both format positive
 	// quantities as N0; use stable comma grouping independent of UE locale.
 	const auto RewardQuantityText = [](int64 Quantity)
@@ -12033,26 +12412,66 @@ void URokUnityFeatureScreenWidget::BuildTaskChapter()
 		return FText::FromString(Grouped);
 	};
 
+	const auto PopulateReward = [this, &RewardQuantityText](URokUiPageWidget& RewardPage, const TCHAR* Field,
+		int32 OwnerId, int32 Index, const FRokTaskChapterRewardPreviewRow& Reward)
+	{
+		RewardPage.LegacyPrefix = TEXT("TaskChapter");
+		RewardPage.LegacySuffix = FString::Printf(TEXT("_%d_%d"), OwnerId, Index);
+		const FString Base(Field);
+		SetFeaturePageText(RewardPage, *(Base + TEXT("Quantity")), RewardQuantityText(Reward.Quantity));
+		if (auto* Icon = RewardPage.Get<UImage>(*(Base + TEXT("Icon"))))
+		{
+			UTexture2D* Texture = LoadUiTexture(*Reward.AtlasObjectPath);
+			Icon->SetVisibility(Texture ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+			if (Texture)
+			{
+				Icon->SetBrush(MakeAtlasBrush(Texture, Reward.IconRect, Reward.IconAtlasSize, Icon->GetBrush().GetImageSize()));
+			}
+		}
+	};
+
 	// The chapter-title reward list is separate from the per-task rewards.
 	// Chapter 7 has no source aggregate metadata, so it gets no synthetic cells.
 	FRokTaskChapterRewardGroup Aggregate;
-	if (RokTaskChapterRewardPreviewData::FindForChapter(
-		TaskChapterRewardGroups, SelectedTaskChapterGroupId, Aggregate))
+	const bool bAggregateFound = RokTaskChapterRewardPreviewData::FindForChapter(
+		TaskChapterRewardGroups, SelectedTaskChapterGroupId, Aggregate);
+	const bool bShowMissingAggregate = !bAggregateFound && bChapterFound && !bSelectedTaskChapterMetadataKnown;
+	if (Page)
+	{
+		if (auto* Missing = Page->Get<UTextBlock>(TEXT("TaskChapterAggregateRewardUnavailable")))
+		{
+			Missing->SetVisibility(bShowMissingAggregate ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+		}
+	}
+	if (bAggregateFound)
 	{
 		const int32 Count = Aggregate.Rows.Num();
 		for (int32 Index = 0; Index < Count; ++Index)
 		{
 			const FRokTaskChapterRewardPreviewRow& Reward = Aggregate.Rows[Index];
-			const FString Prefix = FString::Printf(TEXT("TaskChapterAggregateReward_%d_%d"),
-				SelectedTaskChapterGroupId, Index);
-			UCanvasPanel* Cell = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), *Prefix);
-			Cell->SetVisibility(ESlateVisibility::HitTestInvisible);
+			RenderedTaskChapterAggregateRewardPackageIds.Add(Reward.PackageRowId);
 			// UI_Item_Bag/UI_Model_Item is 134 square under items scale .42.
 			// ListView spacing 30 at the same scale gives a 68.88-pixel pitch.
 			const FVector2D CellSize(56.28f, 56.28f);
 			constexpr float CellPitch = 68.88f;
-			PlaceOnCanvas(ChapterRoot, Cell,
-				FVector2D(1040.0f - (Count - 1 - Index) * CellPitch - CellSize.X, 96.0f), CellSize, 3);
+			const float RightOffset = (Count - 1 - Index) * CellPitch + CellSize.X;
+			if (Page)
+			{
+				auto* Host = Page->Get<UCanvasPanel>(TEXT("TaskChapterAggregateRewardHost"));
+				if (auto* CellPage = CreateWidget<URokUiPageWidget>(this, AggregateRewardClass))
+				{
+					PopulateReward(*CellPage, TEXT("AggregateReward"), SelectedTaskChapterGroupId, Index, Reward);
+					CellPage->SetVisibility(ESlateVisibility::HitTestInvisible);
+					PlaceOnCanvas(Host, CellPage, FVector2D(CastChecked<UCanvasPanelSlot>(Host->Slot)->GetSize().X - RightOffset, 0),
+						CellSize);
+					continue;
+				}
+			}
+			const FString Prefix = FString::Printf(TEXT("TaskChapterAggregateReward_%d_%d"),
+				SelectedTaskChapterGroupId, Index);
+			UCanvasPanel* Cell = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), *Prefix);
+			Cell->SetVisibility(ESlateVisibility::HitTestInvisible);
+			PlaceOnCanvas(ChapterRoot, Cell, FVector2D(1040.0f - RightOffset, 96.0f), CellSize, 3);
 			PlaceOnCanvas(Cell, MakeAtlasImage(*(Prefix + TEXT("Icon")),
 				*Reward.AtlasObjectPath, Reward.IconRect, Reward.IconAtlasSize, FVector2D(50.4f, 50.4f)),
 				FVector2D(2.94f, 2.94f), FVector2D(50.4f, 50.4f), 1);
@@ -12074,10 +12493,9 @@ void URokUnityFeatureScreenWidget::BuildTaskChapter()
 				QuantitySlot->SetVerticalAlignment(VAlign_Top);
 			}
 			PlaceOnCanvas(Cell, QuantityFit, FVector2D(2.9f, 41.2f), FVector2D(48.13f, 12.6f), 2);
-			RenderedTaskChapterAggregateRewardPackageIds.Add(Reward.PackageRowId);
 		}
 	}
-	else if (bChapterFound && !bSelectedTaskChapterMetadataKnown)
+	else if (!Page && bShowMissingAggregate)
 	{
 		UTextBlock* Missing = MakeScreenText(TEXT("TaskChapterAggregateRewardUnavailable"), 14,
 			FLinearColor::FromSRGBColor(FColor(164, 157, 146)));
@@ -12085,12 +12503,16 @@ void URokUnityFeatureScreenWidget::BuildTaskChapter()
 		PlaceOnCanvas(ChapterRoot, Missing, FVector2D(779.0f, 105.0f), FVector2D(263.0f, 35.0f), 3);
 	}
 
-	UScrollBox* ChapterScroll = WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("TaskChapterScroll"));
-	ChapterScroll->SetOrientation(Orient_Vertical);
-	ChapterScroll->SetScrollBarVisibility(ESlateVisibility::Collapsed);
-	ChapterScroll->SetAllowOverscroll(false);
-	ChapterScroll->SetClipping(EWidgetClipping::ClipToBoundsAlways);
-	PlaceOnCanvas(ChapterRoot, ChapterScroll, FVector2D(19.23f, 196.2f), FVector2D(737.0f, 468.5f), 3);
+	UScrollBox* ChapterScroll = Page ? Page->Get<UScrollBox>(TEXT("TaskChapterScroll")) : nullptr;
+	if (!ChapterScroll)
+	{
+		ChapterScroll = WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("TaskChapterScroll"));
+		ChapterScroll->SetOrientation(Orient_Vertical);
+		ChapterScroll->SetScrollBarVisibility(ESlateVisibility::Collapsed);
+		ChapterScroll->SetAllowOverscroll(false);
+		ChapterScroll->SetClipping(EWidgetClipping::ClipToBoundsAlways);
+		PlaceOnCanvas(ChapterRoot, ChapterScroll, FVector2D(19.23f, 196.2f), FVector2D(737.0f, 468.5f), 3);
+	}
 	if (!bChapterFound)
 	{
 		return;
@@ -12107,19 +12529,7 @@ void URokUnityFeatureScreenWidget::BuildTaskChapter()
 			continue;
 		}
 		RenderedTaskChapterTaskIds.Add(TaskId);
-		UCanvasPanel* Row = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(),
-			*FString::Printf(TEXT("TaskChapterTaskRow_%d"), TaskId));
-		PlaceOnCanvas(Row, MakeAtlasBorder(*FString::Printf(TEXT("TaskChapterTaskBackground_%d"), TaskId),
-			CommonAtlasPath, CommonPanelRect, CommonAtlasSize, FVector2D(740.0f, 100.0f), CommonPanelMargin),
-			FVector2D::ZeroVector, FVector2D(740.0f, 100.0f), 0);
-
-		UTextBlock* Title = MakeScreenText(*FString::Printf(TEXT("TaskChapterTaskTitle_%d"), TaskId),
-			17, FLinearColor::FromSRGBColor(FColor(230, 217, 180)), true);
-		Title->SetText(FText::FromString(Task.Title.ZhCn));
-		Title->SetAutoWrapText(true);
-		// Configuration-only title occupies the source account-action column.
-		PlaceOnCanvas(Row, Title, FVector2D(14.0f, 16.0f), FVector2D(180.0f, 69.0f), 1);
-
+		const FText Title = FText::FromString(Task.Title.ZhCn);
 		// TaskMain p1/p2/p3 are source configuration parameters, not live progress.
 		FString Description = Task.Description.ZhCn;
 		Description.ReplaceInline(TEXT("{p1}"), *FString::FromInt(Task.Param1));
@@ -12138,16 +12548,61 @@ void URokUnityFeatureScreenWidget::BuildTaskChapter()
 				bResearchCatalogLoaded && ResearchCatalog.GetByStudyLevel(Task.Param1, Task.Param2, Research)
 					? *Research.Name : TEXT("指定科技"));
 		}
+		const FText DescriptionValue = FText::FromString(Description);
+		FRokTaskChapterRewardGroup RewardGroup;
+		const bool bHasTaskRewards = RokTaskChapterRewardPreviewData::FindForTask(TaskChapterRewardGroups, TaskId, RewardGroup);
+		if (Page)
+		{
+			if (auto* RowPage = CreateWidget<URokUiPageWidget>(this, RowClass))
+			{
+				auto* RewardHost = RowPage->Get<UCanvasPanel>(TEXT("TaskRewardHost"));
+				const auto* RewardHostSlot = RewardHost ? Cast<UCanvasPanelSlot>(RewardHost->Slot) : nullptr;
+				if (RewardHostSlot)
+				{
+					RowPage->LegacyPrefix = TEXT("TaskChapter");
+					RowPage->LegacySuffix = FString::Printf(TEXT("_%d"), TaskId);
+					RowPage->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+					SetFeaturePageText(*RowPage, TEXT("TaskTitle"), Title);
+					SetFeaturePageText(*RowPage, TEXT("TaskDescription"), DescriptionValue);
+					const double RewardRight = RewardHostSlot->GetSize().X;
+					for (int32 Index = 0; bHasTaskRewards && Index < RewardGroup.Rows.Num(); ++Index)
+					{
+						const auto& Reward = RewardGroup.Rows[Index];
+						RenderedTaskChapterTaskRewardPackageIds.Add(Reward.PackageRowId);
+						if (auto* CellPage = CreateWidget<URokUiPageWidget>(this, TaskRewardClass))
+						{
+							PopulateReward(*CellPage, TEXT("TaskReward"), TaskId, Index, Reward);
+							CellPage->SetVisibility(ESlateVisibility::HitTestInvisible);
+							const FVector2D CellSize(104.0f, 40.0f);
+							PlaceOnCanvas(RewardHost, CellPage, FVector2D(RewardRight - (Index + 1) * CellSize.X, 0), CellSize);
+						}
+					}
+					CastChecked<UScrollBoxSlot>(ChapterScroll->AddChild(RowPage))->SetHorizontalAlignment(HAlign_Left);
+					continue;
+				}
+			}
+		}
+
+		UCanvasPanel* Row = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(),
+			*FString::Printf(TEXT("TaskChapterTaskRow_%d"), TaskId));
+		PlaceOnCanvas(Row, MakeAtlasBorder(*FString::Printf(TEXT("TaskChapterTaskBackground_%d"), TaskId),
+			CommonAtlasPath, CommonPanelRect, CommonAtlasSize, FVector2D(740.0f, 100.0f), CommonPanelMargin),
+			FVector2D::ZeroVector, FVector2D(740.0f, 100.0f), 0);
+		UTextBlock* TitleText = MakeScreenText(*FString::Printf(TEXT("TaskChapterTaskTitle_%d"), TaskId),
+			17, FLinearColor::FromSRGBColor(FColor(230, 217, 180)), true);
+		TitleText->SetText(Title);
+		TitleText->SetAutoWrapText(true);
+		// Configuration-only title occupies the source account-action column.
+		PlaceOnCanvas(Row, TitleText, FVector2D(14.0f, 16.0f), FVector2D(180.0f, 69.0f), 1);
 		UTextBlock* DescriptionText = MakeScreenText(*FString::Printf(TEXT("TaskChapterTaskDescription_%d"), TaskId),
 			17, FLinearColor::White, false, ETextJustify::Right);
-		DescriptionText->SetText(FText::FromString(Description));
+		DescriptionText->SetText(DescriptionValue);
 		DescriptionText->SetAutoWrapText(true);
 		// Unity lbl_itemName presents TaskChapter.desc with live progress. This
 		// preview keeps only the source description and leaves progress unknown.
 		PlaceOnCanvas(Row, DescriptionText, FVector2D(200.7f, 8.4f), FVector2D(520.0f, 37.9f), 1);
 
-		FRokTaskChapterRewardGroup RewardGroup;
-		if (RokTaskChapterRewardPreviewData::FindForTask(TaskChapterRewardGroups, TaskId, RewardGroup))
+		if (bHasTaskRewards)
 		{
 			// Source GridLayout: 130 x 50 cells, parent scale .8, right-anchored.
 			for (int32 Index = 0; Index < RewardGroup.Rows.Num(); ++Index)
@@ -12219,6 +12674,10 @@ bool URokUnityFeatureScreenWidget::BeginTaskCompletedRowAnimation(UCanvasPanel* 
 				if (UWidget* Child = Panel->GetChildAt(Index)) Descendants.Add(Child);
 			}
 		}
+		else if (UUserWidget* Nested = Cast<UUserWidget>(Widget))
+		{
+			if (UWidget* Root = Nested->GetRootWidget()) Descendants.Add(Root);
+		}
 	}
 	return true;
 }
@@ -12288,6 +12747,76 @@ void URokUnityFeatureScreenWidget::AdvanceTaskCompletedRowAnimation()
 	}
 }
 
+namespace
+{
+FText FormatDailyCatalogTitle(int32 TaskId, const FRokUnityCatalogTask& Task)
+{
+	const FString DisplayName = Task.Name.IsEmpty() || Task.Name.Contains(TEXT("\uFFFD"))
+		? TEXT("标题配置文本不可用") : Task.Name;
+	return FText::FromString(FString::Printf(TEXT("#%d · %s"), TaskId, *DisplayName));
+}
+
+FText FormatDailyCatalogDescription(const FRokUnityCatalogTask& Task)
+{
+	const FString Description = Task.Desc.IsEmpty() || Task.Desc.Contains(TEXT("\uFFFD"))
+		? TEXT("描述配置文本不可用")
+		: ResolveTaskDescription(Task.Desc, Task.Param1, Task.Param2, Task.Require);
+	return FText::FromString(Description);
+}
+
+FText FormatDailyCatalogTarget(const FRokUnityCatalogTask& Task)
+{
+	return FText::FromString(FString::Printf(
+		TEXT("目标配置：类型 %d · 参数 %d/%d · 需求 %d"),
+		Task.Type, Task.Param1, Task.Param2, Task.Require));
+}
+
+FText FormatDailyCatalogReward(const FRokUnityCatalogTask& Task)
+{
+	return FText::FromString(FString::Printf(
+		TEXT("奖励配置组 #%d · 内容及可领取状态未验证"), Task.Reward));
+}
+}
+
+#include "RokFeatureTaskDaily.inl"
+
+int32 URokUnityFeatureScreenWidget::AddServerDailyTaskRows(const FRokServerTaskSnapshot& Snapshot,
+	UScrollBox& Scroll, UClass* RowClass, UClass* RewardClass)
+{
+	int32 VisibleDailyCount = 0;
+	for (const FRokServerTaskView& Task : Snapshot.DailyTasks)
+	{
+		// Unity removes claimed daily tasks from both visible task lists.
+		if (Task.State == ERokServerTaskState::Received) continue;
+		++VisibleDailyCount;
+		FRokTaskRowState RowState;
+		RowState.TaskId = Task.TaskId;
+		RowState.Page = FRokTaskRowState::EPage::DailyTask;
+		RowState.SourceAuthority = TEXT("server");
+		RowState.State = Task.State == ERokServerTaskState::Received ? FRokTaskRowState::EState::Received
+			: Task.State == ERokServerTaskState::Finished ? FRokTaskRowState::EState::Finished
+			: Task.State == ERokServerTaskState::Unfinished ? FRokTaskRowState::EState::Unfinished
+			: FRokTaskRowState::EState::NotSynced;
+		RowState.Intent = RowState.State == FRokTaskRowState::EState::Finished
+			? FRokTaskRowState::EIntent::Claim : RowState.State == FRokTaskRowState::EState::Unfinished
+			? FRokTaskRowState::EIntent::Go : FRokTaskRowState::EIntent::Inspect;
+		RowState.Type = Task.Type;
+		RowState.Param1 = Task.Param1;
+		RowState.Param2 = Task.Param2;
+		RowState.Require = Task.Require;
+		const int32 RowIndex = VisibleTaskStates.Add(RowState);
+		const auto& Rewards = GetConfiguredRewardPreview(Task.RewardGroupId);
+		Scroll.AddChild(WrapFixedSize(MakeTaskRow(RowIndex, Task.TaskId,
+			FText::FromString(Task.Name),
+			FText::FromString(Task.Description), FMath::Clamp<int64>(Task.Current, MIN_int32, MAX_int32),
+			FMath::Clamp<int64>(Task.Target, MIN_int32, MAX_int32), Task.bProgressKnown,
+			Task.State == ERokServerTaskState::Finished, ResolveTaskIconRect(Task.Icon),
+			Task.RewardGroupId, Rewards, RowClass, RewardClass),
+			*FString::Printf(TEXT("TaskDailyServerRowSize_%d"), Task.TaskId), FVector2D(1088.0f, 150.0f)));
+	}
+	return VisibleDailyCount;
+}
+
 void URokUnityFeatureScreenWidget::BuildTasks()
 {
 	const UGameInstance* TaskInstance = GetGameInstance();
@@ -12301,34 +12830,6 @@ void URokUnityFeatureScreenWidget::BuildTasks()
 	RenderedTaskChapterTaskIds.Reset();
 	RenderedTaskChapterTaskRewardPackageIds.Reset();
 	RenderedTaskChapterAggregateRewardPackageIds.Reset();
-	const bool bServerChapter = SelectedTaskPage == 0 && ServerSnapshot.bAvailable;
-	if (bServerChapter)
-	{
-		FRokTaskChapterPreviewRow Metadata;
-		FString Title = ServerSnapshot.ChapterName;
-		if (RokTaskChapterConfigPreviewData::FindChapterById(TaskChapterGroups, ServerSnapshot.ChapterId, Metadata)
-			&& Metadata.bMetadataKnown && Title == Metadata.Title.ZhCn)
-		{
-			Title += Metadata.Description1.ZhCn;
-		}
-		if (Title.IsEmpty())
-		{
-			Title = ServerSnapshot.ChapterId > 0 ? FString::Printf(TEXT("第%d章"), ServerSnapshot.ChapterId) : TEXT("任务");
-		}
-		BuildSplitWindowFrame(CapturePoint(140, 80), FVector2D(1160, 756), FText::FromString(Title),
-			CapturePoint(1221, 74), nullptr, 1, 30);
-		if (auto* Header = Cast<UTextBlock>(GetWidgetFromName(TEXT("FeatureFrameTitle"))))
-		{
-			Header->SetFont(URokMainHudWidget::MakeUnitySourceFont(30, false));
-		}
-	}
-	else
-	{
-		BuildSplitWindowFrame(CapturePoint(146, 73), FVector2D(1148, 754),
-			NSLOCTEXT("RokFeature", "TaskTitle", "任务"), CapturePoint(1230, 77));
-		PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("TaskContentShade"), FLinearColor(0.065f, 0.07f, 0.07f, 0.98f)),
-			CapturePoint(176, 136), FVector2D(1088, 664), 2);
-	}
 	VisibleTaskStates.Reset();
 	bTaskMainLocalProjectionRendered = false;
 	bTaskMainLocalConditionMet = false;
@@ -12347,55 +12848,194 @@ void URokUnityFeatureScreenWidget::BuildTasks()
 		RuntimeState->LoadRuntimeState();
 	}
 
-	static const FIntRect SelectedIcons[] = {SpriteRect(1, 313, 60, 60), SpriteRect(1, 437, 60, 60), SpriteRect(63, 499, 60, 60)};
-	static const FIntRect DarkIcons[] = {SpriteRect(1, 375, 60, 60), SpriteRect(1, 499, 60, 60), SpriteRect(63, 561, 60, 60)};
-	static const FText TabLabels[] = {
-		NSLOCTEXT("RokFeature", "TaskChapterTab", "章节"),
-		NSLOCTEXT("RokFeature", "TaskMainTab", "主线"),
-		NSLOCTEXT("RokFeature", "TaskDailyTab", "每日")};
-	const auto CountFinished = [](const auto& Rows)
+	if (SelectedTaskPage == 2 && ServerSnapshot.bAvailable && TryBuildServerDailyTaskPage(ServerSnapshot))
 	{
-		return Algo::CountIf(Rows, [](const auto& Row) { return Row.State == ERokServerTaskState::Finished; });
-	};
-	const int32 RedCounts[] = {
-		ServerSnapshot.bChapterClaimable ? 1 : CountFinished(ServerSnapshot.ChapterTasks),
-		CountFinished(ServerSnapshot.MainTasks) + CountFinished(ServerSnapshot.SideTasks),
-		CountFinished(ServerSnapshot.DailyTasks) + CountFinished(ServerSnapshot.DailyMilestones)
-	};
-	for (int32 Index = 0; Index < 3; ++Index)
+		return;
+	}
+
+	if (SelectedTaskPage == 0 && !ServerSnapshot.bAvailable)
 	{
-		const bool bSelected = Index == SelectedTaskPage;
-		const FVector2D TabRoot = CapturePoint(1258.0f, 212.0f + Index * 113.0f);
-		const FVector2D TabVisualPosition = TabRoot + FVector2D(bSelected || bServerChapter ? 0.0f : 24.0f, 0.0f);
-		const FVector2D TabVisualSize(bSelected ? 145.0f : 121.0f, 103.0f);
-		PlaceOnCanvas(ModeCanvas, MakeActionButton(*FString::Printf(TEXT("TaskPage_%d"), Index), 300 + Index, CommonAtlasPath, bSelected ? SideTabSelectedRect : SideTabDarkRect, CommonAtlasSize, TabVisualSize, FText::GetEmpty(), 20, FLinearColor::White, ESlateBrushDrawType::Image), TabVisualPosition, TabVisualSize, 7);
-		PlaceOnCanvas(ModeCanvas, MakeAtlasImage(*FString::Printf(TEXT("TaskPageIcon_%d"), Index), PageAtlasPath, bSelected ? SelectedIcons[Index] : DarkIcons[Index], PageAtlasSize, FVector2D(60.0f)), TabVisualPosition + FVector2D(31.0f, bServerChapter ? 22.0f : 20.0f), FVector2D(60.0f), 8);
-		if (RedCounts[Index] > 0)
+		UClass* RowClass = ResolveFeaturePageClass(TEXT("TaskChapterCatalogRow"));
+		UClass* AggregateRewardClass = ResolveFeaturePageClass(TEXT("TaskChapterCatalogAggregateReward"));
+		UClass* TaskRewardClass = ResolveFeaturePageClass(TEXT("TaskChapterCatalogTaskReward"));
+		if (RowClass && AggregateRewardClass && TaskRewardClass)
 		{
-			const FVector2D Dot = TabVisualPosition + FVector2D(bServerChapter ? 104.0f : TabVisualSize.X - (bSelected ? 41.0f : 24.0f), -1.0f);
-			PlaceOnCanvas(ModeCanvas, MakeAtlasImage(*FString::Printf(TEXT("TaskPageBadge_%d"), Index),
-				CommonAtlasPath, RedPointRect, CommonAtlasSize, FVector2D(27, 29)), Dot, FVector2D(27, 29), 10);
-			auto* Count = MakeScreenText(*FString::Printf(TEXT("TaskPageBadgeCount_%d"), Index),
-				RedCounts[Index] > 99 ? 7 : 11, FLinearColor::White, true, ETextJustify::Center);
-			Count->SetText(RedCounts[Index] > 99 ? FText::FromString(TEXT("99+")) : FText::AsNumber(RedCounts[Index]));
-			PlaceOnCanvas(ModeCanvas, Count, Dot + FVector2D(0, RedCounts[Index] > 99 ? 7 : 3), FVector2D(27, 23), 11);
+			if (const auto* Page = MountModePage(TEXT("TaskChapterCatalog")))
+			{
+				const auto* RewardHost = Page->Get<UCanvasPanel>(TEXT("TaskChapterAggregateRewardHost"));
+				if (Page->Get<UCanvasPanel>(TEXT("TaskChapterRoot")) && Page->Get<UScrollBox>(TEXT("TaskChapterScroll"))
+					&& RewardHost && Cast<UCanvasPanelSlot>(RewardHost->Slot))
+				{
+					for (int32 Index = 0; Index < 3; ++Index)
+					{
+						BindPageAction(*Page, *FString::Printf(TEXT("TaskPage_%d"), Index), 300 + Index);
+					}
+					BuildTaskChapter(Page, RowClass, AggregateRewardClass, TaskRewardClass);
+					return;
+				}
+				ActiveModePage->RemoveFromParent();
+				ActiveModePage = nullptr;
+			}
 		}
-		if (bServerChapter) continue;
-		UTextBlock* TabLabel = MakeScreenText(
-			*FString::Printf(TEXT("TaskPageLabel_%d"), Index),
-			14,
-			bSelected
-				? FLinearColor::White
-				: FLinearColor(0.68f, 0.68f, 0.66f, 1.0f),
-			true,
-			ETextJustify::Center);
-		TabLabel->SetText(TabLabels[Index]);
-		PlaceOnCanvas(
-			ModeCanvas,
-			TabLabel,
-			TabVisualPosition + FVector2D(17.0f, 73.0f),
-			FVector2D(92.0f, 24.0f),
-			9);
+	}
+
+	if (SelectedTaskPage == 2 && !ServerSnapshot.bAvailable)
+	{
+		UClass* RowClass = ResolveFeaturePageClass(TEXT("TaskDailyCatalogRow"));
+		if (const URokUiPageWidget* Page = RowClass ? MountModePage(TEXT("TaskDailyCatalog")) : nullptr)
+		{
+			for (int32 Index = 0; Index < 3; ++Index)
+			{
+				BindPageAction(*Page, *FString::Printf(TEXT("TaskPage_%d"), Index), 300 + Index);
+			}
+			const bool bHasCatalog = GameplayCatalog && GameplayCatalog->IsCatalogLoaded();
+			Page->SetPresent(Page->Get<UTextBlock>(TEXT("TaskPageEmpty")), !bHasCatalog);
+			UScrollBox* DailyScroll = Page->Get<UScrollBox>(TEXT("TaskDailyCatalogScroll"));
+			Page->SetPresent(DailyScroll, bHasCatalog);
+			if (!bHasCatalog || !DailyScroll)
+			{
+				return;
+			}
+			UTexture2D* IconAtlas = LoadUiTexture(TaskIconAtlasPath);
+			for (const int32 TaskId : GameplayCatalog->GetDailyTaskIds())
+			{
+				FRokUnityCatalogTask Task;
+				if (!GameplayCatalog->GetDailyTask(TaskId, Task))
+				{
+					continue;
+				}
+				URokUiPageWidget* Row = CreateWidget<URokUiPageWidget>(this, RowClass);
+				if (!Row)
+				{
+					continue;
+				}
+				Row->LegacyPrefix = TEXT("TaskDailyCatalog");
+				Row->LegacySuffix = FString::Printf(TEXT("_%d"), TaskId);
+				Row->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+				DailyScroll->AddChild(Row);
+
+				SetFeaturePageText(*Row, TEXT("Title"), FormatDailyCatalogTitle(TaskId, Task));
+				SetFeaturePageText(*Row, TEXT("Description"), FormatDailyCatalogDescription(Task));
+				SetFeaturePageText(*Row, TEXT("Target"), FormatDailyCatalogTarget(Task));
+				SetFeaturePageText(*Row, TEXT("Reward"), FormatDailyCatalogReward(Task));
+				if (UImage* Icon = Row->Get<UImage>(TEXT("Icon")))
+				{
+					Row->SetShown(Icon, IconAtlas != nullptr);
+					if (IconAtlas)
+					{
+						FSlateBrush Brush = Icon->GetBrush();
+						const FSlateBrush AtlasBrush = MakeAtlasBrush(IconAtlas, ResolveTaskIconRect(Task.Icon),
+							TaskIconAtlasSize, Brush.GetImageSize());
+						Brush.SetResourceObject(IconAtlas);
+						Brush.SetUVRegion(static_cast<FBox2f>(AtlasBrush.GetUVRegion()));
+						Icon->SetBrush(Brush);
+					}
+				}
+			}
+			return;
+		}
+	}
+
+	const bool bServerChapter = SelectedTaskPage == 0 && ServerSnapshot.bAvailable;
+	if (bServerChapter && TryBuildServerTaskChapterPage(ServerSnapshot))
+	{
+		return;
+	}
+	const bool bServerTasks = ServerSnapshot.bAvailable;
+	UClass* MainRowClass = SelectedTaskPage == 1 ? ResolveFeaturePageClass(
+		bServerTasks ? TEXT("TaskDailyServerRow") : TEXT("TaskMainLocalRow")) : nullptr;
+	UClass* MainRewardClass = MainRowClass ? ResolveFeaturePageClass(TEXT("TaskDailyServerReward")) : nullptr;
+	URokUiPageWidget* MainPage = MainRewardClass ? MountModePage(
+		bServerTasks ? TEXT("TaskMainServer") : TEXT("TaskMainLocal")) : nullptr;
+	UScrollBox* TaskScroll = MainPage ? MainPage->Get<UScrollBox>(TEXT("TaskMainScroll")) : nullptr;
+	UVerticalBox* MainContent = MainPage ? MainPage->Get<UVerticalBox>(TEXT("TaskMainContent")) : nullptr;
+	UVerticalBox* SideContent = MainPage ? MainPage->Get<UVerticalBox>(TEXT("TaskSideContent")) : nullptr;
+	if (MainPage && (!TaskScroll || !MainContent || !SideContent))
+	{
+		MainPage->RemoveFromParent();
+		ActiveModePage = nullptr;
+		MainPage = nullptr;
+		TaskScroll = nullptr;
+	}
+	if (MainPage && bServerTasks)
+	{
+		BindServerTaskPageActions(*MainPage, ServerSnapshot);
+	}
+	else if (MainPage)
+	{
+		for (int32 Index = 0; Index < 3; ++Index)
+		{
+			BindPageAction(*MainPage, *FString::Printf(TEXT("TaskPage_%d"), Index), 300 + Index);
+		}
+	}
+	else
+	{
+		if (bServerChapter)
+		{
+			BuildSplitWindowFrame(CapturePoint(140, 80), FVector2D(1160, 756), GetServerTaskChapterTitle(ServerSnapshot),
+				CapturePoint(1221, 74), nullptr, 1, 30);
+			if (auto* Header = Cast<UTextBlock>(GetWidgetFromName(TEXT("FeatureFrameTitle"))))
+			{
+				Header->SetFont(URokMainHudWidget::MakeUnitySourceFont(30, false));
+			}
+		}
+		else
+		{
+			BuildSplitWindowFrame(CapturePoint(146, 73), FVector2D(1148, 754),
+				NSLOCTEXT("RokFeature", "TaskTitle", "任务"), CapturePoint(1230, 77));
+			PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("TaskContentShade"), FLinearColor(0.065f, 0.07f, 0.07f, 0.98f)),
+				CapturePoint(176, 136), FVector2D(1088, 664), 2);
+		}
+		static const FIntRect SelectedIcons[] = {SpriteRect(1, 313, 60, 60), SpriteRect(1, 437, 60, 60), SpriteRect(63, 499, 60, 60)};
+		static const FIntRect DarkIcons[] = {SpriteRect(1, 375, 60, 60), SpriteRect(1, 499, 60, 60), SpriteRect(63, 561, 60, 60)};
+		static const FText TabLabels[] = {
+			NSLOCTEXT("RokFeature", "TaskChapterTab", "章节"),
+			NSLOCTEXT("RokFeature", "TaskMainTab", "主线"),
+			NSLOCTEXT("RokFeature", "TaskDailyTab", "每日")};
+		const auto CountFinished = [](const auto& Rows)
+		{
+			return Algo::CountIf(Rows, [](const auto& Row) { return Row.State == ERokServerTaskState::Finished; });
+		};
+		const int32 RedCounts[] = {
+			ServerSnapshot.bChapterClaimable ? 1 : CountFinished(ServerSnapshot.ChapterTasks),
+			CountFinished(ServerSnapshot.MainTasks) + CountFinished(ServerSnapshot.SideTasks),
+			CountFinished(ServerSnapshot.DailyTasks) + CountFinished(ServerSnapshot.DailyMilestones)
+		};
+		for (int32 Index = 0; Index < 3; ++Index)
+		{
+			const bool bSelected = Index == SelectedTaskPage;
+			const FVector2D TabRoot = CapturePoint(1258.0f, 212.0f + Index * 113.0f);
+			const FVector2D TabVisualPosition = TabRoot + FVector2D(bSelected || bServerChapter ? 0.0f : 24.0f, 0.0f);
+			const FVector2D TabVisualSize(bSelected ? 145.0f : 121.0f, 103.0f);
+			PlaceOnCanvas(ModeCanvas, MakeActionButton(*FString::Printf(TEXT("TaskPage_%d"), Index), 300 + Index, CommonAtlasPath, bSelected ? SideTabSelectedRect : SideTabDarkRect, CommonAtlasSize, TabVisualSize, FText::GetEmpty(), 20, FLinearColor::White, ESlateBrushDrawType::Image), TabVisualPosition, TabVisualSize, 7);
+			PlaceOnCanvas(ModeCanvas, MakeAtlasImage(*FString::Printf(TEXT("TaskPageIcon_%d"), Index), PageAtlasPath, bSelected ? SelectedIcons[Index] : DarkIcons[Index], PageAtlasSize, FVector2D(60.0f)), TabVisualPosition + FVector2D(31.0f, bServerChapter ? 22.0f : 20.0f), FVector2D(60.0f), 8);
+			if (RedCounts[Index] > 0)
+			{
+				const FVector2D Dot = TabVisualPosition + FVector2D(bServerChapter ? 104.0f : TabVisualSize.X - (bSelected ? 41.0f : 24.0f), -1.0f);
+				PlaceOnCanvas(ModeCanvas, MakeAtlasImage(*FString::Printf(TEXT("TaskPageBadge_%d"), Index),
+					CommonAtlasPath, RedPointRect, CommonAtlasSize, FVector2D(27, 29)), Dot, FVector2D(27, 29), 10);
+				auto* Count = MakeScreenText(*FString::Printf(TEXT("TaskPageBadgeCount_%d"), Index),
+					RedCounts[Index] > 99 ? 7 : 11, FLinearColor::White, true, ETextJustify::Center);
+				Count->SetText(RedCounts[Index] > 99 ? FText::FromString(TEXT("99+")) : FText::AsNumber(RedCounts[Index]));
+				PlaceOnCanvas(ModeCanvas, Count, Dot + FVector2D(0, RedCounts[Index] > 99 ? 7 : 3), FVector2D(27, 23), 11);
+			}
+			if (bServerChapter) continue;
+			UTextBlock* TabLabel = MakeScreenText(
+				*FString::Printf(TEXT("TaskPageLabel_%d"), Index),
+				14,
+				bSelected
+					? FLinearColor::White
+					: FLinearColor(0.68f, 0.68f, 0.66f, 1.0f),
+				true,
+				ETextJustify::Center);
+			TabLabel->SetText(TabLabels[Index]);
+			PlaceOnCanvas(
+				ModeCanvas,
+				TabLabel,
+				TabVisualPosition + FVector2D(17.0f, 73.0f),
+				FVector2D(92.0f, 24.0f),
+				9);
+		}
 	}
 
 	if (SelectedTaskPage == 0)
@@ -12447,37 +13087,7 @@ void URokUnityFeatureScreenWidget::BuildTasks()
 				}
 				DailyScroll->AddChild(WrapFixedSize(Milestones, TEXT("TaskDailyMilestonesSize"), FVector2D(1088, 58)));
 			}
-			int32 VisibleDailyCount = 0;
-			for (const FRokServerTaskView& Task : ServerSnapshot.DailyTasks)
-			{
-				// Unity removes claimed daily tasks from both visible task lists.
-				if (Task.State == ERokServerTaskState::Received) continue;
-				++VisibleDailyCount;
-				FRokTaskRowState RowState;
-				RowState.TaskId = Task.TaskId;
-				RowState.Page = FRokTaskRowState::EPage::DailyTask;
-				RowState.SourceAuthority = TEXT("server");
-				RowState.State = Task.State == ERokServerTaskState::Received ? FRokTaskRowState::EState::Received
-					: Task.State == ERokServerTaskState::Finished ? FRokTaskRowState::EState::Finished
-					: Task.State == ERokServerTaskState::Unfinished ? FRokTaskRowState::EState::Unfinished
-					: FRokTaskRowState::EState::NotSynced;
-				RowState.Intent = RowState.State == FRokTaskRowState::EState::Finished
-					? FRokTaskRowState::EIntent::Claim : RowState.State == FRokTaskRowState::EState::Unfinished
-					? FRokTaskRowState::EIntent::Go : FRokTaskRowState::EIntent::Inspect;
-				RowState.Type = Task.Type;
-				RowState.Param1 = Task.Param1;
-				RowState.Param2 = Task.Param2;
-				RowState.Require = Task.Require;
-				const int32 RowIndex = VisibleTaskStates.Add(RowState);
-				const auto& Rewards = GetConfiguredRewardPreview(Task.RewardGroupId);
-				DailyScroll->AddChild(WrapFixedSize(MakeTaskRow(RowIndex, Task.TaskId,
-					FText::FromString(Task.Name),
-					FText::FromString(Task.Description), FMath::Clamp<int64>(Task.Current, MIN_int32, MAX_int32),
-					FMath::Clamp<int64>(Task.Target, MIN_int32, MAX_int32), Task.bProgressKnown,
-					Task.State == ERokServerTaskState::Finished, ResolveTaskIconRect(Task.Icon),
-					Task.RewardGroupId, Rewards),
-					*FString::Printf(TEXT("TaskDailyServerRowSize_%d"), Task.TaskId), FVector2D(1088.0f, 150.0f)));
-			}
+			const int32 VisibleDailyCount = AddServerDailyTaskRows(ServerSnapshot, *DailyScroll);
 			if (ServerSnapshot.bDailyLoaded && VisibleDailyCount == 0)
 			{
 				UTextBlock* Empty = MakeScreenText(TEXT("TaskDailyServerEmpty"), 22, FLinearColor::White);
@@ -12525,27 +13135,19 @@ void URokUnityFeatureScreenWidget::BuildTasks()
 
 				UTextBlock* Title = MakeScreenText(*FString::Printf(TEXT("TaskDailyCatalogTitle_%d"), TaskId),
 					23, FLinearColor(0.87f, 0.78f, 0.49f, 1.0f), false);
-				const FString DisplayName = Task.Name.IsEmpty() || Task.Name.Contains(TEXT("\uFFFD"))
-					? TEXT("标题配置文本不可用") : Task.Name;
-				Title->SetText(FText::FromString(FString::Printf(TEXT("#%d · %s"), TaskId, *DisplayName)));
+				Title->SetText(FormatDailyCatalogTitle(TaskId, Task));
 				PlaceOnCanvas(Row, Title, FVector2D(170.0f, 15.0f), FVector2D(820.0f, 29.0f), 3);
 				UTextBlock* Description = MakeScreenText(*FString::Printf(TEXT("TaskDailyCatalogDescription_%d"), TaskId),
 					19, FLinearColor(0.93f, 0.93f, 0.91f, 1.0f));
-				const FString DisplayDescription = Task.Desc.IsEmpty() || Task.Desc.Contains(TEXT("\uFFFD"))
-					? TEXT("描述配置文本不可用")
-					: ResolveTaskDescription(Task.Desc, Task.Param1, Task.Param2, Task.Require);
-				Description->SetText(FText::FromString(DisplayDescription));
+				Description->SetText(FormatDailyCatalogDescription(Task));
 				PlaceOnCanvas(Row, Description, FVector2D(170.0f, 45.0f), FVector2D(820.0f, 27.0f), 3);
 				UTextBlock* Target = MakeScreenText(*FString::Printf(TEXT("TaskDailyCatalogTarget_%d"), TaskId),
 					17, FLinearColor(0.72f, 0.77f, 0.77f, 1.0f));
-				Target->SetText(FText::FromString(FString::Printf(
-					TEXT("目标配置：类型 %d · 参数 %d/%d · 需求 %d"),
-					Task.Type, Task.Param1, Task.Param2, Task.Require)));
+				Target->SetText(FormatDailyCatalogTarget(Task));
 				PlaceOnCanvas(Row, Target, FVector2D(170.0f, 76.0f), FVector2D(820.0f, 24.0f), 3);
 				UTextBlock* Reward = MakeScreenText(*FString::Printf(TEXT("TaskDailyCatalogReward_%d"), TaskId),
 					17, FLinearColor(0.74f, 0.72f, 0.66f, 1.0f));
-				Reward->SetText(FText::FromString(FString::Printf(
-					TEXT("奖励配置组 #%d · 内容及可领取状态未验证"), Task.Reward)));
+				Reward->SetText(FormatDailyCatalogReward(Task));
 				PlaceOnCanvas(Row, Reward, FVector2D(170.0f, 106.0f), FVector2D(820.0f, 24.0f), 3);
 				DailyScroll->AddChild(WrapFixedSize(Row,
 					*FString::Printf(TEXT("TaskDailyCatalogRowSize_%d"), TaskId), FVector2D(1088.0f, 145.0f)));
@@ -12558,27 +13160,35 @@ void URokUnityFeatureScreenWidget::BuildTasks()
 		return;
 	}
 
-	UScrollBox* TaskScroll = WidgetTree->ConstructWidget<UScrollBox>(
-		UScrollBox::StaticClass(),
-		TEXT("TaskMainScroll"));
-	TaskScroll->SetOrientation(Orient_Vertical);
-	TaskScroll->SetScrollBarVisibility(ESlateVisibility::Collapsed);
-	TaskScroll->SetAllowOverscroll(true);
-	TaskScroll->SetAnimateWheelScrolling(true);
-	TaskScroll->SetWheelScrollMultiplier(12.0f);
-	PlaceOnCanvas(
-		ModeCanvas,
-		TaskScroll,
-		CapturePoint(176.0f, 136.0f),
-		FVector2D(1088.0f, 664.0f),
-		5);
+	if (!TaskScroll)
+	{
+		TaskScroll = WidgetTree->ConstructWidget<UScrollBox>(
+			UScrollBox::StaticClass(),
+			TEXT("TaskMainScroll"));
+		TaskScroll->SetOrientation(Orient_Vertical);
+		TaskScroll->SetScrollBarVisibility(ESlateVisibility::Collapsed);
+		TaskScroll->SetAllowOverscroll(true);
+		TaskScroll->SetAnimateWheelScrolling(true);
+		TaskScroll->SetWheelScrollMultiplier(12.0f);
+		PlaceOnCanvas(
+			ModeCanvas,
+			TaskScroll,
+			CapturePoint(176.0f, 136.0f),
+			FVector2D(1088.0f, 664.0f),
+			5);
+	}
 
-	auto AddTaskTag = [this, TaskScroll](
+	auto AddTaskTag = [this, TaskScroll, MainPage](
 		const FName& ContainerName,
 		const FName& TextName,
 		const FText& Label,
 		const FLinearColor& Color)
 	{
+		if (MainPage)
+		{
+			SetFeaturePageText(*MainPage, TextName, Label);
+			return;
+		}
 		UCanvasPanel* Tag = WidgetTree->ConstructWidget<UCanvasPanel>(
 			UCanvasPanel::StaticClass(),
 			ContainerName);
@@ -12590,7 +13200,8 @@ void URokUnityFeatureScreenWidget::BuildTasks()
 
 	TMap<int32, TArray<FRokTaskRewardPreviewRow>> RewardPreviewByGroup;
 	TSet<int32> UnavailableRewardGroups;
-	auto AddTaskRow = [this, TaskScroll, &RewardPreviewByGroup, &UnavailableRewardGroups](
+	auto AddTaskRow = [this, TaskScroll, MainPage, MainContent, SideContent, MainRowClass, MainRewardClass,
+		&RewardPreviewByGroup, &UnavailableRewardGroups](
 		FRokTaskRowState RowState,
 		const FText& Title,
 		const FText& Description,
@@ -12620,7 +13231,12 @@ void URokUnityFeatureScreenWidget::BuildTasks()
 		const TArray<FRokTaskRewardPreviewRow>* PreviewRows = bServerRow
 			? &GetConfiguredRewardPreview(RewardGroupId) : RewardPreviewByGroup.Find(RewardGroupId);
 		const TArray<FRokTaskRewardPreviewRow> EmptyPreviewRows;
-		TaskScroll->AddChild(WrapFixedSize(
+		UPanelWidget* TaskRows = TaskScroll;
+		if (MainPage)
+		{
+			TaskRows = VisibleTaskStates[RowIndex].Page == FRokTaskRowState::EPage::MainTask ? MainContent : SideContent;
+		}
+		TaskRows->AddChild(WrapFixedSize(
 			MakeTaskRow(
 				RowIndex,
 				VisibleTaskStates[RowIndex].TaskId,
@@ -12632,14 +13248,15 @@ void URokUnityFeatureScreenWidget::BuildTasks()
 				VisibleTaskStates[RowIndex].State == FRokTaskRowState::EState::Finished,
 				TaskIconRect,
 				RewardGroupId,
-				PreviewRows ? *PreviewRows : EmptyPreviewRows),
+				PreviewRows ? *PreviewRows : EmptyPreviewRows,
+				MainPage ? MainRowClass : nullptr, MainPage ? MainRewardClass : nullptr),
 			*FString::Printf(TEXT("TaskRowSize_%d"), RowIndex),
 			FVector2D(1088.0f, 150.0f)));
 	};
 
 	if (ServerSnapshot.bAvailable)
 	{
-		auto AddServerGroup = [this, &AddTaskTag, &AddTaskRow, &ServerSnapshot, TaskScroll](
+		auto AddServerGroup = [this, &AddTaskTag, &AddTaskRow, &ServerSnapshot, TaskScroll, MainPage](
 			const TArray<FRokServerTaskView>& Tasks, bool bMain)
 		{
 			AddTaskTag(bMain ? TEXT("TaskMainTag") : TEXT("TaskSideTag"),
@@ -12675,16 +13292,29 @@ void URokUnityFeatureScreenWidget::BuildTasks()
 					static_cast<int32>(FMath::Clamp<int64>(Task.Target, MIN_int32, MAX_int32)),
 					Task.bProgressKnown, ResolveTaskIconRect(Task.Icon), Task.RewardGroupId);
 			}
+			const FName EmptyName = bMain ? TEXT("TaskMainEmpty") : TEXT("TaskSideNotSynced");
+			const FName EmptySizeName = bMain ? TEXT("TaskMainEmptySize") : TEXT("TaskSideNotSyncedSize");
+			if (MainPage && !Tasks.IsEmpty())
+			{
+				MainPage->SetPresent(MainPage->Get<USizeBox>(EmptySizeName), false);
+			}
 			if (Tasks.IsEmpty())
 			{
-				UTextBlock* Empty = MakeScreenText(bMain ? TEXT("TaskMainEmpty") : TEXT("TaskSideNotSynced"),
-					22, FLinearColor(0.72f, 0.72f, 0.7f, 1.0f), false, ETextJustify::Center);
-				Empty->SetText(!ServerSnapshot.bLoaded
+				const FText EmptyText = !ServerSnapshot.bLoaded
 					? NSLOCTEXT("RokFeature", "TaskServerWaiting", "等待服务器任务进度")
 					: bMain ? NSLOCTEXT("RokFeature", "TaskServerMainEmpty", "暂无主线任务")
-						: NSLOCTEXT("RokFeature", "TaskServerSideEmpty", "暂无支线任务"));
-				TaskScroll->AddChild(WrapFixedSize(Empty,
-					bMain ? TEXT("TaskMainEmptySize") : TEXT("TaskSideNotSyncedSize"), FVector2D(1088.0f, 90.0f)));
+						: NSLOCTEXT("RokFeature", "TaskServerSideEmpty", "暂无支线任务");
+				if (MainPage)
+				{
+					SetFeaturePageText(*MainPage, EmptyName, EmptyText);
+				}
+				else
+				{
+					UTextBlock* Empty = MakeScreenText(EmptyName, 22, FLinearColor(0.72f, 0.72f, 0.7f, 1.0f),
+						false, ETextJustify::Center);
+					Empty->SetText(EmptyText);
+					TaskScroll->AddChild(WrapFixedSize(Empty, EmptySizeName, FVector2D(1088.0f, 90.0f)));
+				}
 			}
 		};
 		AddServerGroup(ServerSnapshot.MainTasks, true);
@@ -12701,6 +13331,16 @@ void URokUnityFeatureScreenWidget::BuildTasks()
 	const FRokUnityRuntimeTaskState Task = RuntimeState
 		? RuntimeState->GetActiveTask()
 		: FRokUnityRuntimeTaskState();
+	if (MainPage)
+	{
+		MainPage->SetPresent(MainPage->Get<USizeBox>(TEXT("TaskMainEmptySize")), Task.TaskId <= 0);
+		const bool bShowFixture = bTaskTestFixtureState && Task.TaskId > 0;
+		MainPage->SetPresent(MainPage->Get<USizeBox>(TEXT("TaskCompletedAnimationFixtureSize")), bShowFixture);
+		if (bShowFixture)
+		{
+			BindPageAction(*MainPage, TEXT("TaskCompletedAnimationPreview"), 319);
+		}
+	}
 	if (Task.TaskId > 0)
 	{
 		const bool bProgressKnown =
@@ -12731,13 +13371,13 @@ void URokUnityFeatureScreenWidget::BuildTasks()
 			Task.Reward);
 		RefreshTaskMainProjection();
 	}
-	else
+	else if (!MainPage)
 	{
 		UTextBlock* EmptyMain = MakeScreenText(TEXT("TaskMainEmpty"), 22, FLinearColor(0.72f, 0.72f, 0.7f, 1.0f), false, ETextJustify::Center);
 		EmptyMain->SetText(NSLOCTEXT("RokFeature", "TaskMainEmpty", "暂无主线任务"));
 		TaskScroll->AddChild(WrapFixedSize(EmptyMain, TEXT("TaskMainEmptySize"), FVector2D(1088.0f, 90.0f)));
 	}
-	if (bTaskTestFixtureState && Task.TaskId > 0)
+	if (!MainPage && bTaskTestFixtureState && Task.TaskId > 0)
 	{
 		UCanvasPanel* Preview = WidgetTree->ConstructWidget<UCanvasPanel>(
 			UCanvasPanel::StaticClass(), TEXT("TaskCompletedAnimationFixturePanel"));
@@ -12767,6 +13407,11 @@ void URokUnityFeatureScreenWidget::BuildTasks()
 		const TArray<FRokUnityCatalogTask> SideCandidates = ComputeBootstrapSideTaskCandidates(
 			GameplayCatalog,
 			GetWorld() ? GetWorld()->GetSubsystem<URokBuildingUpgradeSubsystem>() : nullptr);
+		if (MainPage)
+		{
+			MainPage->SetPresent(MainPage->Get<USizeBox>(TEXT("TaskSideNotSyncedSize")), false);
+			MainPage->SetPresent(MainPage->Get<USizeBox>(TEXT("TaskSideEmptySize")), SideCandidates.IsEmpty());
+		}
 		for (const FRokUnityCatalogTask& Candidate : SideCandidates)
 		{
 			FRokTaskRowState SideRow;
@@ -12789,7 +13434,7 @@ void URokUnityFeatureScreenWidget::BuildTasks()
 				ResolveTaskIconRect(Candidate.Icon),
 				Candidate.Reward);
 		}
-		if (SideCandidates.Num() == 0)
+		if (!MainPage && SideCandidates.IsEmpty())
 		{
 			UTextBlock* EmptySide = MakeScreenText(TEXT("TaskSideEmpty"), 22, FLinearColor(0.72f, 0.72f, 0.7f, 1.0f), false, ETextJustify::Center);
 			EmptySide->SetText(NSLOCTEXT("RokFeature", "TaskSideEmpty", "暂无支线任务"));
@@ -12818,6 +13463,11 @@ void URokUnityFeatureScreenWidget::BuildTasks()
 
 	// Production has no server side-task state yet; show the honest not-synced
 	// state instead of presenting config rows as account tasks.
+	if (MainPage)
+	{
+		MainPage->SetPresent(MainPage->Get<USizeBox>(TEXT("TaskSideEmptySize")), false);
+		return;
+	}
 	UTextBlock* NotSyncedSide = MakeScreenText(TEXT("TaskSideNotSynced"), 22, FLinearColor(0.72f, 0.72f, 0.7f, 1.0f), false, ETextJustify::Center);
 	NotSyncedSide->SetText(NSLOCTEXT("RokFeature", "TaskSideNotSynced", "支线任务进度尚未同步，连接服务器后更新。"));
 	TaskScroll->AddChild(WrapFixedSize(NotSyncedSide, TEXT("TaskSideNotSyncedSize"), FVector2D(1088.0f, 90.0f)));
@@ -12831,7 +13481,7 @@ void URokUnityFeatureScreenWidget::BuildTasks()
 		Task.Target);
 }
 
-UCanvasPanel* URokUnityFeatureScreenWidget::MakeTaskRow(
+UWidget* URokUnityFeatureScreenWidget::MakeTaskRow(
 	int32 RowIndex,
 	int32 TaskId,
 	const FText& Title,
@@ -12842,20 +13492,11 @@ UCanvasPanel* URokUnityFeatureScreenWidget::MakeTaskRow(
 	bool bComplete,
 	const FIntRect& TaskIconRect,
 	int32 RewardGroupId,
-	const TArray<FRokTaskRewardPreviewRow>& RewardPreviewRows)
+	const TArray<FRokTaskRewardPreviewRow>& RewardPreviewRows,
+	UClass* RowClass, UClass* RewardClass)
 {
-	UCanvasPanel* Row = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), *FString::Printf(TEXT("TaskRow_%d"), RowIndex));
-	Row->SetClipping(EWidgetClipping::ClipToBounds);
-	PlaceOnCanvas(Row, MakeAtlasBorder(*FString::Printf(TEXT("TaskRowBackground_%d"), RowIndex), CommonAtlasPath, TaskRowRect, CommonAtlasSize, FVector2D(1026.0f, 140.0f), TaskRowMargin), FVector2D(31.0f, 2.0f), FVector2D(1026.0f, 140.0f));
-	PlaceOnCanvas(Row, MakeAtlasImage(*FString::Printf(TEXT("TaskIconQuality_%d"), RowIndex), Item0AtlasPath, ItemQualityLegendaryRect, Item0AtlasSize, FVector2D(100.0f)), FVector2D(60.0f, 22.0f), FVector2D(100.0f), 2);
-	PlaceOnCanvas(Row, MakeAtlasImage(*FString::Printf(TEXT("TaskIcon_%d"), RowIndex), TaskIconAtlasPath, TaskIconRect, TaskIconAtlasSize, FVector2D(90.0f, 98.0f)), FVector2D(65.0f, 23.0f), FVector2D(90.0f, 98.0f), 3);
-	UTextBlock* TitleText = MakeScreenText(*FString::Printf(TEXT("TaskTitle_%d"), RowIndex), 24, FLinearColor(0.87f, 0.78f, 0.49f, 1.0f), false);
-	TitleText->SetText(Title);
 	const bool bServerRow = VisibleTaskStates.IsValidIndex(RowIndex)
 		&& VisibleTaskStates[RowIndex].SourceAuthority == TEXT("server");
-	PlaceOnCanvas(Row, TitleText, FVector2D(175.0f, 18.0f),
-		bServerRow ? FVector2D(815.0f, 30.0f) : FVector2D(623.0f, 28.0f), 3);
-	UTextBlock* DescriptionText = MakeScreenText(*FString::Printf(TEXT("TaskDescription_%d"), RowIndex), 20, FLinearColor(0.93f, 0.93f, 0.91f, 1.0f));
 	FText RowDescription = bProgressKnown
 		? FText::Format(
 			NSLOCTEXT("RokFeature", "TaskProgressFormat", "{0} ({1}/{2})"),
@@ -12877,6 +13518,38 @@ UCanvasPanel* URokUnityFeatureScreenWidget::MakeTaskRow(
 			RowDescription, Status, bProgressKnown ? FText::GetEmpty()
 				: NSLOCTEXT("RokFeature", "TaskServerProgressUnknown", " · 进度待同步"));
 	}
+	const FRokTaskRowState::EState DisplayState = VisibleTaskStates.IsValidIndex(RowIndex)
+		? VisibleTaskStates[RowIndex].State : FRokTaskRowState::EState::NotSynced;
+	const bool bCanShowClaim = bServerRow ? DisplayState == FRokTaskRowState::EState::Finished
+		: bProgressKnown && bComplete;
+	const FIntRect ButtonRect = bCanShowClaim ? MiniGreenButtonRect : MiniBlueButtonRect;
+	const FMargin ButtonMargin = bCanShowClaim ? MiniGreenMargin : MiniBlueMargin;
+	const FText ButtonLabel = bServerRow && DisplayState == FRokTaskRowState::EState::Received
+		? NSLOCTEXT("RokFeature", "TaskServerReceivedButton", "已领取")
+		: bServerRow && DisplayState == FRokTaskRowState::EState::NotSynced
+			? NSLOCTEXT("RokFeature", "TaskServerUnknownButton", "状态待同步")
+		: (bServerRow ? bCanShowClaim : bComplete)
+			? NSLOCTEXT("RokFeature", "TaskClaimReward", "领取奖励")
+			: NSLOCTEXT("RokFeature", "TaskGo", "前往");
+	if (RowClass && RewardClass)
+	{
+		if (auto* RowPage = BuildTaskRowPage(RowClass, RewardClass, RowIndex, Title, RowDescription,
+			TaskIconRect, RewardGroupId, RewardPreviewRows, bServerRow, bCanShowClaim, ButtonLabel))
+		{
+			return RowPage;
+		}
+	}
+
+	UCanvasPanel* Row = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), *FString::Printf(TEXT("TaskRow_%d"), RowIndex));
+	Row->SetClipping(EWidgetClipping::ClipToBounds);
+	PlaceOnCanvas(Row, MakeAtlasBorder(*FString::Printf(TEXT("TaskRowBackground_%d"), RowIndex), CommonAtlasPath, TaskRowRect, CommonAtlasSize, FVector2D(1026.0f, 140.0f), TaskRowMargin), FVector2D(31.0f, 2.0f), FVector2D(1026.0f, 140.0f));
+	PlaceOnCanvas(Row, MakeAtlasImage(*FString::Printf(TEXT("TaskIconQuality_%d"), RowIndex), Item0AtlasPath, ItemQualityLegendaryRect, Item0AtlasSize, FVector2D(100.0f)), FVector2D(60.0f, 22.0f), FVector2D(100.0f), 2);
+	PlaceOnCanvas(Row, MakeAtlasImage(*FString::Printf(TEXT("TaskIcon_%d"), RowIndex), TaskIconAtlasPath, TaskIconRect, TaskIconAtlasSize, FVector2D(90.0f, 98.0f)), FVector2D(65.0f, 23.0f), FVector2D(90.0f, 98.0f), 3);
+	UTextBlock* TitleText = MakeScreenText(*FString::Printf(TEXT("TaskTitle_%d"), RowIndex), 24, FLinearColor(0.87f, 0.78f, 0.49f, 1.0f), false);
+	TitleText->SetText(Title);
+	PlaceOnCanvas(Row, TitleText, FVector2D(175.0f, 18.0f),
+		bServerRow ? FVector2D(815.0f, 30.0f) : FVector2D(623.0f, 28.0f), 3);
+	UTextBlock* DescriptionText = MakeScreenText(*FString::Printf(TEXT("TaskDescription_%d"), RowIndex), 20, FLinearColor(0.93f, 0.93f, 0.91f, 1.0f));
 	DescriptionText->SetText(RowDescription);
 	if (bServerRow)
 	{
@@ -12948,19 +13621,6 @@ UCanvasPanel* URokUnityFeatureScreenWidget::MakeTaskRow(
 		PlaceOnCanvas(Row, Missing, FVector2D(269.0f, 86.0f), FVector2D(360.0f, 28.0f), 4);
 	}
 
-	const FRokTaskRowState::EState DisplayState = VisibleTaskStates.IsValidIndex(RowIndex)
-		? VisibleTaskStates[RowIndex].State : FRokTaskRowState::EState::NotSynced;
-	const bool bCanShowClaim = bServerRow ? DisplayState == FRokTaskRowState::EState::Finished
-		: bProgressKnown && bComplete;
-	const FIntRect ButtonRect = bCanShowClaim ? MiniGreenButtonRect : MiniBlueButtonRect;
-	const FMargin ButtonMargin = bCanShowClaim ? MiniGreenMargin : MiniBlueMargin;
-	const FText ButtonLabel = bServerRow && DisplayState == FRokTaskRowState::EState::Received
-		? NSLOCTEXT("RokFeature", "TaskServerReceivedButton", "已领取")
-		: bServerRow && DisplayState == FRokTaskRowState::EState::NotSynced
-			? NSLOCTEXT("RokFeature", "TaskServerUnknownButton", "状态待同步")
-		: (bServerRow ? bCanShowClaim : bComplete)
-			? NSLOCTEXT("RokFeature", "TaskClaimReward", "领取奖励")
-			: NSLOCTEXT("RokFeature", "TaskGo", "前往");
 	PlaceOnCanvas(
 		Row,
 		MakeActionButton(
@@ -13043,6 +13703,13 @@ void URokUnityFeatureScreenWidget::ShowCommanderScene(const FString& Scene)
 	}
 	CommanderSceneName = SceneName;
 
+#if !UE_BUILD_SHIPPING
+	if (FParse::Param(FCommandLine::Get(), TEXT("RokLocalOnly"))
+		&& FParse::Param(FCommandLine::Get(), TEXT("RokCommanderStaticCapture")))
+	{
+		return;
+	}
+#endif
 	if (!FApp::CanEverRender()) return;
 	const FString Movie = FPaths::ConvertRelativePathToFull(FPaths::ProjectContentDir()
 		/ TEXT("Movies/Commander") / (Scene + TEXT(".mp4")));
@@ -13082,1210 +13749,9 @@ void URokUnityFeatureScreenWidget::UpdateCommanderSceneMotion()
 		CommanderScenePlayer->GetDuration().GetTotalSeconds());
 }
 
-void URokUnityFeatureScreenWidget::BuildCommander()
-{
-	// UI_IF_Captain is a true full-screen view. CapturePoint maps the Unity
-	// 1440x900 Expand capture onto the centred 1440x810 design canvas.
-	PlaceOnCanvas(CommanderChrome, MakeActionButton(TEXT("CommanderBack"), 1, CommonAtlasPath,
-		CityManagerBackRect, CommonAtlasSize, FVector2D(60)),
-		FVector2D(18, 10), FVector2D(60), 12);
-	URokUnityGameplayCatalogSubsystem* GameplayCatalog =
-		GetGameplayCatalogSubsystem();
-	if (GameplayCatalog && !GameplayCatalog->IsCatalogLoaded())
-	{
-		GameplayCatalog->LoadCatalog();
-	}
-	URokUnityRuntimeStateSubsystem* RuntimeState =
-		GetRuntimeStateSubsystem();
-	if (RuntimeState && !RuntimeState->IsRuntimeStateLoaded())
-	{
-		RuntimeState->LoadRuntimeState();
-	}
+#include "RokFeatureCommander.inl"
 
-	const UGameInstance* Instance = GetGameInstance();
-	const URokServerHeroSubsystem* Server = Instance
-		? Instance->GetSubsystem<URokServerHeroSubsystem>() : nullptr;
-	const FRokServerHeroSnapshot ServerSnapshot = Server
-		? Server->GetSnapshot() : FRokServerHeroSnapshot();
-	bLastServerHeroAvailable = ServerSnapshot.bAvailable;
-	bLastServerHeroKnown = ServerSnapshot.bHeroesKnown;
-	LastServerHeroSignature = ServerSnapshot.Signature;
-	const auto* Inventory = Instance ? Instance->GetSubsystem<URokServerInventorySubsystem>() : nullptr;
-	const auto Items = ServerSnapshot.bAvailable && Inventory ? Inventory->GetSnapshot() : FRokServerInventorySnapshot();
-	LastCommanderInventorySignature = Items.Signature;
-	TMap<int32, int64> ItemCounts;
-	if (Items.bItemsKnown && Items.bRowsComplete)
-	{
-		for (const auto& Stack : Items.Stacks) ItemCounts.FindOrAdd(Stack.ItemId) += Stack.Overlay;
-	}
-	if (ServerSnapshot.bAvailable
-		&& (!ServerSnapshot.bHeroesKnown
-			|| (!ServerSnapshot.bRowsComplete && ServerSnapshot.Heroes.IsEmpty())))
-	{
-		StopCommanderSceneMotion();
-		VisibleCommanderIds.Reset();
-		VisibleCommanderSkillIds.Reset();
-		VisibleCommanderTalentIds.Reset();
-		PlaceOnCanvas(ModeCanvas,
-			MakeSolidBorder(TEXT("CommanderWaitingBackground"), FLinearColor(0.075f, 0.105f, 0.105f, 1.0f)),
-			CapturePoint(0.0f, 0.0f), FVector2D(1440.0f, 900.0f), 0);
-		UTextBlock* Waiting = MakeScreenText(TEXT("CommanderServerWaiting"), 26,
-			FLinearColor::White, false, ETextJustify::Center);
-		Waiting->SetText(NSLOCTEXT("RokCommander", "HeroesWaiting", "统帅数据待服务器同步"));
-		PlaceOnCanvas(ModeCanvas, Waiting, CapturePoint(390.0f, 390.0f),
-			FVector2D(660.0f, 60.0f), 5);
-		return;
-	}
-	TArray<FRokUnityRuntimeHeroState> RuntimeHeroes;
-	if (ServerSnapshot.bAvailable)
-	{
-		for (const FRokServerHeroEntry& Entry : ServerSnapshot.Heroes)
-		{
-			FRokUnityRuntimeHeroState& Hero = RuntimeHeroes.AddDefaulted_GetRef();
-			Hero.HeroId = Entry.HeroId;
-			Hero.Level = Entry.bLevelKnown ? Entry.Level : 0;
-			Hero.Star = Entry.bStarKnown ? Entry.Star : 0;
-			Hero.Rare = Entry.Rare;
-			Hero.Score = Entry.bPowerKnown ? Entry.Power : 0;
-			FRokUnityCatalogHero CatalogHero;
-			Hero.MaxStar = GameplayCatalog && GameplayCatalog->GetHero(Entry.HeroId, CatalogHero)
-				? CatalogHero.MaxStar : 0;
-		}
-	}
-	else if (RuntimeState && bCommanderLocalRosterFixture)
-	{
-		RuntimeHeroes = RuntimeState->GetStarterHeroes();
-	}
-	TSet<int32> PreviewOwnedHeroIds;
-	for (const FRokUnityRuntimeHeroState& RuntimeHero : RuntimeHeroes)
-	{
-		PreviewOwnedHeroIds.Add(RuntimeHero.HeroId);
-	}
-
-	TArray<int32> CandidateHeroIds;
-	if (GameplayCatalog)
-	{
-		for (const int32 HeroId : GameplayCatalog->GetHeroIds())
-		{
-			FRokUnityCatalogHero Hero;
-			if (!GameplayCatalog->GetHero(HeroId, Hero))
-			{
-				continue;
-			}
-			if (Hero.ListDisplay == 1)
-			{
-				continue;
-			}
-			CandidateHeroIds.Add(HeroId);
-		}
-	}
-	else
-	{
-		for (const FCommanderHeadSource& Source : CommanderHeadSources)
-		{
-			CandidateHeroIds.Add(Source.HeroId);
-		}
-	}
-	if (ServerSnapshot.bAvailable)
-	{
-		for (const FRokServerHeroEntry& Entry : ServerSnapshot.Heroes)
-			CandidateHeroIds.AddUnique(Entry.HeroId);
-	}
-	const auto FindRuntimeHero =
-		[&RuntimeHeroes](int32 HeroId) -> const FRokUnityRuntimeHeroState*
-		{
-			return RuntimeHeroes.FindByPredicate(
-				[HeroId](const FRokUnityRuntimeHeroState& RuntimeHero)
-				{
-					return RuntimeHero.HeroId == HeroId;
-				});
-		};
-	auto* CommanderConfig = Instance ? Instance->GetSubsystem<URokUnityConfigSubsystem>() : nullptr;
-	TMap<int32, int32> PreviewPowerById;
-	const auto ResolvePreviewPower = [&](const FRokUnityCatalogHero& Hero)
-	{
-		if (const int32* Cached = PreviewPowerById.Find(Hero.Id)) return *Cached;
-		int32 Power = Hero.BasePower;
-		if (CommanderConfig)
-		{
-			// HeroProxy.UpdatePower counts the level-one score and the initially unlocked skills.
-			int32 Score = 0;
-			if (CommanderConfig->GetIntFieldByKey(TEXT("HeroLevel"), TEXT("ID"), Hero.Rare * 10000, TEXT("score"), Score))
-				Power += Score;
-			for (int32 SkillId : Hero.SkillIds)
-			{
-				FRokUnityCatalogHeroSkill Skill;
-				if (GameplayCatalog->GetHeroSkill(SkillId, Skill) && Skill.Open == 1
-					&& CommanderConfig->GetIntFieldByKey(TEXT("HeroSkillEffect"), TEXT("ID"), SkillId * 1000 + 1, TEXT("score"), Score))
-					Power += Score;
-			}
-		}
-		PreviewPowerById.Add(Hero.Id, Power);
-		return Power;
-	};
-	const auto ResolveCommanderSortValue =
-		[this, GameplayCatalog, &FindRuntimeHero, &ResolvePreviewPower](int32 HeroId) -> int64
-		{
-			FRokUnityCatalogHero Hero;
-			const bool bHasHero = GameplayCatalog
-				&& GameplayCatalog->GetHero(HeroId, Hero);
-			const FRokUnityRuntimeHeroState* RuntimeHero =
-				FindRuntimeHero(HeroId);
-			switch (SelectedCommanderSortType)
-			{
-			case 1:
-				return RuntimeHero
-					? RuntimeHero->Star
-					: (bHasHero ? Hero.InitStar : 0);
-			case 2:
-				return RuntimeHero ? RuntimeHero->Level : 1;
-			case 3:
-				return RuntimeHero
-					? RuntimeHero->Score
-					: (bHasHero ? (bCommanderLocalRosterFixture ? Hero.BasePower : ResolvePreviewPower(Hero)) : 0);
-			default:
-				return bHasHero ? Hero.Rare : 0;
-			}
-		};
-	CandidateHeroIds.Sort(
-		[this, GameplayCatalog, &PreviewOwnedHeroIds, &FindRuntimeHero,
-			&ResolveCommanderSortValue, &ResolvePreviewPower](int32 Left, int32 Right)
-		{
-			const bool bLeftOwned = PreviewOwnedHeroIds.Contains(Left);
-			const bool bRightOwned = PreviewOwnedHeroIds.Contains(Right);
-			if (bLeftOwned != bRightOwned)
-			{
-				return bLeftOwned;
-			}
-			const int64 LeftSortValue = ResolveCommanderSortValue(Left);
-			const int64 RightSortValue = ResolveCommanderSortValue(Right);
-			if (LeftSortValue != RightSortValue)
-			{
-				return LeftSortValue > RightSortValue;
-			}
-			if (GameplayCatalog)
-			{
-				FRokUnityCatalogHero LeftHero;
-				FRokUnityCatalogHero RightHero;
-				if (GameplayCatalog->GetHero(Left, LeftHero) && GameplayCatalog->GetHero(Right, RightHero))
-				{
-					if (LeftHero.Rare != RightHero.Rare) return LeftHero.Rare > RightHero.Rare;
-					if (SelectedCommanderSortType == 0 && !bCommanderLocalRosterFixture)
-					{
-						const auto* OwnedLeft = FindRuntimeHero(Left);
-						const auto* OwnedRight = FindRuntimeHero(Right);
-						const int32 LeftStar = OwnedLeft ? OwnedLeft->Star : LeftHero.InitStar;
-						const int32 RightStar = OwnedRight ? OwnedRight->Star : RightHero.InitStar;
-						if (LeftStar != RightStar) return LeftStar > RightStar;
-						if (OwnedLeft && OwnedRight && OwnedLeft->Level != OwnedRight->Level)
-							return OwnedLeft->Level > OwnedRight->Level;
-						const int32 LeftPower = OwnedLeft ? OwnedLeft->Score : ResolvePreviewPower(LeftHero);
-						const int32 RightPower = OwnedRight ? OwnedRight->Score : ResolvePreviewPower(RightHero);
-						if (LeftPower != RightPower) return LeftPower > RightPower;
-					}
-				}
-			}
-			return Left < Right;
-		});
-	if (CandidateHeroIds.IsEmpty())
-	{
-		if (GameplayCatalog)
-		{
-			for (const int32 HeroId : GameplayCatalog->GetHeroIds())
-			{
-				FRokUnityCatalogHero Hero;
-				if (GameplayCatalog->GetHero(HeroId, Hero)
-					&& Hero.ListDisplay != 1)
-				{
-					CandidateHeroIds.Add(HeroId);
-				}
-			}
-		}
-		else
-		{
-			for (const FCommanderHeadSource& Source : CommanderHeadSources)
-			{
-				CandidateHeroIds.Add(Source.HeroId);
-			}
-		}
-	}
-	VisibleCommanderIds = CandidateHeroIds;
-	if (ServerSnapshot.bAvailable && ServerSnapshot.bHeroesKnown
-		&& !ServerSnapshot.Heroes.IsEmpty()
-		&& (!bCommanderServerSelectionInitialized || bSelectedCommanderServerOwned)
-		&& !ServerSnapshot.Heroes.ContainsByPredicate([this](const FRokServerHeroEntry& Entry)
-			{ return Entry.HeroId == SelectedCommanderId; }))
-	{
-		SelectedCommanderId = ServerSnapshot.Heroes[0].HeroId;
-		SelectedCommanderSkillIndex = 0;
-		SelectedCommanderSkillDetailIndex = INDEX_NONE;
-		SelectedCommanderTalentIndex = INDEX_NONE;
-	}
-	if (!VisibleCommanderIds.Contains(SelectedCommanderId)
-		&& !VisibleCommanderIds.IsEmpty())
-	{
-		SelectedCommanderId = VisibleCommanderIds[0];
-		SelectedCommanderSkillIndex = 0;
-		SelectedCommanderSkillDetailIndex = INDEX_NONE;
-		SelectedCommanderTalentIndex = INDEX_NONE;
-	}
-
-	FRokUnityCatalogHero SelectedHero;
-	const bool bHasSelectedHero = GameplayCatalog
-		&& GameplayCatalog->GetHero(
-			SelectedCommanderId,
-			SelectedHero);
-	const FRokUnityRuntimeHeroState* SelectedRuntimeHero =
-		RuntimeHeroes.FindByPredicate(
-			[this](const FRokUnityRuntimeHeroState& RuntimeHero)
-			{
-				return RuntimeHero.HeroId == SelectedCommanderId;
-			});
-	const bool bSelectedOwned = SelectedRuntimeHero != nullptr;
-	if (ServerSnapshot.bAvailable)
-	{
-		bCommanderServerSelectionInitialized = true;
-		bSelectedCommanderServerOwned = bSelectedOwned;
-	}
-	const FRokServerHeroEntry* SelectedServerHero = ServerSnapshot.bAvailable
-		? ServerSnapshot.Heroes.FindByPredicate([this](const FRokServerHeroEntry& Entry)
-			{ return Entry.HeroId == SelectedCommanderId; }) : nullptr;
-	const int32 SelectedStar = SelectedRuntimeHero
-		? SelectedRuntimeHero->Star
-		: (bHasSelectedHero ? SelectedHero.InitStar : 1);
-	const int32 SelectedMaxStar = SelectedRuntimeHero
-		? SelectedRuntimeHero->MaxStar
-		: (bHasSelectedHero ? SelectedHero.MaxStar : 6);
-	const int32 SelectedLevel = SelectedRuntimeHero ? SelectedRuntimeHero->Level : 1;
-	const int32 LevelKey = SelectedHero.Rare * 10000 + SelectedLevel - 1;
-	const int32 SelectedPower = SelectedRuntimeHero ? SelectedRuntimeHero->Score
-		: (bHasSelectedHero ? ResolvePreviewPower(SelectedHero) : 0);
-	const FString SelectedNameString = SelectedServerHero && !SelectedServerHero->Name.IsEmpty()
-		? SelectedServerHero->Name : bHasSelectedHero
-		? (!SelectedHero.DisplayNameZhCn.IsEmpty()
-			? SelectedHero.DisplayNameZhCn
-			: SelectedHero.DisplayNameEn)
-		: FString::Printf(TEXT("统帅 %d"), SelectedCommanderId);
-	const FString SelectedTitleString = SelectedServerHero && !SelectedServerHero->Title.IsEmpty()
-		? SelectedServerHero->Title : bHasSelectedHero
-		? (!SelectedHero.DisplayTitleZhCn.IsEmpty()
-			? SelectedHero.DisplayTitleZhCn
-			: SelectedHero.DisplayTitleEn)
-		: FString();
-	const FString SelectedDescriptionString = bHasSelectedHero
-		? (!SelectedHero.DisplayDescriptionZhCn.IsEmpty()
-			? SelectedHero.DisplayDescriptionZhCn
-			: SelectedHero.DisplayDescriptionEn)
-		: FString();
-
-	FText CommanderSortLabel;
-	switch (SelectedCommanderSortType)
-	{
-	case 1:
-		CommanderSortLabel = NSLOCTEXT(
-			"RokCommander",
-			"StarSort",
-			"星级 ▼");
-		break;
-	case 2:
-		CommanderSortLabel = NSLOCTEXT(
-			"RokCommander",
-			"LevelSort",
-			"等级 ▼");
-		break;
-	case 3:
-		CommanderSortLabel = NSLOCTEXT(
-			"RokCommander",
-			"PowerSort",
-			"战力 ▼");
-		break;
-	default:
-		CommanderSortLabel = NSLOCTEXT(
-			"RokCommander",
-			"QualitySort",
-			"稀有度 ▼");
-		break;
-	}
-
-	TArray<FText> CommanderRoleLabels;
-	VisibleCommanderTalentIds.Reset();
-	for (int32 Index = 0; Index < 3; ++Index)
-	{
-		const int32 TalentId = bHasSelectedHero && SelectedHero.TalentIds.IsValidIndex(Index)
-			? SelectedHero.TalentIds[Index] : INDEX_NONE;
-		VisibleCommanderTalentIds.Add(TalentId);
-		FRokUnityCatalogHeroTalent Talent;
-		const bool bHasTalent = GameplayCatalog && TalentId > 0
-			&& GameplayCatalog->GetHeroTalent(TalentId, Talent);
-		const FString TalentName = bHasTalent
-			? (!Talent.DisplayNameZhCn.IsEmpty() ? Talent.DisplayNameZhCn : Talent.DisplayNameEn)
-			: FString();
-		CommanderRoleLabels.Add(TalentName.IsEmpty()
-			? NSLOCTEXT("RokCommander", "TalentPositionUnavailable", "—")
-			: FText::FromString(TalentName));
-	}
-
-	VisibleCommanderSkillIds.Reset();
-	if (bHasSelectedHero)
-	{
-		for (const int32 SkillId : SelectedHero.SkillIds)
-		{
-			VisibleCommanderSkillIds.Add(SkillId);
-			if (VisibleCommanderSkillIds.Num() == 5)
-			{
-				break;
-			}
-		}
-	}
-	else if (!GameplayCatalog && SelectedCommanderId == 2007)
-	{
-		for (int32 SkillId = 200701; SkillId <= 200705; ++SkillId)
-		{
-			VisibleCommanderSkillIds.Add(SkillId);
-		}
-	}
-	SelectedCommanderSkillIndex = VisibleCommanderSkillIds.IsEmpty()
-		? 0
-		: FMath::Clamp(
-			SelectedCommanderSkillIndex,
-			0,
-			VisibleCommanderSkillIds.Num() - 1);
-	FRokUnityCatalogHeroSkill SelectedCommanderSkill;
-	const bool bHasSelectedCommanderSkill = GameplayCatalog
-		&& VisibleCommanderSkillIds.IsValidIndex(
-			SelectedCommanderSkillIndex)
-		&& GameplayCatalog->GetHeroSkill(
-			VisibleCommanderSkillIds[SelectedCommanderSkillIndex],
-			SelectedCommanderSkill);
-	const auto ResolveCommanderHeadRect =
-		[GameplayCatalog](int32 HeroId, FIntRect& OutRect)
-		{
-			FRokUnityCatalogHero Hero;
-			if (GameplayCatalog
-				&& GameplayCatalog->GetHero(HeroId, Hero)
-				&& Hero.IconAtlas.Equals(
-					TEXT("hero_head"),
-					ESearchCase::IgnoreCase)
-				&& Hero.IconWidth > 0
-				&& Hero.IconHeight > 0
-				&& Hero.IconAtlasWidth > 0
-				&& Hero.IconAtlasHeight > 0)
-			{
-				OutRect = FIntRect(
-					Hero.IconX,
-					Hero.IconY,
-					Hero.IconX + Hero.IconWidth,
-					Hero.IconY + Hero.IconHeight);
-				return true;
-			}
-			return ResolveFallbackCommanderHeadRect(HeroId, OutRect);
-		};
-
-	// The Hero table selects the Unity scene independently of roster ownership.
-	FString Scene;
-	if (CommanderSceneImage && CommanderConfig
-		&& CommanderConfig->GetStringFieldByKey(TEXT("Hero"), TEXT("ID"), SelectedCommanderId, TEXT("heroScene"), Scene)
-		&& (Scene == TEXT("HeroShow_01") || Scene == TEXT("HeroShow_02")
-			|| Scene == TEXT("HeroShow_03") || Scene == TEXT("HeroShow_04")))
-	{
-		ShowCommanderScene(Scene);
-	}
-	else
-	{
-		StopCommanderSceneMotion();
-	}
-	// CaptainMediator keeps the loaded skeleton while updating same-hero details.
-	// Reattach that widget after rebuilding the panel instead of restarting idle.
-	if (CommanderAnimatedPortraitHeroId != SelectedCommanderId)
-	{
-		CommanderAnimatedPortraitHeroId = SelectedCommanderId;
-		CommanderAnimatedPortrait = WidgetTree->ConstructWidget<URokCommanderMeshWidget>(
-			URokCommanderMeshWidget::StaticClass(), TEXT("CommanderAnimatedPortrait"));
-		if (!CommanderAnimatedPortrait->LoadHero(SelectedCommanderId))
-		{
-			UE_LOG(LogTemp, Warning, TEXT("Commander %d could not load its generated source animation."), SelectedCommanderId);
-			CommanderAnimatedPortrait = nullptr;
-		}
-	}
-	if (CommanderAnimatedPortrait)
-	{
-		PlaceOnCanvas(ModeCanvas,
-			MakeActionButton(TEXT("CommanderPortraitAction"), 499, nullptr, FIntRect(), FIntPoint::ZeroValue, FVector2D(650.0f, 740.0f)),
-			CapturePoint(300.0f, 105.0f), FVector2D(650.0f, 740.0f), 3);
-		PlaceOnCanvas(
-			ModeCanvas,
-			CommanderAnimatedPortrait,
-			CapturePoint(0.0f, 0.0f),
-			FVector2D(1440.0f, 900.0f),
-			2);
-	}
-	else
-	{
-		auto* Unavailable = MakeScreenText(TEXT("CommanderPreviewUnavailable"), 18,
-			FLinearColor::White, true, ETextJustify::Center);
-		Unavailable->SetText(NSLOCTEXT("RokCommander", "PreviewUnavailable", "统帅预览暂不可用"));
-		PlaceOnCanvas(ModeCanvas, Unavailable, CapturePoint(430, 430), FVector2D(420, 36), 2);
-	}
-
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeSolidBorder(TEXT("CommanderRosterShade"), FLinearColor(0.035f, 0.035f, 0.035f, 0.70f)),
-		CapturePoint(13.0f, 119.0f),
-		FVector2D(304.0f, 758.0f),
-		3);
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeSolidBorder(TEXT("CommanderRosterHeader"), FLinearColor(0.025f, 0.025f, 0.025f, 0.88f)),
-		CapturePoint(13.0f, 119.0f),
-		FVector2D(304.0f, 52.0f),
-		4);
-	UTextBlock* OwnedCount = MakeScreenText(TEXT("CommanderOwnedCount"), 16, FLinearColor(0.96f, 0.96f, 0.94f, 1.0f), false);
-	OwnedCount->SetText(FText::Format(
-		NSLOCTEXT(
-			"RokCommander",
-			"OwnedCount",
-			"已拥有 {0}"),
-		FText::AsNumber(RuntimeHeroes.Num())));
-	if (!ServerSnapshot.bAvailable && !bCommanderLocalRosterFixture)
-		OwnedCount->SetText(NSLOCTEXT("RokCommander", "OfflineRoster", "离线预览"));
-	else if (ServerSnapshot.bAvailable && !ServerSnapshot.bHeroesKnown)
-		OwnedCount->SetText(NSLOCTEXT("RokCommander", "HeroesWaiting", "统帅数据待服务器同步"));
-	else if (ServerSnapshot.bAvailable && RuntimeHeroes.IsEmpty() && ServerSnapshot.bRowsComplete)
-		OwnedCount->SetText(NSLOCTEXT("RokCommander", "HeroesEmpty", "尚未拥有统帅"));
-	else if (ServerSnapshot.bAvailable
-		&& (!ServerSnapshot.bLoaded || !ServerSnapshot.bRowsComplete
-			|| ServerSnapshot.Heroes.ContainsByPredicate([](const FRokServerHeroEntry& Entry)
-				{ return !Entry.bCatalogKnown; })))
-		OwnedCount->SetText(FText::Format(
-			NSLOCTEXT("RokCommander", "HeroesPartial", "已同步 {0} · 部分统帅数据待同步"),
-			FText::AsNumber(RuntimeHeroes.Num())));
-	PlaceOnCanvas(ModeCanvas, OwnedCount, CapturePoint(26.0f, 132.0f), FVector2D(150.0f, 30.0f), 7);
-	UTextBlock* Sort = MakeScreenText(TEXT("CommanderSortLabel"), 17, FLinearColor(0.92f, 0.92f, 0.9f, 1.0f), false, ETextJustify::Right);
-	Sort->SetText(CommanderSortLabel);
-	PlaceOnCanvas(ModeCanvas, Sort, CapturePoint(182.0f, 132.0f), FVector2D(113.0f, 30.0f), 7);
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeActionButton(TEXT("CommanderSortAction"), 470, nullptr, FIntRect(), FIntPoint::ZeroValue, FVector2D(130.0f, 44.0f)),
-		CapturePoint(170.0f, 122.0f),
-		FVector2D(130.0f, 44.0f),
-		8);
-
-	UScrollBox* CommanderRosterScroll =
-		WidgetTree->ConstructWidget<UScrollBox>(
-			UScrollBox::StaticClass(),
-			TEXT("CommanderRosterScroll"));
-	CommanderRosterScroll->SetOrientation(Orient_Vertical);
-	CommanderRosterScroll->SetScrollBarVisibility(ESlateVisibility::Collapsed);
-	CommanderRosterScroll->SetAllowOverscroll(false);
-	CommanderRosterScroll->SetAnimateWheelScrolling(true);
-	CommanderRosterScroll->SetWheelScrollMultiplier(12.0f);
-	PlaceOnCanvas(
-		ModeCanvas,
-		CommanderRosterScroll,
-		CapturePoint(13.0f, 171.0f),
-		FVector2D(304.0f, 684.0f),
-		5);
-
-	for (int32 Index = 0; Index < VisibleCommanderIds.Num();)
-	{
-		const int32 RowStart = Index;
-		const bool bOwnedRow = PreviewOwnedHeroIds.Contains(VisibleCommanderIds[RowStart]);
-		if (!bOwnedRow && RowStart == RuntimeHeroes.Num() && ServerSnapshot.bAvailable)
-		{
-			auto* Divider = MakeScreenText(TEXT("CommanderUnrecruitedDivider"), 18, FLinearColor::White,
-				false, ETextJustify::Center);
-			Divider->SetText(NSLOCTEXT("RokCommander", "NotRecruited", "尚未招募"));
-			CommanderRosterScroll->AddChild(WrapFixedSize(Divider, TEXT("CommanderUnrecruitedDividerSize"), FVector2D(304, 38)));
-		}
-		UCanvasPanel* Row = WidgetTree->ConstructWidget<UCanvasPanel>(
-			UCanvasPanel::StaticClass(), *FString::Printf(TEXT("CommanderRosterRow_%d"), RowStart));
-		for (int32 ColumnIndex = 0; ColumnIndex < 2 && VisibleCommanderIds.IsValidIndex(Index)
-			&& PreviewOwnedHeroIds.Contains(VisibleCommanderIds[Index]) == bOwnedRow; ++ColumnIndex, ++Index)
-		{
-			const int32 HeroId = VisibleCommanderIds[Index];
-			FRokUnityCatalogHero RosterHero;
-			const bool bHasRosterHero = GameplayCatalog
-				&& GameplayCatalog->GetHero(HeroId, RosterHero);
-			const FString RosterHeroName = bHasRosterHero
-				? (!RosterHero.DisplayNameZhCn.IsEmpty()
-					? RosterHero.DisplayNameZhCn
-					: RosterHero.DisplayNameEn)
-				: FString::Printf(TEXT("统帅 %d"), HeroId);
-			const FRokUnityRuntimeHeroState* RosterRuntimeHero =
-				FindRuntimeHero(HeroId);
-			const FRokServerHeroEntry* RosterServerHero = ServerSnapshot.bAvailable
-				? ServerSnapshot.Heroes.FindByPredicate([HeroId](const FRokServerHeroEntry& Entry)
-					{ return Entry.HeroId == HeroId; }) : nullptr;
-			const FText RosterStateText = RosterRuntimeHero
-				&& RosterServerHero && (!RosterServerHero->bLevelKnown || !RosterServerHero->bStarKnown)
-				? NSLOCTEXT("RokCommander", "RosterPartial", "等级 / 星级待同步")
-				: RosterRuntimeHero
-				? FText::Format(
-					NSLOCTEXT("RokCommander", "RosterOwnedState", "Lv.{0}  ★{1}"),
-					FText::AsNumber(RosterRuntimeHero->Level),
-					FText::AsNumber(RosterRuntimeHero->Star))
-				: bHasRosterHero && Items.bItemsKnown && Items.bRowsComplete
-				? FText::Format(NSLOCTEXT("RokCommander", "RosterShardProgress", "{0}/{1}"),
-					FText::AsNumber(ItemCounts.FindRef(RosterHero.GetItem)), FText::AsNumber(RosterHero.GetItemNum))
-				: FText::Format(
-					NSLOCTEXT("RokCommander", "RosterShardState", "需要 {0}"),
-					FText::AsNumber(bHasRosterHero
-						? FMath::Max(1, RosterHero.GetItemNum)
-						: 10));
-			FIntRect HeadRect;
-			if (!ResolveCommanderHeadRect(HeroId, HeadRect))
-			{
-				HeadRect = FIntRect();
-			}
-			PlaceOnCanvas(
-				Row,
-				MakeCommanderHead(
-					Index,
-					HeadRect,
-					RosterRuntimeHero != nullptr,
-					HeroId == SelectedCommanderId,
-					FText::FromString(RosterHeroName),
-					RosterStateText,
-					bHasRosterHero ? RosterHero.Rare : 0),
-				FVector2D(11.0f + ColumnIndex * 140.0f, 4.0f),
-				FVector2D(128.0f, 142.0f),
-				1);
-		}
-		CommanderRosterScroll->AddChild(WrapFixedSize(
-			Row,
-			*FString::Printf(TEXT("CommanderRosterRowSize_%d"), RowStart),
-			FVector2D(304.0f, 150.0f)));
-	}
-
-	if (bCommanderSortMenuOpen)
-	{
-		PlaceOnCanvas(
-			ModeCanvas,
-			MakeSolidBorder(
-				TEXT("CommanderSortMenu"),
-				FLinearColor(0.035f, 0.035f, 0.035f, 0.98f)),
-			CapturePoint(156.0f, 168.0f),
-			FVector2D(144.0f, 180.0f),
-			30);
-		static const FText SortLabels[] = {
-			NSLOCTEXT("RokCommander", "SortQuality", "稀有度"),
-			NSLOCTEXT("RokCommander", "SortStar", "星级"),
-			NSLOCTEXT("RokCommander", "SortLevel", "等级"),
-			NSLOCTEXT("RokCommander", "SortPower", "战力"),
-		};
-		for (int32 SortIndex = 0; SortIndex < UE_ARRAY_COUNT(SortLabels); ++SortIndex)
-		{
-			PlaceOnCanvas(
-				ModeCanvas,
-				MakeActionButton(
-					*FString::Printf(TEXT("CommanderSortOption_%d"), SortIndex),
-					472 + SortIndex,
-					nullptr,
-					FIntRect(),
-					FIntPoint::ZeroValue,
-					FVector2D(136.0f, 42.0f),
-					SortLabels[SortIndex],
-					18,
-					SortIndex == SelectedCommanderSortType
-						? FLinearColor(1.0f, 0.78f, 0.24f, 1.0f)
-						: FLinearColor(0.94f, 0.94f, 0.92f, 1.0f)),
-				CapturePoint(160.0f, 172.0f + SortIndex * 43.0f),
-				FVector2D(136.0f, 42.0f),
-				31);
-		}
-	}
-
-	// Unity UI_Item_CaptainData owns this group, separately from roster and hero.
-	const int32 CommanderDataFirstChild = ModeCanvas->GetChildrenCount();
-	const FLinearColor HeadingColor(0.025f, 0.025f, 0.02f, 1.0f);
-	const FLinearColor HeadingShadow(0.95f, 0.92f, 0.85f, 0.65f);
-	UTextBlock* Appellation = MakeScreenText(TEXT("CommanderAppellation"), 20, HeadingColor, false);
-	Appellation->SetShadowColorAndOpacity(HeadingShadow);
-	Appellation->SetText(FText::FromString(
-		SelectedTitleString.IsEmpty()
-			? FString(TEXT("统帅"))
-			: SelectedTitleString));
-	PlaceOnCanvas(ModeCanvas, Appellation, CapturePoint(975.0f, 129.0f), FVector2D(340.0f, 35.0f), 7);
-	UTextBlock* Name = MakeScreenText(TEXT("CommanderName"), 35, HeadingColor, true);
-	Name->SetShadowColorAndOpacity(HeadingShadow);
-	Name->SetText(FText::FromString(SelectedNameString));
-	PlaceOnCanvas(ModeCanvas, Name, CapturePoint(975.0f, 163.0f), FVector2D(380.0f, 54.0f), 7);
-
-	const FLinearColor RoleColors[] = {
-		FLinearColor(0.55f, 0.17f, 0.13f, 0.78f),
-		FLinearColor(0.18f, 0.50f, 0.31f, 0.78f),
-		FLinearColor(0.16f, 0.31f, 0.55f, 0.78f),
-	};
-	for (int32 Index = 0; Index < 3; ++Index)
-	{
-		const float X = 975.0f + Index * 118.0f;
-		PlaceOnCanvas(ModeCanvas, MakeSolidBorder(*FString::Printf(TEXT("CommanderRoleBg_%d"), Index), RoleColors[Index]), CapturePoint(X, 236.0f), FVector2D(108.0f, 31.0f), 6);
-		PlaceOnCanvas(ModeCanvas,
-			MakeActionButton(*FString::Printf(TEXT("CommanderTalentLabel_%d"), Index),
-				490 + Index, nullptr, FIntRect(), FIntPoint::ZeroValue,
-				FVector2D(108.0f, 29.0f), CommanderRoleLabels[Index], 18,
-				FLinearColor::White),
-			CapturePoint(X, 237.0f), FVector2D(108.0f, 29.0f), 8);
-	}
-
-	// Config-only preview of the Unity TalentTop -> TalentSpecialPop click/close path.
-	// No point, current-level, account-ownership or 451 talent-tree state is inferred.
-	if (VisibleCommanderTalentIds.IsValidIndex(SelectedCommanderTalentIndex)
-		&& SelectedRuntimeHero && GameplayCatalog)
-	{
-		FRokUnityCatalogHeroTalent DetailTalent;
-		const int32 DetailTalentId = VisibleCommanderTalentIds[SelectedCommanderTalentIndex];
-		if (GameplayCatalog->GetHeroTalent(DetailTalentId, DetailTalent))
-		{
-			const FString DetailName = !DetailTalent.DisplayNameZhCn.IsEmpty()
-				? DetailTalent.DisplayNameZhCn : DetailTalent.DisplayNameEn;
-			const FString DetailTips = !DetailTalent.DisplayTipsZhCn.IsEmpty()
-				? DetailTalent.DisplayTipsZhCn : DetailTalent.DisplayTipsEn;
-			if (!DetailName.IsEmpty() && !DetailTips.IsEmpty())
-			{
-				PlaceOnCanvas(ModeCanvas,
-					MakeAtlasBorder(TEXT("CommanderTalentDetailFrame"), CommonAtlasPath,
-						SpriteRect(774, 276, 72, 72), CommonAtlasSize, FVector2D(430.0f, 260.0f),
-						FMargin(21.0f / 72, 23.0f / 72, 21.0f / 72, 24.0f / 72)),
-					CapturePoint(965.0f, 285.0f), FVector2D(430.0f, 260.0f), 15);
-				UTextBlock* DetailTitle = MakeScreenText(TEXT("CommanderTalentDetailTitle"),
-					22, FLinearColor(0.13725491f, 0.13725491f, 0.1254902f, 1.0f), true);
-				DetailTitle->SetText(FText::FromString(DetailName));
-				DetailTitle->SetShadowColorAndOpacity(FLinearColor::Transparent);
-				PlaceOnCanvas(ModeCanvas, DetailTitle, CapturePoint(986.0f, 309.0f),
-					FVector2D(335.0f, 36.0f), 16);
-				UTextBlock* DetailDescription = MakeScreenText(TEXT("CommanderTalentDetailTips"),
-					18, FLinearColor(0.13725491f, 0.13725491f, 0.1254902f, 1.0f), true);
-				DetailDescription->SetText(FText::FromString(DetailTips));
-				DetailDescription->SetShadowColorAndOpacity(FLinearColor::Transparent);
-				DetailDescription->SetAutoWrapText(true);
-				DetailDescription->SetWrapTextAt(375.0f);
-				PlaceOnCanvas(ModeCanvas, DetailDescription, CapturePoint(986.0f, 357.0f),
-					FVector2D(375.0f, 155.0f), 16);
-				PlaceOnCanvas(ModeCanvas,
-					MakeActionButton(TEXT("CommanderTalentDetailClose"), 493,
-						CommonAtlasPath, CloseRect, CommonAtlasSize, FVector2D(44.0f)),
-					CapturePoint(1340.0f, 300.0f), FVector2D(44.0f), 17);
-			}
-		}
-	}
-
-	if (bHasSelectedHero || bSelectedOwned)
-	{
-		for (int32 Index = 0; Index < 6; ++Index)
-		{
-			PlaceOnCanvas(
-				ModeCanvas,
-				MakeAtlasImage(
-					*FString::Printf(TEXT("CommanderStar_%d"), Index),
-					CommonAtlasPath,
-					Index < SelectedStar && Index < SelectedMaxStar
-						? CommanderStarOnRect
-						: CommanderStarOffRect,
-					CommonAtlasSize,
-					FVector2D(48.0f)),
-				CapturePoint(976.0f + Index * 57.0f, 279.0f),
-				FVector2D(48.0f),
-				7);
-		}
-	}
-
-	int32 StarLevelLimit = 0, RequiredExp = 0;
-	if (CommanderConfig)
-	{
-		CommanderConfig->GetIntFieldByKey(TEXT("HeroStar"), TEXT("ID"), SelectedStar, TEXT("starLimit"), StarLevelLimit);
-		CommanderConfig->GetIntFieldByKey(TEXT("HeroLevel"), TEXT("ID"), LevelKey, TEXT("exp"), RequiredExp);
-	}
-	UTextBlock* Level = MakeScreenText(TEXT("CommanderLevel"), 19, FLinearColor::White);
-	Level->SetText(SelectedServerHero && !SelectedServerHero->bLevelKnown
-		? NSLOCTEXT("RokCommander", "OwnedLevelWaiting", "等级待同步")
-		: FText::FromString(StarLevelLimit > 0 ? FString::Printf(TEXT("等级 %d/%d"), SelectedLevel, StarLevelLimit)
-			: FString::Printf(TEXT("等级 %d"), SelectedLevel)));
-	PlaceOnCanvas(ModeCanvas, Level, CapturePoint(975, 333), FVector2D(260, 30), 7);
-	PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("CommanderExpTrack"), FLinearColor(0.025f, 0.035f, 0.035f, 0.66f)),
-		CapturePoint(975, 365), FVector2D(415, 37), 5);
-	const int64 CurrentExp = SelectedServerHero ? SelectedServerHero->Exp : 0;
-	if (SelectedServerHero && SelectedServerHero->bExpKnown && RequiredExp > 0 && CurrentExp > 0)
-	{
-		const double Fraction = FMath::Clamp(static_cast<double>(CurrentExp) / RequiredExp, 0.0, 1.0);
-		const FVector2D FillSize(415.0 * Fraction, 37);
-		PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("CommanderExpFill"), FLinearColor(0.13f, 0.43f, 0.14f, 0.85f)),
-			CapturePoint(975, 365), FillSize, 6);
-	}
-	auto* Exp = MakeScreenText(TEXT("CommanderExp"), 18, FLinearColor::White, false, ETextJustify::Center);
-	Exp->SetText(RequiredExp > 0 && (!SelectedServerHero || SelectedServerHero->bExpKnown)
-		? FText::FromString(FString::Printf(TEXT("经验  %lld/%d"), CurrentExp, RequiredExp))
-		: NSLOCTEXT("RokCommander", "ExpWaiting", "经验待同步"));
-	PlaceOnCanvas(ModeCanvas, Exp, CapturePoint(975, 370), FVector2D(415, 30), 7);
-	if (SelectedServerHero)
-	{
-		UTextBlock* Progress = MakeScreenText(TEXT("CommanderServerProgress"), 17,
-			FLinearColor(0.96f, 0.95f, 0.91f, 1.0f));
-		Progress->SetText(FText::FromString(FString::Printf(TEXT("星级 %s  ·  经验 %s  ·  星级经验 %s"),
-			SelectedServerHero->bStarKnown ? *LexToString(SelectedServerHero->Star) : TEXT("待同步"),
-			SelectedServerHero->bExpKnown ? *LexToString(SelectedServerHero->Exp) : TEXT("待同步"),
-			SelectedServerHero->bStarExpKnown ? *LexToString(SelectedServerHero->StarExp) : TEXT("待同步"))));
-		PlaceOnCanvas(ModeCanvas, Progress, CapturePoint(975.0f, 407.0f), FVector2D(400.0f, 30.0f), 7);
-		UTextBlock* TalentState = MakeScreenText(TEXT("CommanderServerTalentState"), 17,
-			FLinearColor(0.96f, 0.95f, 0.91f, 1.0f));
-		const FString TreeName = SelectedServerHero->bTalentIndexKnown
-			? FString::Printf(TEXT("方案 %d"), SelectedServerHero->TalentIndex)
-			: TEXT("当前方案待同步");
-		TalentState->SetText(FText::FromString(FString::Printf(TEXT("天赋 %s · %s"),
-			*TreeName, SelectedServerHero->bTalentTreesKnown
-				? *FString::Printf(TEXT("%d 个方案"), SelectedServerHero->TalentTrees.Num())
-				: TEXT("方案数据待同步"))));
-		PlaceOnCanvas(ModeCanvas, TalentState, CapturePoint(975.0f, 429.0f),
-			FVector2D(400.0f, 30.0f), 7);
-	}
-	if (!bSelectedOwned)
-	{
-		PlaceOnCanvas(
-			ModeCanvas,
-			MakeSolidBorder(
-				TEXT("CommanderSummonPanel"),
-				FLinearColor(0.08f, 0.075f, 0.055f, 0.92f)),
-			CapturePoint(975.0f, 636.0f),
-			FVector2D(415.0f, 65.0f),
-			6);
-		UTextBlock* SummonRequirement = MakeScreenText(
-			TEXT("CommanderSummonRequirement"),
-			18,
-			FLinearColor(0.95f, 0.91f, 0.76f, 1.0f),
-			false,
-			ETextJustify::Center);
-		SummonRequirement->SetText(bHasSelectedHero && Items.bItemsKnown && Items.bRowsComplete
-			? FText::Format(NSLOCTEXT("RokCommander", "SummonProgress", "统帅雕像 {0}/{1}"),
-				FText::AsNumber(ItemCounts.FindRef(SelectedHero.GetItem)), FText::AsNumber(SelectedHero.GetItemNum))
-			: FText::Format(
-			NSLOCTEXT("RokCommander", "SummonRequirement", "召唤需要 {0} 个统帅雕像"),
-			FText::AsNumber(bHasSelectedHero
-				? FMath::Max(1, SelectedHero.GetItemNum)
-				: 10)));
-		FIntRect SculptureRect;
-		if (ResolveCommanderHeadRect(SelectedCommanderId, SculptureRect))
-			PlaceOnCanvas(ModeCanvas, MakeAtlasImage(TEXT("CommanderSculpture"), CommanderHeadAtlasPath,
-				SculptureRect, CommanderHeadAtlasSize, FVector2D(54, 60)),
-				CapturePoint(980, 638), FVector2D(54, 60), 7);
-		PlaceOnCanvas(ModeCanvas, SummonRequirement, CapturePoint(1045, 653), FVector2D(330, 32), 7);
-		const bool bCanRecruit = ServerSnapshot.bAvailable && ServerSnapshot.bRowsComplete
-			&& bHasSelectedHero && Items.bItemsKnown && Items.bRowsComplete && SelectedHero.GetItemNum > 0
-			&& ItemCounts.FindRef(SelectedHero.GetItem) >= SelectedHero.GetItemNum;
-		if (!bCanRecruit)
-		{
-			PlaceOnCanvas(ModeCanvas, MakeAtlasImage(TEXT("CommanderRecruitDisabledArt"), CommonAtlasPath,
-				SpriteRect(473, 528, 202, 81), CommonAtlasSize, FVector2D(195, 64)),
-				CapturePoint(1085, 713), FVector2D(195, 64), 7);
-		}
-		auto* Summon = MakeActionButton(
-				TEXT("CommanderSummonAction"),
-				452,
-				bCanRecruit ? CommonAtlasPath : nullptr,
-				MediumBlueButtonRect,
-				CommonAtlasSize,
-				FVector2D(195.0f, 64.0f),
-				NSLOCTEXT("RokCommander", "Summon", "招募"),
-				22,
-				FLinearColor(0.03f, 0.14f, 0.25f, 1.0f));
-		Summon->SetIsEnabled(bCanRecruit);
-		PlaceOnCanvas(ModeCanvas, Summon, CapturePoint(1085, 713), FVector2D(195, 64), 8);
-	}
-	auto* BioButton = MakeActionButton(TEXT("CommanderBiographyAction"), 468, CommonAtlasPath,
-		SpriteRect(611, 227, 50, 48), CommonAtlasSize, FVector2D(38, 36));
-	BioButton->SetToolTipText(NSLOCTEXT("RokCommander", "Biography", "统帅介绍"));
-	PlaceOnCanvas(ModeCanvas, BioButton, CapturePoint(1352, 129), FVector2D(38), 8);
-	if (bCommanderBiographyOpen)
-	{
-		PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("CommanderBiographyPanel"), FLinearColor(0.035f, 0.035f, 0.028f, 0.98f)),
-			CapturePoint(965, 182), FVector2D(430, 255), 16);
-		UTextBlock* Capacity = MakeScreenText(TEXT("CommanderCapacity"), 20, FLinearColor(0.96f, 0.95f, 0.91f, 1.0f));
-		Capacity->SetText(FText::Format(
-			NSLOCTEXT(
-				"RokCommander",
-				"CommanderIdentity",
-				"稀有度 {0}  ·  文明 {1}"),
-			FText::AsNumber(bHasSelectedHero ? SelectedHero.Rare : 0),
-			FText::AsNumber(bHasSelectedHero ? SelectedHero.Civilization : 0)));
-		PlaceOnCanvas(ModeCanvas, Capacity, CapturePoint(975, 195), FVector2D(400, 34), 17);
-		UTextBlock* CommanderDescription = MakeScreenText(
-			TEXT("CommanderDescription"),
-			15,
-			FLinearColor(0.88f, 0.87f, 0.84f, 1.0f));
-		FString CommanderDescriptionPreview = SelectedDescriptionString.IsEmpty()
-			? TEXT("暂无统帅介绍。")
-			: SelectedDescriptionString;
-		if (CommanderDescriptionPreview.Len() > 58)
-		{
-			CommanderDescriptionPreview = CommanderDescriptionPreview.Left(58)
-				+ TEXT("…");
-		}
-		CommanderDescription->SetText(FText::FromString(
-			CommanderDescriptionPreview));
-		CommanderDescription->SetAutoWrapText(true);
-		CommanderDescription->SetWrapTextAt(405.0f);
-		PlaceOnCanvas(
-			ModeCanvas,
-			CommanderDescription,
-			CapturePoint(975, 235),
-			FVector2D(405, 175), 17);
-	}
-
-	UTextBlock* SkillTitle = MakeScreenText(TEXT("CommanderSkillTitle"), 20, FLinearColor(0.96f, 0.95f, 0.91f, 1.0f));
-	SkillTitle->SetText(NSLOCTEXT("RokCommander", "Skills", "技能"));
-	PlaceOnCanvas(ModeCanvas, SkillTitle, CapturePoint(975.0f, 474.0f), FVector2D(160.0f, 34.0f), 7);
-	PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("CommanderSkillShade"), FLinearColor(0.08f, 0.06f, 0.045f, 0.55f)), CapturePoint(972.0f, 504.0f), FVector2D(415.0f, 101.0f), 5);
-	for (int32 Index = 0; Index < VisibleCommanderSkillIds.Num(); ++Index)
-	{
-		const float X = 978.0f + Index * 82.5f;
-		const int32 SkillId = VisibleCommanderSkillIds[Index];
-		const FRokServerHeroSkill* AccountSkill = SelectedServerHero
-			? SelectedServerHero->Skills.FindByPredicate([SkillId](const auto& Entry) { return Entry.SkillId == SkillId; })
-			: nullptr;
-		FRokUnityCatalogHeroSkill Skill;
-		const bool bHasSkill = GameplayCatalog
-			&& GameplayCatalog->GetHeroSkill(
-				VisibleCommanderSkillIds[Index],
-				Skill);
-		const int32 SkillLevel = SelectedServerHero
-			? (AccountSkill && AccountSkill->bLevelKnown ? AccountSkill->Level : 0)
-			: (bHasSkill && Skill.Open == 1 ? 1 : 0);
-		FIntRect SkillRect;
-		bool bHasSkillIcon = bHasSkill
-			&& (Skill.IconAtlas.Equals(
-					TEXT("hero_skill"),
-					ESearchCase::IgnoreCase)
-				|| Skill.IconAtlas.Equals(
-					TEXT("hero_skill2"),
-					ESearchCase::IgnoreCase))
-			&& Skill.IconWidth > 0
-			&& Skill.IconHeight > 0
-			&& Skill.IconAtlasWidth > 0
-			&& Skill.IconAtlasHeight > 0;
-		if (bHasSkillIcon)
-		{
-			SkillRect = FIntRect(
-				Skill.IconX,
-				Skill.IconY,
-				Skill.IconX + Skill.IconWidth,
-				Skill.IconY + Skill.IconHeight);
-		}
-		else if (SelectedCommanderId == 2007
-			&& Index < UE_ARRAY_COUNT(CommanderSkillRects))
-		{
-			SkillRect = CommanderSkillRects[Index];
-			bHasSkillIcon = true;
-		}
-		if (bHasSkillIcon)
-		{
-			const TCHAR* SkillTexturePath = Skill.IconAtlas.Equals(
-				TEXT("hero_skill"),
-				ESearchCase::IgnoreCase)
-				? CommanderSkillAtlasPath
-				: CommanderSkill2AtlasPath;
-			UImage* SkillImage = MakeAtlasImage(
-				*FString::Printf(TEXT("CommanderSkillIcon_%d"), Index),
-				SkillTexturePath,
-				SkillRect,
-				CommanderSkillAtlasSize,
-				FVector2D(74.0f));
-			if (SkillLevel == 0)
-			{
-				const TCHAR* GrayPath = SkillTexturePath == CommanderSkillAtlasPath
-					? TEXT("Textures/hero_skill_gray.png") : TEXT("Textures/hero_skill2_gray.png");
-				if (auto* GrayAtlas = LoadCommanderPreviewTexture(GrayPath))
-					SkillImage->SetBrush(MakeAtlasBrush(GrayAtlas, SkillRect, CommanderSkillAtlasSize, FVector2D(74)));
-				else
-					SkillImage->SetIsEnabled(false);
-			}
-			PlaceOnCanvas(
-				ModeCanvas,
-				SkillImage,
-				CapturePoint(X, 513.0f),
-				FVector2D(74.0f),
-				7);
-		}
-		else
-		{
-			PlaceOnCanvas(
-				ModeCanvas,
-				MakeSolidBorder(
-					*FString::Printf(TEXT("CommanderSkillPending_%d"), Index),
-					Index == SelectedCommanderSkillIndex
-						? FLinearColor(0.46f, 0.34f, 0.10f, 0.92f)
-						: FLinearColor(0.10f, 0.10f, 0.105f, 0.92f)),
-				CapturePoint(X, 513.0f),
-				FVector2D(74.0f),
-				7);
-		}
-		UTextBlock* SkillIndexLabel = MakeScreenText(
-			*FString::Printf(TEXT("CommanderSkillIndex_%d"), Index),
-			13,
-			FLinearColor::White,
-			true,
-			ETextJustify::Center);
-		SkillIndexLabel->SetText(SkillLevel > 0 ? FText::AsNumber(SkillLevel) : FText::GetEmpty());
-		PlaceOnCanvas(
-			ModeCanvas,
-			SkillIndexLabel,
-			CapturePoint(X + 2.0f, 565.0f),
-			FVector2D(70.0f, 20.0f),
-			8);
-		PlaceOnCanvas(ModeCanvas, MakeActionButton(*FString::Printf(TEXT("CommanderSkillAction_%d"), Index), 460 + Index, nullptr, FIntRect(), FIntPoint::ZeroValue, FVector2D(74.0f)), CapturePoint(X, 513.0f), FVector2D(74.0f), 9);
-	}
-	if (bSelectedOwned)
-	{
-		UTextBlock* SelectedSkillSummary = MakeScreenText(
-			TEXT("CommanderSelectedSkillSummary"),
-			15,
-			FLinearColor(0.96f, 0.90f, 0.72f, 1.0f));
-		if (bHasSelectedCommanderSkill)
-		{
-			const FString SkillName = !SelectedCommanderSkill.DisplayNameZhCn.IsEmpty()
-				? SelectedCommanderSkill.DisplayNameZhCn
-				: SelectedCommanderSkill.DisplayNameEn;
-			const FString SkillType = !SelectedCommanderSkill.DisplayTypeZhCn.IsEmpty()
-				? SelectedCommanderSkill.DisplayTypeZhCn
-				: SelectedCommanderSkill.DisplayTypeEn;
-			const FRokServerHeroSkill* ServerSkill = SelectedServerHero
-				? SelectedServerHero->Skills.FindByPredicate([&](const FRokServerHeroSkill& Entry)
-					{ return Entry.SkillId == VisibleCommanderSkillIds[SelectedCommanderSkillIndex]; })
-				: nullptr;
-			const FString SkillLevel = ServerSkill && ServerSkill->bLevelKnown && ServerSkill->Level > 0
-				? FString::Printf(TEXT("Lv.%d"), ServerSkill->Level)
-				: SelectedServerHero && !SelectedServerHero->bSkillsKnown ? TEXT("等级待同步")
-				: !SelectedServerHero && SelectedCommanderSkill.Open == 1 ? TEXT("Lv.1")
-				: SelectedCommanderSkill.DisplayOpenZhCn;
-			SelectedSkillSummary->SetText(FText::FromString(FString::Printf(
-				TEXT("%s  ·  %s  ·  %s"),
-				SkillName.IsEmpty() ? TEXT("技能") : *SkillName,
-				SkillType.IsEmpty() ? TEXT("技能") : *SkillType,
-				*SkillLevel)));
-		}
-		else
-		{
-			SelectedSkillSummary->SetText(NSLOCTEXT(
-				"RokCommander",
-				"NoSkillInformation",
-				"暂无技能信息。"));
-		}
-		PlaceOnCanvas(
-			ModeCanvas,
-			SelectedSkillSummary,
-			CapturePoint(978.0f, 606.0f),
-			FVector2D(405.0f, 28.0f),
-			8);
-
-		PlaceOnCanvas(
-			ModeCanvas,
-			MakeActionButton(TEXT("CommanderSkillUpgrade"), 450, CommonAtlasPath, LargeBlueButtonRect, CommonAtlasSize, FVector2D(195.0f, 66.0f), NSLOCTEXT("RokCommander", "SkillUpgrade", "技能升级"), 25, FLinearColor(0.03f, 0.14f, 0.25f, 1.0f)),
-			CapturePoint(978.0f, 724.0f),
-			FVector2D(195.0f, 66.0f),
-			8);
-		PlaceOnCanvas(
-			ModeCanvas,
-			MakeActionButton(TEXT("CommanderTalent"), 451, CommonAtlasPath, LargeBlueButtonRect, CommonAtlasSize, FVector2D(195.0f, 66.0f), NSLOCTEXT("RokCommander", "Talent", "天赋"), 25, FLinearColor(0.03f, 0.14f, 0.25f, 1.0f)),
-			CapturePoint(1192.0f, 724.0f),
-			FVector2D(195.0f, 66.0f),
-			8);
-	}
-	// Source UI_Item_CaptainSkill_SubView.OnSkillClick supplies configuration tips.
-	// Keep the five skill actions below this overlay clickable for real switching.
-	if (VisibleCommanderSkillIds.IsValidIndex(SelectedCommanderSkillDetailIndex)
-		&& GameplayCatalog)
-	{
-		FRokUnityCatalogHeroSkill DetailSkill;
-		FRokCommanderSkillReadonlyDetail Detail;
-		if (GameplayCatalog->GetHeroSkill(
-			VisibleCommanderSkillIds[SelectedCommanderSkillDetailIndex], DetailSkill)
-			&& RokCommanderSkillReadonlyDetail::Build(DetailSkill, Detail))
-		{
-			PlaceOnCanvas(ModeCanvas,
-				MakeAtlasBorder(TEXT("CommanderSkillDetailFrame"), CommonAtlasPath,
-					SpriteRect(774, 276, 72, 72), CommonAtlasSize, FVector2D(478.0f, 405.0f),
-					FMargin(21.0f / 72, 23.0f / 72, 21.0f / 72, 24.0f / 72)),
-				CapturePoint(922.0f, 170.0f), FVector2D(478.0f, 405.0f), 15);
-			UTextBlock* DetailTitle = MakeScreenText(TEXT("CommanderSkillDetailTitle"),
-				22, FLinearColor(0.13725491f, 0.13725491f, 0.1254902f, 1.0f));
-			DetailTitle->SetText(FText::FromString(Detail.Title));
-			DetailTitle->SetShadowColorAndOpacity(FLinearColor::Transparent);
-			PlaceOnCanvas(ModeCanvas, DetailTitle, CapturePoint(943.0f, 187.0f),
-				FVector2D(385.0f, 35.0f), 16);
-			UTextBlock* DetailBody = MakeScreenText(TEXT("CommanderSkillDetailBody"),
-				16, FLinearColor(0.13725491f, 0.13725491f, 0.1254902f, 1.0f));
-			DetailBody->SetText(FText::FromString(Detail.Body));
-			DetailBody->SetShadowColorAndOpacity(FLinearColor::Transparent);
-			DetailBody->SetAutoWrapText(true);
-			DetailBody->SetWrapTextAt(418.0f);
-			UScrollBox* DetailScroll = WidgetTree->ConstructWidget<UScrollBox>(
-				UScrollBox::StaticClass(), TEXT("CommanderSkillDetailScroll"));
-			DetailScroll->SetScrollBarVisibility(ESlateVisibility::Visible);
-			DetailScroll->AddChild(DetailBody);
-			PlaceOnCanvas(ModeCanvas, DetailScroll, CapturePoint(943.0f, 232.0f),
-				FVector2D(432.0f, 322.0f), 16);
-			PlaceOnCanvas(ModeCanvas,
-				MakeActionButton(TEXT("CommanderSkillDetailClose"), 465,
-					CommonAtlasPath, CloseRect, CommonAtlasSize, FVector2D(44.0f)),
-				CapturePoint(1340.0f, 184.0f), FVector2D(44.0f), 17);
-		}
-	}
-	for (int32 Index = CommanderDataFirstChild; Index < ModeCanvas->GetChildrenCount(); ++Index)
-	{
-		CommanderDataAnimationWidgets.Add(ModeCanvas->GetChildAt(Index));
-	}
-	auto* Footer = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("CommanderPowerFooter"));
-	Footer->SetVisibility(ESlateVisibility::HitTestInvisible);
-	auto* FooterSlot = CommanderChrome->AddChildToCanvas(Footer);
-	FooterSlot->SetAnchors(FAnchors(0.5f, 1));
-	FooterSlot->SetAlignment(FVector2D(0.5f, 1));
-	FooterSlot->SetPosition(FVector2D(0, -6));
-	FooterSlot->SetSize(FVector2D(390, 36));
-	PlaceOnCanvas(Footer, MakeSolidBorder(TEXT("CommanderPowerShade"), FLinearColor(0.09f, 0.06f, 0.04f, 0.56f)),
-		FVector2D::ZeroVector, FVector2D(390, 36));
-	UTextBlock* Power = MakeScreenText(TEXT("CommanderPower"), 20, FLinearColor(0.94f, 0.92f, 0.88f, 1.0f), false, ETextJustify::Center);
-	Power->SetText(SelectedServerHero && !SelectedServerHero->bPowerKnown
-		? NSLOCTEXT("RokCommander", "PowerWaiting", "战力数据待同步")
-		: FText::Format(NSLOCTEXT("RokCommander", "TotalCommanderPower", "统帅战力：{0}"),
-			FText::AsNumber(SelectedPower)));
-	PlaceOnCanvas(Footer, Power, FVector2D(0, 3), FVector2D(390, 32), 1);
-	BuildCommanderProgression(SelectedServerHero);
-	UE_LOG(
-		LogTemp,
-		Log,
-		TEXT("Rok commander screen: hero=%d owned=%d sort=%d roster=%d stage=hero_show_boundary."),
-		SelectedCommanderId,
-		bSelectedOwned ? 1 : 0,
-		SelectedCommanderSortType,
-		VisibleCommanderIds.Num());
-	// Keep existing canvas slots/z-order; only the source list subtree moves.
-	// Animate direct children only, so scrolling rows don't get transformed twice.
-	for (UWidget* Child : ModeCanvas->GetAllChildren())
-	{
-		const FString ChildName = Child->GetName();
-		if (ChildName.StartsWith(TEXT("CommanderRoster")) || ChildName.StartsWith(TEXT("CommanderSort"))
-			|| ChildName == TEXT("CommanderOwnedCount"))
-			CommanderRosterAnimationWidgets.Add(Child);
-	}
-	AdvanceCommanderRosterAnimation(0.0f);
-}
-
-void URokUnityFeatureScreenWidget::BuildCommanderProgression(const FRokServerHeroEntry* Hero)
-{
-	auto AddButton = [this](const TCHAR* Name, int32 Action, const FText& Text, FVector2D Position, FVector2D Size, int32 Z)
-	{
-		auto* Button = MakeActionButton(Name, Action, CommonAtlasPath, MiniBlueButtonRect, CommonAtlasSize,
-			Size, Text, 15, FLinearColor::White, ESlateBrushDrawType::Box, MiniBlueMargin);
-		PlaceOnCanvas(ModeCanvas, Button, CapturePoint(Position.X, Position.Y), Size, Z);
-		return Button;
-	};
-	auto AddText = [this](const TCHAR* Name, const FText& Text, FVector2D Position, FVector2D Size, int32 Z)
-	{
-		auto* Label = MakeScreenText(Name, 17, FLinearColor::White);
-		Label->SetText(Text);
-		PlaceOnCanvas(ModeCanvas, Label, CapturePoint(Position.X, Position.Y), Size, Z);
-	};
-	if (bCommanderTalentOpen)
-	{
-		PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("CommanderTalentEditor"), FLinearColor(0.08f, 0.10f, 0.11f, 1.0f)),
-			CapturePoint(950, 148), FVector2D(453, 665), 18);
-		AddText(TEXT("CommanderTalentEditorTitle"), FText::FromString(TEXT("天赋")), FVector2D(969, 161), FVector2D(160, 30), 19);
-		AddButton(TEXT("CommanderTalentEditorBack"), 19803, FText::FromString(TEXT("返回")),
-			FVector2D(1301, 155), FVector2D(85, 38), 19);
-		const auto* Server = GetGameInstance() ? GetGameInstance()->GetSubsystem<URokServerHeroSubsystem>() : nullptr;
-		int32 Points = 0;
-		CommanderTalentNodes.Reset();
-		if (!Hero || !Server || !Server->GetTalentPage(*Hero, CommanderTalentPage, CommanderTalentNodes, Points))
-		{
-			AddText(TEXT("CommanderTalentEditorWaiting"), FText::FromString(TEXT("天赋数据待同步")),
-				FVector2D(970, 224), FVector2D(410, 32), 19);
-		}
-		else
-		{
-			auto FindPage = [Hero](int32 Index)
-			{
-				return Hero->TalentTrees.FindByPredicate([Index](const auto& Tree) { return Tree.Index == Index; });
-			};
-			const auto* Current = FindPage(CommanderTalentPage);
-			for (int32 Page = 1; Page <= 3; ++Page)
-			{
-				const auto* Tree = FindPage(Page);
-				const FString Name = Tree && Tree->bNameKnown && !Tree->Name.IsEmpty()
-					? Tree->Name : FString::Printf(TEXT("方案 %d"), Page);
-				auto* Button = AddButton(*FString::Printf(TEXT("CommanderTalentPage_%d"), Page), 19800 + Page - 1,
-					FText::FromString(Name + (Hero->TalentIndex == Page ? TEXT(" ★") : TEXT(""))),
-					FVector2D(965 + (Page - 1) * 141, 201), FVector2D(133, 37), 19);
-				Button->SetIsEnabled(Page != CommanderTalentPage);
-			}
-			AddText(TEXT("CommanderTalentPoints"),
-				FText::FromString(FString::Printf(TEXT("可用天赋点 %d"), Points)),
-				FVector2D(970, 254), FVector2D(410, 30), 19);
-
-			auto* Scroll = WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("CommanderTalentNodeScroll"));
-			Scroll->SetScrollBarVisibility(ESlateVisibility::Visible);
-			PlaceOnCanvas(ModeCanvas, Scroll, CapturePoint(967, 286), FVector2D(422, 415), 19);
-			int32 HighestLearned = 0;
-			for (const auto& Node : CommanderTalentNodes)
-				if (Current && Current->TalentIds.Contains(Node.Id)) HighestLearned = FMath::Max(HighestLearned, Node.Level);
-			for (int32 Index = 0; Index < CommanderTalentNodes.Num(); ++Index)
-			{
-				const auto& Node = CommanderTalentNodes[Index];
-				const FString Prefix = FString::Printf(TEXT("CommanderTalentNode_%d"), Node.Id);
-				auto* Row = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), *Prefix);
-				const bool bLearned = Current && Current->TalentIds.Contains(Node.Id);
-				const FString NodeName = FRokUiTextTable::Resolve(Node.NameId);
-				auto* Label = MakeScreenText(*(Prefix + TEXT("Label")), 15, FLinearColor::White);
-				Label->SetText(FText::FromString(FString::Printf(TEXT("%d. %s"), Node.Level, *NodeName)));
-				Label->SetToolTipText(FText::FromString(FRokUiTextTable::SanitizeRichText(FRokUiTextTable::Resolve(Node.DescriptionId))));
-				Label->SetVisibility(ESlateVisibility::Visible);
-				PlaceOnCanvas(Row, Label, FVector2D(6, 8), FVector2D(275, 32), 1);
-				auto* Learn = MakeActionButton(*(Prefix + TEXT("Learn")), 19820 + Index, CommonAtlasPath,
-					MiniBlueButtonRect, CommonAtlasSize, FVector2D(102, 34),
-					FText::FromString(bLearned ? TEXT("已学习") : TEXT("学习")),
-					14, FLinearColor::White, ESlateBrushDrawType::Box, MiniBlueMargin);
-				Learn->SetIsEnabled(!bLearned && Points > 0 && Node.Level == HighestLearned + 1);
-				PlaceOnCanvas(Row, Learn, FVector2D(290, 2), FVector2D(102, 34), 2);
-				Scroll->AddChild(WrapFixedSize(Row, *(Prefix + TEXT("Size")), FVector2D(402, 40)));
-			}
-			auto* NameInput = WidgetTree->ConstructWidget<UEditableTextBox>(UEditableTextBox::StaticClass(), TEXT("CommanderTalentNameInput"));
-			NameInput->SetHintText(FText::FromString(TEXT("方案名称")));
-			if (Current && Current->bNameKnown) NameInput->SetText(FText::FromString(Current->Name));
-			PlaceOnCanvas(ModeCanvas, NameInput, CapturePoint(970, 712), FVector2D(300, 36), 19);
-			AddButton(TEXT("CommanderTalentRename"), 19806, FText::FromString(TEXT("改名")),
-				FVector2D(1281, 712), FVector2D(103, 36), 19);
-			AddButton(TEXT("CommanderTalentSwitch"), 19804, FText::FromString(TEXT("启用方案")),
-				FVector2D(970, 760), FVector2D(190, 38), 19)->SetIsEnabled(Hero->TalentIndex != CommanderTalentPage);
-			AddButton(TEXT("CommanderTalentReset"), 19805, FText::FromString(TEXT("重置天赋")),
-				FVector2D(1194, 760), FVector2D(190, 38), 19)->SetIsEnabled(Current && !Current->TalentIds.IsEmpty());
-		}
-	}
-
-	if (CommanderConfirmation.IsSet())
-	{
-		PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("CommanderConfirmShade"), FLinearColor(0.06f, 0.07f, 0.08f, 1.0f)),
-			CapturePoint(496, 631), FVector2D(435, 142), 23);
-		const auto& Request = *CommanderConfirmation;
-		const auto& Cost = CommanderConfirmationCost;
-		FString CostText;
-		if (Cost.Gems > 0) CostText = FString::Printf(TEXT("消耗 %d 宝石"), Cost.Gems);
-		else if (Cost.ItemCount > 0)
-		{
-			FRokUnityEconomyItem Item;
-			const auto* Economy = GetEconomyCatalogSubsystem();
-			const FString Name = Economy && Economy->FindItemById(Cost.ItemId, Item) && !Item.DisplayNameZhCn.IsEmpty()
-				? Item.DisplayNameZhCn : TEXT("道具");
-			CostText = FString::Printf(TEXT("消耗 %d × %s"), Cost.ItemCount, *Name);
-		}
-		else if (Request.Type == ERokHeroCommand::LearnTalent) CostText = TEXT("消耗 1 天赋点");
-		else if (Request.Type == ERokHeroCommand::ResetTalent) CostText = TEXT("重置所选方案的天赋");
-		else CostText = TEXT("保存所选方案名称");
-		if (Request.Type == ERokHeroCommand::UpgradeSkill) CostText += TEXT("，服务器选择升级技能");
-		AddText(TEXT("CommanderConfirmCost"), FText::FromString(CostText),
-			FVector2D(514, 653), FVector2D(405, 52), 24);
-		AddButton(TEXT("CommanderConfirmAccept"), 19807, FText::FromString(TEXT("确认")),
-			FVector2D(517, 718), FVector2D(181, 39), 24);
-		AddButton(TEXT("CommanderConfirmCancel"), 19808, FText::FromString(TEXT("取消")),
-			FVector2D(727, 718), FVector2D(181, 39), 24);
-	}
-}
+#include "RokFeatureCommanderProgression.inl"
 
 void URokUnityFeatureScreenWidget::PrepareCommanderCommand(FRokHeroCommand Request)
 {
@@ -14445,526 +13911,7 @@ void URokUnityFeatureScreenWidget::AdvanceCommanderRosterAnimation(float DeltaSe
 	}
 }
 
-void URokUnityFeatureScreenWidget::BuildItems()
-{
-	BuildSplitWindowFrame(
-		CapturePoint(146.0f, 73.0f),
-		FVector2D(1148.0f, 754.0f),
-		NSLOCTEXT("RokItems", "Title", "道具"),
-		CapturePoint(1230.0f, 77.0f));
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeSolidBorder(
-			TEXT("ItemsContentShade"),
-			FLinearColor(0.065f, 0.065f, 0.065f, 0.98f)),
-		CapturePoint(176.0f, 138.1f),
-		FVector2D(1088.0f, 683.8f),
-		2);
-
-	static const FText CategoryLabels[] = {
-		NSLOCTEXT("RokItems", "Resources", "资源"),
-		NSLOCTEXT("RokItems", "Speedups", "加速"),
-		NSLOCTEXT("RokItems", "Boosts", "增益"),
-		NSLOCTEXT("RokItems", "Equipment", "装备"),
-		NSLOCTEXT("RokItems", "Other", "其他"),
-	};
-	for (int32 Category = 0; Category < UE_ARRAY_COUNT(CategoryLabels); ++Category)
-	{
-		const bool bSelected = Category == SelectedItemsCategory;
-		PlaceOnCanvas(
-			ModeCanvas,
-			MakeActionButton(
-				*FString::Printf(TEXT("ItemsCategory_%d"), Category),
-				520 + Category,
-				CommonAtlasPath,
-				bSelected ? PageSelectedRect : PageNormalRect,
-				CommonAtlasSize,
-				FVector2D(214.0f, 45.0f),
-				CategoryLabels[Category],
-				24,
-				bSelected ? FLinearColor(0.96f, 0.97f, 0.95f, 1.0f) : FLinearColor(0.72f, 0.72f, 0.70f, 1.0f)),
-			CapturePoint(184.0f + Category * 214.4f, 154.0f),
-			FVector2D(214.0f, 45.0f),
-			6);
-	}
-
-	URokUnityEconomyCatalogSubsystem* Catalog =
-		GetEconomyCatalogSubsystem();
-	if (Catalog && !Catalog->IsCatalogLoaded())
-	{
-		Catalog->LoadCatalog();
-	}
-	const UGameInstance* Instance = GetGameInstance();
-	const URokServerInventorySubsystem* Server = Instance
-		? Instance->GetSubsystem<URokServerInventorySubsystem>() : nullptr;
-	const FRokServerInventorySnapshot ServerSnapshot = Server
-		? Server->GetSnapshot() : FRokServerInventorySnapshot();
-	bLastServerInventoryAvailable = ServerSnapshot.bAvailable;
-	bLastServerInventoryKnown = ServerSnapshot.bItemsKnown;
-	LastServerInventorySignature = ServerSnapshot.Signature;
-
-	struct FItemsPreviewStack
-	{
-		int64 ItemIndex = 0;
-		int32 ItemId = 0;
-		int64 Overlay = 0;
-		bool bCatalogKnown = false;
-		FRokUnityEconomyItem Item;
-	};
-	struct FItemsPreviewStackSeed
-	{
-		int64 ItemIndex;
-		int32 ItemId;
-		int64 Overlay;
-	};
-	static const FItemsPreviewStackSeed PreviewStacks[] = {
-		{900001, 101050010, 3},
-		{900002, 101050020, 12},
-		{900003, 101040010, 5},
-		{900004, 101040020, 8},
-		{900005, 101030010, 4},
-		{900006, 101020010, 2},
-		{900007, 101050001, 10000},
-		// Unity BagProxy.Items ignores stacks whose overlay is not positive.
-		{900008, 101040001, 0},
-	};
-
-	TArray<FItemsPreviewStack> VisibleStacks;
-	if (ServerSnapshot.bAvailable && ServerSnapshot.bItemsKnown)
-	{
-		for (const FRokServerInventoryStack& ServerStack : ServerSnapshot.Stacks)
-		{
-			const int32 BagCategory = ServerStack.bCatalogKnown
-				? ServerStack.BagType : 5; // Unresolved config stays visible under Other.
-			if (BagCategory != SelectedItemsCategory + 1
-				|| ServerStack.ItemId <= 0 || ServerStack.ItemId > MAX_int32)
-				continue;
-			FItemsPreviewStack& Stack = VisibleStacks.AddDefaulted_GetRef();
-			Stack.ItemIndex = ServerStack.ItemIndex;
-			Stack.ItemId = static_cast<int32>(ServerStack.ItemId);
-			Stack.Overlay = ServerStack.Overlay;
-			Stack.bCatalogKnown = ServerStack.bCatalogKnown && Catalog
-				&& Catalog->FindItemById(Stack.ItemId, Stack.Item);
-			if (!Stack.bCatalogKnown)
-			{
-				Stack.Item.Id = Stack.ItemId;
-				Stack.Item.DisplayNameZhCn = FString::Printf(TEXT("道具 %d（配置待同步）"), Stack.ItemId);
-			}
-		}
-		VisibleStacks.Sort([](const FItemsPreviewStack& Left, const FItemsPreviewStack& Right)
-		{
-			return Left.Item.Rank == Right.Item.Rank
-				? (Left.ItemId == Right.ItemId ? Left.ItemIndex < Right.ItemIndex : Left.ItemId < Right.ItemId)
-				: Left.Item.Rank < Right.Item.Rank;
-		});
-	}
-	else if (!ServerSnapshot.bAvailable && bItemsTestFixtureState && Catalog)
-	{
-		const int32 SelectedItemType = SelectedItemsCategory + 1;
-		for (const FItemsPreviewStackSeed& Seed : PreviewStacks)
-		{
-			FRokUnityEconomyItem Item;
-			if (Seed.Overlay <= 0
-				|| !Catalog->FindItemById(Seed.ItemId, Item)
-				|| Item.Type != SelectedItemType)
-			{
-				continue;
-			}
-
-			FItemsPreviewStack& Stack = VisibleStacks.AddDefaulted_GetRef();
-			Stack.ItemIndex = Seed.ItemIndex;
-			Stack.ItemId = Seed.ItemId;
-			Stack.Overlay = Seed.Overlay;
-			Stack.bCatalogKnown = true;
-			Stack.Item = MoveTemp(Item);
-		}
-		VisibleStacks.Sort(
-			[](const FItemsPreviewStack& Left,
-				const FItemsPreviewStack& Right)
-			{
-				return Left.Item.Rank == Right.Item.Rank
-					? Left.ItemId < Right.ItemId
-					: Left.Item.Rank < Right.Item.Rank;
-			});
-	}
-
-	VisibleItemsStacks.Reset();
-	for (const FItemsPreviewStack& Stack : VisibleStacks)
-	{
-		FItemsInventoryStackState& State =
-			VisibleItemsStacks.AddDefaulted_GetRef();
-		State.ItemIndex = Stack.ItemIndex;
-		State.ItemId = Stack.ItemId;
-		State.Overlay = Stack.Overlay;
-	}
-	const int32 PreservedIndex = VisibleItemsStacks.IndexOfByPredicate([this](const FItemsInventoryStackState& Stack)
-	{
-		return Stack.ItemIndex == SelectedItemsStackIndex;
-	});
-	SelectedItemsIndex = PreservedIndex != INDEX_NONE ? PreservedIndex : FMath::Clamp(
-		SelectedItemsIndex,
-		0,
-		FMath::Max(0, VisibleItemsStacks.Num() - 1));
-	SelectedItemsStackIndex = VisibleItemsStacks.IsValidIndex(SelectedItemsIndex)
-		? VisibleItemsStacks[SelectedItemsIndex].ItemIndex : 0;
-	SelectedItemsUseCount = FMath::Clamp(
-		SelectedItemsUseCount,
-		1,
-		VisibleItemsStacks.IsValidIndex(SelectedItemsIndex)
-			? static_cast<int32>(FMath::Clamp<int64>(
-				VisibleItemsStacks[SelectedItemsIndex].Overlay,
-				1,
-				9999))
-			: 1);
-	const bool bAnyUnresolvedServerItem = ServerSnapshot.bAvailable
-		&& ServerSnapshot.Stacks.ContainsByPredicate([](const FRokServerInventoryStack& Stack)
-			{ return !Stack.bCatalogKnown; });
-	const bool bPartialInventory = ServerSnapshot.bAvailable
-		&& (bAnyUnresolvedServerItem || !ServerSnapshot.bLoaded
-			|| (ServerSnapshot.bItemsKnown && !ServerSnapshot.bRowsComplete));
-	if (bPartialInventory)
-	{
-		UTextBlock* SyncState = MakeScreenText(TEXT("ItemsInventorySyncState"), 16,
-			FLinearColor(0.96f, 0.78f, 0.43f, 1.0f), false, ETextJustify::Center);
-		SyncState->SetText(NSLOCTEXT("RokItems", "InventoryPartial", "部分道具配置待同步"));
-		PlaceOnCanvas(ModeCanvas, SyncState, CapturePoint(593.0f, 210.0f),
-			FVector2D(630.0f, 32.0f), 12);
-	}
-
-	if (VisibleStacks.IsEmpty())
-	{
-		UTextBlock* EmptyState = MakeScreenText(
-			TEXT("ItemsInventoryEmptyState"),
-			26,
-			FLinearColor(0.8509804f, 0.8313726f, 0.7294118f, 1.0f),
-			false,
-			ETextJustify::Center);
-		EmptyState->SetText(ServerSnapshot.bAvailable && !ServerSnapshot.bItemsKnown
-			? NSLOCTEXT("RokItems", "InventoryWaiting", "道具数据待服务器同步")
-			: bPartialInventory
-			? NSLOCTEXT("RokItems", "InventoryPartialEmpty", "此分类暂无可显示道具，部分道具配置待同步")
-			: NSLOCTEXT(
-			"RokItems",
-			"InventoryEmpty",
-			"您的道具库里真是空空如也，快获取一些道具来充实它吧！"));
-		EmptyState->SetAutoWrapText(true);
-		PlaceOnCanvas(
-			ModeCanvas,
-			EmptyState,
-			CapturePoint(198.9f, 394.0f),
-			FVector2D(1042.3f, 220.7f),
-			6);
-		UE_LOG(
-			LogTemp,
-			Log,
-			TEXT("Rok items screen: inventory=empty fixture=%d category=%d rows=0."),
-			bItemsTestFixtureState ? 1 : 0,
-			SelectedItemsCategory);
-		return;
-	}
-
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeSolidBorder(
-			TEXT("ItemsListShade"),
-			FLinearColor(0.065f, 0.065f, 0.065f, 0.96f)),
-		CapturePoint(584.0f, 194.8f),
-		FVector2D(660.0f, 619.0f),
-		3);
-	UScrollBox* InventoryScroll = WidgetTree->ConstructWidget<UScrollBox>(
-		UScrollBox::StaticClass(),
-		TEXT("ItemsInventoryScroll"));
-	InventoryScroll->SetOrientation(Orient_Vertical);
-	InventoryScroll->SetScrollBarVisibility(ESlateVisibility::Visible);
-	InventoryScroll->SetAllowOverscroll(true);
-	InventoryScroll->SetAnimateWheelScrolling(true);
-	InventoryScroll->SetWheelScrollMultiplier(12.0f);
-	PlaceOnCanvas(
-		ModeCanvas,
-		InventoryScroll,
-		CapturePoint(584.0f, bPartialInventory ? 242.5f : 210.5f),
-		FVector2D(660.0f, bPartialInventory ? 555.7f : 587.7f),
-		5);
-
-	const int32 RowCount = FMath::DivideAndRoundUp(VisibleStacks.Num(), 4);
-	for (int32 RowIndex = 0; RowIndex < RowCount; ++RowIndex)
-	{
-		UCanvasPanel* Row = WidgetTree->ConstructWidget<UCanvasPanel>(
-			UCanvasPanel::StaticClass(),
-			*FString::Printf(TEXT("ItemsInventoryRow_%d"), RowIndex));
-		for (int32 ColumnIndex = 0; ColumnIndex < 4; ++ColumnIndex)
-		{
-			const int32 LocalIndex = RowIndex * 4 + ColumnIndex;
-			if (!VisibleStacks.IsValidIndex(LocalIndex))
-			{
-				break;
-			}
-			const FItemsPreviewStack& Stack = VisibleStacks[LocalIndex];
-			const FRokUnityEconomyItem& Item = Stack.Item;
-			UCanvasPanel* Cell = WidgetTree->ConstructWidget<UCanvasPanel>(
-				UCanvasPanel::StaticClass(),
-				*FString::Printf(TEXT("ItemsCell_%d"), LocalIndex));
-			if (LocalIndex == SelectedItemsIndex)
-			{
-				PlaceOnCanvas(
-					Cell,
-					MakeAtlasImage(
-						*FString::Printf(TEXT("ItemsCellSelect_%d"), LocalIndex),
-						Item0AtlasPath,
-						ItemSelectedRect,
-						Item0AtlasSize,
-						FVector2D(142.0f)),
-					FVector2D::ZeroVector,
-					FVector2D(142.0f),
-					0);
-			}
-			PlaceOnCanvas(
-				Cell,
-				MakeAtlasImage(
-					*FString::Printf(TEXT("ItemsCellQuality_%d"), LocalIndex),
-					Item0AtlasPath,
-					ResolveBagQualityRect(Item.Quality),
-					Item0AtlasSize,
-					FVector2D(130.0f)),
-				FVector2D(6.0f),
-				FVector2D(130.0f),
-				1);
-
-			const TCHAR* IconAtlasPath = nullptr;
-			FIntRect IconRect;
-			FIntPoint IconAtlasSize;
-			if (ResolveEconomyItemIcon(Item, IconAtlasPath, IconRect, IconAtlasSize))
-			{
-				PlaceOnCanvas(
-					Cell,
-					MakeAtlasImage(
-						*FString::Printf(TEXT("ItemsCellIcon_%d"), LocalIndex),
-						IconAtlasPath,
-						IconRect,
-						IconAtlasSize,
-						FVector2D(110.0f)),
-					FVector2D(16.0f, 20.0f),
-					FVector2D(110.0f),
-					2);
-			}
-
-			const FText TopLabel = ResolveEconomyItemTopLabel(Item);
-			if (!TopLabel.IsEmpty())
-			{
-				PlaceOnCanvas(
-					Cell,
-					MakeAtlasImage(
-						*FString::Printf(TEXT("ItemsCellTop_%d"), LocalIndex),
-						CommonAtlasPath,
-						ItemTopRect,
-						CommonAtlasSize,
-						FVector2D(120.0f, 27.0f)),
-					FVector2D(11.0f, 7.0f),
-					FVector2D(120.0f, 27.0f),
-					3);
-				UTextBlock* TopText = MakeScreenText(
-					*FString::Printf(TEXT("ItemsCellTopText_%d"), LocalIndex),
-					15,
-					FLinearColor(0.93f, 0.91f, 0.81f, 1.0f),
-					false,
-					ETextJustify::Center);
-				TopText->SetText(TopLabel);
-				PlaceOnCanvas(
-					Cell,
-					TopText,
-					FVector2D(11.0f, 8.0f),
-					FVector2D(120.0f, 25.0f),
-					4);
-			}
-
-			UTextBlock* Quantity = MakeScreenText(
-				*FString::Printf(TEXT("ItemsCellQuantity_%d"), LocalIndex),
-				16,
-				FLinearColor::White,
-				true,
-				ETextJustify::Right);
-			Quantity->SetText(FText::AsNumber(Stack.Overlay));
-			PlaceOnCanvas(
-				Cell,
-				Quantity,
-				FVector2D(77.0f, 105.0f),
-				FVector2D(51.0f, 26.0f),
-				4);
-			PlaceOnCanvas(
-				Cell,
-				MakeActionButton(
-					*FString::Printf(TEXT("ItemsCellHit_%d"), LocalIndex),
-					5000 + LocalIndex,
-					nullptr,
-					FIntRect(),
-					FIntPoint::ZeroValue,
-					FVector2D(142.0f)),
-				FVector2D::ZeroVector,
-				FVector2D(142.0f),
-				8);
-			PlaceOnCanvas(
-				Row,
-				Cell,
-				FVector2D(8.0f + ColumnIndex * 160.0f, 4.0f),
-				FVector2D(142.0f),
-				1);
-		}
-		InventoryScroll->AddChild(WrapFixedSize(
-			Row,
-			*FString::Printf(TEXT("ItemsInventoryRowSize_%d"), RowIndex),
-			FVector2D(660.0f, 150.0f)));
-	}
-
-	const FItemsPreviewStack& SelectedStack = VisibleStacks[SelectedItemsIndex];
-	const FRokUnityEconomyItem& SelectedItem = SelectedStack.Item;
-	UCanvasPanel* DetailPanel = WidgetTree->ConstructWidget<UCanvasPanel>(
-		UCanvasPanel::StaticClass(),
-		TEXT("ItemsDetailPanel"));
-	PlaceOnCanvas(
-		DetailPanel,
-		MakeSolidBorder(
-			TEXT("ItemsDetailFill"),
-			FLinearColor(0.72f, 0.70f, 0.58f, 1.0f)),
-		FVector2D::ZeroVector,
-		FVector2D(412.0f, 616.0f),
-		0);
-	PlaceOnCanvas(
-		DetailPanel,
-		MakeAtlasBorder(
-			TEXT("ItemsDetailFrame"),
-			FrameAtlasPath,
-			ActivityFrameRect,
-			FrameAtlasSize,
-			FVector2D(412.0f, 616.0f),
-			ActivityFrameMargin),
-		FVector2D::ZeroVector,
-		FVector2D(412.0f, 616.0f),
-		1);
-	PlaceOnCanvas(
-		DetailPanel,
-		MakeAtlasImage(
-			TEXT("ItemsDetailQuality"),
-			Item0AtlasPath,
-			ResolveBagQualityRect(SelectedItem.Quality),
-			Item0AtlasSize,
-			FVector2D(142.0f)),
-		FVector2D(135.0f, 28.0f),
-		FVector2D(142.0f),
-		2);
-	const TCHAR* DetailIconAtlasPath = nullptr;
-	FIntRect DetailIconRect;
-	FIntPoint DetailIconAtlasSize;
-	if (ResolveEconomyItemIcon(
-		SelectedItem,
-		DetailIconAtlasPath,
-		DetailIconRect,
-		DetailIconAtlasSize))
-	{
-		PlaceOnCanvas(
-			DetailPanel,
-			MakeAtlasImage(
-				TEXT("ItemsDetailIcon"),
-				DetailIconAtlasPath,
-				DetailIconRect,
-				DetailIconAtlasSize,
-				FVector2D(122.0f)),
-			FVector2D(145.0f, 38.0f),
-			FVector2D(122.0f),
-			3);
-	}
-	const FText DetailTopLabel = ResolveEconomyItemTopLabel(SelectedItem);
-	if (!DetailTopLabel.IsEmpty())
-	{
-		PlaceOnCanvas(DetailPanel, MakeAtlasImage(TEXT("ItemsDetailTop"), CommonAtlasPath, ItemTopRect, CommonAtlasSize, FVector2D(120.0f, 27.0f)), FVector2D(146.0f, 31.0f), FVector2D(120.0f, 27.0f), 4);
-		UTextBlock* DetailTop = MakeScreenText(TEXT("ItemsDetailTopText"), 16, FLinearColor(0.93f, 0.91f, 0.81f, 1.0f), false, ETextJustify::Center);
-		DetailTop->SetText(DetailTopLabel);
-		PlaceOnCanvas(DetailPanel, DetailTop, FVector2D(146.0f, 32.0f), FVector2D(120.0f, 25.0f), 5);
-	}
-
-	UTextBlock* ItemName = MakeScreenText(TEXT("ItemsDetailName"), 25, FLinearColor(0.22f, 0.19f, 0.12f, 1.0f), true, ETextJustify::Center);
-	ItemName->SetText(FText::FromString(
-		SelectedItem.DisplayNameZhCn.IsEmpty()
-			? FString::Printf(TEXT("道具 %d"), SelectedItem.Id)
-			: SelectedItem.DisplayNameZhCn));
-	PlaceOnCanvas(DetailPanel, ItemName, FVector2D(31.0f, 185.0f), FVector2D(350.0f, 42.0f), 4);
-	PlaceOnCanvas(DetailPanel, MakeSolidBorder(TEXT("ItemsDescriptionShade"), FLinearColor(0.31f, 0.30f, 0.25f, 0.52f)), FVector2D(28.0f, 235.0f), FVector2D(356.0f, 144.0f), 2);
-	UTextBlock* Description = MakeScreenText(TEXT("ItemsDescription"), 19, FLinearColor::White, false, ETextJustify::Center);
-	Description->SetText(FText::FromString(ResolveEconomyItemDescription(SelectedItem)));
-	Description->SetAutoWrapText(true);
-	PlaceOnCanvas(DetailPanel, Description, FVector2D(45.0f, 255.0f), FVector2D(322.0f, 104.0f), 4);
-
-	UTextBlock* Owned = MakeScreenText(
-		TEXT("ItemsOwned"),
-		18,
-		FLinearColor(0.80f, 0.78f, 0.70f, 1.0f),
-		false,
-		ETextJustify::Center);
-	Owned->SetText(FText::Format(
-		NSLOCTEXT("RokItems", "OwnedFormat", "拥有数量:{0}"),
-		FText::AsNumber(SelectedStack.Overlay)));
-	PlaceOnCanvas(DetailPanel, Owned, FVector2D(81.0f, 401.0f), FVector2D(250.0f, 30.0f), 4);
-
-	if (SelectedItem.bBatchUse)
-	{
-		URokUnityIndexedButton* Minus = MakeActionButton(TEXT("ItemsMinus"), 540, CommonAtlasPath, ItemMinusRect, CommonAtlasSize, FVector2D(46.0f), FText::FromString(TEXT("−")), 23);
-		Minus->SetIsEnabled(SelectedItemsUseCount > 1);
-		PlaceOnCanvas(DetailPanel, Minus, FVector2D(29.0f, 442.0f), FVector2D(46.0f), 6);
-		PlaceOnCanvas(DetailPanel, MakeSolidBorder(TEXT("ItemsQuantityBack"), FLinearColor(0.55f, 0.53f, 0.44f, 0.75f)), FVector2D(82.0f, 444.0f), FVector2D(130.0f, 43.0f), 4);
-		UTextBlock* Quantity = MakeScreenText(TEXT("ItemsQuantity"), 22, FLinearColor::White, true, ETextJustify::Center);
-		Quantity->SetText(FText::AsNumber(SelectedItemsUseCount));
-		PlaceOnCanvas(DetailPanel, Quantity, FVector2D(82.0f, 448.0f), FVector2D(130.0f, 34.0f), 6);
-		URokUnityIndexedButton* Plus = MakeActionButton(TEXT("ItemsPlus"), 541, CommonAtlasPath, ItemPlusRect, CommonAtlasSize, FVector2D(46.0f), FText::FromString(TEXT("+")), 23);
-		Plus->SetIsEnabled(SelectedItemsUseCount < FMath::Min<int64>(SelectedStack.Overlay, 9999));
-		PlaceOnCanvas(DetailPanel, Plus, FVector2D(218.0f, 442.0f), FVector2D(46.0f), 6);
-		URokUnityIndexedButton* Max = MakeActionButton(TEXT("ItemsMax"), 542, CommonAtlasPath, ItemMaxRect, CommonAtlasSize, FVector2D(87.0f, 51.0f), NSLOCTEXT("RokItems", "Max", "最大"), 19);
-		Max->SetIsEnabled(SelectedItemsUseCount < FMath::Min<int64>(SelectedStack.Overlay, 9999));
-		PlaceOnCanvas(DetailPanel, Max, FVector2D(270.0f, 439.0f), FVector2D(87.0f, 51.0f), 6);
-	}
-	if (SelectedItem.ButtonLocaleId > 0 && SelectedStack.bCatalogKnown)
-	{
-		PlaceOnCanvas(
-			DetailPanel,
-			MakeActionButton(TEXT("ItemsUse"), 543, CommonAtlasPath, MediumBlueButtonRect, CommonAtlasSize, FVector2D(202.0f, 81.0f), NSLOCTEXT("RokItems", "Use", "使用"), 28, FLinearColor(0.04f, 0.14f, 0.24f, 1.0f)),
-			FVector2D(105.0f, 513.0f),
-			FVector2D(202.0f, 81.0f),
-			6);
-	}
-	else
-	{
-		UTextBlock* RoutedUse = MakeScreenText(
-			TEXT("ItemsRoutedUse"),
-			17,
-			FLinearColor(0.26f, 0.23f, 0.17f, 1.0f),
-			false,
-			ETextJustify::Center);
-		RoutedUse->SetText(NSLOCTEXT(
-			"RokItems",
-			"RoutedUseLabel",
-			"请在对应功能中使用"));
-		PlaceOnCanvas(
-			DetailPanel,
-			RoutedUse,
-			FVector2D(86.0f, 534.0f),
-			FVector2D(240.0f, 40.0f),
-			6);
-	}
-	PlaceOnCanvas(
-		ModeCanvas,
-		DetailPanel,
-		CapturePoint(178.0f, 192.3f),
-		FVector2D(412.0f, 616.0f),
-		5);
-
-	UE_LOG(
-		LogTemp,
-		Log,
-		TEXT("Rok items screen: inventory=%s category=%d stacks=%d selected_item=%d overlay=%lld."),
-		ServerSnapshot.bAvailable ? TEXT("server") : (bItemsTestFixtureState ? TEXT("fixture") : TEXT("offline_empty")),
-		SelectedItemsCategory,
-		VisibleStacks.Num(),
-		SelectedStack.ItemId,
-		static_cast<long long>(SelectedStack.Overlay));
-}
+#include "RokFeatureItems.inl"
 
 URokUnityFeatureScreenWidget::FVipPresentation URokUnityFeatureScreenWidget::ReadVipPresentation() const
 {
@@ -15045,407 +13992,7 @@ URokUnityFeatureScreenWidget::FVipPresentation URokUnityFeatureScreenWidget::Rea
 	return State;
 }
 
-void URokUnityFeatureScreenWidget::BuildVip()
-{
-	const int32 PreviewLevel = FMath::Clamp(SelectedVipPreviewLevel, 0, VipLevelCount - 1);
-	const FVipPresentation State = ReadVipPresentation();
-	LastVipPresentation = State;
-	const bool bHasAccountVipLevel = State.CurrentLevel != INDEX_NONE;
-	const int32 CurrentVipLevel = FMath::Max(0, State.CurrentLevel);
-	const bool bAtMaxLevel = State.Points >= 0 && CurrentVipLevel == VipLevelCount - 1;
-	const bool bDailyClaimable = State.DailyClaimed.IsSet() && !State.DailyClaimed.GetValue();
-	const bool bFreeChestClaimable = State.FreeChestClaimed.IsSet() && !State.FreeChestClaimed.GetValue()
-		&& State.CurrentLevel == PreviewLevel;
-	const bool bSpecialChestPurchased = (State.PurchasedLevels & (1u << PreviewLevel)) != 0;
-	FRokUnityCatalogVipLevel VipLevelConfig;
-	TArray<FRokUnityCatalogVipAttribute> VipAttributes;
-	if (const URokUnityGameplayCatalogSubsystem* Catalog = GetGameplayCatalogSubsystem())
-	{
-		Catalog->GetVipLevel(PreviewLevel, VipLevelConfig);
-		VipAttributes = Catalog->GetVipAttributesForLevel(PreviewLevel);
-	}
-	if (bVipTestFixtureState && PreviewLevel == 0 && VipLevelConfig.PriceDisplay.IsEmpty())
-	{
-		VipLevelConfig.PriceDisplay = TEXT("$0.99");
-	}
-
-	BuildSplitWindowFrame(
-		CapturePoint(160.0f, 107.0f),
-		FVector2D(1120.0f, 700.0f),
-		NSLOCTEXT("RokVip", "Title", "VIP"),
-		CapturePoint(1187.0f, 98.0f), nullptr, 1, 32.0f);
-	if (auto* Title = Cast<UTextBlock>(WidgetTree->FindWidget(TEXT("FeatureFrameTitle"))))
-	{
-		Title->SetFont(FCoreStyle::GetDefaultFontStyle(TEXT("Regular"), 23));
-	}
-
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeSolidBorder(TEXT("VipContentShade"), FLinearColor(0.10f, 0.10f, 0.10f, 0.80f)),
-		CapturePoint(208.0f, 162.0f),
-		FVector2D(1024.0f, 612.0f),
-		2);
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeAtlasImage(
-			TEXT("VipCurrentLevelBadge"),
-			VipLevelAtlasPath,
-			VipLevelIconRects[FMath::Clamp(CurrentVipLevel, 0, VipLevelCount - 1)],
-			VipLevelAtlasSize,
-			FVector2D(138.0f)),
-		CapturePoint(213.0f, 168.0f),
-		FVector2D(138.0f),
-		5);
-	UTextBlock* CurrentLevelText = MakeScreenText(TEXT("VipCurrentLevelText"), 34, FLinearColor(0.97f, 0.93f, 0.80f, 1.0f), false, ETextJustify::Center);
-	CurrentLevelText->SetText(bHasAccountVipLevel
-		? FText::AsNumber(CurrentVipLevel)
-		: FText::FromString(TEXT("--")));
-	PlaceOnCanvas(ModeCanvas, CurrentLevelText, CapturePoint(252.0f, 211.0f), FVector2D(60.0f), 6);
-
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeActionButton(TEXT("VipHelp"), 742, CommonAtlasPath, VipHelpRect, CommonAtlasSize, FVector2D(28.0f)),
-		CapturePoint(371.0f, 181.0f),
-		FVector2D(28.0f),
-		8);
-	UTextBlock* TodayPoints = MakeScreenText(TEXT("VipTodayPoints"), 17, FLinearColor(0.92f, 0.92f, 0.9f, 1.0f));
-	TodayPoints->SetText(State.TodayPoints >= 0
-		? FText::Format(
-			NSLOCTEXT("RokVip", "TodayPointsFormat", "今日VIP点数：{0}"),
-			FText::AsNumber(State.TodayPoints))
-		: NSLOCTEXT("RokVip", "TodayPointsUnavailable", "今日VIP点数：未同步"));
-	PlaceOnCanvas(ModeCanvas, TodayPoints, CapturePoint(410.0f, 181.0f), FVector2D(316.0f, 30.0f), 6);
-
-	UTextBlock* LoginDays = MakeScreenText(TEXT("VipLoginDays"), 16,
-		FLinearColor(0.92f, 0.92f, 0.9f, 1.0f), false, ETextJustify::Right);
-	LoginDays->SetText(State.LoginDays >= 0
-		? FText::Format(NSLOCTEXT("RokVip", "LoginDaysFormat", "连续登录天数：{0}"), FText::AsNumber(State.LoginDays))
-		: NSLOCTEXT("RokVip", "LoginDaysUnavailable", "连续登录天数：未同步"));
-	PlaceOnCanvas(ModeCanvas, LoginDays, CapturePoint(826.0f, 182.0f), FVector2D(240.0f, 30.0f), 6);
-
-	const FVector2D TrackPosition = CapturePoint(404.0f, 226.0f);
-	const FVector2D TrackSize(594.0f, 36.0f);
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeSolidBorder(TEXT("VipProgressBackground"), FLinearColor(0.036f, 0.036f, 0.036f, 0.98f)),
-		TrackPosition,
-		TrackSize,
-		5);
-	const FVector2D BarPosition = TrackPosition + FVector2D(0.0f, 9.0f);
-	const FVector2D BarSize(TrackSize.X, 18.0f);
-	PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("VipProgressTrack"), FLinearColor(0.019f, 0.019f, 0.019f, 1.0f)),
-		BarPosition, BarSize, 6);
-	const double Progress = bAtMaxLevel ? 1.0 : (State.LevelThreshold > 0
-		? FMath::Clamp(static_cast<double>(State.Points) / State.LevelThreshold, 0.0, 1.0) : 0.0);
-	if (Progress > 0.0)
-	{
-		const FVector2D FillSize(BarSize.X * Progress, BarSize.Y);
-		PlaceOnCanvas(ModeCanvas,
-			MakeAtlasImage(TEXT("VipProgressFill"), CommonAtlasPath, VipProgressFillRect, CommonAtlasSize, FillSize),
-			BarPosition, FillSize, 7);
-	}
-	UTextBlock* ProgressText = MakeScreenText(TEXT("VipProgressText"), 14, FLinearColor::White, false, ETextJustify::Center);
-	FText ProgressLabel = NSLOCTEXT("RokVip", "ProgressUnavailable", "VIP进度未同步");
-	if (bAtMaxLevel)
-	{
-		ProgressLabel = NSLOCTEXT("RokVip", "MaxLevel", "已达最高等级");
-	}
-	else if (State.LevelThreshold > 0)
-	{
-		ProgressLabel = FText::Format(NSLOCTEXT("RokVip", "ProgressFormat", "{0}/{1}"),
-			FText::AsNumber(State.Points), FText::AsNumber(State.LevelThreshold));
-	}
-	ProgressText->SetText(ProgressLabel);
-	PlaceOnCanvas(ModeCanvas, ProgressText, TrackPosition + FVector2D(0.0f, 8.0f), FVector2D(TrackSize.X, 23.0f), 8);
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeAtlasImage(TEXT("VipCurrentPointMarker"), CommonAtlasPath, VipCurrentPointRect, CommonAtlasSize, FVector2D(58.0f)),
-		CapturePoint(360.0f, 215.0f),
-		FVector2D(58.0f),
-		8);
-	URokUnityIndexedButton* AddPointsButton = MakeActionButton(
-		TEXT("VipAddPoints"),
-		741,
-		CommonAtlasPath,
-		VipAddRect,
-		CommonAtlasSize,
-		FVector2D(50.0f));
-	AddPointsButton->SetIsEnabled(State.Points >= 0);
-	AddPointsButton->SetVisibility(bAtMaxLevel ? ESlateVisibility::Collapsed : ESlateVisibility::Visible);
-	PlaceOnCanvas(
-		ModeCanvas,
-		AddPointsButton,
-		CapturePoint(1007.0f, 220.0f),
-		FVector2D(47.0f),
-		8);
-
-	URokUnityIndexedButton* DailyPointChestButton = MakeActionButton(
-		TEXT("VipDailyPointChest"),
-		740,
-		TreasureBoxAtlasPath,
-		VipDailyPointChestRect,
-		TreasureBoxAtlasSize,
-		FVector2D(116.0f, 94.0f));
-	DailyPointChestButton->SetRenderTransformPivot(FVector2D(0.5f));
-	DailyPointChestButton->SetRenderScale(FVector2D(-1.0f, 1.0f));
-	DailyPointChestButton->SetIsEnabled(bDailyClaimable && !State.bClaimPending);
-	PlaceOnCanvas(
-		ModeCanvas,
-		DailyPointChestButton,
-		CapturePoint(1099.0f, 181.0f),
-		FVector2D(116.0f, 94.0f),
-		7);
-	if (bDailyClaimable)
-	{
-		PlaceOnCanvas(
-			ModeCanvas,
-			MakeAtlasImage(TEXT("VipDailyPointRedPoint"), CommonAtlasPath, RedPointRect, CommonAtlasSize, FVector2D(18.0f)),
-			CapturePoint(1165.0f, 202.0f),
-			FVector2D(18.0f),
-			9);
-	}
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeSolidBorder(TEXT("VipDailyPointLabelShade"), FLinearColor(0.08f, 0.08f, 0.08f, 0.82f)),
-		CapturePoint(1095.0f, 255.0f),
-		FVector2D(100.0f, 25.0f),
-		7);
-	UTextBlock* DailyPointLabel = MakeScreenText(TEXT("VipDailyPointLabel"), 14, FLinearColor::White, false, ETextJustify::Center);
-	DailyPointLabel->SetText(State.DailyClaimed.IsSet()
-		? (bDailyClaimable ? NSLOCTEXT("RokVip", "Available", "可领取") : NSLOCTEXT("RokVip", "Claimed", "已领取"))
-		: NSLOCTEXT("RokVip", "AwaitingLogin", "待登录同步"));
-	PlaceOnCanvas(ModeCanvas, DailyPointLabel, CapturePoint(1095.0f, 255.0f), FVector2D(100.0f, 25.0f), 8);
-
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeSolidBorder(TEXT("VipMainPanel"), FLinearColor(0.075f, 0.075f, 0.075f, 0.98f)),
-		CapturePoint(235.0f, 316.0f),
-		FVector2D(973.0f, 419.0f),
-		3);
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeAtlasBorder(TEXT("VipMainPanelFrame"), CommonAtlasPath, TaskRowRect, CommonAtlasSize, FVector2D(973.0f, 419.0f), TaskRowMargin),
-		CapturePoint(235.0f, 316.0f),
-		FVector2D(973.0f, 419.0f),
-		4);
-
-	UTextBlock* BenefitTitle = MakeScreenText(TEXT("VipBenefitTitle"), 17, FLinearColor::White, false, ETextJustify::Center);
-	BenefitTitle->SetText(FText::Format(NSLOCTEXT("RokVip", "BenefitTitleFormat", "VIP {0}专属增益"), FText::AsNumber(PreviewLevel)));
-	PlaceOnCanvas(ModeCanvas, BenefitTitle, CapturePoint(267.0f, 337.0f), FVector2D(447.0f, 32.0f), 6);
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeSolidBorder(TEXT("VipBenefitsPanel"), FLinearColor(0.018f, 0.018f, 0.018f, 1.0f)),
-		CapturePoint(267.0f, 379.0f),
-		FVector2D(447.0f, 321.0f),
-		5);
-
-	UScrollBox* BenefitsScroll = WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("VipBenefitsScroll"));
-	BenefitsScroll->SetOrientation(Orient_Vertical);
-	BenefitsScroll->SetConsumeMouseWheel(EConsumeMouseWheel::Always);
-	BenefitsScroll->SetScrollBarVisibility(ESlateVisibility::Visible);
-	PlaceOnCanvas(ModeCanvas, BenefitsScroll, CapturePoint(283.0f, 396.0f), FVector2D(420.0f, 292.0f), 7);
-
-	for (int32 Index = 0; Index < VipAttributes.Num(); ++Index)
-	{
-		const FRokUnityCatalogVipAttribute& Attribute = VipAttributes[Index];
-		UCanvasPanel* Row = WidgetTree->ConstructWidget<UCanvasPanel>(
-			UCanvasPanel::StaticClass(),
-			*FString::Printf(TEXT("VipBenefitRow_%d"), Index));
-		USizeBox* RowSize = WrapFixedSize(
-			Row,
-			*FString::Printf(TEXT("VipBenefitRowSize_%d"), Index),
-			FVector2D(410.0f, 50.0f));
-		BenefitsScroll->AddChild(RowSize);
-
-		float TextX = 8.0f;
-		if (Attribute.bNew)
-		{
-			PlaceOnCanvas(
-				Row,
-				MakeAtlasImage(*FString::Printf(TEXT("VipBenefitNew_%d"), Index), CommonAtlasPath, NewRect, CommonAtlasSize, FVector2D(43.0f, 45.0f)),
-				FVector2D(0.0f, -2.0f),
-				FVector2D(43.0f, 45.0f),
-				1);
-			UTextBlock* NewLabel = MakeScreenText(*FString::Printf(TEXT("VipBenefitNewLabel_%d"), Index), 14, FLinearColor::White, true, ETextJustify::Center);
-			NewLabel->SetText(NSLOCTEXT("RokVip", "New", "新"));
-			PlaceOnCanvas(Row, NewLabel, FVector2D(4.0f, 7.0f), FVector2D(34.0f, 24.0f), 2);
-			TextX = 53.0f;
-		}
-
-		UTextBlock* Benefit = MakeScreenText(*FString::Printf(TEXT("VipBenefit_%d"), Index), 17, FLinearColor(0.93f, 0.93f, 0.91f, 1.0f));
-		Benefit->SetText(FText::FromString(Attribute.DisplayTextZhCn));
-		PlaceOnCanvas(Row, Benefit, FVector2D(TextX, 6.0f), FVector2D(354.0f - TextX, 31.0f), 2);
-	}
-
-	UTextBlock* ChestTitle = MakeScreenText(TEXT("VipChestTitle"), 17, FLinearColor::White, false, ETextJustify::Center);
-	ChestTitle->SetText(FText::Format(NSLOCTEXT("RokVip", "ChestTitleFormat", "VIP {0}专属宝箱"), FText::AsNumber(PreviewLevel)));
-	PlaceOnCanvas(ModeCanvas, ChestTitle, CapturePoint(730.0f, 337.0f), FVector2D(440.0f, 32.0f), 6);
-
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeSolidBorder(TEXT("VipFreeChestPanel"), FLinearColor(0.018f, 0.018f, 0.018f, 1.0f)),
-		CapturePoint(730.0f, 379.0f),
-		FVector2D(440.0f, 155.0f),
-		5);
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeAtlasImage(TEXT("VipDailyFreeTitle"), VipPlayerAtlasPath, VipDailyTitleRect, VipPlayerAtlasSize, FVector2D(454.0f, 75.0f)),
-		CapturePoint(722.0f, 359.0f),
-		FVector2D(454.0f, 75.0f),
-		7);
-	UTextBlock* DailyFreeText = MakeScreenText(TEXT("VipDailyFreeText"), 17, FLinearColor::White, false, ETextJustify::Center);
-	DailyFreeText->SetText(NSLOCTEXT("RokVip", "DailyFree", "每日免费"));
-	PlaceOnCanvas(ModeCanvas, DailyFreeText, CapturePoint(722.0f, 375.0f), FVector2D(454.0f, 30.0f), 8);
-	UImage* FreeChest = MakeAtlasImage(TEXT("VipFreeChest"), TreasureBoxAtlasPath, VipFreeChestRect, TreasureBoxAtlasSize, FVector2D(92.0f, 110.0f));
-	FreeChest->SetRenderTransformPivot(FVector2D(0.5f));
-	FreeChest->SetRenderTransformAngle(90.0f);
-	PlaceOnCanvas(ModeCanvas, FreeChest, CapturePoint(747.0f, 420.0f), FVector2D(92.0f, 115.0f), 7);
-	URokUnityIndexedButton* FreeChestHitButton = MakeActionButton(
-		TEXT("VipFreeChestHit"),
-		743,
-		nullptr,
-		FIntRect(),
-		FIntPoint::ZeroValue,
-		FVector2D(109.2f, 77.3f));
-	FreeChestHitButton->SetIsEnabled(bFreeChestClaimable && !State.bClaimPending);
-	PlaceOnCanvas(
-		ModeCanvas,
-		FreeChestHitButton,
-		CapturePoint(738.5f, 430.0f),
-		FVector2D(109.2f, 77.3f),
-		9);
-	URokUnityIndexedButton* ClaimFreeChestButton = MakeActionButton(
-		TEXT("VipClaimFreeChest"),
-		743,
-		CommonAtlasPath,
-		bFreeChestClaimable ? MiniGreenButtonRect : MiniBlueButtonRect,
-		CommonAtlasSize,
-		FVector2D(138.0f, 54.0f),
-		bFreeChestClaimable
-			? NSLOCTEXT("RokVip", "Claim", "领取")
-			: !State.FreeChestClaimed.IsSet() ? NSLOCTEXT("RokVip", "ClaimRequiresLogin", "需登录")
-			: State.CurrentLevel != PreviewLevel ? NSLOCTEXT("RokVip", "ClaimRequiresLevel", "当前等级专享")
-			: NSLOCTEXT("RokVip", "Claimed", "已领取"),
-		17,
-		FLinearColor::White,
-		ESlateBrushDrawType::Box,
-		bFreeChestClaimable ? MiniGreenMargin : MiniBlueMargin);
-	ClaimFreeChestButton->SetIsEnabled(bFreeChestClaimable && !State.bClaimPending);
-	PlaceOnCanvas(
-		ModeCanvas,
-		ClaimFreeChestButton,
-		CapturePoint(915.0f, 447.0f),
-		FVector2D(135.0f, 50.5f),
-		9);
-	if (bFreeChestClaimable)
-	{
-		PlaceOnCanvas(
-			ModeCanvas,
-			MakeAtlasImage(TEXT("VipFreeChestRedPoint"), CommonAtlasPath, RedPointRect, CommonAtlasSize, FVector2D(18.0f)),
-			CapturePoint(1036.0f, 440.0f),
-			FVector2D(18.0f),
-			10);
-	}
-
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeSolidBorder(TEXT("VipSpecialChestPanel"), FLinearColor(0.018f, 0.018f, 0.018f, 1.0f)),
-		CapturePoint(730.0f, 545.0f),
-		FVector2D(440.0f, 155.0f),
-		5);
-	PlaceOnCanvas(
-		ModeCanvas,
-		MakeAtlasImage(TEXT("VipSpecialTitle"), VipPlayerAtlasPath, VipSpecialTitleRect, VipPlayerAtlasSize, FVector2D(454.0f, 75.0f)),
-		CapturePoint(722.0f, 524.0f),
-		FVector2D(454.0f, 75.0f),
-		7);
-	UTextBlock* SpecialText = MakeScreenText(TEXT("VipSpecialText"), 17, FLinearColor::White, false, ETextJustify::Center);
-	SpecialText->SetText(NSLOCTEXT("RokVip", "SpecialPrivilege", "特别尊享"));
-	PlaceOnCanvas(ModeCanvas, SpecialText, CapturePoint(722.0f, 542.0f), FVector2D(454.0f, 30.0f), 8);
-	UImage* SpecialChest = MakeAtlasImage(TEXT("VipSpecialChest"), TreasureBoxAtlasPath, VipSpecialChestRect, TreasureBoxAtlasSize, FVector2D(94.0f, 112.0f));
-	SpecialChest->SetRenderTransformPivot(FVector2D(0.5f));
-	SpecialChest->SetRenderTransformAngle(90.0f);
-	PlaceOnCanvas(ModeCanvas, SpecialChest, CapturePoint(748.0f, 591.0f), FVector2D(94.0f, 112.0f), 7);
-	URokUnityIndexedButton* SpecialChestHitButton = MakeActionButton(
-		TEXT("VipSpecialChestHit"),
-		744,
-		nullptr,
-		FIntRect(),
-		FIntPoint::ZeroValue,
-		FVector2D(109.2f, 77.3f));
-	const bool bCanPreviewPurchase = State.Points >= 0 && CurrentVipLevel >= PreviewLevel
-		&& !bSpecialChestPurchased && !VipLevelConfig.PriceDisplay.IsEmpty();
-	SpecialChestHitButton->SetIsEnabled(bCanPreviewPurchase);
-	PlaceOnCanvas(
-		ModeCanvas,
-		SpecialChestHitButton,
-		CapturePoint(740.0f, 604.0f),
-		FVector2D(109.2f, 77.3f),
-		9);
-	URokUnityIndexedButton* BuySpecialChestButton = MakeActionButton(
-		TEXT("VipBuySpecialChest"),
-		744,
-		CommonAtlasPath,
-		MediumGoldButtonRect,
-		CommonAtlasSize,
-		FVector2D(138.0f, 58.0f),
-		bSpecialChestPurchased ? NSLOCTEXT("RokVip", "Purchased", "已购买")
-			: State.Points >= 0 ? FText::FromString(VipLevelConfig.PriceDisplay)
-			: NSLOCTEXT("RokVip", "PurchaseRequiresLogin", "需登录"),
-		17,
-		FLinearColor::White,
-		ESlateBrushDrawType::Box,
-		FMargin(0.30f, 0.0f, 0.30f, 0.0f));
-	BuySpecialChestButton->SetIsEnabled(bCanPreviewPurchase);
-	PlaceOnCanvas(
-		ModeCanvas,
-		BuySpecialChestButton,
-		CapturePoint(915.0f, 619.0f),
-		FVector2D(135.0f, 46.0f),
-		9);
-
-	if (PreviewLevel > 0)
-	{
-		URokUnityIndexedButton* Previous = MakeActionButton(TEXT("VipPreviousPage"), 700, CommonAtlasPath, VipPageArrowRect, CommonAtlasSize, FVector2D(110.0f, 276.0f));
-		Previous->SetRenderTransformPivot(FVector2D(0.5f));
-		Previous->SetRenderScale(FVector2D(-1.0f, 1.0f));
-		PlaceOnCanvas(ModeCanvas, Previous, CapturePoint(130.0f, 386.0f), FVector2D(110.0f, 276.0f), 9);
-	}
-	if (PreviewLevel + 1 < VipLevelCount)
-	{
-		PlaceOnCanvas(
-			ModeCanvas,
-			MakeActionButton(TEXT("VipNextPage"), 701, CommonAtlasPath, VipPageArrowRect, CommonAtlasSize, FVector2D(110.0f, 276.0f)),
-			CapturePoint(1203.0f, 386.0f),
-			FVector2D(110.0f, 276.0f),
-			9);
-	}
-
-	if (bVipTestFixtureState)
-	{
-		// VIP points, streaks and chest flags are server role state; the
-		// fixture preview must stay explicitly labeled, not read as account data.
-		UTextBlock* VipFixtureTag = MakeScreenText(TEXT("VipFixtureTag"), 15, FLinearColor(0.62f, 0.62f, 0.58f, 1.0f), false);
-		VipFixtureTag->SetText(NSLOCTEXT("RokVip", "FixtureTag", "VIP · 本地参考态（非账号状态）"));
-		PlaceOnCanvas(ModeCanvas, VipFixtureTag, CapturePoint(220.0f, 745.0f), FVector2D(420.0f, 26.0f), 6);
-	}
-
-	if (bVipDailyPointHelpVisible)
-	{
-		BuildVipDailyPointHelpTip();
-	}
-
-	UE_LOG(
-		LogTemp,
-		Display,
-		TEXT("Rok VIP screen: account_level=%s current_level=%d preview_level=%d fixture=%d session_state=%d authority=%s."),
-		bHasAccountVipLevel ? TEXT("known") : TEXT("unknown"),
-		bHasAccountVipLevel ? CurrentVipLevel : INDEX_NONE,
-		PreviewLevel,
-		bVipTestFixtureState ? 1 : 0,
-		State.Points >= 0 ? 1 : 0,
-		bVipTestFixtureState ? TEXT("local_fixture") : TEXT("server"));
-}
+#include "RokFeatureVip.inl"
 
 void URokUnityFeatureScreenWidget::RefreshVipPresentation()
 {
@@ -15490,80 +14037,6 @@ void URokUnityFeatureScreenWidget::RequestVipClaim(bool bFreeChest)
 	ShowBoundaryFeedback(Error.IsEmpty()
 		? NSLOCTEXT("RokVip", "ClaimRequiresServer", "请登录后领取 VIP 奖励。")
 		: FText::FromString(Error));
-}
-
-void URokUnityFeatureScreenWidget::BuildVipDailyPointHelpTip()
-{
-	if (!ModeCanvas || !bVipDailyPointHelpVisible)
-	{
-		return;
-	}
-	FText HelpText;
-	const URokUnityGameplayCatalogSubsystem* Catalog = GetGameplayCatalogSubsystem();
-	if (!Catalog || !Catalog->GetVipDailyPointHelpText(HelpText))
-	{
-		bVipDailyPointHelpVisible = false;
-		return;
-	}
-
-	VipDailyPointHelpTipRoot = WidgetTree->ConstructWidget<UCanvasPanel>(
-		UCanvasPanel::StaticClass(), TEXT("VipDailyPointHelpTipRoot"));
-	VipDailyPointHelpTipRoot->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-	PlaceOnCanvas(ModeCanvas, VipDailyPointHelpTipRoot, FVector2D::ZeroVector,
-		CurrentExpandedDesignSize, 100);
-
-	const FVector2D Anchor = CapturePoint(385.0f, 195.0f);
-	UTextBlock* Body = MakeScreenText(TEXT("VipDailyPointHelpTipText"), 14,
-		FLinearColor(0.13725491f, 0.13725491f, 0.1254902f, 1.0f), false, ETextJustify::Right);
-	Body->SetFont(FCoreStyle::GetDefaultFontStyle(TEXT("Regular"), 18.0f * 72.0f / 96.0f));
-	Body->SetShadowOffset(FVector2D::ZeroVector);
-	Body->SetText(HelpText);
-	Body->SetAutoWrapText(false);
-	// Keep the newly built Slate widget alive until it is placed on the canvas.
-	const TSharedRef<SWidget> BodySlate = Body->TakeWidget();
-	Body->ForceLayoutPrepass();
-	const float NaturalBodyWidth = BodySlate->GetDesiredSize().X;
-	if (!FMath::IsFinite(NaturalBodyWidth) || NaturalBodyWidth <= 0.0f)
-	{
-		UE_LOG(LogTemp, Error, TEXT("Rok VIP daily point tip text Slate width is invalid."));
-		return;
-	}
-	const float BodyWidth = FMath::Min(550.0f, NaturalBodyWidth);
-	Body->SetWrapTextAt(BodyWidth);
-	Body->SetAutoWrapText(true);
-	Body->SetClipping(EWidgetClipping::ClipToBounds);
-	Body->ForceLayoutPrepass();
-	const float WrappedBodyHeight = BodySlate->GetDesiredSize().Y;
-	if (!FMath::IsFinite(WrappedBodyHeight) || WrappedBodyHeight <= 0.0f)
-	{
-		UE_LOG(LogTemp, Error, TEXT("Rok VIP daily point tip wrapped Slate height is invalid."));
-		return;
-	}
-	const float TipWidth = BodyWidth + 40.0f; // Unity frame adds 40px to text width.
-	const float TipHeight = FMath::Max(80.0f, WrappedBodyHeight + 40.0f);
-	const FVector2D TipSize(TipWidth, TipHeight);
-	const float Left = FMath::Clamp(Anchor.X - TipSize.X * 0.5f,
-		0.0f, FMath::Max(0.0f, CurrentExpandedDesignSize.X - TipSize.X));
-	// Unity arrowUp places the arrow on the upper edge, with the body below its anchor.
-	const float Top = FMath::Min(CurrentExpandedDesignSize.Y - TipHeight - 8.0f, Anchor.Y + 12.0f);
-	const FVector2D Position(Left, FMath::Max(8.0f, Top));
-
-	// Transparent hit surface keeps a click on the tip itself from dismissing it.
-	PlaceOnCanvas(VipDailyPointHelpTipRoot, MakeActionButton(
-		TEXT("VipDailyPointHelpTipBodyHit"), 745, nullptr, FIntRect(), FIntPoint(1, 1), TipSize),
-		Position, TipSize, 1);
-	PlaceOnCanvas(VipDailyPointHelpTipRoot, MakeAtlasBorder(
-		TEXT("VipDailyPointHelpTipBackground"), CommonAtlasPath,
-		SpriteRect(774, 276, 72, 72), CommonAtlasSize, TipSize,
-		FMargin(21.0f / 72, 23.0f / 72, 21.0f / 72, 24.0f / 72)), Position, TipSize, 2);
-	PlaceOnCanvas(VipDailyPointHelpTipRoot, Body, Position + FVector2D(20.0f, 20.0f),
-		FVector2D(BodyWidth, TipHeight - 40.0f), 3);
-	UImage* Arrow = MakeAtlasImage(TEXT("VipDailyPointHelpTipArrow"), CommonAtlasPath,
-		SpriteRect(120, 137, 15, 12), CommonAtlasSize, FVector2D(15.0f, 12.0f));
-	Arrow->SetRenderTransformAngle(180.0f); // UI_Pop_TextTip img_arrowSideTop.
-	PlaceOnCanvas(VipDailyPointHelpTipRoot, Arrow,
-		Position + FVector2D(Anchor.X - Left - 7.5f, -10.6f),
-		FVector2D(15.0f, 12.0f), 4);
 }
 
 void URokUnityFeatureScreenWidget::BuildAlliance()
@@ -15635,6 +14108,14 @@ void URokUnityFeatureScreenWidget::BuildAlliance()
 
 void URokUnityFeatureScreenWidget::BuildAllianceWelcome()
 {
+	if (const URokUiPageWidget* Page = MountModePage(TEXT("AllianceWelcome")))
+	{
+		BindPageAction(*Page, TEXT("AllianceWelcomeJoin"), 600);
+		BindPageAction(*Page, TEXT("AllianceWelcomeCreate"), 601);
+		BindPageAction(*Page, TEXT("AllianceTechnologyReferenceOpen"), 636);
+		BindPageAction(*Page, TEXT("AllianceOfficeReferenceOpen"), 633);
+		return;
+	}
 	BuildSplitWindowFrame(CapturePoint(170.0f, 73.0f), FVector2D(1100.0f, 754.0f), NSLOCTEXT("RokAlliance", "Title", "联盟"), CapturePoint(1230.0f, 77.0f));
 	PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("AllianceWelcomeShade"), FLinearColor(0.065f, 0.065f, 0.065f, 0.98f)), CapturePoint(184.0f, 153.0f), FVector2D(1072.0f, 664.0f), 2);
 	PlaceOnCanvas(ModeCanvas, MakeAtlasImage(TEXT("AllianceWelcomeBanner"), AllianceAtlasPath, AllianceJoinBannerRect, AllianceAtlasSize, FVector2D(1016.0f, 312.0f)), CapturePoint(212.0f, 164.0f), FVector2D(1016.0f, 312.0f), 4);
@@ -15686,6 +14167,114 @@ void URokUnityFeatureScreenWidget::BuildAllianceWelcome()
 
 void URokUnityFeatureScreenWidget::BuildAllianceJoinList()
 {
+	static const TCHAR* AllianceNames[] = {TEXT("[SNOW] 雪原同盟"), TEXT("[ROK] 王国远征军"), TEXT("[CN1] 九州盟约"), TEXT("[SUN] 日曜骑士团"), TEXT("[WLD] 世界之巅")};
+	static const TCHAR* AllianceLeaders[] = {TEXT("snow"), TEXT("远征者"), TEXT("九州牧"), TEXT("Sunrise"), TEXT("WorldKing")};
+	static const TCHAR* AlliancePower[] = {TEXT("6,100"), TEXT("25,730"), TEXT("18,420"), TEXT("13,880"), TEXT("9,650")};
+	static const TCHAR* AllianceMembers[] = {TEXT("1/50"), TEXT("42/50"), TEXT("35/50"), TEXT("27/50"), TEXT("19/50")};
+	const FString& SearchKey = AllianceFixtureSearchQuery;
+	if (bAllianceTestFixtureState)
+	{
+		VisibleAllianceFixtureIndices.Reset();
+		if (SearchKey.IsEmpty() || SearchKey.Len() >= 3)
+		{
+			for (int32 Index = 0; Index < UE_ARRAY_COUNT(AllianceNames); ++Index)
+			{
+				// Case-insensitive matching is a local fixture rule, not a verified server query rule.
+				if (SearchKey.IsEmpty() || FString(AllianceNames[Index]).Contains(SearchKey, ESearchCase::IgnoreCase))
+				{
+					VisibleAllianceFixtureIndices.Add(Index);
+				}
+			}
+		}
+		if (!VisibleAllianceFixtureIndices.Contains(SelectedAllianceListIndex))
+		{
+			SelectedAllianceListIndex = VisibleAllianceFixtureIndices.IsEmpty()
+				? INDEX_NONE : VisibleAllianceFixtureIndices[0];
+		}
+	}
+
+	const auto FormatStats = [](int32 Index)
+	{
+		return FText::FromString(FString::Printf(TEXT("战力 %s    成员 %s    中文"), AlliancePower[Index], AllianceMembers[Index]));
+	};
+	const auto FormatDetailLeader = [](int32 Index)
+	{
+		return FText::FromString(FString::Printf(TEXT("盟主：%s\n战力：%s\n成员：%s"),
+			AllianceLeaders[Index], AlliancePower[Index], AllianceMembers[Index]));
+	};
+	const auto FormatJoinType = [](int32 Index)
+	{
+		return Index == 0 ? NSLOCTEXT("RokAlliance", "DirectJoin", "任何人均可加入")
+			: NSLOCTEXT("RokAlliance", "ApplyJoin", "申请加入");
+	};
+	const auto FormatConfirm = [](int32 Index)
+	{
+		return Index == 0 ? NSLOCTEXT("RokAlliance", "JoinNow", "加入") : NSLOCTEXT("RokAlliance", "ApplyNow", "申请加入");
+	};
+	const auto FormatFixtureEmpty = [&SearchKey]()
+	{
+		return SearchKey.Len() < 3
+			? NSLOCTEXT("RokAlliance", "FixtureSearchMinimum", "本地参考搜索请至少输入3个字符。")
+			: NSLOCTEXT("RokAlliance", "FixtureSearchNoMatch", "本地参考列表没有匹配的联盟。");
+	};
+
+	UClass* RowClass = ResolveFeaturePageClass(TEXT("AllianceJoinRow"));
+	UClass* SelectedRowClass = ResolveFeaturePageClass(TEXT("AllianceJoinRowSelected"));
+	if (const URokUiPageWidget* Page = RowClass && SelectedRowClass ? MountModePage(TEXT("AllianceJoin")) : nullptr)
+	{
+		BindPageAction(*Page, TEXT("AllianceSearch"), 624);
+		BindPageAction(*Page, TEXT("AllianceJoinBack"), 621);
+		const bool bFixture = bAllianceTestFixtureState;
+		Page->SetPresent(Page->Get<UTextBlock>(TEXT("AllianceJoinEmptyState")), !bFixture);
+		Page->SetPresent(Page->Get<UTextBlock>(TEXT("AllianceJoinServiceState")), !bFixture);
+		Page->SetPresent(Page->Get<UTextBlock>(TEXT("AllianceJoinFixtureTag")), bFixture);
+		Page->SetPresent(Page->Get<UBorder>(TEXT("AllianceJoinDetailBg")), bFixture);
+		const bool bHasSelection = bFixture && SelectedAllianceListIndex != INDEX_NONE;
+		for (const FName WidgetName : {FName(TEXT("AllianceJoinDetailFlag")), FName(TEXT("AllianceJoinDetailName")),
+			FName(TEXT("AllianceJoinDetailLeader")), FName(TEXT("AllianceJoinNotice")), FName(TEXT("AllianceJoinConfirm"))})
+		{
+			Page->SetPresent(Page->Get<UWidget>(WidgetName), bHasSelection);
+		}
+		Page->SetPresent(Page->Get<UTextBlock>(TEXT("AllianceJoinDetailEmpty")), bFixture && !bHasSelection);
+		Page->SetPresent(Page->Get<UTextBlock>(TEXT("AllianceJoinFixtureEmpty")),
+			bFixture && VisibleAllianceFixtureIndices.IsEmpty());
+		if (!bFixture)
+		{
+			return;
+		}
+
+		if (UEditableTextBox* Input = Page->Get<UEditableTextBox>(TEXT("AllianceSearchInput")))
+		{
+			Input->SetText(FText::FromString(AllianceFixtureSearchInput));
+		}
+		for (int32 SlotIndex = 0; SlotIndex < VisibleAllianceFixtureIndices.Num(); ++SlotIndex)
+		{
+			const int32 Index = VisibleAllianceFixtureIndices[SlotIndex];
+			UCanvasPanel* RowSlot = Page->Get<UCanvasPanel>(*FString::Printf(TEXT("AllianceJoinRowSlot_%d"), SlotIndex));
+			UClass* StyleClass = Index == SelectedAllianceListIndex ? SelectedRowClass : RowClass;
+			if (const URokUiPageWidget* Row = MountPageItem(RowSlot, StyleClass, TEXT("AllianceJoin"), Index))
+			{
+				SetFeaturePageText(*Row, TEXT("Name"), FText::FromString(AllianceNames[Index]));
+				SetFeaturePageText(*Row, TEXT("Stats"), FormatStats(Index));
+				SetFeaturePageText(*Row, TEXT("Type"), FormatJoinType(Index));
+				BindPageAction(*Row, TEXT("RowHit"), 610 + Index);
+			}
+		}
+		if (bHasSelection)
+		{
+			const int32 Index = SelectedAllianceListIndex;
+			SetFeaturePageText(*Page, TEXT("AllianceJoinDetailName"), FText::FromString(AllianceNames[Index]));
+			SetFeaturePageText(*Page, TEXT("AllianceJoinDetailLeader"), FormatDetailLeader(Index));
+			SetFeaturePageText(*Page, TEXT("AllianceJoinConfirmLabel"), FormatConfirm(Index));
+			BindPageAction(*Page, TEXT("AllianceJoinConfirm"), 620);
+		}
+		else
+		{
+			SetFeaturePageText(*Page, TEXT("AllianceJoinFixtureEmpty"), FormatFixtureEmpty());
+		}
+		return;
+	}
+
 	BuildSplitWindowFrame(CapturePoint(146.0f, 73.0f), FVector2D(1148.0f, 754.0f), NSLOCTEXT("RokAlliance", "JoinAllianceTitle", "加入联盟"), CapturePoint(1230.0f, 77.0f));
 	PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("AllianceJoinShade"), FLinearColor(0.065f, 0.065f, 0.065f, 0.98f)), CapturePoint(176.0f, 151.0f), FVector2D(1088.0f, 664.0f), 2);
 
@@ -15775,40 +14364,16 @@ void URokUnityFeatureScreenWidget::BuildAllianceJoinList()
 		return;
 	}
 
-	static const TCHAR* AllianceNames[] = {TEXT("[SNOW] 雪原同盟"), TEXT("[ROK] 王国远征军"), TEXT("[CN1] 九州盟约"), TEXT("[SUN] 日曜骑士团"), TEXT("[WLD] 世界之巅")};
-	static const TCHAR* AllianceLeaders[] = {TEXT("snow"), TEXT("远征者"), TEXT("九州牧"), TEXT("Sunrise"), TEXT("WorldKing")};
-	static const TCHAR* AlliancePower[] = {TEXT("6,100"), TEXT("25,730"), TEXT("18,420"), TEXT("13,880"), TEXT("9,650")};
-	static const TCHAR* AllianceMembers[] = {TEXT("1/50"), TEXT("42/50"), TEXT("35/50"), TEXT("27/50"), TEXT("19/50")};
 	// Alliance lists are server data; fixture rows must stay explicitly
 	// labeled instead of reading as account/kingdom state.
 	UTextBlock* JoinFixtureTag = MakeScreenText(TEXT("AllianceJoinFixtureTag"), 15, FLinearColor(0.62f, 0.62f, 0.58f, 1.0f), false, ETextJustify::Right);
 	JoinFixtureTag->SetText(NSLOCTEXT("RokAlliance", "JoinFixtureTag", "联盟列表 · 本地参考态（非账号状态）"));
 	PlaceOnCanvas(ModeCanvas, JoinFixtureTag, CapturePoint(760.0f, 742.0f), FVector2D(500.0f, 26.0f), 6);
-	VisibleAllianceFixtureIndices.Reset();
-	const FString& SearchKey = AllianceFixtureSearchQuery;
-	if (SearchKey.IsEmpty() || SearchKey.Len() >= 3)
-	{
-		for (int32 Index = 0; Index < UE_ARRAY_COUNT(AllianceNames); ++Index)
-		{
-			// Case-insensitive matching is a local fixture rule, not a verified server query rule.
-			if (SearchKey.IsEmpty() || FString(AllianceNames[Index]).Contains(SearchKey, ESearchCase::IgnoreCase))
-			{
-				VisibleAllianceFixtureIndices.Add(Index);
-			}
-		}
-	}
-	if (!VisibleAllianceFixtureIndices.Contains(SelectedAllianceListIndex))
-	{
-		SelectedAllianceListIndex = VisibleAllianceFixtureIndices.IsEmpty()
-			? INDEX_NONE : VisibleAllianceFixtureIndices[0];
-	}
 	if (VisibleAllianceFixtureIndices.IsEmpty())
 	{
 		UTextBlock* EmptyList = MakeScreenText(TEXT("AllianceJoinFixtureEmpty"), 20,
 			FLinearColor(0.78f, 0.77f, 0.72f, 1.0f), false, ETextJustify::Center);
-		EmptyList->SetText(SearchKey.Len() < 3
-			? NSLOCTEXT("RokAlliance", "FixtureSearchMinimum", "本地参考搜索请至少输入3个字符。")
-			: NSLOCTEXT("RokAlliance", "FixtureSearchNoMatch", "本地参考列表没有匹配的联盟。"));
+		EmptyList->SetText(FormatFixtureEmpty());
 		PlaceOnCanvas(ModeCanvas, EmptyList, CapturePoint(198.0f, 410.0f), FVector2D(670.0f, 60.0f), 5);
 	}
 	for (int32 VisibleIndex = 0; VisibleIndex < VisibleAllianceFixtureIndices.Num(); ++VisibleIndex)
@@ -15822,10 +14387,10 @@ void URokUnityFeatureScreenWidget::BuildAllianceJoinList()
 		Name->SetText(FText::FromString(AllianceNames[Index]));
 		PlaceOnCanvas(ModeCanvas, Name, CapturePoint(278.0f, Y + 8.0f), FVector2D(320.0f, 30.0f), 6);
 		UTextBlock* Stats = MakeScreenText(*FString::Printf(TEXT("AllianceJoinStats_%d"), Index), 16, bSelected ? FLinearColor(0.25f, 0.22f, 0.16f, 1.0f) : FLinearColor(0.78f, 0.78f, 0.75f, 1.0f), false);
-		Stats->SetText(FText::FromString(FString::Printf(TEXT("战力 %s    成员 %s    中文"), AlliancePower[Index], AllianceMembers[Index])));
+		Stats->SetText(FormatStats(Index));
 		PlaceOnCanvas(ModeCanvas, Stats, CapturePoint(278.0f, Y + 43.0f), FVector2D(430.0f, 28.0f), 6);
 		UTextBlock* JoinType = MakeScreenText(*FString::Printf(TEXT("AllianceJoinType_%d"), Index), 16, bSelected ? FLinearColor(0.25f, 0.22f, 0.16f, 1.0f) : FLinearColor(0.78f, 0.78f, 0.75f, 1.0f), false, ETextJustify::Right);
-		JoinType->SetText(Index == 0 ? NSLOCTEXT("RokAlliance", "DirectJoin", "任何人均可加入") : NSLOCTEXT("RokAlliance", "ApplyJoin", "申请加入"));
+		JoinType->SetText(FormatJoinType(Index));
 		PlaceOnCanvas(ModeCanvas, JoinType, CapturePoint(690.0f, Y + 27.0f), FVector2D(158.0f, 28.0f), 6);
 		PlaceOnCanvas(ModeCanvas, MakeActionButton(*FString::Printf(TEXT("AllianceJoinRowHit_%d"), Index), 610 + Index, nullptr, FIntRect(), FIntPoint::ZeroValue, FVector2D(670.0f, 82.0f)), CapturePoint(198.0f, Y), FVector2D(670.0f, 82.0f), 9);
 	}
@@ -15839,13 +14404,13 @@ void URokUnityFeatureScreenWidget::BuildAllianceJoinList()
 		DetailName->SetText(FText::FromString(AllianceNames[DetailIndex]));
 		PlaceOnCanvas(ModeCanvas, DetailName, CapturePoint(905.0f, 396.0f), FVector2D(316.0f, 38.0f), 6);
 		UTextBlock* DetailLeader = MakeScreenText(TEXT("AllianceJoinDetailLeader"), 18, FLinearColor(0.82f, 0.82f, 0.79f, 1.0f), false, ETextJustify::Center);
-		DetailLeader->SetText(FText::FromString(FString::Printf(TEXT("盟主：%s\n战力：%s\n成员：%s"), AllianceLeaders[DetailIndex], AlliancePower[DetailIndex], AllianceMembers[DetailIndex])));
+		DetailLeader->SetText(FormatDetailLeader(DetailIndex));
 		PlaceOnCanvas(ModeCanvas, DetailLeader, CapturePoint(930.0f, 442.0f), FVector2D(266.0f, 84.0f), 6);
 		UTextBlock* Notice = MakeScreenText(TEXT("AllianceJoinNotice"), 17, FLinearColor(0.90f, 0.90f, 0.87f, 1.0f), false, ETextJustify::Center);
 		Notice->SetText(NSLOCTEXT("RokAlliance", "AllianceNotice", "团结互助，共同建设联盟领土。"));
 		Notice->SetAutoWrapText(true);
 		PlaceOnCanvas(ModeCanvas, Notice, CapturePoint(920.0f, 540.0f), FVector2D(286.0f, 60.0f), 6);
-		PlaceOnCanvas(ModeCanvas, MakeActionButton(TEXT("AllianceJoinConfirm"), 620, CommonAtlasPath, MediumBlueButtonRect, CommonAtlasSize, FVector2D(202.0f, 81.0f), DetailIndex == 0 ? NSLOCTEXT("RokAlliance", "JoinNow", "加入") : NSLOCTEXT("RokAlliance", "ApplyNow", "申请加入"), 26, FLinearColor(0.04f, 0.14f, 0.24f, 1.0f)), CapturePoint(960.0f, 615.0f), FVector2D(202.0f, 81.0f), 7);
+		PlaceOnCanvas(ModeCanvas, MakeActionButton(TEXT("AllianceJoinConfirm"), 620, CommonAtlasPath, MediumBlueButtonRect, CommonAtlasSize, FVector2D(202.0f, 81.0f), FormatConfirm(DetailIndex), 26, FLinearColor(0.04f, 0.14f, 0.24f, 1.0f)), CapturePoint(960.0f, 615.0f), FVector2D(202.0f, 81.0f), 7);
 	}
 	else
 	{
@@ -15857,581 +14422,87 @@ void URokUnityFeatureScreenWidget::BuildAllianceJoinList()
 	PlaceOnCanvas(ModeCanvas, MakeActionButton(TEXT("AllianceJoinBack"), 621, CommonAtlasPath, MiniBlueButtonRect, CommonAtlasSize, FVector2D(138.0f, 54.0f), NSLOCTEXT("RokAlliance", "Back", "返回"), 18, FLinearColor(0.04f, 0.14f, 0.24f, 1.0f), ESlateBrushDrawType::Box, MiniBlueMargin), CapturePoint(208.0f, 735.0f), FVector2D(138.0f, 54.0f), 7);
 }
 
-void URokUnityFeatureScreenWidget::BuildAllianceRankingReference()
-{
-	// The source root is 1440x810. pl_Total/pl_Detail are centered 1074x664
-	// at anchored (0,-18). The six fixed category slots have 340x181 source
-	// RectTransforms with top-left positions derived from their pinned anchors.
-	BuildSplitWindowFrame(FVector2D(146.0f, 28.0f), FVector2D(1148.0f, 754.0f),
-		NSLOCTEXT("RokAllianceRanking", "Title", "联盟排行榜"), FVector2D(1225.0f, 28.0f));
-	PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("AllianceRankingContentShade"),
-		FLinearColor(0.065f, 0.065f, 0.065f, 0.98f)),
-		FVector2D(183.0f, 91.0f), FVector2D(1074.0f, 664.0f), 2);
-	PlaceOnCanvas(ModeCanvas, MakeActionButton(TEXT("AllianceRankingBack"), 19710,
-		CommonAtlasPath, MiniBlueButtonRect, CommonAtlasSize, FVector2D(138.0f, 54.0f),
-		NSLOCTEXT("RokAllianceRanking", "Back", "返回"), 18,
-		FLinearColor(0.04f, 0.14f, 0.24f, 1.0f), ESlateBrushDrawType::Box, MiniBlueMargin),
-		FVector2D(155.0f, 32.0f), FVector2D(138.0f, 54.0f), 8);
+#include "RokFeatureAllianceRanking.inl"
 
-	TArray<FRokLeaderboardRow> Categories;
-	FString LoadError;
-	if (!RokAllianceRankingReadonlyCatalog::Load(Categories, LoadError))
-	{
-		UTextBlock* Unavailable = MakeScreenText(TEXT("AllianceRankingCatalogUnavailable"), 22,
-			FLinearColor(0.88f, 0.84f, 0.76f, 1.0f), false, ETextJustify::Center);
-		Unavailable->SetText(NSLOCTEXT("RokAllianceRanking", "CatalogUnavailable",
-			"排行榜分类暂不可用"));
-		PlaceOnCanvas(ModeCanvas, Unavailable, FVector2D(250.0f, 360.0f),
-			FVector2D(940.0f, 55.0f), 6);
-		UE_LOG(LogTemp, Warning, TEXT("Rok alliance ranking readonly catalog unavailable: %s"), *LoadError);
-		return;
-	}
+#include "RokFeatureAllianceTerritory.inl"
 
-	const FRokLeaderboardRow* Selected = nullptr;
-	for (const FRokLeaderboardRow& Category : Categories)
-	{
-		if (Category.Id == SelectedAllianceRankingCategoryId)
-		{
-			Selected = &Category;
-			break;
-		}
-	}
-	if (Selected)
-	{
-		UTextBlock* CategoryTitle = MakeScreenText(TEXT("AllianceRankingDetailTitle"), 27,
-			FLinearColor(0.95f, 0.89f, 0.67f, 1.0f), true, ETextJustify::Center);
-		CategoryTitle->SetText(FText::FromString(Selected->Name));
-		PlaceOnCanvas(ModeCanvas, CategoryTitle, FVector2D(340.0f, 170.0f),
-			FVector2D(760.0f, 48.0f), 6);
-		PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("AllianceRankingEmptyListPanel"),
-			FLinearColor(0.15f, 0.15f, 0.14f, 0.98f)), FVector2D(192.915f, 227.23f),
-			FVector2D(1054.17f, 531.22f), 3);
-		UTextBlock* EmptyList = MakeScreenText(TEXT("AllianceRankingEmptyList"), 23,
-			FLinearColor(0.87f, 0.85f, 0.79f, 1.0f), false, ETextJustify::Center);
-		EmptyList->SetText(NSLOCTEXT("RokAllianceRanking", "NoRankData", "暂无排名数据"));
-		PlaceOnCanvas(ModeCanvas, EmptyList, FVector2D(520.0f, 393.0f),
-			FVector2D(400.0f, 60.0f), 6);
-		UTextBlock* NoSelf = MakeScreenText(TEXT("AllianceRankingNoSelfData"), 17,
-			FLinearColor(0.73f, 0.73f, 0.70f, 1.0f), false, ETextJustify::Center);
-		NoSelf->SetText(NSLOCTEXT("RokAllianceRanking", "NoSelfData",
-			"当前排名与得分未接入"));
-		PlaceOnCanvas(ModeCanvas, NoSelf, FVector2D(515.0f, 470.0f),
-			FVector2D(410.0f, 34.0f), 6);
-		return;
-	}
+#include "RokFeatureAllianceShop.inl"
 
-	UTextBlock* Boundary = MakeScreenText(TEXT("AllianceRankingOverviewBoundary"), 17,
-		FLinearColor(0.83f, 0.82f, 0.75f, 1.0f), false, ETextJustify::Center);
-	Boundary->SetText(NSLOCTEXT("RokAllianceRanking", "CategoryPreview",
-		"六类排行榜分类预览 · 排名数据未接入"));
-	PlaceOnCanvas(ModeCanvas, Boundary, FVector2D(335.0f, 115.0f),
-		FVector2D(770.0f, 34.0f), 6);
-	// These are the six pinned pl_Total slot rectangles, in local ID order for
-	// the offline preview. Unity assigns server-response entries to slots at
-	// runtime; category-to-slot order is deliberately not claimed as parity.
-	static const FVector2D SourceSlots[] = {
-		FVector2D(200.0f, 141.0f), FVector2D(550.0f, 141.0f),
-		FVector2D(900.0f, 141.0f), FVector2D(200.0f, 385.0f),
-		FVector2D(550.0f, 385.0f), FVector2D(900.0f, 385.0f),
-	};
-	const UTexture2D* IconAtlas = LoadUiTexture(VipPlayerAtlasPath);
-	const bool bIconAtlasReady = IconAtlas && IconAtlas->GetSizeX() == VipPlayerAtlasSize.X
-		&& IconAtlas->GetSizeY() == VipPlayerAtlasSize.Y;
-	for (int32 Index = 0; Index < Categories.Num() && Index < UE_ARRAY_COUNT(SourceSlots); ++Index)
-	{
-		const FRokLeaderboardRow& Category = Categories[Index];
-		const FVector2D Position = FVector2D(SourceSlots[Index].X, SourceSlots[Index].Y);
-		PlaceOnCanvas(ModeCanvas, MakeSolidBorder(
-			*FString::Printf(TEXT("AllianceRankingCategoryPanel_%d"), Category.Id),
-			FLinearColor(0.20f, 0.19f, 0.17f, 0.98f)),
-			Position, FVector2D(340.0f, 181.0f), 3);
-		UTextBlock* Name = MakeScreenText(
-			*FString::Printf(TEXT("AllianceRankingCategoryName_%d"), Category.Id), 22,
-			FLinearColor(0.96f, 0.90f, 0.73f, 1.0f), true);
-		Name->SetText(FText::FromString(Category.Name));
-		PlaceOnCanvas(ModeCanvas, Name, Position + FVector2D(16.0f, 23.0f),
-			FVector2D(164.0f, 43.0f), 5);
-		if (bIconAtlasReady)
-		{
-			PlaceOnCanvas(ModeCanvas, MakeAtlasImage(
-				*FString::Printf(TEXT("AllianceRankingCategoryIcon_%d"), Category.Id),
-				VipPlayerAtlasPath, Category.IconRect, VipPlayerAtlasSize,
-				FVector2D(148.0f, 176.0f)), Position + FVector2D(190.0f, 2.0f),
-				FVector2D(148.0f, 176.0f), 5);
-		}
-		else
-		{
-			UTextBlock* MissingIcon = MakeScreenText(
-				*FString::Printf(TEXT("AllianceRankingIconMissing_%d"), Category.Id), 15,
-				FLinearColor(0.82f, 0.78f, 0.68f, 1.0f), false, ETextJustify::Center);
-			MissingIcon->SetText(NSLOCTEXT("RokAllianceRanking", "IconMissing", "图标未接入"));
-			PlaceOnCanvas(ModeCanvas, MissingIcon, Position + FVector2D(194.0f, 72.0f),
-				FVector2D(135.0f, 30.0f), 5);
-		}
-		UTextBlock* Empty = MakeScreenText(
-			*FString::Printf(TEXT("AllianceRankingCategoryEmpty_%d"), Category.Id), 15,
-			FLinearColor(0.76f, 0.75f, 0.70f, 1.0f), false);
-		Empty->SetText(NSLOCTEXT("RokAllianceRanking", "CategoryEmpty", "暂无排名数据"));
-		PlaceOnCanvas(ModeCanvas, Empty, Position + FVector2D(16.0f, 86.0f),
-			FVector2D(164.0f, 34.0f), 5);
-		PlaceOnCanvas(ModeCanvas, MakeActionButton(
-			*FString::Printf(TEXT("AllianceRankingCategoryHit_%d"), Category.Id),
-			19700 + Index, nullptr, FIntRect(), FIntPoint::ZeroValue,
-			FVector2D(340.0f, 181.0f)), Position, FVector2D(340.0f, 181.0f), 8);
-	}
-}
-
-void URokUnityFeatureScreenWidget::BuildAllianceTerritoryReference()
-{
-	BuildSplitWindowFrame(CapturePoint(146.0f, 73.0f), FVector2D(1148.0f, 754.0f),
-		NSLOCTEXT("RokAllianceTerritory", "ReferenceTitle", "联盟领土静态配置参考"), CapturePoint(1230.0f, 77.0f));
-	PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("AllianceTerritoryReferenceShade"),
-		FLinearColor(0.065f, 0.065f, 0.065f, 0.98f)),
-		CapturePoint(176.0f, 151.0f), FVector2D(1088.0f, 664.0f), 2);
-	UTextBlock* Boundary = MakeScreenText(TEXT("AllianceTerritoryReferenceBoundary"), 16,
-		FLinearColor(0.89f, 0.85f, 0.67f, 1.0f), true);
-	Boundary->SetText(NSLOCTEXT("RokAllianceTerritory", "ReferenceBoundary",
-		"仅显示12种静态配置；联盟实际领土、拥有数量、建筑状态、坐标、产出与权限未同步。"));
-	PlaceOnCanvas(ModeCanvas, Boundary, CapturePoint(198.0f, 156.0f), FVector2D(1025.0f, 34.0f), 5);
-	PlaceOnCanvas(ModeCanvas, MakeActionButton(TEXT("AllianceTerritoryReferenceBack"), 695,
-		CommonAtlasPath, MiniBlueButtonRect, CommonAtlasSize, FVector2D(138.0f, 54.0f),
-		NSLOCTEXT("RokAllianceTerritory", "ReferenceBack", "返回"), 18,
-		FLinearColor(0.04f, 0.14f, 0.24f, 1.0f), ESlateBrushDrawType::Box, MiniBlueMargin),
-		CapturePoint(1090.0f, 738.0f), FVector2D(138.0f, 54.0f), 7);
-	const TArray<RokAllianceTerritoryReadonly::FGroup>& Groups = RokAllianceTerritoryReadonly::GetGroups();
-	const TArray<RokAllianceTerritoryReadonly::FRow>& Rows = RokAllianceTerritoryReadonly::GetRows();
-	if (SelectedAllianceTerritoryType > 0)
-	{
-		const RokAllianceTerritoryReadonly::FRow* Selected = RokAllianceTerritoryReadonly::FindRow(SelectedAllianceTerritoryType);
-		if (Selected)
-		{
-			PlaceOnCanvas(ModeCanvas, MakeActionButton(TEXT("AllianceTerritoryReturnToDefinitions"), 19630,
-				CommonAtlasPath, MiniBlueButtonRect, CommonAtlasSize, FVector2D(164.0f, 54.0f),
-				NSLOCTEXT("RokAllianceTerritory", "ReturnToDefinitions", "返回配置列表"), 18,
-				FLinearColor(0.04f, 0.14f, 0.24f, 1.0f), ESlateBrushDrawType::Box, MiniBlueMargin),
-				CapturePoint(985.0f, 194.0f), FVector2D(164.0f, 54.0f), 7);
-			UScrollBox* DetailScroll = WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("AllianceTerritoryDefinitionDetailScroll"));
-			DetailScroll->SetOrientation(Orient_Vertical);
-			DetailScroll->SetClipping(EWidgetClipping::ClipToBoundsAlways);
-			PlaceOnCanvas(ModeCanvas, DetailScroll, CapturePoint(198.0f, 256.0f), FVector2D(990.0f, 470.0f), 6);
-			USizeBox* DetailExtent = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("AllianceTerritoryDefinitionDetailExtent"));
-			DetailExtent->SetWidthOverride(970.0f);
-			DetailExtent->SetHeightOverride(1050.0f);
-			DetailScroll->AddChild(DetailExtent);
-			UCanvasPanel* DetailCanvas = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("AllianceTerritoryDefinitionDetailCanvas"));
-			DetailExtent->AddChild(DetailCanvas);
-			UTextBlock* DetailName = MakeScreenText(TEXT("AllianceTerritoryDefinitionName"), 24,
-				FLinearColor(0.94f, 0.88f, 0.62f, 1.0f), true);
-			DetailName->SetText(FText::FromString(RokAllianceTerritoryReadonly::GetChineseSourceText(Selected->NameLocalizationId)));
-			PlaceOnCanvas(DetailCanvas, DetailName, FVector2D(12.0f, 4.0f), FVector2D(930.0f, 50.0f), 2);
-			UTextBlock* DetailIconState = MakeScreenText(TEXT("AllianceTerritoryDefinitionIconState"), 17,
-				FLinearColor(0.84f, 0.80f, 0.69f, 1.0f), false);
-			DetailIconState->SetText(Selected->bSourceIconMissing
-				? NSLOCTEXT("RokAllianceTerritory", "DetailMalformedSourceIcon", "源图标缺失")
-				: (Selected->SourceIconReference[0] == 0
-					? NSLOCTEXT("RokAllianceTerritory", "DetailNoSourceIcon", "源未配置图标")
-					: NSLOCTEXT("RokAllianceTerritory", "DetailPhysicalIconPending", "图标未接入")));
-			PlaceOnCanvas(DetailCanvas, DetailIconState, FVector2D(12.0f, 64.0f), FVector2D(930.0f, 40.0f), 2);
-			UTextBlock* DetailDescription = MakeScreenText(TEXT("AllianceTerritoryDefinitionDescription"), 17,
-				FLinearColor(0.86f, 0.84f, 0.78f, 1.0f), false);
-			DetailDescription->SetText(FText::FromString(RokAllianceTerritoryReadonly::GetChineseSourceText(Selected->DescriptionLocalizationId)));
-			DetailDescription->SetAutoWrapText(true);
-			PlaceOnCanvas(DetailCanvas, DetailDescription, FVector2D(12.0f, 124.0f), FVector2D(930.0f, 210.0f), 2);
-			if (Selected->DetailLocalizationId > 0)
-			{
-				UTextBlock* DetailRules = MakeScreenText(TEXT("AllianceTerritoryDefinitionRules"), 16,
-					FLinearColor(0.86f, 0.84f, 0.78f, 1.0f), false);
-				DetailRules->SetText(FText::FromString(RokAllianceTerritoryReadonly::GetChineseSourceText(Selected->DetailLocalizationId)));
-				DetailRules->SetAutoWrapText(true);
-				PlaceOnCanvas(DetailCanvas, DetailRules, FVector2D(12.0f, 354.0f), FVector2D(930.0f, 680.0f), 2);
-			}
-			return;
-		}
-	}
-	float ContentHeight = 0.0f;
-	for (const RokAllianceTerritoryReadonly::FGroup& Group : Groups)
-	{
-		ContentHeight += 86.0f + 10.0f; // Unity GetItemSize header and ListView spacing.
-		if (ExpandedAllianceTerritoryGroup == Group.Index)
-		{
-			ContentHeight += (Group.Index == 3 ? 290.0f : 370.0f) + 10.0f;
-		}
-	}
-	UScrollBox* Scroll = WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("AllianceTerritoryReferenceScroll"));
-	Scroll->SetOrientation(Orient_Vertical);
-	Scroll->SetConsumeMouseWheel(EConsumeMouseWheel::Always);
-	Scroll->SetClipping(EWidgetClipping::ClipToBoundsAlways);
-	PlaceOnCanvas(ModeCanvas, Scroll, CapturePoint(194.0f, 210.0f), FVector2D(1052.0f, 518.0f), 4);
-	USizeBox* Extent = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("AllianceTerritoryReferenceExtent"));
-	Extent->SetWidthOverride(1052.0f);
-	Extent->SetHeightOverride(ContentHeight);
-	Scroll->AddChild(Extent);
-	UCanvasPanel* List = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("AllianceTerritoryReferenceList"));
-	List->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-	Extent->AddChild(List);
-	float Y = 0.0f;
-	for (const RokAllianceTerritoryReadonly::FGroup& Group : Groups)
-	{
-		const bool bExpanded = ExpandedAllianceTerritoryGroup == Group.Index;
-		UCanvasPanel* Header = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(),
-			*FString::Printf(TEXT("AllianceTerritoryGroup_%d"), Group.Index));
-		PlaceOnCanvas(List, Header, FVector2D(0.0f, Y), FVector2D(1052.0f, 86.0f), 1);
-		PlaceOnCanvas(Header, MakeSolidBorder(*FString::Printf(TEXT("AllianceTerritoryGroupBg_%d"), Group.Index),
-			bExpanded ? FLinearColor(0.31f, 0.27f, 0.20f, 0.98f) : FLinearColor(0.19f, 0.19f, 0.18f, 0.98f)),
-			FVector2D::ZeroVector, FVector2D(1052.0f, 86.0f), 1);
-		UTextBlock* Title = MakeScreenText(*FString::Printf(TEXT("AllianceTerritoryGroupTitle_%d"), Group.Index),
-			22, FLinearColor(0.94f, 0.88f, 0.62f, 1.0f), true);
-		Title->SetText(FText::FromString(RokAllianceTerritoryReadonly::GetChineseSourceText(Group.TitleLocalizationId)));
-		PlaceOnCanvas(Header, Title, FVector2D(18.0f, 9.0f), FVector2D(570.0f, 32.0f), 2);
-		UTextBlock* Summary = MakeScreenText(*FString::Printf(TEXT("AllianceTerritoryGroupSummary_%d"), Group.Index),
-			15, FLinearColor(0.84f, 0.84f, 0.80f, 1.0f), false);
-		Summary->SetText(FText::FromString(RokAllianceTerritoryReadonly::GetChineseSourceText(Group.HeaderLocalizationId)));
-		Summary->SetAutoWrapText(true);
-		PlaceOnCanvas(Header, Summary, FVector2D(18.0f, 45.0f), FVector2D(975.0f, 35.0f), 2);
-		UTextBlock* Expand = MakeScreenText(*FString::Printf(TEXT("AllianceTerritoryExpand_%d"), Group.Index),
-			26, FLinearColor(0.94f, 0.88f, 0.62f, 1.0f), true, ETextJustify::Center);
-		Expand->SetText(FText::FromString(bExpanded ? TEXT("−") : TEXT("+")));
-		PlaceOnCanvas(Header, Expand, FVector2D(1000.0f, 22.0f), FVector2D(44.0f, 42.0f), 3);
-		PlaceOnCanvas(Header, MakeActionButton(*FString::Printf(TEXT("AllianceTerritoryGroupHit_%d"), Group.Index),
-			19620 + Group.Index, nullptr, FIntRect(), FIntPoint::ZeroValue, FVector2D(1052.0f, 86.0f)),
-			FVector2D::ZeroVector, FVector2D(1052.0f, 86.0f), 5);
-		Y += 96.0f;
-		if (!bExpanded) continue;
-		const bool bResourceSummary = Group.Index == 3;
-		const float RowHeight = bResourceSummary ? 290.0f : 370.0f;
-		const float RowWidth = bResourceSummary ? 930.0f : 1030.0f;
-		// Unity building row GridLayoutGroup: four 225x300 cells, 10 horizontal spacing.
-		const float SlotWidth = 225.0f;
-		UCanvasPanel* RowPanel = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(),
-			*FString::Printf(TEXT("AllianceTerritoryRow_%d"), Group.Index));
-		PlaceOnCanvas(List, RowPanel, FVector2D(bResourceSummary ? 61.0f : 11.0f, Y),
-			FVector2D(RowWidth, RowHeight), 1);
-		PlaceOnCanvas(RowPanel, MakeSolidBorder(*FString::Printf(TEXT("AllianceTerritoryRowBg_%d"), Group.Index),
-			FLinearColor(0.13f, 0.13f, 0.12f, 0.98f)), FVector2D::ZeroVector,
-			FVector2D(RowWidth, bResourceSummary ? RowHeight : RowHeight - 10.0f), 1);
-		if (bResourceSummary)
-		{
-			// Unity prefab_index=1 is a 930x290 summary row, not building cells.
-			UTextBlock* ConfigText = MakeScreenText(TEXT("AllianceTerritoryResourceDefinitions"), 16,
-				FLinearColor(0.86f, 0.84f, 0.78f, 1.0f), false);
-			ConfigText->SetText(NSLOCTEXT("RokAllianceTerritory", "ResourceDefinitionReference", "静态资源配置定义 · 非实际占领资源点"));
-			PlaceOnCanvas(RowPanel, ConfigText, FVector2D(12.0f, 8.0f), FVector2D(906.0f, 40.0f), 2);
-			int32 ResourceSlotIndex = 0;
-			for (const RokAllianceTerritoryReadonly::FRow& Definition : Rows)
-			{
-				if (Definition.GroupIndex != Group.Index) continue;
-				const FVector2D ResourceSlotPos(ResourceSlotIndex * (SlotWidth + 10.0f), 55.0f);
-				UTextBlock* ResourceName = MakeScreenText(*FString::Printf(TEXT("AllianceTerritoryResourceName_%d"), Definition.UnityType),
-					17, FLinearColor(0.94f, 0.88f, 0.62f, 1.0f), true);
-				ResourceName->SetText(FText::FromString(RokAllianceTerritoryReadonly::GetChineseSourceText(Definition.NameLocalizationId)));
-				ResourceName->SetAutoWrapText(true);
-				PlaceOnCanvas(RowPanel, ResourceName, ResourceSlotPos + FVector2D(9.0f, 12.0f), FVector2D(207.0f, 80.0f), 3);
-				UTextBlock* ResourceIconState = MakeScreenText(*FString::Printf(TEXT("AllianceTerritoryResourceIconState_%d"), Definition.UnityType),
-					14, FLinearColor(0.84f, 0.80f, 0.69f, 1.0f), false);
-				ResourceIconState->SetText(Definition.bSourceIconMissing
-					? NSLOCTEXT("RokAllianceTerritory", "ResourceMalformedSourceIcon", "源图标缺失")
-					: NSLOCTEXT("RokAllianceTerritory", "ResourcePhysicalIconPending", "图标未接入"));
-				PlaceOnCanvas(RowPanel, ResourceIconState, ResourceSlotPos + FVector2D(9.0f, 107.0f), FVector2D(207.0f, 35.0f), 3);
-				PlaceOnCanvas(RowPanel, MakeActionButton(*FString::Printf(TEXT("AllianceTerritorySelect_%d"), Definition.UnityType),
-					19600 + Definition.UnityType, nullptr, FIntRect(), FIntPoint::ZeroValue, FVector2D(SlotWidth, 182.0f)),
-					ResourceSlotPos, FVector2D(SlotWidth, 182.0f), 5);
-				++ResourceSlotIndex;
-			}
-			Y += RowHeight + 10.0f;
-			continue;
-		}
-		int32 SlotIndex = 0;
-		for (const RokAllianceTerritoryReadonly::FRow& Definition : Rows)
-		{
-			if (Definition.GroupIndex != Group.Index) continue;
-			UCanvasPanel* DetailIconSlot = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(),
-				*FString::Printf(TEXT("AllianceTerritorySlot_%d"), Definition.UnityType));
-			PlaceOnCanvas(RowPanel, DetailIconSlot, FVector2D(SlotIndex * (SlotWidth + 10.0f), 0.0f),
-				FVector2D(SlotWidth, 300.0f), 2);
-			PlaceOnCanvas(DetailIconSlot, MakeSolidBorder(*FString::Printf(TEXT("AllianceTerritorySlotBg_%d"), Definition.UnityType),
-				SelectedAllianceTerritoryType == Definition.UnityType
-				? FLinearColor(0.30f, 0.25f, 0.16f, 0.98f) : FLinearColor(0.19f, 0.19f, 0.17f, 0.98f)),
-				FVector2D::ZeroVector, FVector2D(SlotWidth, 300.0f), 1);
-			UTextBlock* Name = MakeScreenText(*FString::Printf(TEXT("AllianceTerritoryName_%d"), Definition.UnityType),
-				18, FLinearColor(0.94f, 0.88f, 0.62f, 1.0f), true);
-			Name->SetText(FText::FromString(RokAllianceTerritoryReadonly::GetChineseSourceText(Definition.NameLocalizationId)));
-			Name->SetAutoWrapText(true);
-			PlaceOnCanvas(DetailIconSlot, Name, FVector2D(10.0f, 12.0f), FVector2D(SlotWidth - 25.0f, 50.0f), 2);
-			UTextBlock* Identity = MakeScreenText(*FString::Printf(TEXT("AllianceTerritoryType_%d"), Definition.UnityType),
-				14, FLinearColor(0.76f, 0.80f, 0.76f, 1.0f), false);
-			Identity->SetText(FText::FromString(FString::Printf(TEXT("配置 type %d"), Definition.UnityType)));
-			PlaceOnCanvas(DetailIconSlot, Identity, FVector2D(10.0f, 70.0f), FVector2D(SlotWidth - 25.0f, 24.0f), 2);
-			UTextBlock* IconState = MakeScreenText(*FString::Printf(TEXT("AllianceTerritoryIconState_%d"), Definition.UnityType),
-				14, FLinearColor(0.79f, 0.74f, 0.65f, 1.0f), false);
-			IconState->SetText(Definition.bSourceIconMissing
-				? NSLOCTEXT("RokAllianceTerritory", "MalformedSourceIcon", "源图标缺失")
-				: (Definition.SourceIconReference[0] == 0
-					? NSLOCTEXT("RokAllianceTerritory", "NoSourceIcon", "源未配置图标")
-					: NSLOCTEXT("RokAllianceTerritory", "PhysicalIconPending", "图标未接入")));
-			PlaceOnCanvas(DetailIconSlot, IconState, FVector2D(10.0f, 102.0f), FVector2D(SlotWidth - 25.0f, 24.0f), 2);
-			UTextBlock* Description = MakeScreenText(*FString::Printf(TEXT("AllianceTerritoryDescription_%d"), Definition.UnityType),
-				14, FLinearColor(0.86f, 0.84f, 0.78f, 1.0f), false);
-			Description->SetText(FText::FromString(RokAllianceTerritoryReadonly::GetChineseSourceText(Definition.DescriptionLocalizationId)));
-			Description->SetAutoWrapText(true);
-			PlaceOnCanvas(DetailIconSlot, Description, FVector2D(10.0f, 139.0f),
-				FVector2D(SlotWidth - 25.0f, RowHeight - 173.0f), 2);
-			PlaceOnCanvas(DetailIconSlot, MakeActionButton(*FString::Printf(TEXT("AllianceTerritorySelect_%d"), Definition.UnityType),
-				19600 + Definition.UnityType, nullptr, FIntRect(), FIntPoint::ZeroValue,
-				FVector2D(SlotWidth, 300.0f)),
-				FVector2D::ZeroVector, FVector2D(SlotWidth, 300.0f), 5);
-			++SlotIndex;
-		}
-		Y += RowHeight + 10.0f;
-	}
-	UTextBlock* Selection = MakeScreenText(TEXT("AllianceTerritoryReferenceSelection"), 15,
-		FLinearColor(0.84f, 0.80f, 0.69f, 1.0f), false);
-	Selection->SetText(SelectedAllianceTerritoryType > 0
-		? FText::FromString(FString::Printf(TEXT("已选静态定义 type %d · 无联盟实际拥有记录"), SelectedAllianceTerritoryType))
-		: NSLOCTEXT("RokAllianceTerritory", "NoSelection", "点击分组展开配置定义；实际领土记录未同步"));
-	PlaceOnCanvas(ModeCanvas, Selection, CapturePoint(198.0f, 744.0f), FVector2D(840.0f, 42.0f), 6);
-}
-
-void URokUnityFeatureScreenWidget::BuildAllianceShopReference()
-{
-	BuildSplitWindowFrame(CapturePoint(146.0f, 73.0f), FVector2D(1148.0f, 754.0f),
-		NSLOCTEXT("RokAllianceShop", "ReferenceTitle", "联盟商店配置参考"), CapturePoint(1230.0f, 77.0f));
-	PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("AllianceShopReferenceShade"),
-		FLinearColor(0.065f, 0.065f, 0.065f, 0.98f)),
-		CapturePoint(176.0f, 151.0f), FVector2D(1088.0f, 664.0f), 2);
-	UTextBlock* Boundary = MakeScreenText(TEXT("AllianceShopReferenceBoundary"), 16,
-		FLinearColor(0.89f, 0.85f, 0.67f, 1.0f), true);
-	Boundary->SetText(NSLOCTEXT("RokAllianceShop", "ReferenceBoundary",
-		"仅显示商品配置定义和配置价；实际库存、积分余额、权限与购买状态均需服务器数据。"));
-	PlaceOnCanvas(ModeCanvas, Boundary, CapturePoint(198.0f, 156.0f), FVector2D(1020.0f, 34.0f), 5);
-	PlaceOnCanvas(ModeCanvas, MakeActionButton(TEXT("AllianceShopReferenceBack"), 690,
-		CommonAtlasPath, MiniBlueButtonRect, CommonAtlasSize, FVector2D(138.0f, 54.0f),
-		NSLOCTEXT("RokAllianceShop", "ReferenceBack", "返回"), 18,
-		FLinearColor(0.04f, 0.14f, 0.24f, 1.0f), ESlateBrushDrawType::Box, MiniBlueMargin),
-		CapturePoint(1090.0f, 738.0f), FVector2D(138.0f, 54.0f), 7);
-	URokUnityGameplayCatalogSubsystem* Catalog = GetGameplayCatalogSubsystem();
-	if (!Catalog || !Catalog->LoadAllianceShopReadonly())
-	{
-		UTextBlock* Missing = MakeScreenText(TEXT("AllianceShopReferenceUnavailable"), 20,
-			FLinearColor(0.88f, 0.82f, 0.70f, 1.0f), false, ETextJustify::Center);
-		Missing->SetText(NSLOCTEXT("RokAllianceShop", "ReferenceUnavailable",
-			"联盟商店静态配置不可用；未读取库存或购买状态"));
-		PlaceOnCanvas(ModeCanvas, Missing, CapturePoint(250.0f, 410.0f), FVector2D(900.0f, 50.0f), 6);
-		return;
-	}
-	const TArray<FRokUnityAllianceShopReadonlyRow>& Rows = Catalog->GetAllianceShopReadonlyRows();
-	const TArray<FRokUnityAllianceShopGroupReadonlyRow>& Groups = Catalog->GetAllianceShopReadonlyGroups();
-	bool bSelectionInGroup = false;
-	for (const FRokUnityAllianceShopReadonlyRow& Row : Rows)
-	{
-		if (Row.Group == SelectedAllianceShopGroup && Row.ItemType == SelectedAllianceShopItemType)
-		{
-			bSelectionInGroup = true;
-			break;
-		}
-	}
-	if (!bSelectionInGroup)
-	{
-		for (const FRokUnityAllianceShopReadonlyRow& Row : Rows)
-		{
-			if (Row.Group == SelectedAllianceShopGroup)
-			{
-				SelectedAllianceShopItemType = Row.ItemType;
-				break;
-			}
-		}
-	}
-	for (const FRokUnityAllianceShopGroupReadonlyRow& Group : Groups)
-	{
-		const bool bSelected = SelectedAllianceShopGroup == Group.Group;
-		PlaceOnCanvas(ModeCanvas, MakeActionButton(
-			*FString::Printf(TEXT("AllianceShopGroup_%d"), Group.Group), 690 + Group.Group,
-			CommonAtlasPath, MiniBlueButtonRect, CommonAtlasSize, FVector2D(164.0f, 48.0f),
-			FText::FromString(Group.Name), 18,
-			bSelected ? FLinearColor(0.18f, 0.13f, 0.05f, 1.0f)
-				: FLinearColor(0.04f, 0.14f, 0.24f, 1.0f),
-			ESlateBrushDrawType::Box, MiniBlueMargin),
-			CapturePoint(196.0f + (Group.Group - 1) * 173.0f, 197.0f),
-			FVector2D(164.0f, 48.0f), 7);
-	}
-	PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("AllianceShopListPanel"),
-		FLinearColor(0.15f, 0.15f, 0.14f, 0.98f)),
-		CapturePoint(194.0f, 262.0f), FVector2D(636.0f, 482.0f), 3);
-	PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("AllianceShopDetailPanel"),
-		FLinearColor(0.20f, 0.19f, 0.17f, 0.98f)),
-		CapturePoint(848.0f, 262.0f), FVector2D(385.0f, 458.0f), 3);
-	const FRokUnityAllianceShopReadonlyRow* Selected = nullptr;
-	int32 VisibleIndex = 0;
-	for (int32 Index = 0; Index < Rows.Num(); ++Index)
-	{
-		const FRokUnityAllianceShopReadonlyRow& Row = Rows[Index];
-		if (Row.Group != SelectedAllianceShopGroup) continue;
-		if (Row.ItemType == SelectedAllianceShopItemType) Selected = &Row;
-		const float Y = 270.0f + VisibleIndex * 52.0f;
-		const bool bSelected = Row.ItemType == SelectedAllianceShopItemType;
-		PlaceOnCanvas(ModeCanvas, MakeSolidBorder(
-			*FString::Printf(TEXT("AllianceShopRow_%d"), Row.ItemType),
-			bSelected ? FLinearColor(0.34f, 0.31f, 0.24f, 0.98f)
-				: FLinearColor(0.19f, 0.18f, 0.16f, 0.98f)),
-			CapturePoint(202.0f, Y), FVector2D(618.0f, 48.0f), 4);
-		const TCHAR* IconPath = Row.IconAtlas == TEXT("item1") ? Item1AtlasPath
-			: Row.IconAtlas == TEXT("item2") ? Item2AtlasPath
-			: Row.IconAtlas == TEXT("item3") ? Item3AtlasPath : Item5AtlasPath;
-		if (const UTexture2D* Texture = LoadObject<UTexture2D>(nullptr, IconPath))
-		{
-			if (Texture->GetSizeX() == Row.AtlasSize.X && Texture->GetSizeY() == Row.AtlasSize.Y)
-			{
-				PlaceOnCanvas(ModeCanvas, MakeAtlasImage(
-					*FString::Printf(TEXT("AllianceShopIcon_%d"), Row.ItemType),
-					IconPath, Row.IconRect, Row.AtlasSize, FVector2D(40.0f)),
-					CapturePoint(209.0f, Y + 4.0f), FVector2D(40.0f), 5);
-			}
-		}
-		UTextBlock* Label = MakeScreenText(
-			*FString::Printf(TEXT("AllianceShopName_%d"), Row.ItemType), 17,
-			FLinearColor(0.91f, 0.85f, 0.67f, 1.0f), true);
-		Label->SetText(FText::FromString(FString::Printf(TEXT("%s · ID %d · 品质 %d"),
-			*Row.Name, Row.ItemType, Row.Quality)));
-		PlaceOnCanvas(ModeCanvas, Label, CapturePoint(261.0f, Y + 9.0f),
-			FVector2D(540.0f, 30.0f), 6);
-		PlaceOnCanvas(ModeCanvas, MakeActionButton(
-			*FString::Printf(TEXT("AllianceShopSelect_%d"), Row.ItemType), 18100 + Index,
-			nullptr, FIntRect(), FIntPoint::ZeroValue, FVector2D(618.0f, 48.0f)),
-			CapturePoint(202.0f, Y), FVector2D(618.0f, 48.0f), 8);
-		++VisibleIndex;
-	}
-	if (!Selected) return;
-	const TCHAR* DetailIconPath = Selected->IconAtlas == TEXT("item1") ? Item1AtlasPath
-		: Selected->IconAtlas == TEXT("item2") ? Item2AtlasPath
-		: Selected->IconAtlas == TEXT("item3") ? Item3AtlasPath : Item5AtlasPath;
-	if (const UTexture2D* Texture = LoadObject<UTexture2D>(nullptr, DetailIconPath))
-	{
-		if (Texture->GetSizeX() == Selected->AtlasSize.X && Texture->GetSizeY() == Selected->AtlasSize.Y)
-		{
-			PlaceOnCanvas(ModeCanvas, MakeAtlasImage(TEXT("AllianceShopDetailQuality"),
-				Item0AtlasPath, ResolveBagQualityRect(Selected->Quality), Item0AtlasSize,
-				FVector2D(100.0f)), CapturePoint(990.0f, 282.0f), FVector2D(100.0f), 5);
-			PlaceOnCanvas(ModeCanvas, MakeAtlasImage(TEXT("AllianceShopDetailIcon"),
-				DetailIconPath, Selected->IconRect, Selected->AtlasSize, FVector2D(88.0f)),
-				CapturePoint(996.0f, 288.0f), FVector2D(88.0f), 6);
-		}
-	}
-	UTextBlock* Name = MakeScreenText(TEXT("AllianceShopDetailName"), 20,
-		FLinearColor(0.93f, 0.87f, 0.64f, 1.0f), true, ETextJustify::Center);
-	Name->SetText(FText::FromString(Selected->Name));
-	PlaceOnCanvas(ModeCanvas, Name, CapturePoint(870.0f, 403.0f), FVector2D(340.0f, 36.0f), 6);
-	UTextBlock* Identity = MakeScreenText(TEXT("AllianceShopDetailIdentity"), 16,
-		FLinearColor(0.82f, 0.82f, 0.77f, 1.0f), false);
-	Identity->SetText(FText::FromString(FString::Printf(TEXT("物品 ID %d · 配置品质 %d"),
-		Selected->ItemType, Selected->Quality)));
-	PlaceOnCanvas(ModeCanvas, Identity, CapturePoint(876.0f, 452.0f), FVector2D(340.0f, 27.0f), 6);
-	UTextBlock* BuyPrice = MakeScreenText(TEXT("AllianceShopDetailBuyConfigPrice"), 16,
-		FLinearColor(0.85f, 0.83f, 0.76f, 1.0f), false);
-	BuyPrice->SetText(FText::FromString(FString::Printf(
-		TEXT("个人积分购买配置价：%d"), Selected->SellingPrice)));
-	PlaceOnCanvas(ModeCanvas, BuyPrice, CapturePoint(876.0f, 500.0f), FVector2D(340.0f, 30.0f), 6);
-	UTextBlock* StockPrice = MakeScreenText(TEXT("AllianceShopDetailStockConfigPrice"), 16,
-		FLinearColor(0.85f, 0.83f, 0.76f, 1.0f), false);
-	StockPrice->SetText(FText::FromString(FString::Printf(
-		TEXT("联盟积分补货配置价：%d"), Selected->StockPrice)));
-	PlaceOnCanvas(ModeCanvas, StockPrice, CapturePoint(876.0f, 540.0f), FVector2D(340.0f, 30.0f), 6);
-	UTextBlock* State = MakeScreenText(TEXT("AllianceShopDetailServerBoundary"), 15,
-		FLinearColor(0.77f, 0.81f, 0.71f, 1.0f), false);
-	State->SetAutoWrapText(true);
-	State->SetText(NSLOCTEXT("RokAllianceShop", "ServerBoundary",
-		"此处不能查询实际库存、积分余额、可购买数量或购买结果。"));
-	PlaceOnCanvas(ModeCanvas, State, CapturePoint(876.0f, 599.0f), FVector2D(340.0f, 74.0f), 6);
-	UE_LOG(LogTemp, Display,
-		TEXT("Rok alliance shop static definitions: group=%d item_type=%d rows=%d authority=local_reference state_unchanged=1."),
-		SelectedAllianceShopGroup, Selected->ItemType, VisibleIndex);
-}
-
-void URokUnityFeatureScreenWidget::BuildAllianceGiftReference()
-{
-	BuildSplitWindowFrame(CapturePoint(146.0f, 73.0f), FVector2D(1148.0f, 754.0f),
-		NSLOCTEXT("RokAllianceGift", "ReferenceTitle", "联盟礼物配置参考"), CapturePoint(1230.0f, 77.0f));
-	PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("AllianceGiftReferenceShade"),
-		FLinearColor(0.065f, 0.065f, 0.065f, 0.98f)),
-		CapturePoint(176.0f, 151.0f), FVector2D(1088.0f, 664.0f), 2);
-	UTextBlock* Boundary = MakeScreenText(TEXT("AllianceGiftReferenceBoundary"), 16,
-		FLinearColor(0.89f, 0.85f, 0.67f, 1.0f), true);
-	Boundary->SetText(NSLOCTEXT("RokAllianceGift", "ReferenceBoundary",
-		"仅显示静态配置定义；当前联盟等级、积分、钥匙、礼物列表和领取状态均需服务器数据。"));
-	PlaceOnCanvas(ModeCanvas, Boundary, CapturePoint(198.0f, 157.0f), FVector2D(1030.0f, 34.0f), 5);
-	PlaceOnCanvas(ModeCanvas, MakeActionButton(TEXT("AllianceGiftReferenceBack"), 686,
-		CommonAtlasPath, MiniBlueButtonRect, CommonAtlasSize, FVector2D(138.0f, 54.0f),
-		NSLOCTEXT("RokAllianceGift", "ReferenceBack", "返回"), 18,
-		FLinearColor(0.04f, 0.14f, 0.24f, 1.0f), ESlateBrushDrawType::Box, MiniBlueMargin),
-		CapturePoint(837.0f, 198.0f), FVector2D(138.0f, 54.0f), 7);
-	URokUnityGameplayCatalogSubsystem* Catalog = GetGameplayCatalogSubsystem();
-	if (!Catalog || !Catalog->LoadAllianceGiftReadonly())
-	{
-		UTextBlock* Missing = MakeScreenText(TEXT("AllianceGiftReferenceUnavailable"), 20,
-			FLinearColor(0.88f, 0.82f, 0.70f, 1.0f), false, ETextJustify::Center);
-		Missing->SetText(NSLOCTEXT("RokAllianceGift", "ReferenceUnavailable",
-			"礼物静态配置不可用；未生成礼物或领取状态"));
-		PlaceOnCanvas(ModeCanvas, Missing, CapturePoint(250.0f, 410.0f), FVector2D(900.0f, 50.0f), 6);
-		return;
-	}
-	const int32 Level = SelectedAllianceGiftConfiguredLevel;
-	const FRokUnityAllianceGiftLevelReadonlyRow* LevelRow =
-		Catalog->FindAllianceGiftLevelReadonly(Level);
-	PlaceOnCanvas(ModeCanvas, MakeActionButton(TEXT("AllianceGiftReferencePrevious"), 687,
-		CommonAtlasPath, MiniBlueButtonRect, CommonAtlasSize, FVector2D(115.0f, 48.0f),
-		NSLOCTEXT("RokAllianceGift", "PreviousLevel", "上一级"), 17,
-		FLinearColor(0.04f, 0.14f, 0.24f, 1.0f), ESlateBrushDrawType::Box, MiniBlueMargin),
-		CapturePoint(198.0f, 200.0f), FVector2D(115.0f, 48.0f), 7);
-	PlaceOnCanvas(ModeCanvas, MakeActionButton(TEXT("AllianceGiftReferenceNext"), 688,
-		CommonAtlasPath, MiniBlueButtonRect, CommonAtlasSize, FVector2D(115.0f, 48.0f),
-		NSLOCTEXT("RokAllianceGift", "NextLevel", "下一级"), 17,
-		FLinearColor(0.04f, 0.14f, 0.24f, 1.0f), ESlateBrushDrawType::Box, MiniBlueMargin),
-		CapturePoint(534.0f, 200.0f), FVector2D(115.0f, 48.0f), 7);
-	PlaceOnCanvas(ModeCanvas, MakeActionButton(TEXT("AllianceGiftReferenceSpecial"), 689,
-		CommonAtlasPath, MiniBlueButtonRect, CommonAtlasSize, FVector2D(180.0f, 48.0f),
-		bAllianceGiftSpecialDefinitions
-			? NSLOCTEXT("RokAllianceGift", "RegularDefinition", "常规等级定义")
-			: NSLOCTEXT("RokAllianceGift", "SpecialDefinition", "特殊类型定义"), 17,
-		FLinearColor(0.04f, 0.14f, 0.24f, 1.0f), ESlateBrushDrawType::Box, MiniBlueMargin),
-		CapturePoint(1000.0f, 200.0f), FVector2D(180.0f, 48.0f), 7);
-	UTextBlock* LevelLabel = MakeScreenText(TEXT("AllianceGiftReferenceLevel"), 21,
-		FLinearColor(0.92f, 0.86f, 0.63f, 1.0f), true, ETextJustify::Center);
-	LevelLabel->SetText(bAllianceGiftSpecialDefinitions
-		? NSLOCTEXT("RokAllianceGift", "SpecialLevelLabel", "特殊类型 · 配置等级 0")
-		: FText::FromString(FString::Printf(TEXT("配置等级 %d / 50"), Level)));
-	PlaceOnCanvas(ModeCanvas, LevelLabel, CapturePoint(322.0f, 208.0f), FVector2D(205.0f, 34.0f), 6);
-	UTextBlock* Threshold = MakeScreenText(TEXT("AllianceGiftReferenceThreshold"), 16,
-		FLinearColor(0.78f, 0.82f, 0.75f, 1.0f), false);
-	Threshold->SetText(!bAllianceGiftSpecialDefinitions && LevelRow
-		? FText::FromString(FString::Printf(TEXT("该等级配置阈值 exp=%d · 宝箱配置 ID=%d"),
-			LevelRow->ExpThreshold, LevelRow->TreasureId))
-		: NSLOCTEXT("RokAllianceGift", "SpecialThreshold", "特殊类型无等级阈值；下列仅为静态定义"));
-	PlaceOnCanvas(ModeCanvas, Threshold, CapturePoint(198.0f, 267.0f), FVector2D(1000.0f, 30.0f), 6);
-	int32 RowIndex = 0;
-	for (const FRokUnityAllianceGiftRewardReadonlyRow& Row : Catalog->GetAllianceGiftRewardReadonlyRows())
-	{
-		if (Row.GiftLevel != (bAllianceGiftSpecialDefinitions ? 0 : Level)) continue;
-		const float Y = 306.0f + RowIndex * 51.0f;
-		PlaceOnCanvas(ModeCanvas, MakeSolidBorder(
-			*FString::Printf(TEXT("AllianceGiftReferenceRow_%d"), Row.Id),
-			RowIndex % 2 == 0 ? FLinearColor(0.19f, 0.18f, 0.16f, 0.98f)
-			: FLinearColor(0.24f, 0.22f, 0.19f, 0.98f)),
-			CapturePoint(197.0f, Y), FVector2D(1020.0f, 45.0f), 4);
-		UTextBlock* Detail = MakeScreenText(
-			*FString::Printf(TEXT("AllianceGiftReferenceDefinition_%d"), Row.Id), 16,
-			FLinearColor(0.89f, 0.87f, 0.81f, 1.0f), false);
-		Detail->SetText(FText::FromString(FString::Printf(
-			TEXT("类型 %d · 定义 ID %d · 奖励包 ID %d · 礼物积分 %d · 钥匙点数 %d"),
-			Row.GiftType, Row.Id, Row.RewardPackageId, Row.GiftPoint, Row.KeyPoint)));
-		PlaceOnCanvas(ModeCanvas, Detail, CapturePoint(218.0f, Y + 8.0f),
-			FVector2D(980.0f, 30.0f), 6);
-		++RowIndex;
-	}
-	UE_LOG(LogTemp, Display,
-		TEXT("Rok alliance gift static definitions: configured_level=%d special=%d rows=%d authority=local_reference claim_state=0."),
-		Level, bAllianceGiftSpecialDefinitions ? 1 : 0, RowIndex);
-}
+#include "RokFeatureAllianceGift.inl"
 
 void URokUnityFeatureScreenWidget::BuildAllianceOfficeReference()
 {
+	URokUnityGameplayCatalogSubsystem* Catalog = GetGameplayCatalogSubsystem();
+	const bool bDefinitionsLoaded = Catalog && Catalog->LoadAllianceOfficeReadonly();
+	const TArray<FRokUnityAllianceOfficeReadonlyRow>* OfficeRows = bDefinitionsLoaded
+		? &Catalog->GetAllianceOfficeReadonlyRows() : nullptr;
+	const auto FormatName = [](const FRokUnityAllianceOfficeReadonlyRow& Office)
+	{
+		return Office.Name.IsEmpty()
+			? FText::FromString(FString::Printf(TEXT("#%d 官职名称配置不可用"), Office.Id))
+			: FText::FromString(FString::Printf(TEXT("#%d · %s"), Office.Id, *Office.Name));
+	};
+	const auto FormatDescription = [](const FRokUnityAllianceOfficeReadonlyRow& Office)
+	{
+		return Office.Description.IsEmpty()
+			? NSLOCTEXT("RokAlliance", "OfficeDescriptionUnavailable", "职位说明配置不可用")
+			: FText::FromString(Office.Description);
+	};
+	const auto FormatBonus = [](const FRokUnityAllianceOfficeReadonlyRow& Office)
+	{
+		return Office.AddDescription.IsEmpty()
+			? NSLOCTEXT("RokAlliance", "OfficeBonusUnavailable", "配置加成说明不可用")
+			: FText::FromString(FString::Printf(TEXT("配置加成说明：%s"), *Office.AddDescription));
+	};
+
+	UClass* RowClass = ResolveFeaturePageClass(TEXT("AllianceOfficeRow"));
+	UClass* SelectedRowClass = ResolveFeaturePageClass(TEXT("AllianceOfficeRowSelected"));
+	if (const URokUiPageWidget* Page = RowClass && SelectedRowClass ? MountModePage(TEXT("AllianceOffice")) : nullptr)
+	{
+		const bool bHasRows = OfficeRows && OfficeRows->Num() == 4;
+		Page->SetPresent(Page->Get<UTextBlock>(TEXT("AllianceOfficeReferenceUnavailable")), !bHasRows);
+		if (bHasRows)
+		{
+			for (int32 Index = 0; Index < OfficeRows->Num(); ++Index)
+			{
+				const FRokUnityAllianceOfficeReadonlyRow& Office = (*OfficeRows)[Index];
+				UCanvasPanel* RowSlot = Page->Get<UCanvasPanel>(*FString::Printf(TEXT("AllianceOfficeReferenceRowSlot_%d"), Index));
+				UClass* StyleClass = Index == SelectedAllianceOfficeIndex ? SelectedRowClass : RowClass;
+				const URokUiPageWidget* Row = MountPageItem(RowSlot, StyleClass, TEXT("AllianceOfficeReference"), Office.Id);
+				if (!Row)
+				{
+					continue;
+				}
+				SetFeaturePageText(*Row, TEXT("Name"), FormatName(Office));
+				SetFeaturePageText(*Row, TEXT("Description"), FormatDescription(Office));
+				SetFeaturePageText(*Row, TEXT("Bonus"), FormatBonus(Office));
+				if (UImage* Icon = Row->Get<UImage>(TEXT("Icon")))
+				{
+					const FIntRect IconRect = AllianceOfficeIconRect(Office.IconSprite);
+					if (IconRect.Width() <= 0 || IconRect.Height() <= 0)
+					{
+						Row->SetPresent(Icon, false);
+					}
+					else if (UTexture2D* Texture = LoadUiTexture(AllianceAtlasPath))
+					{
+						FSlateBrush Brush = Icon->GetBrush();
+						const FSlateBrush AtlasBrush = MakeAtlasBrush(Texture, IconRect, AllianceAtlasSize, Brush.GetImageSize());
+						Brush.SetResourceObject(Texture);
+						Brush.SetUVRegion(static_cast<FBox2f>(AtlasBrush.GetUVRegion()));
+						Icon->SetBrush(Brush);
+					}
+					else
+					{
+						Row->SetShown(Icon, false);
+					}
+				}
+				BindPageAction(*Row, TEXT("Hit"), 640 + Index);
+			}
+		}
+		BindPageAction(*Page, TEXT("AllianceOfficeReferenceBack"), 634);
+		return;
+	}
+
 	BuildSplitWindowFrame(CapturePoint(170.0f, 73.0f), FVector2D(1100.0f, 754.0f),
 		NSLOCTEXT("RokAlliance", "OfficeReferenceTitle", "官职配置参考"), CapturePoint(1230.0f, 77.0f));
 	UTextBlock* Intro = MakeScreenText(TEXT("AllianceOfficeReferenceIntro"), 16,
@@ -16439,10 +14510,6 @@ void URokUnityFeatureScreenWidget::BuildAllianceOfficeReference()
 	Intro->SetText(NSLOCTEXT("RokAlliance", "OfficeReferenceBoundary",
 		"仅展示配置定义，不代表当前任命、人数、权限或已生效加成；选择不会改变账号状态。"));
 	PlaceOnCanvas(ModeCanvas, Intro, CapturePoint(210.0f, 158.0f), FVector2D(1010.0f, 34.0f), 6);
-	URokUnityGameplayCatalogSubsystem* Catalog = GetGameplayCatalogSubsystem();
-	const bool bDefinitionsLoaded = Catalog && Catalog->LoadAllianceOfficeReadonly();
-	const TArray<FRokUnityAllianceOfficeReadonlyRow>* OfficeRows = bDefinitionsLoaded
-		? &Catalog->GetAllianceOfficeReadonlyRows() : nullptr;
 	if (OfficeRows && OfficeRows->Num() == 4)
 	{
 		for (int32 Index = 0; Index < OfficeRows->Num(); ++Index)
@@ -16465,22 +14532,16 @@ void URokUnityFeatureScreenWidget::BuildAllianceOfficeReference()
 			}
 			UTextBlock* Name = MakeScreenText(*FString::Printf(TEXT("AllianceOfficeReferenceName_%d"), Office.Id),
 				20, FLinearColor(0.91f, 0.84f, 0.65f, 1.0f), true);
-			Name->SetText(Office.Name.IsEmpty()
-				? FText::FromString(FString::Printf(TEXT("#%d 官职名称配置不可用"), Office.Id))
-				: FText::FromString(FString::Printf(TEXT("#%d · %s"), Office.Id, *Office.Name)));
+			Name->SetText(FormatName(Office));
 			PlaceOnCanvas(ModeCanvas, Name, CapturePoint(302.0f, Y + 5.0f), FVector2D(880.0f, 30.0f), 6);
 			UTextBlock* Description = MakeScreenText(*FString::Printf(TEXT("AllianceOfficeReferenceDescription_%d"), Office.Id),
 				16, FLinearColor(0.84f, 0.84f, 0.81f, 1.0f), false);
-			Description->SetText(Office.Description.IsEmpty()
-				? NSLOCTEXT("RokAlliance", "OfficeDescriptionUnavailable", "职位说明配置不可用")
-				: FText::FromString(Office.Description));
+			Description->SetText(FormatDescription(Office));
 			PlaceOnCanvas(ModeCanvas, Description, CapturePoint(302.0f, Y + 39.0f), FVector2D(870.0f, 26.0f), 6);
 			UTextBlock* Bonus = MakeScreenText(*FString::Printf(TEXT("AllianceOfficeReferenceBonus_%d"), Office.Id),
 				15, FLinearColor(0.75f, 0.82f, 0.66f, 1.0f), false);
 			Bonus->SetAutoWrapText(true);
-			Bonus->SetText(Office.AddDescription.IsEmpty()
-				? NSLOCTEXT("RokAlliance", "OfficeBonusUnavailable", "配置加成说明不可用")
-				: FText::FromString(FString::Printf(TEXT("配置加成说明：%s"), *Office.AddDescription)));
+			Bonus->SetText(FormatBonus(Office));
 			PlaceOnCanvas(ModeCanvas, Bonus, CapturePoint(302.0f, Y + 66.0f), FVector2D(870.0f, 52.0f), 6);
 			PlaceOnCanvas(ModeCanvas, MakeActionButton(
 				*FString::Printf(TEXT("AllianceOfficeReferenceHit_%d"), Office.Id), 640 + Index,
@@ -16503,197 +14564,10 @@ void URokUnityFeatureScreenWidget::BuildAllianceOfficeReference()
 		CapturePoint(208.0f, 735.0f), FVector2D(138.0f, 54.0f), 7);
 }
 
-void URokUnityFeatureScreenWidget::BuildAllianceTechnologyReference()
-{
-	BuildSplitWindowFrame(CapturePoint(146.0f, 73.0f), FVector2D(1148.0f, 754.0f),
-		NSLOCTEXT("RokAlliance", "TechnologyReferenceTitle", "联盟科技配置参考"),
-		CapturePoint(1230.0f, 77.0f));
-	PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("AllianceTechnologyReferenceShade"),
-		FLinearColor(0.065f, 0.065f, 0.065f, 0.98f)),
-		CapturePoint(176.0f, 151.0f), FVector2D(1088.0f, 664.0f), 2);
-	UTextBlock* Boundary = MakeScreenText(TEXT("AllianceTechnologyReferenceBoundary"), 17,
-		FLinearColor(0.89f, 0.85f, 0.67f, 1.0f), true);
-	Boundary->SetText(NSLOCTEXT("RokAlliance", "TechnologyReferenceBoundary",
-		"仅显示 AllianceStudy 静态配置；当前研究等级、进度、捐献与解锁由服务器决定"));
-	PlaceOnCanvas(ModeCanvas, Boundary, CapturePoint(196.0f, 158.0f), FVector2D(1040.0f, 28.0f), 5);
-	PlaceOnCanvas(ModeCanvas, MakeActionButton(TEXT("AllianceTechnologyReferenceBack"), 680,
-		CommonAtlasPath, MiniBlueButtonRect, CommonAtlasSize, FVector2D(138.0f, 54.0f),
-		NSLOCTEXT("RokAlliance", "TechnologyReferenceBack", "返回"), 18,
-		FLinearColor(0.04f, 0.14f, 0.24f, 1.0f), ESlateBrushDrawType::Box, MiniBlueMargin),
-		CapturePoint(1090.0f, 740.0f), FVector2D(138.0f, 54.0f), 7);
-	URokUnityGameplayCatalogSubsystem* Catalog = GetGameplayCatalogSubsystem();
-	if (!Catalog || !Catalog->LoadAllianceTechnologyReadonly())
-	{
-		UTextBlock* Missing = MakeScreenText(TEXT("AllianceTechnologyReferenceUnavailable"), 20,
-			FLinearColor(0.88f, 0.82f, 0.70f, 1.0f), false, ETextJustify::Center);
-		Missing->SetText(NSLOCTEXT("RokAlliance", "TechnologyReferenceUnavailable",
-			"联盟科技静态配置不可用；未读取账户研究状态"));
-		PlaceOnCanvas(ModeCanvas, Missing, CapturePoint(250.0f, 410.0f), FVector2D(900.0f, 50.0f), 6);
-		return;
-	}
-	const TArray<FRokUnityAllianceTechnologyReadonlyRow>& Rows = Catalog->GetAllianceTechnologyReadonlyRows();
-	static const FText CategoryLabels[] = {
-		NSLOCTEXT("RokAlliance", "TechnologyDevelop", "发展"),
-		NSLOCTEXT("RokAlliance", "TechnologyTerritory", "领土"),
-		NSLOCTEXT("RokAlliance", "TechnologyWar", "战争"),
-	};
-	for (int32 Category = 1; Category <= 3; ++Category)
-	{
-		const bool bSelected = SelectedAllianceTechnologyCategory == Category;
-		PlaceOnCanvas(ModeCanvas,
-			MakeActionButton(*FString::Printf(TEXT("AllianceTechnologyCategory_%d"), Category),
-				680 + Category, CommonAtlasPath, MiniBlueButtonRect,
-				CommonAtlasSize, FVector2D(130.0f, 48.0f), CategoryLabels[Category - 1], 19,
-				bSelected ? FLinearColor(0.18f, 0.13f, 0.05f, 1.0f)
-				: FLinearColor(0.04f, 0.14f, 0.24f, 1.0f), ESlateBrushDrawType::Box,
-				MiniBlueMargin),
-			CapturePoint(198.0f + (Category - 1) * 138.0f, 194.0f), FVector2D(130.0f, 48.0f), 7);
-	}
-	PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("AllianceTechnologyListPanel"),
-		FLinearColor(0.15f, 0.15f, 0.14f, 0.98f)),
-		CapturePoint(194.0f, 252.0f), FVector2D(414.0f, 474.0f), 3);
-	PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("AllianceTechnologyDetailPanel"),
-		FLinearColor(0.20f, 0.19f, 0.17f, 0.98f)),
-		CapturePoint(622.0f, 194.0f), FVector2D(620.0f, 532.0f), 3);
-	TArray<const FRokUnityAllianceTechnologyReadonlyRow*> Definitions;
-	for (const FRokUnityAllianceTechnologyReadonlyRow& Row : Rows)
-	{
-		if (Row.CategoryType == SelectedAllianceTechnologyCategory && Row.LevelKey == 1)
-		{
-			Definitions.Add(&Row);
-		}
-	}
-	if (Definitions.IsEmpty()) return;
-	bool bSelectedTypeInCategory = false;
-	for (const FRokUnityAllianceTechnologyReadonlyRow* Row : Definitions)
-	{
-		if (Row->StudyType == SelectedAllianceTechnologyStudyType) bSelectedTypeInCategory = true;
-	}
-	if (!bSelectedTypeInCategory)
-	{
-		SelectedAllianceTechnologyStudyType = Definitions[0]->StudyType;
-		SelectedAllianceTechnologyLevelKey = 1;
-	}
-	UScrollBox* Scroll = WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(),
-		TEXT("AllianceTechnologyDefinitionScroll"));
-	Scroll->SetOrientation(Orient_Vertical);
-	Scroll->SetConsumeMouseWheel(EConsumeMouseWheel::Always);
-	Scroll->SetClipping(EWidgetClipping::ClipToBoundsAlways);
-	PlaceOnCanvas(ModeCanvas, Scroll, CapturePoint(201.0f, 261.0f), FVector2D(400.0f, 457.0f), 4);
-	USizeBox* Extent = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(),
-		TEXT("AllianceTechnologyDefinitionExtent"));
-	Extent->SetWidthOverride(400.0f);
-	Extent->SetHeightOverride(Definitions.Num() * 70.0f);
-	Scroll->AddChild(Extent);
-	UCanvasPanel* List = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(),
-		TEXT("AllianceTechnologyDefinitionList"));
-	List->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-	Extent->AddChild(List);
-	const TCHAR* Atlas1 = TEXT("/Game/RokPrototype/UI/ResearchAtlases/rok_research_research_icon1.rok_research_research_icon1");
-	const TCHAR* Atlas2 = TEXT("/Game/RokPrototype/UI/ResearchAtlases/rok_research_research_icon2.rok_research_research_icon2");
-	const UTexture2D* Icon1 = LoadObject<UTexture2D>(nullptr, Atlas1);
-	const UTexture2D* Icon2 = LoadObject<UTexture2D>(nullptr, Atlas2);
-	const bool bIcon1Available = Icon1 && Icon1->GetSizeX() == 512 && Icon1->GetSizeY() == 2048;
-	const bool bIcon2Available = Icon2 && Icon2->GetSizeX() == 1024 && Icon2->GetSizeY() == 2048;
-	for (int32 Index = 0; Index < Definitions.Num(); ++Index)
-	{
-		const FRokUnityAllianceTechnologyReadonlyRow& Row = *Definitions[Index];
-		const bool bSelected = Row.StudyType == SelectedAllianceTechnologyStudyType;
-		UCanvasPanel* Item = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(),
-			*FString::Printf(TEXT("AllianceTechnologyDefinition_%d"), Row.StudyType));
-		PlaceOnCanvas(List, Item, FVector2D(0.0f, Index * 70.0f), FVector2D(400.0f, 70.0f), 1);
-		PlaceOnCanvas(Item, MakeSolidBorder(*FString::Printf(TEXT("AllianceTechnologyDefinitionBg_%d"), Row.StudyType),
-			bSelected ? FLinearColor(0.34f, 0.31f, 0.24f, 0.98f)
-			: FLinearColor(0.18f, 0.18f, 0.17f, 0.98f)),
-			FVector2D(0.0f, 0.0f), FVector2D(392.0f, 66.0f), 1);
-		const bool bIconAvailable = Row.IconAtlas == TEXT("research_icon1")
-			? bIcon1Available : bIcon2Available;
-		if (bIconAvailable)
-		{
-			PlaceOnCanvas(Item, MakeAtlasImage(*FString::Printf(TEXT("AllianceTechnologyIcon_%d"), Row.StudyType),
-				Row.IconAtlas == TEXT("research_icon1") ? Atlas1 : Atlas2,
-				Row.IconRect, Row.AtlasSize, FVector2D(52.0f)),
-				FVector2D(7.0f, 7.0f), FVector2D(52.0f), 2);
-		}
-		UTextBlock* Label = MakeScreenText(*FString::Printf(TEXT("AllianceTechnologyName_%d"), Row.StudyType),
-			18, FLinearColor(0.91f, 0.84f, 0.65f, 1.0f), true);
-		Label->SetText(FText::FromString(Row.Title));
-		PlaceOnCanvas(Item, Label, FVector2D(69.0f, 7.0f), FVector2D(300.0f, 27.0f), 3);
-		UTextBlock* Identity = MakeScreenText(*FString::Printf(TEXT("AllianceTechnologyId_%d"), Row.StudyType),
-			14, FLinearColor(0.80f, 0.80f, 0.76f, 1.0f), false);
-		Identity->SetText(FText::FromString(FString::Printf(TEXT("studyType %d · 配置等级 1"), Row.StudyType)));
-		PlaceOnCanvas(Item, Identity, FVector2D(69.0f, 38.0f), FVector2D(300.0f, 22.0f), 3);
-		PlaceOnCanvas(Item, MakeActionButton(*FString::Printf(TEXT("AllianceTechnologyDefinitionHit_%d"), Row.StudyType),
-			17000 + Row.StudyType, nullptr, FIntRect(), FIntPoint::ZeroValue, FVector2D(392.0f, 66.0f)),
-			FVector2D::ZeroVector, FVector2D(392.0f, 66.0f), 5);
-	}
-	const FRokUnityAllianceTechnologyReadonlyRow* Selected = nullptr;
-	for (const FRokUnityAllianceTechnologyReadonlyRow& Row : Rows)
-	{
-		if (Row.StudyType == SelectedAllianceTechnologyStudyType
-			&& Row.LevelKey == SelectedAllianceTechnologyLevelKey)
-		{
-			Selected = &Row;
-			break;
-		}
-	}
-	if (!Selected) return;
-	UTextBlock* Title = MakeScreenText(TEXT("AllianceTechnologyDetailTitle"), 27,
-		FLinearColor(0.95f, 0.88f, 0.58f, 1.0f), true);
-	Title->SetText(FText::FromString(Selected->Title));
-	PlaceOnCanvas(ModeCanvas, Title, CapturePoint(754.0f, 216.0f), FVector2D(450.0f, 42.0f), 6);
-	if (Selected->IconAtlas == TEXT("research_icon1") ? bIcon1Available : bIcon2Available)
-	{
-		PlaceOnCanvas(ModeCanvas, MakeAtlasImage(TEXT("AllianceTechnologyDetailIcon"),
-			Selected->IconAtlas == TEXT("research_icon1") ? Atlas1 : Atlas2,
-			Selected->IconRect, Selected->AtlasSize, FVector2D(108.0f)),
-			CapturePoint(640.0f, 209.0f), FVector2D(108.0f), 6);
-	}
-	else
-	{
-		UTextBlock* NoIcon = MakeScreenText(TEXT("AllianceTechnologyIconUnavailable"), 15,
-			FLinearColor(0.84f, 0.76f, 0.63f, 1.0f), false, ETextJustify::Center);
-		NoIcon->SetText(NSLOCTEXT("RokAlliance", "TechnologyIconUnavailable", "源图标资源不可用"));
-		PlaceOnCanvas(ModeCanvas, NoIcon, CapturePoint(640.0f, 232.0f), FVector2D(108.0f, 52.0f), 6);
-	}
-	UTextBlock* Identity = MakeScreenText(TEXT("AllianceTechnologyDetailIdentity"), 18,
-		FLinearColor(0.84f, 0.84f, 0.80f, 1.0f), false);
-	Identity->SetText(FText::FromString(FString::Printf(TEXT("源配置行 ID %d · studyType %d · 配置等级 %d"),
-		Selected->Id, Selected->StudyType, Selected->LevelKey)));
-	PlaceOnCanvas(ModeCanvas, Identity, CapturePoint(648.0f, 333.0f), FVector2D(570.0f, 30.0f), 6);
-	UTextBlock* Description = MakeScreenText(TEXT("AllianceTechnologyDetailDescription"), 19,
-		FLinearColor(0.90f, 0.89f, 0.84f, 1.0f), false);
-	Description->SetText(FText::FromString(Selected->Description));
-	Description->SetAutoWrapText(true);
-	PlaceOnCanvas(ModeCanvas, Description, CapturePoint(648.0f, 378.0f), FVector2D(565.0f, 114.0f), 6);
-	FString Prerequisites = TEXT("配置前置 ID：");
-	if (Selected->Prerequisites.IsEmpty()) Prerequisites += TEXT("无");
-	for (int32 Index = 0; Index < Selected->Prerequisites.Num(); ++Index)
-	{
-		if (Index > 0) Prerequisites += TEXT("、");
-		Prerequisites += FString::FromInt(Selected->Prerequisites[Index].SourceRowId);
-	}
-	UTextBlock* Precondition = MakeScreenText(TEXT("AllianceTechnologyDetailPrerequisites"), 17,
-		FLinearColor(0.78f, 0.82f, 0.72f, 1.0f), false);
-	Precondition->SetText(FText::FromString(Prerequisites));
-	Precondition->SetAutoWrapText(true);
-	PlaceOnCanvas(ModeCanvas, Precondition, CapturePoint(648.0f, 518.0f), FVector2D(565.0f, 60.0f), 6);
-	PlaceOnCanvas(ModeCanvas, MakeActionButton(TEXT("AllianceTechnologyConfiguredPrevious"), 684,
-		CommonAtlasPath, MiniBlueButtonRect, CommonAtlasSize, FVector2D(138.0f, 48.0f),
-		NSLOCTEXT("RokAlliance", "TechnologyConfiguredPrevious", "上一配置级"), 17,
-		FLinearColor(0.04f, 0.14f, 0.24f, 1.0f), ESlateBrushDrawType::Box, MiniBlueMargin),
-		CapturePoint(648.0f, 646.0f), FVector2D(138.0f, 48.0f), 7);
-	PlaceOnCanvas(ModeCanvas, MakeActionButton(TEXT("AllianceTechnologyConfiguredNext"), 685,
-		CommonAtlasPath, MiniBlueButtonRect, CommonAtlasSize, FVector2D(138.0f, 48.0f),
-		NSLOCTEXT("RokAlliance", "TechnologyConfiguredNext", "下一配置级"), 17,
-		FLinearColor(0.04f, 0.14f, 0.24f, 1.0f), ESlateBrushDrawType::Box, MiniBlueMargin),
-		CapturePoint(806.0f, 646.0f), FVector2D(138.0f, 48.0f), 7);
-}
+#include "RokFeatureAllianceTechnology.inl"
 
 void URokUnityFeatureScreenWidget::BuildAllianceCreate()
 {
-	BuildSplitWindowFrame(CapturePoint(146.0f, 73.0f), FVector2D(1148.0f, 754.0f), NSLOCTEXT("RokAlliance", "CreateAllianceTitle", "创建联盟"), CapturePoint(1230.0f, 77.0f));
-	PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("AllianceCreateShade"), FLinearColor(0.065f, 0.065f, 0.065f, 0.98f)), CapturePoint(176.0f, 151.0f), FVector2D(1088.0f, 664.0f), 2);
 	FRokUnityAllianceCreateConfig AllianceConfig;
 	if (URokUnityEconomyCatalogSubsystem* Catalog = GetEconomyCatalogSubsystem())
 	{
@@ -16706,6 +14580,96 @@ void URokUnityFeatureScreenWidget::BuildAllianceCreate()
 			AllianceConfig = Catalog->GetAllianceCreateConfig();
 		}
 	}
+	static const FText InputHints[] = {
+		NSLOCTEXT("RokAlliance", "AllianceNameHint", "请输入联盟名称"),
+		NSLOCTEXT("RokAlliance", "AllianceShortNameHint", "请输入联盟简称"),
+		NSLOCTEXT("RokAlliance", "AllianceNoticeHint", "请输入联盟公告"),
+	};
+	static const FName InputNames[] = {
+		TEXT("AllianceCreateNameInput"),
+		TEXT("AllianceCreateTagInput"),
+		TEXT("AllianceCreateNoticeInput"),
+	};
+	const FString* DraftValues[] = {&AllianceCreateNameDraft, &AllianceCreateTagDraft, &AllianceCreateNoticeDraft};
+	const auto FormatHint = [&AllianceConfig](int32 Index)
+	{
+		FText Hint = InputHints[Index];
+		if (Index == 0
+			&& AllianceConfig.NameMinCharacters > 0
+			&& AllianceConfig.NameMaxCharacters >= AllianceConfig.NameMinCharacters)
+		{
+			Hint = FText::Format(
+				NSLOCTEXT("RokAlliance", "AllianceNameRangeHint", "请输入联盟名称（{0}-{1}个字符）"),
+				FText::AsNumber(AllianceConfig.NameMinCharacters),
+				FText::AsNumber(AllianceConfig.NameMaxCharacters));
+		}
+		else if (Index == 1
+			&& AllianceConfig.TagMinCharacters > 0
+			&& AllianceConfig.TagMaxCharacters >= AllianceConfig.TagMinCharacters)
+		{
+			Hint = FText::Format(
+				NSLOCTEXT("RokAlliance", "AllianceTagRangeHint", "请输入联盟简称（{0}-{1}个字符）"),
+				FText::AsNumber(AllianceConfig.TagMinCharacters),
+				FText::AsNumber(AllianceConfig.TagMaxCharacters));
+		}
+		else if (Index == 2 && AllianceConfig.NoticeMaxCharacters > 0)
+		{
+			Hint = FText::Format(
+				NSLOCTEXT("RokAlliance", "AllianceNoticeLimitHint", "请输入联盟公告（最多{0}个字符）"),
+				FText::AsNumber(AllianceConfig.NoticeMaxCharacters));
+		}
+		return Hint;
+	};
+	const RokAllianceFlagLocalPreview::FEntry* Cloth = RokAllianceFlagLocalPreview::Find(1, AllianceCreateFlagDraft.ClothId);
+	const RokAllianceFlagLocalPreview::FEntry* ClothColor = RokAllianceFlagLocalPreview::Find(2, AllianceCreateFlagDraft.ClothColorId);
+	const RokAllianceFlagLocalPreview::FEntry* Emblem = RokAllianceFlagLocalPreview::Find(3, AllianceCreateFlagDraft.EmblemId);
+	const RokAllianceFlagLocalPreview::FEntry* EmblemColor = RokAllianceFlagLocalPreview::Find(4, AllianceCreateFlagDraft.EmblemColorId);
+	const FText CostText = AllianceConfig.EstablishCost > 0
+		? FText::Format(
+			NSLOCTEXT("RokAlliance", "CreateCost", "创建消耗：{0}"),
+			FText::AsNumber(AllianceConfig.EstablishCost))
+		: NSLOCTEXT("RokAlliance", "CreateCostUnavailable", "创建消耗：--");
+
+	if (const URokUiPageWidget* Page = MountModePage(TEXT("AllianceCreate")))
+	{
+		for (int32 Index = 0; Index < UE_ARRAY_COUNT(InputNames); ++Index)
+		{
+			if (UEditableTextBox* Input = Page->Get<UEditableTextBox>(InputNames[Index]))
+			{
+				Input->SetHintText(FormatHint(Index));
+				Input->SetText(FText::FromString(*DraftValues[Index]));
+			}
+		}
+		SetFeaturePageText(*Page, TEXT("AllianceCreateCost"), CostText);
+		UTexture2D* FlagAtlas = LoadUiTexture(AllianceFlagAtlasPath);
+		const auto UpdateFlagLayer = [this, Page, FlagAtlas](FName Name, const FIntRect& Rect, FLinearColor Tint)
+		{
+			if (UImage* Layer = Page->Get<UImage>(Name))
+			{
+				Page->SetShown(Layer, FlagAtlas != nullptr);
+				if (FlagAtlas)
+				{
+					FSlateBrush Brush = Layer->GetBrush();
+					const FSlateBrush AtlasBrush = MakeAtlasBrush(FlagAtlas, Rect, AllianceFlagAtlasSize, Brush.GetImageSize());
+					Brush.SetResourceObject(FlagAtlas);
+					Brush.SetUVRegion(static_cast<FBox2f>(AtlasBrush.GetUVRegion()));
+					Layer->SetBrush(Brush);
+				}
+				Layer->SetColorAndOpacity(Tint);
+			}
+		};
+		UpdateFlagLayer(TEXT("AllianceCreateFlagCloth"), Cloth ? Cloth->RealityRect : AllianceFlagClothRect,
+			ClothColor ? RokAllianceFlagLocalPreview::LinearColor(*ClothColor) : FLinearColor(0.14f, 0.36f, 0.72f, 1.0f));
+		UpdateFlagLayer(TEXT("AllianceCreateFlagEmblem"), Emblem ? Emblem->RealityRect : AllianceFlagEmblemRect,
+			EmblemColor ? RokAllianceFlagLocalPreview::LinearColor(*EmblemColor) : FLinearColor(0.96f, 0.76f, 0.18f, 1.0f));
+		BindPageAction(*Page, TEXT("AllianceFlagEdit"), 625);
+		BindPageAction(*Page, TEXT("AllianceCreateConfirm"), 623);
+		BindPageAction(*Page, TEXT("AllianceCreateBack"), 622);
+		return;
+	}
+
+	BuildSplitWindowFrame(CapturePoint(146.0f, 73.0f), FVector2D(1148.0f, 754.0f), NSLOCTEXT("RokAlliance", "CreateAllianceTitle", "创建联盟"), CapturePoint(1230.0f, 77.0f));
+	PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("AllianceCreateShade"), FLinearColor(0.065f, 0.065f, 0.065f, 0.98f)), CapturePoint(176.0f, 151.0f), FVector2D(1088.0f, 664.0f), 2);
 	UTextBlock* Intro = MakeScreenText(TEXT("AllianceCreateIntro"), 22, FLinearColor(0.92f, 0.90f, 0.84f, 1.0f), true, ETextJustify::Center);
 	Intro->SetText(NSLOCTEXT("RokAlliance", "UniqueAlliance", "每一个联盟，都独一无二。"));
 	PlaceOnCanvas(ModeCanvas, Intro, CapturePoint(205.0f, 174.0f), FVector2D(600.0f, 38.0f), 5);
@@ -16724,16 +14688,6 @@ void URokUnityFeatureScreenWidget::BuildAllianceCreate()
 		NSLOCTEXT("RokAlliance", "AnyoneCanJoin", "任何人均可加入"),
 		NSLOCTEXT("RokAlliance", "ChineseLanguage", "中文"),
 	};
-	static const FText InputHints[] = {
-		NSLOCTEXT("RokAlliance", "AllianceNameHint", "请输入联盟名称"),
-		NSLOCTEXT("RokAlliance", "AllianceShortNameHint", "请输入联盟简称"),
-		NSLOCTEXT("RokAlliance", "AllianceNoticeHint", "请输入联盟公告"),
-	};
-	static const FName InputNames[] = {
-		TEXT("AllianceCreateNameInput"),
-		TEXT("AllianceCreateTagInput"),
-		TEXT("AllianceCreateNoticeInput"),
-	};
 	static const float FieldHeights[] = {52.0f, 52.0f, 106.0f, 52.0f, 52.0f};
 	float FieldY = 228.0f;
 	for (int32 Index = 0; Index < UE_ARRAY_COUNT(FieldLabels); ++Index)
@@ -16748,32 +14702,7 @@ void URokUnityFeatureScreenWidget::BuildAllianceCreate()
 				WidgetTree->ConstructWidget<UEditableTextBox>(
 					UEditableTextBox::StaticClass(),
 					InputNames[Index]);
-			FText Hint = InputHints[Index];
-			if (Index == 0
-				&& AllianceConfig.NameMinCharacters > 0
-				&& AllianceConfig.NameMaxCharacters >= AllianceConfig.NameMinCharacters)
-			{
-				Hint = FText::Format(
-					NSLOCTEXT("RokAlliance", "AllianceNameRangeHint", "请输入联盟名称（{0}-{1}个字符）"),
-					FText::AsNumber(AllianceConfig.NameMinCharacters),
-					FText::AsNumber(AllianceConfig.NameMaxCharacters));
-			}
-			else if (Index == 1
-				&& AllianceConfig.TagMinCharacters > 0
-				&& AllianceConfig.TagMaxCharacters >= AllianceConfig.TagMinCharacters)
-			{
-				Hint = FText::Format(
-					NSLOCTEXT("RokAlliance", "AllianceTagRangeHint", "请输入联盟简称（{0}-{1}个字符）"),
-					FText::AsNumber(AllianceConfig.TagMinCharacters),
-					FText::AsNumber(AllianceConfig.TagMaxCharacters));
-			}
-			else if (Index == 2 && AllianceConfig.NoticeMaxCharacters > 0)
-			{
-				Hint = FText::Format(
-					NSLOCTEXT("RokAlliance", "AllianceNoticeLimitHint", "请输入联盟公告（最多{0}个字符）"),
-					FText::AsNumber(AllianceConfig.NoticeMaxCharacters));
-			}
-			Input->SetHintText(Hint);
+			Input->SetHintText(FormatHint(Index));
 			FEditableTextBoxStyle InputStyle = FEditableTextBoxStyle::GetDefault();
 			InputStyle
 				.SetFont(FCoreStyle::GetDefaultFontStyle(TEXT("Regular"), 18))
@@ -16783,9 +14712,7 @@ void URokUnityFeatureScreenWidget::BuildAllianceCreate()
 				.SetPadding(FMargin(10.0f, 6.0f));
 			Input->SetWidgetStyle(InputStyle);
 			Input->SetClearKeyboardFocusOnCommit(false);
-			if (Index == 0) Input->SetText(FText::FromString(AllianceCreateNameDraft));
-			else if (Index == 1) Input->SetText(FText::FromString(AllianceCreateTagDraft));
-			else Input->SetText(FText::FromString(AllianceCreateNoticeDraft));
+			Input->SetText(FText::FromString(*DraftValues[Index]));
 			PlaceOnCanvas(
 				ModeCanvas,
 				Input,
@@ -16806,10 +14733,6 @@ void URokUnityFeatureScreenWidget::BuildAllianceCreate()
 	UTextBlock* FlagTitle = MakeScreenText(TEXT("AllianceCreateFlagTitle"), 21, FLinearColor(0.92f, 0.90f, 0.82f, 1.0f), true, ETextJustify::Center);
 	FlagTitle->SetText(NSLOCTEXT("RokAlliance", "AllianceFlag", "联盟旗帜"));
 	PlaceOnCanvas(ModeCanvas, FlagTitle, CapturePoint(865.0f, 205.0f), FVector2D(310.0f, 36.0f), 6);
-	const RokAllianceFlagLocalPreview::FEntry* Cloth = RokAllianceFlagLocalPreview::Find(1, AllianceCreateFlagDraft.ClothId);
-	const RokAllianceFlagLocalPreview::FEntry* ClothColor = RokAllianceFlagLocalPreview::Find(2, AllianceCreateFlagDraft.ClothColorId);
-	const RokAllianceFlagLocalPreview::FEntry* Emblem = RokAllianceFlagLocalPreview::Find(3, AllianceCreateFlagDraft.EmblemId);
-	const RokAllianceFlagLocalPreview::FEntry* EmblemColor = RokAllianceFlagLocalPreview::Find(4, AllianceCreateFlagDraft.EmblemColorId);
 	UImage* FlagCloth = MakeAtlasImage(TEXT("AllianceCreateFlagCloth"), AllianceFlagAtlasPath, Cloth ? Cloth->RealityRect : AllianceFlagClothRect, AllianceFlagAtlasSize, FVector2D(184.0f, 216.0f));
 	FlagCloth->SetColorAndOpacity(ClothColor ? RokAllianceFlagLocalPreview::LinearColor(*ClothColor) : FLinearColor(0.14f, 0.36f, 0.72f, 1.0f));
 	PlaceOnCanvas(ModeCanvas, FlagCloth, CapturePoint(925.0f, 258.0f), FVector2D(184.0f, 216.0f), 6);
@@ -16820,421 +14743,44 @@ void URokUnityFeatureScreenWidget::BuildAllianceCreate()
 
 	PlaceOnCanvas(ModeCanvas, MakeAtlasImage(TEXT("AllianceCreateGem"), CommonAtlasPath, GemRect, CommonAtlasSize, FVector2D(42.0f)), CapturePoint(854.0f, 644.0f), FVector2D(42.0f), 6);
 	UTextBlock* Cost = MakeScreenText(TEXT("AllianceCreateCost"), 19, FLinearColor(0.96f, 0.88f, 0.55f, 1.0f), true);
-	Cost->SetText(
-		AllianceConfig.EstablishCost > 0
-			? FText::Format(
-				NSLOCTEXT("RokAlliance", "CreateCost", "创建消耗：{0}"),
-				FText::AsNumber(AllianceConfig.EstablishCost))
-			: NSLOCTEXT("RokAlliance", "CreateCostUnavailable", "创建消耗：--"));
+	Cost->SetText(CostText);
 	PlaceOnCanvas(ModeCanvas, Cost, CapturePoint(900.0f, 650.0f), FVector2D(210.0f, 32.0f), 6);
 	PlaceOnCanvas(ModeCanvas, MakeActionButton(TEXT("AllianceCreateConfirm"), 623, CommonAtlasPath, MediumGoldButtonRect, CommonAtlasSize, FVector2D(202.0f, 81.0f), NSLOCTEXT("RokAlliance", "CreateNow", "创建"), 27, FLinearColor(0.23f, 0.16f, 0.04f, 1.0f)), CapturePoint(920.0f, 700.0f), FVector2D(202.0f, 81.0f), 8);
 	PlaceOnCanvas(ModeCanvas, MakeActionButton(TEXT("AllianceCreateBack"), 622, CommonAtlasPath, MiniBlueButtonRect, CommonAtlasSize, FVector2D(138.0f, 54.0f), NSLOCTEXT("RokAlliance", "BackFromCreate", "返回"), 18, FLinearColor(0.04f, 0.14f, 0.24f, 1.0f), ESlateBrushDrawType::Box, MiniBlueMargin), CapturePoint(208.0f, 735.0f), FVector2D(138.0f, 54.0f), 8);
 }
 
-void URokUnityFeatureScreenWidget::BuildAllianceFlagEditor()
+namespace
 {
-	using namespace RokAllianceFlagLocalPreview;
-	BuildSplitWindowFrame(CapturePoint(146.0f, 73.0f), FVector2D(1148.0f, 754.0f),
-		NSLOCTEXT("RokAllianceFlag", "LocalFlagTitle", "编辑联盟旗帜"), CapturePoint(1230.0f, 77.0f));
-	PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("AllianceFlagEditorShade"),
-		FLinearColor(0.065f, 0.065f, 0.065f, 0.98f)), CapturePoint(176.0f, 151.0f),
-		FVector2D(1088.0f, 664.0f), 2);
-	PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("AllianceFlagEditorPreviewPanel"),
-		FLinearColor(0.23f, 0.22f, 0.19f, 1.0f)), CapturePoint(202.0f, 196.0f),
-		FVector2D(300.0f, 454.0f), 4);
-	UTextBlock* PreviewTitle = MakeScreenText(TEXT("AllianceFlagEditorPreviewTitle"), 22,
-		FLinearColor(0.94f, 0.90f, 0.80f, 1.0f), true, ETextJustify::Center);
-	PreviewTitle->SetText(NSLOCTEXT("RokAllianceFlag", "Preview", "旗帜预览"));
-	PlaceOnCanvas(ModeCanvas, PreviewTitle, CapturePoint(220.0f, 212.0f), FVector2D(264.0f, 40.0f), 5);
-	const FEntry* Cloth = Find(1, AllianceFlagEditDraft.ClothId);
-	const FEntry* ClothColor = Find(2, AllianceFlagEditDraft.ClothColorId);
-	const FEntry* Emblem = Find(3, AllianceFlagEditDraft.EmblemId);
-	const FEntry* EmblemColor = Find(4, AllianceFlagEditDraft.EmblemColorId);
-	if (Cloth && ClothColor && Emblem && EmblemColor)
+int32 GetAllianceFlagEditorPreviewTab()
+{
+#if !UE_BUILD_SHIPPING
+	int32 Type = 0;
+	if (FParse::Param(FCommandLine::Get(), TEXT("RokLocalOnly"))
+		&& FParse::Param(FCommandLine::Get(), TEXT("RokAllianceCreatePreview"))
+		&& FParse::Value(FCommandLine::Get(), TEXT("RokAllianceFlagEditorPreview="), Type)
+		&& Type >= 1 && Type <= 4)
 	{
-		UImage* ClothImage = MakeAtlasImage(TEXT("AllianceFlagEditorCloth"), AllianceFlagAtlasPath,
-			Cloth->RealityRect, AllianceFlagAtlasSize, FVector2D(184.0f, 216.0f));
-		ClothImage->SetColorAndOpacity(LinearColor(*ClothColor));
-		PlaceOnCanvas(ModeCanvas, ClothImage, CapturePoint(260.0f, 276.0f), FVector2D(184.0f, 216.0f), 6);
-		UImage* EmblemImage = MakeAtlasImage(TEXT("AllianceFlagEditorEmblem"), AllianceFlagAtlasPath,
-			Emblem->RealityRect, AllianceFlagAtlasSize, FVector2D(100.0f));
-		EmblemImage->SetColorAndOpacity(LinearColor(*EmblemColor));
-		PlaceOnCanvas(ModeCanvas, EmblemImage, CapturePoint(302.0f, 328.0f), FVector2D(100.0f), 7);
+		return Type;
 	}
-	UTextBlock* Identity = MakeScreenText(TEXT("AllianceFlagEditorSourceIds"), 15,
-		FLinearColor(0.87f, 0.86f, 0.81f, 1.0f), false, ETextJustify::Center);
-	Identity->SetText(FText::FromString(FString::Printf(TEXT("配置 ID  %d / %d / %d / %d"),
-		AllianceFlagEditDraft.ClothId, AllianceFlagEditDraft.ClothColorId,
-		AllianceFlagEditDraft.EmblemId, AllianceFlagEditDraft.EmblemColorId)));
-	PlaceOnCanvas(ModeCanvas, Identity, CapturePoint(212.0f, 535.0f), FVector2D(280.0f, 32.0f), 8);
-	UTextBlock* Local = MakeScreenText(TEXT("AllianceFlagEditorLocalOnly"), 16,
-		FLinearColor(0.81f, 0.85f, 0.73f, 1.0f), false, ETextJustify::Center);
-	Local->SetText(NSLOCTEXT("RokAllianceFlag", "LocalOnly", "仅编辑当前创建表单的本地预览"));
-	PlaceOnCanvas(ModeCanvas, Local, CapturePoint(214.0f, 584.0f), FVector2D(278.0f, 48.0f), 8);
-
-	static const FText TypeLabels[] = {
-		NSLOCTEXT("RokAllianceFlag", "Cloth", "旗面图案"),
-		NSLOCTEXT("RokAllianceFlag", "ClothColor", "旗面底色"),
-		NSLOCTEXT("RokAllianceFlag", "Emblem", "联盟徽记"),
-		NSLOCTEXT("RokAllianceFlag", "EmblemColor", "徽记颜色"),
-	};
-	for (int32 Type = 1; Type <= 4; ++Type)
-	{
-		const FVector2D TabPoint = CapturePoint(536.0f + 164.0f * (Type - 1), 203.0f);
-		PlaceOnCanvas(ModeCanvas, MakeSolidBorder(*FString::Printf(TEXT("AllianceFlagTabPanel_%d"), Type),
-			Type == SelectedAllianceFlagType ? FLinearColor(0.48f, 0.36f, 0.14f, 1.0f)
-				: FLinearColor(0.22f, 0.21f, 0.20f, 1.0f)), TabPoint, FVector2D(154.0f, 54.0f), 5);
-		PlaceOnCanvas(ModeCanvas, MakeActionButton(*FString::Printf(TEXT("AllianceFlagTab_%d"), Type),
-			19000 + Type, nullptr, FIntRect(), FIntPoint::ZeroValue, FVector2D(154.0f, 54.0f),
-			TypeLabels[Type - 1], 18, FLinearColor::White), TabPoint, FVector2D(154.0f, 54.0f), 8);
-	}
-	int32 ItemIndex = 0;
-	for (const FEntry& Entry : Rows())
-	{
-		if (Entry.Type != SelectedAllianceFlagType) continue;
-		const int32 Column = ItemIndex % 8;
-		const int32 Row = ItemIndex / 8;
-		const FVector2D ItemPoint = CapturePoint(541.0f + 82.0f * Column, 302.0f + 106.0f * Row);
-		const bool bSelected = AllianceFlagEditDraft.GetId(Entry.Type) == Entry.Id;
-		PlaceOnCanvas(ModeCanvas, MakeSolidBorder(*FString::Printf(TEXT("AllianceFlagItemPanel_%d"), Entry.Id),
-			bSelected ? FLinearColor(0.67f, 0.48f, 0.13f, 1.0f)
-				: FLinearColor(0.20f, 0.20f, 0.19f, 1.0f)), ItemPoint, FVector2D(76.0f, 76.0f), 5);
-		if (Entry.bHasColor)
-		{
-			PlaceOnCanvas(ModeCanvas, MakeSolidBorder(*FString::Printf(TEXT("AllianceFlagItemSwatch_%d"), Entry.Id),
-				LinearColor(Entry)), ItemPoint + FVector2D(8.0f, 8.0f), FVector2D(60.0f, 60.0f), 6);
-		}
-		else
-		{
-			PlaceOnCanvas(ModeCanvas, MakeAtlasImage(*FString::Printf(TEXT("AllianceFlagItemSprite_%d"), Entry.Id),
-				AllianceFlagAtlasPath, Entry.ShowRect, AllianceFlagAtlasSize, FVector2D(64.0f, 64.0f)),
-				ItemPoint + FVector2D(6.0f, 6.0f), FVector2D(64.0f, 64.0f), 6);
-		}
-		PlaceOnCanvas(ModeCanvas, MakeActionButton(*FString::Printf(TEXT("AllianceFlagItemHit_%d"), Entry.Id),
-			19000 + Entry.Type * 100 + ItemIndex, nullptr, FIntRect(), FIntPoint::ZeroValue,
-			FVector2D(76.0f, 76.0f)), ItemPoint, FVector2D(76.0f, 76.0f), 8);
-		UTextBlock* IdLabel = MakeScreenText(*FString::Printf(TEXT("AllianceFlagItemId_%d"), Entry.Id), 14,
-			FLinearColor(0.86f, 0.83f, 0.73f, 1.0f), false, ETextJustify::Center);
-		IdLabel->SetText(FText::AsNumber(Entry.Id));
-		PlaceOnCanvas(ModeCanvas, IdLabel, ItemPoint + FVector2D(0.0f, 77.0f), FVector2D(76.0f, 24.0f), 8);
-		++ItemIndex;
-	}
-	UTextBlock* Note = MakeScreenText(TEXT("AllianceFlagEditorBoundary"), 16,
-		FLinearColor(0.82f, 0.82f, 0.77f, 1.0f), false, ETextJustify::Center);
-	Note->SetText(NSLOCTEXT("RokAllianceFlag", "CreateBoundary", "确认仅更新本地预览；创建联盟仍需服务器确认。"));
-	PlaceOnCanvas(ModeCanvas, Note, CapturePoint(531.0f, 662.0f), FVector2D(650.0f, 34.0f), 8);
-	PlaceOnCanvas(ModeCanvas, MakeActionButton(TEXT("AllianceFlagEditorCancel"), 19010,
-		CommonAtlasPath, MiniBlueButtonRect, CommonAtlasSize, FVector2D(150.0f, 54.0f),
-		NSLOCTEXT("RokAllianceFlag", "Cancel", "取消"), 19, FLinearColor::White,
-		ESlateBrushDrawType::Box, MiniBlueMargin), CapturePoint(822.0f, 727.0f), FVector2D(150.0f, 54.0f), 8);
-	PlaceOnCanvas(ModeCanvas, MakeActionButton(TEXT("AllianceFlagEditorConfirm"), 19011,
-		CommonAtlasPath, MediumGoldButtonRect, CommonAtlasSize, FVector2D(160.0f, 59.0f),
-		NSLOCTEXT("RokAllianceFlag", "Confirm", "确定"), 21, FLinearColor::White),
-		CapturePoint(1000.0f, 724.0f), FVector2D(160.0f, 59.0f), 8);
+#endif
+	return INDEX_NONE;
 }
 
-void URokUnityFeatureScreenWidget::BuildAllianceJoined()
+void ClickAllianceFlagEditorPreviewButton(const URokUnityFeatureScreenWidget& Screen, FName Name)
 {
-	static const FText PageLabels[] = {
-		NSLOCTEXT("RokAlliance", "OverviewPage", "总览"),
-		NSLOCTEXT("RokAlliance", "MemberPage", "成员"),
-		NSLOCTEXT("RokAlliance", "SettingsPage", "设置"),
-	};
-	BuildSplitWindowFrame(
-		CapturePoint(146.0f, 73.0f),
-		FVector2D(1148.0f, 754.0f),
-		SelectedAlliancePage == 1 ? NSLOCTEXT("RokAlliance", "MembersTitle", "联盟成员") : (SelectedAlliancePage == 2 ? NSLOCTEXT("RokAlliance", "SettingsTitle", "联盟设置") : NSLOCTEXT("RokAlliance", "JoinedTitle", "联盟")),
-		CapturePoint(1230.0f, 77.0f));
-	PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("AllianceJoinedShade"), FLinearColor(0.065f, 0.065f, 0.065f, 0.98f)), CapturePoint(176.0f, 151.0f), FVector2D(1088.0f, 664.0f), 2);
-
-	for (int32 Page = 0; Page < 3; ++Page)
+	if (UButton* Button = Cast<UButton>(Screen.GetWidgetFromName(Name)); Button && Button->GetIsEnabled())
 	{
-		const bool bSelected = Page == SelectedAlliancePage;
-		UCanvasPanel* Tab = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), *FString::Printf(TEXT("AlliancePageTab_%d"), Page));
-		PlaceOnCanvas(Tab, MakeAtlasImage(*FString::Printf(TEXT("AlliancePageTabBg_%d"), Page), CommonAtlasPath, bSelected ? SideTabSelectedRect : SideTabDarkRect, CommonAtlasSize, FVector2D(88.0f, 92.0f)), FVector2D::ZeroVector, FVector2D(88.0f, 92.0f), 0);
-		PlaceOnCanvas(Tab, MakeAtlasImage(*FString::Printf(TEXT("AlliancePageIcon_%d"), Page), PageAtlasPath, AlliancePageIconRects[Page][bSelected ? 1 : 0], PageAtlasSize, FVector2D(48.0f)), FVector2D(20.0f, 10.0f), FVector2D(48.0f), 1);
-		UTextBlock* PageText = MakeScreenText(*FString::Printf(TEXT("AlliancePageText_%d"), Page), 14, bSelected ? FLinearColor(0.93f, 0.94f, 0.91f, 1.0f) : FLinearColor(0.62f, 0.62f, 0.59f, 1.0f), true, ETextJustify::Center);
-		PageText->SetText(PageLabels[Page]);
-		PlaceOnCanvas(Tab, PageText, FVector2D(4.0f, 61.0f), FVector2D(80.0f, 24.0f), 2);
-		PlaceOnCanvas(Tab, MakeActionButton(*FString::Printf(TEXT("AlliancePageHit_%d"), Page), 630 + Page, nullptr, FIntRect(), FIntPoint::ZeroValue, FVector2D(88.0f, 92.0f)), FVector2D::ZeroVector, FVector2D(88.0f, 92.0f), 5);
-		PlaceOnCanvas(ModeCanvas, Tab, CapturePoint(1216.0f, 210.0f + Page * 112.0f), FVector2D(88.0f, 92.0f), 10);
-	}
-
-	// The joined preview only exists as a fixture: alliance membership is
-	// server-authoritative, so the window must say it is not account state.
-	UTextBlock* JoinedFixtureTag = MakeScreenText(TEXT("AllianceJoinedFixtureTag"), 15, FLinearColor(0.62f, 0.62f, 0.58f, 1.0f), false);
-	JoinedFixtureTag->SetText(NSLOCTEXT("RokAlliance", "JoinedFixtureTag", "联盟 · 本地参考态（非账号状态）"));
-	PlaceOnCanvas(ModeCanvas, JoinedFixtureTag, CapturePoint(195.0f, 748.0f), FVector2D(420.0f, 26.0f), 6);
-
-	if (SelectedAlliancePage == 0)
-	{
-		PlaceOnCanvas(ModeCanvas, MakeAtlasBorder(TEXT("AllianceNoticePanel"), CommonAtlasPath, CommonPanelRect, CommonAtlasSize, FVector2D(555.0f, 145.0f), CommonPanelMargin), CapturePoint(195.0f, 175.0f), FVector2D(555.0f, 145.0f), 4);
-		UTextBlock* NoticeTitle = MakeScreenText(TEXT("AllianceNoticeTitle"), 20, FLinearColor(0.95f, 0.88f, 0.58f, 1.0f), true);
-		NoticeTitle->SetText(NSLOCTEXT("RokAlliance", "NoticeTitle", "联盟公告"));
-		PlaceOnCanvas(ModeCanvas, NoticeTitle, CapturePoint(215.0f, 188.0f), FVector2D(180.0f, 32.0f), 6);
-		UTextBlock* Notice = MakeScreenText(TEXT("AllianceJoinedNotice"), 18, FLinearColor(0.88f, 0.88f, 0.85f, 1.0f), false);
-		Notice->SetText(NSLOCTEXT("RokAlliance", "JoinedNoticeText", "团结互助，共同建设联盟领土。欢迎每一位盟友！"));
-		Notice->SetAutoWrapText(true);
-		PlaceOnCanvas(ModeCanvas, Notice, CapturePoint(215.0f, 230.0f), FVector2D(510.0f, 68.0f), 6);
-
-		static const int32 FeatureOrder[] = {3, 0, 6, 2, 7, 5, 1, 4};
-		static const FText FeatureLabels[] = {
-			NSLOCTEXT("RokAlliance", "AllianceWar", "联盟战争"),
-			NSLOCTEXT("RokAlliance", "AllianceTerritory", "联盟领土"),
-			NSLOCTEXT("RokAlliance", "HolyLand", "圣地"),
-			NSLOCTEXT("RokAlliance", "AllianceHelpFeature", "联盟帮助"),
-			NSLOCTEXT("RokAlliance", "AllianceDepot", "联盟仓库"),
-			NSLOCTEXT("RokAlliance", "AllianceTechnology", "联盟科技"),
-			NSLOCTEXT("RokAlliance", "AllianceGift", "联盟礼物"),
-			NSLOCTEXT("RokAlliance", "AllianceStore", "联盟商店"),
-		};
-		for (int32 Index = 0; Index < UE_ARRAY_COUNT(FeatureLabels); ++Index)
-		{
-			const float X = 194.0f + (Index % 4) * 142.0f;
-			const float Y = 338.0f + (Index / 4) * 178.0f;
-			PlaceOnCanvas(ModeCanvas, MakeAtlasBorder(*FString::Printf(TEXT("AllianceFeatureBg_%d"), Index), CommonAtlasPath, CommonPanelRect, CommonAtlasSize, FVector2D(132.0f, 158.0f), CommonPanelMargin), CapturePoint(X, Y), FVector2D(132.0f, 158.0f), 4);
-			PlaceOnCanvas(ModeCanvas, MakeAtlasImage(*FString::Printf(TEXT("AllianceFeatureIcon_%d"), Index), AllianceAtlasPath, AllianceFeatureIconRects[FeatureOrder[Index]], AllianceAtlasSize, FVector2D(104.0f)), CapturePoint(X + 14.0f, Y + 10.0f), FVector2D(104.0f), 5);
-			UTextBlock* Label = MakeScreenText(*FString::Printf(TEXT("AllianceFeatureLabel_%d"), Index), 16, FLinearColor(0.93f, 0.92f, 0.87f, 1.0f), true, ETextJustify::Center);
-			Label->SetText(FeatureLabels[Index]);
-			PlaceOnCanvas(ModeCanvas, Label, CapturePoint(X + 5.0f, Y + 121.0f), FVector2D(122.0f, 28.0f), 6);
-			PlaceOnCanvas(ModeCanvas, MakeActionButton(*FString::Printf(TEXT("AllianceFeatureHit_%d"), Index), 650 + Index, nullptr, FIntRect(), FIntPoint::ZeroValue, FVector2D(132.0f, 158.0f)), CapturePoint(X, Y), FVector2D(132.0f, 158.0f), 8);
-		}
-
-		PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("AllianceSummaryPanel"), FLinearColor(0.23f, 0.22f, 0.19f, 0.98f)), CapturePoint(784.0f, 175.0f), FVector2D(420.0f, 570.0f), 4);
-		PlaceOnCanvas(ModeCanvas, MakeAtlasImage(TEXT("AllianceFlagBacking"), AllianceAtlasPath, AllianceFlagBackingRect, AllianceAtlasSize, FVector2D(170.0f, 208.0f)), CapturePoint(910.0f, 188.0f), FVector2D(170.0f, 208.0f), 5);
-		UImage* JoinedFlagCloth = MakeAtlasImage(TEXT("AllianceJoinedFlagCloth"), AllianceFlagAtlasPath, AllianceFlagClothRect, AllianceFlagAtlasSize, FVector2D(126.0f, 148.0f));
-		JoinedFlagCloth->SetColorAndOpacity(FLinearColor(0.14f, 0.36f, 0.72f, 1.0f));
-		PlaceOnCanvas(ModeCanvas, JoinedFlagCloth, CapturePoint(932.0f, 215.0f), FVector2D(126.0f, 148.0f), 6);
-		UImage* JoinedFlagEmblem = MakeAtlasImage(TEXT("AllianceJoinedFlagEmblem"), AllianceFlagAtlasPath, AllianceFlagEmblemRect, AllianceFlagAtlasSize, FVector2D(70.0f));
-		JoinedFlagEmblem->SetColorAndOpacity(FLinearColor(0.96f, 0.76f, 0.18f, 1.0f));
-		PlaceOnCanvas(ModeCanvas, JoinedFlagEmblem, CapturePoint(960.0f, 250.0f), FVector2D(70.0f), 7);
-
-		UTextBlock* AllianceName = MakeScreenText(TEXT("AllianceJoinedName"), 25, FLinearColor(0.95f, 0.88f, 0.58f, 1.0f), true, ETextJustify::Center);
-		AllianceName->SetText(NSLOCTEXT("RokAlliance", "JoinedAllianceName", "[SNOW] 雪原同盟"));
-		PlaceOnCanvas(ModeCanvas, AllianceName, CapturePoint(810.0f, 405.0f), FVector2D(368.0f, 42.0f), 7);
-		UTextBlock* Summary = MakeScreenText(TEXT("AllianceJoinedSummary"), 19, FLinearColor(0.90f, 0.90f, 0.86f, 1.0f), false);
-		Summary->SetText(NSLOCTEXT("RokAlliance", "JoinedSummary", "战力：6,100\n盟主：snow\n领土：0\n礼物等级：1\n成员：1/50"));
-		PlaceOnCanvas(ModeCanvas, Summary, CapturePoint(840.0f, 462.0f), FVector2D(310.0f, 160.0f), 7);
-		PlaceOnCanvas(ModeCanvas, MakeActionButton(TEXT("AllianceMessageBoard"), 659, CommonAtlasPath, MiniBlueButtonRect, CommonAtlasSize, FVector2D(138.0f, 54.0f), NSLOCTEXT("RokAlliance", "MessageBoard", "留言板"), 17, FLinearColor(0.04f, 0.14f, 0.24f, 1.0f), ESlateBrushDrawType::Box, MiniBlueMargin), CapturePoint(825.0f, 664.0f), FVector2D(138.0f, 54.0f), 8);
-		PlaceOnCanvas(ModeCanvas, MakeActionButton(TEXT("AllianceMail"), 660, CommonAtlasPath, MiniBlueButtonRect, CommonAtlasSize, FVector2D(138.0f, 54.0f), NSLOCTEXT("RokAlliance", "AllianceMail", "联盟邮件"), 17, FLinearColor(0.04f, 0.14f, 0.24f, 1.0f), ESlateBrushDrawType::Box, MiniBlueMargin), CapturePoint(1015.0f, 664.0f), FVector2D(138.0f, 54.0f), 8);
-	}
-	else if (SelectedAlliancePage == 1)
-	{
-		PlaceOnCanvas(ModeCanvas, MakeAtlasBorder(TEXT("AllianceLeaderCard"), CommonAtlasPath, CommonPanelRect, CommonAtlasSize, FVector2D(1040.0f, 145.0f), CommonPanelMargin), CapturePoint(198.0f, 175.0f), FVector2D(1040.0f, 145.0f), 4);
-		PlaceOnCanvas(ModeCanvas, MakeAtlasImage(TEXT("AllianceLeaderRank"), AllianceAtlasPath, SpriteRect(898, 969, 100, 100), AllianceAtlasSize, FVector2D(92.0f)), CapturePoint(220.0f, 199.0f), FVector2D(92.0f), 5);
-		UTextBlock* Leader = MakeScreenText(TEXT("AllianceLeaderName"), 24, FLinearColor(0.95f, 0.88f, 0.58f, 1.0f), true);
-		Leader->SetText(NSLOCTEXT("RokAlliance", "LeaderPreview", "R5  snow（盟主）"));
-		PlaceOnCanvas(ModeCanvas, Leader, CapturePoint(335.0f, 205.0f), FVector2D(360.0f, 38.0f), 6);
-		UTextBlock* LeaderStats = MakeScreenText(TEXT("AllianceLeaderStats"), 18, FLinearColor(0.84f, 0.84f, 0.81f, 1.0f), false);
-		LeaderStats->SetText(NSLOCTEXT("RokAlliance", "LeaderStatsPreview", "战力 6,100    击杀 0    在线"));
-		PlaceOnCanvas(ModeCanvas, LeaderStats, CapturePoint(335.0f, 255.0f), FVector2D(430.0f, 30.0f), 6);
-		URokUnityGameplayCatalogSubsystem* Catalog = GetGameplayCatalogSubsystem();
-		const bool bDefinitionsLoaded = Catalog && Catalog->LoadAllianceOfficeReadonly();
-		const TArray<FRokUnityAllianceOfficeReadonlyRow>* OfficeRows = bDefinitionsLoaded
-			? &Catalog->GetAllianceOfficeReadonlyRows() : nullptr;
-		UTextBlock* DefinitionNote = MakeScreenText(TEXT("AllianceOfficeReferenceNote"), 16,
-			FLinearColor(0.89f, 0.85f, 0.67f, 1.0f), true);
-		DefinitionNote->SetText(NSLOCTEXT("RokAlliance", "OfficeDefinitionBoundary",
-			"官职配置参考 · 不代表当前任命、人数、权限或已生效加成"));
-		PlaceOnCanvas(ModeCanvas, DefinitionNote, CapturePoint(212.0f, 318.0f),
-			FVector2D(1000.0f, 24.0f), 6);
-		if (OfficeRows && OfficeRows->Num() == 4)
-		{
-			for (int32 Index = 0; Index < OfficeRows->Num(); ++Index)
-			{
-				const FRokUnityAllianceOfficeReadonlyRow& Office = (*OfficeRows)[Index];
-				const float Y = 348.0f + Index * 91.0f;
-				const bool bSelected = Index == SelectedAllianceOfficeIndex;
-				PlaceOnCanvas(ModeCanvas,
-					MakeSolidBorder(*FString::Printf(TEXT("AllianceOfficeRow_%d"), Office.Id),
-						bSelected ? FLinearColor(0.34f, 0.31f, 0.24f, 0.98f)
-						: FLinearColor(0.16f, 0.16f, 0.16f, 0.96f)),
-					CapturePoint(198.0f, Y), FVector2D(1040.0f, 78.0f), 4);
-				const FIntRect IconRect = AllianceOfficeIconRect(Office.IconSprite);
-				if (IconRect.Width() > 0 && IconRect.Height() > 0)
-				{
-					PlaceOnCanvas(ModeCanvas,
-						MakeAtlasImage(*FString::Printf(TEXT("AllianceOfficeIcon_%d"), Office.Id),
-							AllianceAtlasPath, IconRect, AllianceAtlasSize, FVector2D(58.0f)),
-						CapturePoint(210.0f, Y + 10.0f), FVector2D(58.0f), 5);
-				}
-				UTextBlock* Name = MakeScreenText(*FString::Printf(TEXT("AllianceOfficeName_%d"), Office.Id),
-					20, FLinearColor(0.91f, 0.84f, 0.65f, 1.0f), true);
-				Name->SetText(Office.Name.IsEmpty()
-					? NSLOCTEXT("RokAlliance", "OfficeNameUnavailable", "官职名称配置不可用")
-					: FText::FromString(Office.Name));
-				PlaceOnCanvas(ModeCanvas, Name, CapturePoint(282.0f, Y + 5.0f),
-					FVector2D(880.0f, 28.0f), 6);
-				UTextBlock* Description = MakeScreenText(
-					*FString::Printf(TEXT("AllianceOfficeDescription_%d"), Office.Id), 15,
-					FLinearColor(0.84f, 0.84f, 0.81f, 1.0f), false);
-				Description->SetText(Office.Description.IsEmpty()
-					? NSLOCTEXT("RokAlliance", "OfficeDescriptionUnavailable", "职位说明配置不可用")
-					: FText::FromString(Office.Description));
-				PlaceOnCanvas(ModeCanvas, Description, CapturePoint(282.0f, Y + 37.0f),
-					FVector2D(445.0f, 28.0f), 6);
-				UTextBlock* Bonus = MakeScreenText(
-					*FString::Printf(TEXT("AllianceOfficeBonus_%d"), Office.Id), 14,
-					FLinearColor(0.75f, 0.82f, 0.66f, 1.0f), false);
-				Bonus->SetAutoWrapText(true);
-				Bonus->SetText(Office.AddDescription.IsEmpty()
-					? NSLOCTEXT("RokAlliance", "OfficeBonusUnavailable", "配置加成说明不可用")
-					: FText::FromString(FString::Printf(TEXT("配置加成说明：%s"), *Office.AddDescription)));
-				PlaceOnCanvas(ModeCanvas, Bonus, CapturePoint(740.0f, Y + 31.0f),
-					FVector2D(474.0f, 42.0f), 6);
-				PlaceOnCanvas(ModeCanvas, MakeActionButton(
-					*FString::Printf(TEXT("AllianceOfficeDefinitionHit_%d"), Office.Id), 640 + Index,
-					nullptr, FIntRect(), FIntPoint::ZeroValue, FVector2D(1040.0f, 78.0f)),
-					CapturePoint(198.0f, Y), FVector2D(1040.0f, 78.0f), 8);
-			}
-		}
-		else
-		{
-			UTextBlock* Unavailable = MakeScreenText(TEXT("AllianceOfficeDefinitionsUnavailable"), 18,
-				FLinearColor(0.82f, 0.80f, 0.76f, 1.0f), false, ETextJustify::Center);
-			Unavailable->SetText(NSLOCTEXT("RokAlliance", "OfficeDefinitionsUnavailable",
-				"官职静态配置暂不可用；未读取任命或权限状态"));
-			PlaceOnCanvas(ModeCanvas, Unavailable, CapturePoint(250.0f, 440.0f),
-				FVector2D(900.0f, 38.0f), 6);
-		}
-		PlaceOnCanvas(ModeCanvas, MakeActionButton(TEXT("AllianceMemberOfficeReferenceOpen"), 635,
-			CommonAtlasPath, MiniBlueButtonRect, CommonAtlasSize, FVector2D(214.0f, 46.0f),
-			NSLOCTEXT("RokAlliance", "MemberOfficeReferenceOpen", "官职定义说明"), 17,
-			FLinearColor(0.04f, 0.14f, 0.24f, 1.0f), ESlateBrushDrawType::Box, MiniBlueMargin),
-			CapturePoint(1095.0f, 735.0f), FVector2D(214.0f, 46.0f), 7);
-	}
-	else
-	{
-		static const FText SettingsLabels[] = {
-			NSLOCTEXT("RokAlliance", "AllianceSettings", "联盟设置"),
-			NSLOCTEXT("RokAlliance", "AllianceList", "联盟列表"),
-			NSLOCTEXT("RokAlliance", "AllianceRank", "联盟排行"),
-			NSLOCTEXT("RokAlliance", "ApplicationReview", "申请审核"),
-			NSLOCTEXT("RokAlliance", "InviteMember", "邀请加入"),
-			NSLOCTEXT("RokAlliance", "LeaveAlliance", "退出联盟"),
-		};
-		static const FIntRect SettingsIcons[] = {
-			SpriteRect(163, 952, 145, 145),
-			SpriteRect(1, 49, 145, 145),
-			SpriteRect(1, 196, 145, 145),
-			SpriteRect(1, 343, 145, 145),
-			SpriteRect(1, 490, 145, 145),
-			SpriteRect(1, 637, 145, 145),
-		};
-		for (int32 Index = 0; Index < UE_ARRAY_COUNT(SettingsLabels); ++Index)
-		{
-			const float X = 250.0f + (Index % 3) * 305.0f;
-			const float Y = 205.0f + (Index / 3) * 275.0f;
-			PlaceOnCanvas(ModeCanvas, MakeAtlasBorder(*FString::Printf(TEXT("AllianceSettingBg_%d"), Index), CommonAtlasPath, CommonPanelRect, CommonAtlasSize, FVector2D(230.0f, 220.0f), CommonPanelMargin), CapturePoint(X, Y), FVector2D(230.0f, 220.0f), 4);
-			PlaceOnCanvas(ModeCanvas, MakeAtlasImage(*FString::Printf(TEXT("AllianceSettingIcon_%d"), Index), AllianceAtlasPath, SettingsIcons[Index], AllianceAtlasSize, FVector2D(128.0f)), CapturePoint(X + 51.0f, Y + 20.0f), FVector2D(128.0f), 5);
-			UTextBlock* Setting = MakeScreenText(*FString::Printf(TEXT("AllianceSettingLabel_%d"), Index), 20, FLinearColor(0.92f, 0.90f, 0.84f, 1.0f), true, ETextJustify::Center);
-			Setting->SetText(SettingsLabels[Index]);
-			PlaceOnCanvas(ModeCanvas, Setting, CapturePoint(X + 10.0f, Y + 168.0f), FVector2D(210.0f, 36.0f), 6);
-			PlaceOnCanvas(ModeCanvas, MakeActionButton(*FString::Printf(TEXT("AllianceSettingHit_%d"), Index), 670 + Index, nullptr, FIntRect(), FIntPoint::ZeroValue, FVector2D(230.0f, 220.0f)), CapturePoint(X, Y), FVector2D(230.0f, 220.0f), 8);
-		}
+		Button->OnClicked.Broadcast();
+		UE_LOG(LogTemp, Display, TEXT("Rok alliance flag preview: clicked %s."), *Name.ToString());
 	}
 }
-
-UCanvasPanel* URokUnityFeatureScreenWidget::MakeCommanderHead(
-	int32 Index,
-	const FIntRect& HeadRect,
-	bool bRecruited,
-	bool bSelected,
-	const FText& DisplayName,
-	const FText& StateText,
-	int32 Rare)
-{
-	UCanvasPanel* Head = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), *FString::Printf(TEXT("CommanderHead_%d"), Index));
-	Head->SetClipping(EWidgetClipping::ClipToBounds);
-	const bool bUsesHeroHeadFrame = Rare == 4 || Rare == 5;
-	UImage* HeadFrame = MakeAtlasImage(
-		*FString::Printf(TEXT("CommanderHeadFrame_%d"), Index),
-		bUsesHeroHeadFrame ? CommanderHeadAtlasPath : CommanderUiAtlasPath,
-		Rare == 5
-			? CommanderLegendaryFrameRect
-			: (Rare == 4 ? CommanderEpicFrameRect : CommanderRareFrameRect),
-		bUsesHeroHeadFrame ? CommanderHeadAtlasSize : CommanderUiAtlasSize,
-		FVector2D(116.0f, 132.0f));
-	if (Rare == 3)
-	{
-		HeadFrame->SetColorAndOpacity(
-			FLinearColor(0.55f, 0.78f, 1.0f, 1.0f));
-	}
-	else if (Rare == 2)
-	{
-		HeadFrame->SetColorAndOpacity(
-			FLinearColor(0.62f, 1.0f, 0.70f, 1.0f));
-	}
-	PlaceOnCanvas(
-		Head,
-		HeadFrame,
-		FVector2D(6.0f, 0.0f),
-		FVector2D(116.0f, 132.0f),
-		1);
-	if (HeadRect.Width() > 0 && HeadRect.Height() > 0)
-	{
-		PlaceOnCanvas(Head, MakeAtlasImage(*FString::Printf(TEXT("CommanderHeadPortrait_%d"), Index), CommanderHeadAtlasPath, HeadRect, CommanderHeadAtlasSize, FVector2D(108.0f, 122.0f)), FVector2D(10.0f, 0.0f), FVector2D(108.0f, 122.0f), 2);
-	}
-	else
-	{
-		PlaceOnCanvas(
-			Head,
-			MakeSolidBorder(
-				*FString::Printf(TEXT("CommanderHeadMissing_%d"), Index),
-				FLinearColor(0.07f, 0.07f, 0.075f, 0.96f)),
-			FVector2D(10.0f, 0.0f),
-			FVector2D(108.0f, 122.0f),
-			2);
-	}
-	if (!bRecruited)
-	{
-		PlaceOnCanvas(Head, MakeAtlasImage(*FString::Printf(TEXT("CommanderHeadDark_%d"), Index),
-			CommanderUiAtlasPath, SpriteRect(378, 84, 106, 121), CommanderUiAtlasSize, FVector2D(108, 122)),
-			FVector2D(10, 0), FVector2D(108, 122), 3);
-	}
-	if (bSelected)
-	{
-		PlaceOnCanvas(Head, MakeAtlasImage(*FString::Printf(TEXT("CommanderHeadSelection_%d"), Index),
-			CommanderUiAtlasPath, SpriteRect(1905, 356, 141, 155), CommanderUiAtlasSize, FVector2D(124, 136)),
-			FVector2D(2, 0), FVector2D(124, 136), 5);
-	}
-	PlaceOnCanvas(
-		Head,
-		MakeSolidBorder(
-			*FString::Printf(TEXT("CommanderHeadStateShade_%d"), Index),
-			FLinearColor(0.0f, 0.0f, 0.0f, 0.72f)),
-		FVector2D(10.0f, 109.0f),
-		FVector2D(108.0f, 27.0f),
-		6);
-	UTextBlock* State = MakeScreenText(*FString::Printf(TEXT("CommanderHeadState_%d"), Index), 16, FLinearColor::White, true, ETextJustify::Center);
-	State->SetText(StateText);
-	PlaceOnCanvas(Head, State, FVector2D(14.0f, 112.0f), FVector2D(100.0f, 22.0f), 7);
-	UButton* HeadAction = MakeActionButton(
-		*FString::Printf(TEXT("CommanderHeadAction_%d"), Index),
-		400 + Index,
-		nullptr,
-		FIntRect(),
-		FIntPoint::ZeroValue,
-		FVector2D(128.0f, 142.0f));
-	HeadAction->SetToolTipText(FText::Format(
-		bRecruited
-			? NSLOCTEXT(
-				"RokCommander",
-				"OwnedCommanderTooltip",
-				"{0} · 已拥有")
-			: NSLOCTEXT(
-				"RokCommander",
-				"UnownedCommanderTooltip",
-				"{0} · 未招募"),
-		DisplayName));
-	PlaceOnCanvas(
-		Head,
-		HeadAction,
-		FVector2D::ZeroVector,
-		FVector2D(128.0f, 142.0f),
-		9);
-	return Head;
 }
+
+#include "RokFeatureAllianceFlagEditor.inl"
+
+#include "RokFeatureAllianceJoined.inl"
+
+#include "RokFeatureCommanderHead.inl"
 
 UCanvasPanel* URokUnityFeatureScreenWidget::MakeRewardCell(
 	const FName& Name,
@@ -17267,36 +14813,78 @@ UCanvasPanel* URokUnityFeatureScreenWidget::MakeRewardCell(
 
 void URokUnityFeatureScreenWidget::BuildFeedback()
 {
-	FeedbackText = MakeScreenText(TEXT("FeatureBoundaryFeedback"), 16, FLinearColor(1.0f, 0.87f, 0.45f, 1.0f), true, ETextJustify::Center);
-	FeedbackText->SetVisibility(ESlateVisibility::Collapsed);
+	if (ActiveModePage)
+	{
+		FeedbackText = Cast<UTextBlock>(RokUiFind::Find(ActiveModePage, TEXT("FeatureBoundaryFeedback")));
+		if (FeedbackText)
+		{
+			return;
+		}
+	}
+
 	FVector2D FeedbackPosition(360.0f, 778.0f);
 	FVector2D FeedbackSize(720.0f, 28.0f);
+	FName LayoutName;
 	if (ActiveMode == ERokUnityFeatureScreenMode::Chat)
 	{
 		FeedbackPosition = FVector2D(350.0f, bChatEmojiPanelOpen ? 432.0f : 692.0f);
 		FeedbackSize = FVector2D(645.0f, 28.0f);
+		LayoutName = bChatEmojiPanelOpen ? TEXT("ChatEmojiLayout") : TEXT("ChatLayout");
 	}
 	else if (ActiveMode == ERokUnityFeatureScreenMode::Commander)
 	{
 		FeedbackPosition.Y = 728.0f;
+		LayoutName = TEXT("CommanderLayout");
 	}
 	else if (ActiveMode == ERokUnityFeatureScreenMode::Expedition)
 	{
 		FeedbackPosition.Y = 752.0f;
+		LayoutName = TEXT("ExpeditionLayout");
 	}
 	else if (ActiveMode == ERokUnityFeatureScreenMode::WorldPositionSearch)
 	{
 		// The source uses TipStyle.Middle for its empty-input message.
 		FeedbackPosition = FVector2D(560.0f, 385.0f);
 		FeedbackSize = FVector2D(320.0f, 40.0f);
+		LayoutName = TEXT("WorldPositionSearchLayout");
 	}
 	else if (ActiveMode == ERokUnityFeatureScreenMode::ResourceSearch)
 	{
 		FeedbackPosition = FVector2D(420, 332);
 		FeedbackSize = FVector2D(600, 40);
+		LayoutName = TEXT("ResourceSearchLayout");
 	}
-	PlaceOnCanvas(ChatContentCanvas ? ChatContentCanvas.Get() : ModeCanvas.Get(), FeedbackText, FeedbackPosition, FeedbackSize, 50);
-	if (ActiveMode == ERokUnityFeatureScreenMode::WorldPositionSearch)
+
+	UCanvasPanel* Parent = ChatContentCanvas ? ChatContentCanvas.Get() : ModeCanvas.Get();
+	UClass* FeedbackClass = ResolveFeaturePageClass(TEXT("FeatureFeedback"));
+	if (auto* Page = FeedbackClass ? CreateWidget<URokUiPageWidget>(this, FeedbackClass) : nullptr)
+	{
+		auto* Label = Page->Get<UTextBlock>(TEXT("FeatureBoundaryFeedback"));
+		auto* LabelSlot = Label ? Cast<UCanvasPanelSlot>(Label->Slot) : nullptr;
+		const auto* Layout = LayoutName.IsNone() ? nullptr : Page->Get<UCanvasPanel>(LayoutName);
+		const auto* LayoutSlot = Layout ? Cast<UCanvasPanelSlot>(Layout->Slot) : nullptr;
+		if (LabelSlot && (LayoutName.IsNone() || LayoutSlot))
+		{
+			if (LayoutSlot)
+			{
+				LabelSlot->SetLayout(LayoutSlot->GetLayout());
+			}
+			Page->SetVisibility(ESlateVisibility::HitTestInvisible);
+			auto* PageSlot = Parent->AddChildToCanvas(Page);
+			PageSlot->SetAnchors(FAnchors(0, 0, 1, 1));
+			PageSlot->SetOffsets(FMargin(0));
+			PageSlot->SetZOrder(50);
+			FeedbackText = Label;
+		}
+	}
+	if (!FeedbackText)
+	{
+		FeedbackText = MakeScreenText(TEXT("FeatureBoundaryFeedback"), 16,
+			FLinearColor(1.0f, 0.87f, 0.45f, 1.0f), true, ETextJustify::Center);
+		PlaceOnCanvas(Parent, FeedbackText, FeedbackPosition, FeedbackSize, 50);
+	}
+	FeedbackText->SetVisibility(ESlateVisibility::Collapsed);
+	if (ActiveMode == ERokUnityFeatureScreenMode::WorldPositionSearch && !WorldPositionMiddleTipRoot)
 	{
 		// UI_Common_MidTips: centered 640x60 text; tips_com_mid is bottom-left (1,615,601,69).
 		WorldPositionMiddleTipRoot = WidgetTree->ConstructWidget<UCanvasPanel>(
@@ -17371,7 +14959,10 @@ void URokUnityFeatureScreenWidget::UpdateExpandedDesignResolution(const FVector2
 
 void URokUnityFeatureScreenWidget::UpdateActivityCountdown(float DeltaSeconds)
 {
-	ActivityPreviewSecondsRemaining = FMath::Max(0.0, ActivityPreviewSecondsRemaining - static_cast<double>(DeltaSeconds));
+	if (!bFreezeActivityCountdownForCapture)
+	{
+		ActivityPreviewSecondsRemaining = FMath::Max(0.0, ActivityPreviewSecondsRemaining - static_cast<double>(DeltaSeconds));
+	}
 	const int32 TotalSeconds = FMath::FloorToInt(ActivityPreviewSecondsRemaining);
 	if (!ActivityCountdownText || TotalSeconds == LastRenderedActivitySecond)
 	{
@@ -17563,6 +15154,16 @@ void URokUnityFeatureScreenWidget::ExecuteIndexedAction(int32 ActionId)
 			SelectedActivityCalendarId = 0;
 			ActivityCalendarScrollOffset = 0.0f;
 			RebuildModeContent();
+			const int32 PreviewEntry = ReadLocalUiPreviewOption(TEXT("RokActivityCalendarEntry="), 1, MAX_int32);
+			if (PreviewEntry != INDEX_NONE)
+			{
+				const FName Name(*FString::Printf(TEXT("ActivityCalendarReferenceHit_%d"), PreviewEntry));
+				if (UButton* Button = Cast<UButton>(GetWidgetFromName(Name)); Button && Button->GetIsEnabled())
+				{
+					Button->OnClicked.Broadcast();
+					UE_LOG(LogTemp, Display, TEXT("Rok activity preview: clicked %s."), *Name.ToString());
+				}
+			}
 		}
 		else if (RequestedIndex == 1 || RequestedIndex == 2)
 		{
@@ -18014,6 +15615,10 @@ void URokUnityFeatureScreenWidget::ExecuteIndexedAction(int32 ActionId)
 		ResetAllianceCreateLocalDraft();
 		AlliancePreviewState = 3;
 		RebuildModeContent();
+		if (GetAllianceFlagEditorPreviewTab() != INDEX_NONE)
+		{
+			ClickAllianceFlagEditorPreviewButton(*this, TEXT("AllianceFlagEdit"));
+		}
 		return;
 	}
 	if (ActionId == 633 && ActiveMode == ERokUnityFeatureScreenMode::Alliance
@@ -18385,6 +15990,11 @@ void URokUnityFeatureScreenWidget::ExecuteIndexedAction(int32 ActionId)
 			SelectedAllianceFlagType = 1;
 			bAllianceFlagEditorOpen = true;
 			RebuildModeContent();
+			const int32 PreviewType = GetAllianceFlagEditorPreviewTab();
+			if (PreviewType != INDEX_NONE)
+			{
+				ClickAllianceFlagEditorPreviewButton(*this, *FString::Printf(TEXT("AllianceFlagTab_%d"), PreviewType));
+			}
 			return;
 		}
 		UE_LOG(
@@ -19191,6 +16801,14 @@ void URokUnityFeatureScreenWidget::ExecuteIndexedAction(int32 ActionId)
 			TrainArmyDetailAnimationTime = 0.0f;
 			bTrainArmyDetailFirstTick = true;
 			RebuildModeContent();
+			if (bTrainArmyDetailVisible && GetTrainArmyDetailPreviewTier() != INDEX_NONE)
+			{
+				const int32 Tip = ReadLocalUiPreviewOption(TEXT("RokTrainArmyPreviewTip="), 1, 2);
+				if (Tip != INDEX_NONE)
+				{
+					ClickTrainArmyPreviewButton(Tip == 1 ? TEXT("TrainArmyDetailAttrButton_0") : TEXT("TrainArmyDetailSkillButton_0"));
+				}
+			}
 		}
 		else if (ActionId == 1952)
 		{
@@ -19235,6 +16853,10 @@ void URokUnityFeatureScreenWidget::ExecuteIndexedAction(int32 ActionId)
 		// This is the existing catalog base-capacity preview, not a server buff.
 		SelectedTrainCount = FMath::Max(1, TrainArmyBaseCapacity);
 		RebuildModeContent();
+		if (GetTrainArmyDetailPreviewTier() == SelectedTrainTier)
+		{
+			ClickTrainArmyPreviewButton(TEXT("TrainArmyDetailButton"));
+		}
 		return;
 	}
 	if (ActionId >= 1920 && ActionId <= 1922)
@@ -19460,6 +17082,7 @@ void URokUnityFeatureScreenWidget::HandleGraphicsQualitySliderChanged(float Valu
 	}
 	const int32 Tier = RokGraphicsSettingsLayout::Tier(Value);
 	UpdateGraphicsSettingsSlider(TEXT("GeneralSettingsGraphics"), Tier);
+	PlaySourceScrollFeedback();
 	Settings->SetGraphicsQualityTier(
 		static_cast<ERokClientGraphicsQualityTier>(Tier));
 	if (GeneralSettingsGraphicsValueText)
@@ -19482,6 +17105,7 @@ void URokUnityFeatureScreenWidget::HandleFrameRateSliderChanged(float Value)
 	}
 	const int32 Option = RokGraphicsSettingsLayout::Tier(Value);
 	UpdateGraphicsSettingsSlider(TEXT("GeneralSettingsFrameRate"), Option);
+	PlaySourceScrollFeedback();
 	Settings->SetFrameRateOption(
 		static_cast<ERokClientFrameRateOption>(Option));
 	if (GeneralSettingsFrameRateValueText)

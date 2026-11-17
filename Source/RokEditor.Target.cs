@@ -13,5 +13,6 @@ public class RokEditorTarget : TargetRules
 		// RokRendering is a non-game module; global shader changes still require a full restart.
 		bAllowHotReload = true;
 		ExtraModuleNames.Add("Rok");
+		ExtraModuleNames.Add("RokUiTools");
 	}
 }

@@ -28,7 +28,17 @@ private:
     TWeakObjectPtr<URokHelpSourceTextWidget> Owner;
 };
 void URokHelpSourceTextWidget::Configure(URokHelpSourceTextData* InData,int32 InFontSize,bool InBold,int32 InAlignment,FVector2D InSize,FLinearColor InColor)
-{Data=InData;FontSize=InFontSize;Bold=InBold;Alignment=InAlignment;SourceSize=InSize;Color=InColor;}
+{
+    SourceFontSize=InFontSize;bSourceBold=InBold;SourceAlignment=InAlignment;
+    SourceGlyphSize=InSize;SourceGlyphColor=InColor;
+    Data=InData;FontSize=SourceFontSize;Bold=bSourceBold;Alignment=SourceAlignment;SourceSize=SourceGlyphSize;Color=SourceGlyphColor;
+}
+void URokHelpSourceTextWidget::BindData(URokHelpSourceTextData* InData)
+{
+    Data=InData;FontSize=SourceFontSize;Bold=bSourceBold;Alignment=SourceAlignment;
+    SourceSize=SourceGlyphSize;Color=SourceGlyphColor;
+    if(!Text.IsEmpty())SetText(Text);
+}
 bool URokHelpSourceTextWidget::SetText(const FText& InText)
 {
     Text=InText;Mesh=nullptr;SourceKey.Empty();PaintCount=0;LastPaintSourceKey.Empty();

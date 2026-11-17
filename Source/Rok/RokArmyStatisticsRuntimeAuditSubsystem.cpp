@@ -1,4 +1,5 @@
 #include "RokArmyStatisticsRuntimeAuditSubsystem.h"
+#include "RokUiWidgets.h"
 
 #include "RokBuildingUpgradeSubsystem.h"
 #include "RokDataPaths.h"
@@ -348,7 +349,7 @@ TSharedRef<FJsonObject> URokArmyStatisticsRuntimeAuditSubsystem::State() const
 	auto Widgets = MakeShared<FJsonObject>();
 	Widgets->SetObjectField(TEXT("RokMainHud"), WidgetState(Hud.Get()));
 	Widgets->SetObjectField(TEXT("PlayerProfileHitButton"), WidgetState(Hud.IsValid() ? Hud->GetWidgetFromName(TEXT("PlayerProfileHitButton")) : nullptr));
-	Widgets->SetObjectField(TEXT("ProfileArmyButton"), WidgetState(Modal.IsValid() ? Modal->GetWidgetFromName(TEXT("ProfileArmyButton")) : nullptr));
+	Widgets->SetObjectField(TEXT("ProfileArmyButton"), WidgetState(Modal.IsValid() ? RokUiFind::Find(Modal, TEXT("ProfileArmyButton")) : nullptr));
 	if (Screen.IsValid())
 	{
 		const TCHAR* Names[] = {TEXT("FeatureModeCanvas"), TEXT("FeatureFrameClose"),
@@ -380,7 +381,7 @@ bool URokArmyStatisticsRuntimeAuditSubsystem::Ready(int32 Page) const
 {
 	if (!Boundary() || !Hud.IsValid() || !Modal.IsValid() || !Screen.IsValid()) return false;
 	if (Page == -2) return Modal->IsModalOpen() && !Screen->IsScreenOpen()
-		&& Visible(Modal->GetWidgetFromName(TEXT("ProfileArmyButton")));
+		&& Visible(RokUiFind::Find(Modal, TEXT("ProfileArmyButton")));
 	if (Page == -1) return !Modal->IsModalOpen() && !Screen->IsScreenOpen()
 		&& Visible(Hud->GetWidgetFromName(TEXT("PlayerProfileHitButton")));
 	const UWidget* Mode = Screen->GetWidgetFromName(TEXT("FeatureModeCanvas"));
@@ -756,7 +757,7 @@ void URokArmyStatisticsRuntimeAuditSubsystem::Tick(float DeltaTime)
 	case 1: if (Stable(-1)) Capture(TEXT("00_city_hud"), 2); break;
 	case 2: if (PrepareOwnWindowFocus() && Click(Hud->GetWidgetFromName(TEXT("PlayerProfileHitButton")), TEXT("open_profile_from_hud"))) Enter(3); break;
 	case 3: if (Stable(-2)) Capture(TEXT("01_profile"), 4); break;
-	case 4: if (Click(Modal->GetWidgetFromName(TEXT("ProfileArmyButton")), TEXT("open_army_statistics_from_profile"))) Enter(5); break;
+	case 4: if (Click(RokUiFind::Find(Modal, TEXT("ProfileArmyButton")), TEXT("open_army_statistics_from_profile"))) Enter(5); break;
 	case 5: if (Stable(0)) Capture(TEXT("02_local_summary"), 6); break;
 	case 6: if (Click(Screen->GetWidgetFromName(TEXT("ArmyStatisticsPage_1")), TEXT("inside_city_unknown"))) Enter(7); break;
 	case 7: if (Stable(1)) Capture(TEXT("03_inside_unknown"), 8); break;

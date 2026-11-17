@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
+#include "RokUiWidgets.h"
 #include "Misc/ScopeExit.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
@@ -51,16 +52,29 @@ bool FRokServerTaskWidgetTest::RunTest(const FString&)
 	ON_SCOPE_EXIT { Tasks->ClearSnapshotForTesting(); };
 	URokUnityFeatureScreenWidget* Screen = NewObject<URokUnityFeatureScreenWidget>(World);
 	if (!TestTrue(TEXT("Widget initializes"), Screen->Initialize())) return false;
-	Screen->TakeWidget();
+	const TSharedRef<SWidget> Slate = Screen->TakeWidget();
 	auto Text = [Screen](const TCHAR* Name) -> FString
 	{
 		const UTextBlock* Label = Cast<UTextBlock>(Screen->GetWidgetFromName(Name));
 		return Label ? Label->GetText().ToString() : FString();
 	};
 	Screen->OpenServerTasksPage(1);
+	const auto* ModeCanvas = Screen->GetWidgetFromName(TEXT("FeatureModeCanvas"));
+	const auto* MainScroll = Cast<UScrollBox>(Screen->GetWidgetFromName(TEXT("TaskMainScroll")));
+	if (!TestTrue(TEXT("The server main presentation is mounted"), RokUiFind::IsInside(MainScroll, ModeCanvas))) return false;
+	TestEqual(TEXT("The main presentation uses the expected UI path"), MainScroll->GetParent() == ModeCanvas,
+		URokUiSettings::IsLegacyForced());
 	TestTrue(TEXT("Main waits for server"), Text(TEXT("TaskMainEmpty")).Contains(TEXT("等待服务器")));
 	TestTrue(TEXT("Side waits for server"), Text(TEXT("TaskSideNotSynced")).Contains(TEXT("等待服务器")));
 	TestNull(TEXT("Bootstrap task absent while connected"), Screen->GetWidgetFromName(TEXT("TaskTitle_0")));
+	Screen->OpenServerTasksPage(0);
+	const auto* PendingChapter = Screen->GetWidgetFromName(TEXT("TaskChapterMetaNotice"));
+	const auto* PendingPage = PendingChapter ? PendingChapter->GetTypedOuter<URokUiPageWidget>() : nullptr;
+	TestTrue(TEXT("The waiting chapter uses the expected layout"), URokUiSettings::IsLegacyForced() ? !PendingPage
+		: PendingPage && PendingPage->GetClass()->GetName() == TEXT("WBP_RokFeature_TaskChapterServer_C"));
+	TestEqual(TEXT("Chapter waits for server status"), Text(TEXT("TaskChapterMetaNotice")),
+		FString(TEXT("等待服务器同步章节进度")));
+	TestNull(TEXT("Pending chapter has no task scroll"), Screen->GetWidgetFromName(TEXT("TaskChapterScroll")));
 	Screen->OpenServerTasksPage(2);
 	TestTrue(TEXT("Daily waits for server collection"), Text(TEXT("TaskDailyCatalogHeader")).Contains(TEXT("等待服务器")));
 	Screen->OpenServerTasksPage(1);
@@ -121,6 +135,9 @@ bool FRokServerTaskWidgetTest::RunTest(const FString&)
 	TestEqual(TEXT("Server main id"), Screen->GetVisibleTaskIdForAudit(0), 200901);
 	TestEqual(TEXT("Server main title"), Text(TEXT("TaskTitle_0")), FString(TEXT("升级城墙")));
 	TestTrue(TEXT("Server main progress"), Text(TEXT("TaskDescription_0")).Contains(TEXT("1/3")));
+	TestNull(TEXT("A populated main list removes its empty label"), Screen->GetWidgetFromName(TEXT("TaskMainEmpty")));
+	TestNull(TEXT("A populated side list removes its empty label"), Screen->GetWidgetFromName(TEXT("TaskSideNotSynced")));
+	TestEqual(TEXT("Chapter badge displays on the inactive tab"), Text(TEXT("TaskPageBadgeCount_0")), FString(TEXT("1")));
 	TestEqual(TEXT("Live item package quantity"), Text(TEXT("TaskRewardPreview_0_0Count")), FString(TEXT("2")));
 	TestNotNull(TEXT("Live item package icon"), Screen->GetWidgetFromName(TEXT("TaskRewardPreview_0_0Icon")));
 	TestEqual(TEXT("Live currency package quantity"), Text(TEXT("TaskRewardPreview_1_0Count")), FText::AsNumber(2000).ToString());
@@ -144,6 +161,7 @@ bool FRokServerTaskWidgetTest::RunTest(const FString&)
 	Screen->RefreshServerTasksForTesting();
 	TestTrue(TEXT("Changed snapshot refreshes progress"), Text(TEXT("TaskDescription_0")).Contains(TEXT("3/3")));
 	TestTrue(TEXT("Finished state visible"), Text(TEXT("TaskDescription_0")).Contains(TEXT("待领取")));
+	TestEqual(TEXT("Main tab counts the finished task"), Text(TEXT("TaskPageBadgeCount_1")), FString(TEXT("1")));
 	UButton* MainAction = Cast<UButton>(Screen->GetWidgetFromName(TEXT("TaskAction_0")));
 	if (!TestNotNull(TEXT("Finished action"), MainAction)) return false;
 	MainAction->OnClicked.Broadcast();
@@ -163,6 +181,30 @@ bool FRokServerTaskWidgetTest::RunTest(const FString&)
 	TestNotNull(TEXT("Completed chapter task has its own claim button"), Screen->GetWidgetFromName(TEXT("TaskChapterTask_410201Claim")));
 	TestTrue(TEXT("Chapter objective shows its server progress"),
 		Text(TEXT("TaskChapterTaskDescription_410201")).Contains(TEXT("2/2")));
+	Snapshot.bChapterClaimable = false;
+	Snapshot.bChapterProgressKnown = false;
+	Snapshot.ChapterTasks[0].State = ERokServerTaskState::Unknown;
+	Snapshot.ChapterTasks[0].bProgressKnown = false;
+	Snapshot.Signature = TEXT("loaded-chapter-unknown");
+	Tasks->SetSnapshotForTesting(Snapshot);
+	Screen->RefreshServerTasksForTesting();
+	TestEqual(TEXT("Unknown aggregate progress stays unknown"), Text(TEXT("TaskChapterMetaNotice")), FString(TEXT("进度待同步")));
+	TestEqual(TEXT("Unknown row is not a go or claim action"), Text(TEXT("TaskChapterTask_410201State")), FString(TEXT("状态待同步")));
+	TestNull(TEXT("Unknown chapter has no claim action"), Screen->GetWidgetFromName(TEXT("TaskChapterClaimAction")));
+	TestNull(TEXT("Unknown row cannot be claimed"), Screen->GetWidgetFromName(TEXT("TaskChapterTask_410201Claim")));
+	Snapshot.ChapterTasks.Reset();
+	Snapshot.ChapterId = 9999;
+	Snapshot.Signature = TEXT("loaded-chapter-empty");
+	Tasks->SetSnapshotForTesting(Snapshot);
+	Screen->RefreshServerTasksForTesting();
+	TestEqual(TEXT("Known chapter id with no tasks has an empty list"), Text(TEXT("TaskChapterServerEmpty")), FString(TEXT("当前章节暂无任务")));
+	TestNull(TEXT("Unknown chapter metadata has no guide"), Screen->GetWidgetFromName(TEXT("TaskChapterDialogue")));
+	Snapshot.ChapterId = 0;
+	Snapshot.Signature = TEXT("loaded-no-chapter");
+	Tasks->SetSnapshotForTesting(Snapshot);
+	Screen->RefreshServerTasksForTesting();
+	TestEqual(TEXT("Synchronized role may have no current chapter"), Text(TEXT("TaskChapterMetaNotice")), FString(TEXT("暂无当前章节")));
+	TestNull(TEXT("No chapter does not expose a reward action"), Screen->GetWidgetFromName(TEXT("TaskChapterClaimAction")));
 	Screen->OpenServerTasksPage(2);
 	TestEqual(TEXT("Only owned daily id"), Screen->GetVisibleTaskIdForAudit(0), 510201);
 	TestEqual(TEXT("Daily title"), Text(TEXT("TaskTitle_0")), FString(TEXT("每日探索")));
@@ -175,6 +217,75 @@ bool FRokServerTaskWidgetTest::RunTest(const FString&)
 	Screen->RefreshServerTasksForTesting();
 	TestNull(TEXT("Claimed visible daily task disappears on refresh"), Screen->GetWidgetFromName(TEXT("TaskTitle_0")));
 	TestTrue(TEXT("Claimed daily list has an empty state"), Text(TEXT("TaskDailyServerEmpty")).Contains(TEXT("暂无每日任务")));
+
+	Snapshot.DailyTasks[0].State = ERokServerTaskState::Finished;
+	Snapshot.DailyTasks[0].RewardGroupId = 90001;
+	Snapshot.DailyTasks[0].bProgressKnown = true;
+	Snapshot.DailyTasks[0].Current = 1;
+	Snapshot.DailyTasks[0].Target = 1;
+	Snapshot.DailyTasks[1].State = ERokServerTaskState::Unfinished;
+	FRokServerTaskView Extra = Snapshot.DailyTasks[1];
+	for (const int32 TaskId : {510203, 510204, 510205, 510206})
+	{
+		Extra.TaskId = TaskId;
+		Snapshot.DailyTasks.Add(Extra);
+	}
+	Snapshot.DailyActivePoints = 60;
+	for (const int32 Points : {20, 40, 80})
+	{
+		auto& Milestone = Snapshot.DailyMilestones.AddDefaulted_GetRef();
+		Milestone.Points = Points;
+		Milestone.RewardGroupId = 91051;
+		Milestone.State = Points == 20 ? ERokServerTaskState::Received
+			: Points == 40 ? ERokServerTaskState::Finished : ERokServerTaskState::Unfinished;
+	}
+	Snapshot.Signature = TEXT("loaded-daily-mixed");
+	Tasks->SetSnapshotForTesting(Snapshot);
+	Screen->RefreshServerTasksForTesting();
+	auto* DailyScroll = Cast<UScrollBox>(Screen->GetWidgetFromName(TEXT("TaskDailyCatalogScroll")));
+	if (!TestNotNull(TEXT("The mixed daily list is scrollable"), DailyScroll)) return false;
+	const auto* Mode = Screen->GetWidgetFromName(TEXT("FeatureModeCanvas"));
+	TestTrue(TEXT("The daily scroll is attached to the active mode"), RokUiFind::IsInside(DailyScroll, Mode));
+	TestEqual(TEXT("The expected daily presentation is mounted"), DailyScroll->GetParent() == Mode,
+		URokUiSettings::IsLegacyForced());
+	TestNull(TEXT("The empty state leaves the mixed list"), Screen->GetWidgetFromName(TEXT("TaskDailyServerEmpty")));
+	TestEqual(TEXT("Active points are projected"), Text(TEXT("TaskDailyPoints")), FString(TEXT("今日活跃度 60")));
+	TestEqual(TEXT("Completed daily rows retain the reward action"), Text(TEXT("TaskAction_0Label")), FString(TEXT("领取奖励")));
+	TestEqual(TEXT("Unfinished daily rows retain the go action"), Text(TEXT("TaskAction_1Label")), FString(TEXT("前往")));
+	TestEqual(TEXT("The daily tab counts task and milestone rewards"), Text(TEXT("TaskPageBadgeCount_2")), FString(TEXT("2")));
+	TestEqual(TEXT("A reward cell retains the source quantity"), Text(TEXT("TaskRewardPreview_0_0Count")), FText::AsNumber(1000).ToString());
+	for (const int32 Points : {20, 40, 80})
+	{
+		const auto* Button = Cast<UButton>(Screen->GetWidgetFromName(*FString::Printf(TEXT("TaskDailyMilestone_%d"), Points)));
+		TestTrue(TEXT("Only the eligible milestone is clickable"), Button && Button->GetIsEnabled() == (Points == 40));
+	}
+	for (const FName Name : {FName(TEXT("TaskAction_0")), FName(TEXT("TaskDailyMilestone_40"))})
+	{
+		auto* Button = Cast<UButton>(Screen->GetWidgetFromName(Name));
+		if (!TestNotNull(TEXT("Offline test opens the existing claim action"), Button)) return false;
+		Button->OnClicked.Broadcast();
+		Screen->FlushPendingActionForTesting();
+		TestTrue(TEXT("Disconnected claim gives the original connection feedback"),
+			Text(TEXT("FeatureBoundaryFeedback")).Contains(TEXT("服务器连接尚未就绪")));
+		TestEqual(TEXT("Offline clicks leave the task state untouched"), Tasks->GetSnapshot().Signature, Snapshot.Signature);
+	}
+	Screen->ForceLayoutPrepass();
+	DailyScroll->SetScrollOffset(24.0f);
+	TestTrue(TEXT("The populated list scrolls before the refresh"), FMath::IsNearlyEqual(DailyScroll->GetScrollOffset(), 24.0f));
+	Snapshot.Signature = TEXT("loaded-daily-refresh");
+	Tasks->SetSnapshotForTesting(Snapshot);
+	Screen->RefreshServerTasksForTesting();
+	const auto* RefreshedScroll = Cast<UScrollBox>(Screen->GetWidgetFromName(TEXT("TaskDailyCatalogScroll")));
+	TestTrue(TEXT("Daily refresh retains scroll position"), RefreshedScroll && FMath::IsNearlyEqual(RefreshedScroll->GetScrollOffset(), 24.0f));
+
+	Snapshot.MainTasks.Reset();
+	Snapshot.SideTasks.Reset();
+	Snapshot.Signature = TEXT("loaded-main-and-side-empty");
+	Tasks->SetSnapshotForTesting(Snapshot);
+	Screen->OpenServerTasksPage(1);
+	TestEqual(TEXT("A synchronized empty main list is visible"), Text(TEXT("TaskMainEmpty")), FString(TEXT("暂无主线任务")));
+	TestEqual(TEXT("A synchronized empty side list is visible"), Text(TEXT("TaskSideNotSynced")), FString(TEXT("暂无支线任务")));
+	TestNull(TEXT("No local progress appears in the server empty state"), Screen->GetWidgetFromName(TEXT("TaskTitle_0")));
 	const auto ResourcesAfter = Buildings->GetCurrentResources();
 	TestEqual(TEXT("No food spent"), ResourcesAfter.Food, ResourcesBefore.Food);
 	TestEqual(TEXT("No wood spent"), ResourcesAfter.Wood, ResourcesBefore.Wood);
@@ -195,7 +306,7 @@ public:
 	{
 		if (FPlatformTime::Seconds() > Deadline)
 		{
-			Test.AddError(TEXT("Chapter navigation timed out. Run in the city with a chapter 2 server replay."));
+			Test.AddError(TEXT("Chapter navigation timed out. Run in the city with a chapter 2 server replay with a built hospital."));
 			return true;
 		}
 		if (bReturning)
@@ -203,8 +314,12 @@ public:
 			for (TObjectIterator<URokMainHudWidget> It; It; ++It)
 			{
 				if (!It->IsInViewport()) continue;
-				auto* Screen = Cast<URokUnityFeatureScreenWidget>(It->GetWidgetFromName(TEXT("UnityFeatureScreenWidget")));
-				if (Screen && Screen->GetWidgetFromName(TEXT("HospitalContentShade"))) return true;
+				if (TryOpenHospital(**It))
+				{
+					Test.TestTrue(TEXT("The world heal objective returns to the city's hospital"),
+						IsHospitalOpen(**It));
+					return true;
+				}
 			}
 			return false;
 		}
@@ -245,7 +360,7 @@ public:
 			const auto* City = World->GetSubsystem<URokServerCitySubsystem>();
 			if (!Net || !Net->IsSnapshotReplay() || !City || !City->HasAppliedServerCity()) continue;
 			auto* Screen = Cast<URokUnityFeatureScreenWidget>(It->GetWidgetFromName(TEXT("UnityFeatureScreenWidget")));
-			auto* Entry = Cast<UButton>(It->GetWidgetFromName(TEXT("TaskEntryButton")));
+			auto* Entry = Cast<UButton>(RokUiFind::Find(*It, TEXT("TaskEntryButton")));
 			if (!Screen || !Entry) continue;
 
 			auto Click = [this, Screen](const TCHAR* Name)
@@ -266,7 +381,11 @@ public:
 				Feedback && Feedback->GetText().ToString().Contains(TEXT("快照")));
 			if (!Click(TEXT("TaskPage_1")) || !Click(TEXT("TaskPage_2")) || !Click(TEXT("TaskPage_0"))) return true;
 			if (!Click(TEXT("TaskChapterTask_102004Go"))) return true;
-			Test.TestNotNull(TEXT("Heal objective opens the hospital"), Screen->GetWidgetFromName(TEXT("HospitalContentShade")));
+			if (!Test.TestTrue(TEXT("Heal objective selects the hospital command menu"), TryOpenHospital(**It)))
+			{
+				return true;
+			}
+			Test.TestTrue(TEXT("The selected hospital's treatment action opens its screen"), IsHospitalOpen(**It));
 			Entry->OnClicked.Broadcast();
 			bTravelling = Click(TEXT("TaskChapterTask_102003Go"));
 			return !bTravelling;
@@ -275,6 +394,26 @@ public:
 	}
 
 private:
+	static bool TryOpenHospital(URokMainHudWidget& Hud)
+	{
+		const auto* Panel = Cast<URokBuildingPanelWidget>(RokUiFind::Find(&Hud, TEXT("BuildingPanelWidget")));
+		const auto* Title = Cast<UTextBlock>(RokUiFind::Find(Panel, TEXT("BuildingTitleText")));
+		auto* Button = Cast<UButton>(RokUiFind::Find(Panel, TEXT("BuildingFeatureButton")));
+		if (!Panel || !Panel->IsVisible() || !Title || !Title->GetText().ToString().Contains(TEXT("医院"))
+			|| !Button || !Button->IsVisible() || !Button->GetIsEnabled())
+		{
+			return false;
+		}
+		Button->OnClicked.Broadcast();
+		return true;
+	}
+
+	static bool IsHospitalOpen(const URokMainHudWidget& Hud)
+	{
+		const auto* Screen = Hud.GetFeatureScreenWidgetForPlacement();
+		return Screen && Screen->IsHospitalOpen() && Screen->GetWidgetFromName(TEXT("HospitalMainContent"));
+	}
+
 	FAutomationTestBase& Test;
 	bool bTravelling = false;
 	bool bReturning = false;
@@ -435,12 +574,12 @@ private:
 		const TActorIterator<ARokBuildingSelectionIndicator> Arrows(Hud.GetWorld());
 		Test.TestTrue(TEXT("Placement shows the source selection arrows"), Arrows && !Arrows->IsHidden());
 
-		const auto* Shadow = Cast<UImage>(Hud.GetWidgetFromName(TEXT("CityPlacementButtonShadow")));
+		const auto* Shadow = Cast<UImage>(RokUiFind::Find(&Hud, TEXT("CityPlacementButtonShadow")));
 		Test.TestTrue(TEXT("Placement uses the source shadow without blocking input"), Shadow
 			&& Shadow->GetBrush().GetResourceObject()
 			&& Shadow->GetVisibility() == ESlateVisibility::HitTestInvisible);
-		const auto* Cancel = Hud.GetWidgetFromName(TEXT("CityPlacementCancelButton"));
-		const auto* Confirm = Hud.GetWidgetFromName(TEXT("CityPlacementConfirmButton"));
+		const auto* Cancel = RokUiFind::Find(&Hud, TEXT("CityPlacementCancelButton"));
+		const auto* Confirm = RokUiFind::Find(&Hud, TEXT("CityPlacementConfirmButton"));
 		if (Test.TestNotNull(TEXT("Cancel button"), Cancel) && Test.TestNotNull(TEXT("Confirm button"), Confirm))
 		{
 			const FGeometry& HudGeometry = Hud.GetCachedGeometry();
@@ -471,7 +610,7 @@ private:
 		auto* City = Hud.GetWorld()->GetSubsystem<URokServerCitySubsystem>();
 		if (!Test.TestTrue(TEXT("Construction fixture runs only in replay"),
 			Net && Net->IsSnapshotReplay() && City && City->HasAppliedServerCity())) return;
-		auto* Cancel = Cast<UButton>(Hud.GetWidgetFromName(TEXT("CityPlacementCancelButton")));
+		auto* Cancel = Cast<UButton>(RokUiFind::Find(&Hud, TEXT("CityPlacementCancelButton")));
 		if (!Test.TestNotNull(TEXT("Placement cancel"), Cancel)) return;
 		Cancel->OnClicked.Broadcast();
 		const auto* Controller = Cast<ARokPlayerController>(Hud.GetOwningPlayer());
@@ -583,7 +722,7 @@ public:
 					&& FMath::IsNearlyEqual(UV.Min.X, 531.0f / 1024.0f)
 					&& FMath::IsNearlyEqual(UV.Min.Y, 181.0f / 1024.0f));
 				Harvest->OnClicked.Broadcast();
-				const auto* Feedback = Cast<UTextBlock>(It->GetWidgetFromName(TEXT("CityHarvestFeedback")));
+				const auto* Feedback = Cast<UTextBlock>(RokUiFind::Find(*It, TEXT("CityHarvestFeedback")));
 				Test.TestTrue(TEXT("Harvest respects the replay write guard"), Feedback && Feedback->IsVisible()
 					&& Feedback->GetText().ToString().Contains(TEXT("快照")));
 				Test.TestTrue(TEXT("Replay harvest leaves city unchanged"), City->GetAppliedBuildings() == Before);

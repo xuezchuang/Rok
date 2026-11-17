@@ -1,4 +1,5 @@
 #include "RokCityBuffReferenceAuditSubsystem.h"
+#include "RokUiWidgets.h"
 
 #include "RokBuildingUpgradeSubsystem.h"
 #include "RokDataPaths.h"
@@ -295,8 +296,8 @@ bool URokCityBuffReferenceAuditSubsystem::ReadyOpen() const
 {
 	if (!Modal.IsValid() || !Screen.IsValid() || Modal->ActiveMode != ERokUnityModalMode::BuffList
 		|| Modal->bReferenceBuffListCaptureState != bReference || Screen->IsScreenOpen()) return false;
-	const UWidget* Popup = Modal->GetWidgetFromName(TEXT("BuffListAnimationRoot"));
-	const UTextBlock* Banner = Cast<UTextBlock>(Modal->GetWidgetFromName(TEXT("BuffListReferencePreviewNotice")));
+	const UWidget* Popup = RokUiFind::Find(Modal, TEXT("BuffListAnimationRoot"));
+	const UTextBlock* Banner = Cast<UTextBlock>(RokUiFind::Find(Modal, TEXT("BuffListReferencePreviewNotice")));
 	if (!Visible(Popup) || Popup->GetRenderOpacity() < .995f
 		|| !Popup->GetRenderTransform().Translation.IsNearlyZero(.25f)
 		|| !Popup->GetRenderTransform().Scale.Equals(FVector2D(1,1), .01f)) return false;
@@ -314,10 +315,10 @@ bool URokCityBuffReferenceAuditSubsystem::ReadyOpen() const
 	}
 	if (!bReference)
 	{
-		const UTextBlock* BoundaryTitle = Cast<UTextBlock>(Modal->GetWidgetFromName(TEXT("BuffListServiceBoundaryTitle")));
+		const UTextBlock* BoundaryTitle = Cast<UTextBlock>(RokUiFind::Find(Modal, TEXT("BuffListServiceBoundaryTitle")));
 		return Visible(BoundaryTitle) && BoundaryTitle->GetText().ToString() == TEXT("城市增益状态尚未接入")
-			&& !Modal->GetWidgetFromName(TEXT("BuffListDefinitionRow_0"))
-			&& !Modal->GetWidgetFromName(TEXT("BuffListDefinitionRow_1")) && !Banner;
+			&& !RokUiFind::Find(Modal, TEXT("BuffListDefinitionRow_0"))
+			&& !RokUiFind::Find(Modal, TEXT("BuffListDefinitionRow_1")) && !Banner;
 	}
 	const UTexture2D* Atlas = LoadObject<UTexture2D>(nullptr, MainMenuAtlasPath);
 	if (!Visible(Banner) || Banner->GetText().ToString() != TEXT("城市增益静态配置预览 · 非实时/未激活")) return false;
@@ -326,9 +327,9 @@ bool URokCityBuffReferenceAuditSubsystem::ReadyOpen() const
 	const FIntRect IconRects[] = {FIntRect(38,142,73,177), FIntRect(114,476,149,511)};
 	for (int32 Index = 0; Index < 2; ++Index)
 	{
-		const UTextBlock* Title = Cast<UTextBlock>(Modal->GetWidgetFromName(*FString::Printf(TEXT("BuffListDefinitionTitle_%d"), Index)));
-		const UTextBlock* Field = Cast<UTextBlock>(Modal->GetWidgetFromName(*FString::Printf(TEXT("BuffListDefinitionFields_%d"), Index)));
-		const UImage* Icon = Cast<UImage>(Modal->GetWidgetFromName(*FString::Printf(TEXT("BuffListDefinitionIcon_%d"), Index)));
+		const UTextBlock* Title = Cast<UTextBlock>(RokUiFind::Find(Modal, *FString::Printf(TEXT("BuffListDefinitionTitle_%d"), Index)));
+		const UTextBlock* Field = Cast<UTextBlock>(RokUiFind::Find(Modal, *FString::Printf(TEXT("BuffListDefinitionFields_%d"), Index)));
+		const UImage* Icon = Cast<UImage>(RokUiFind::Find(Modal, *FString::Printf(TEXT("BuffListDefinitionIcon_%d"), Index)));
 		const FBox2f Uv = Icon ? static_cast<FBox2f>(Icon->GetBrush().GetUVRegion()) : FBox2f();
 		const FVector2f ExpectedMin(static_cast<float>(IconRects[Index].Min.X) / 1024.0f,
 			static_cast<float>(1024 - IconRects[Index].Max.Y) / 1024.0f);
@@ -339,7 +340,7 @@ bool URokCityBuffReferenceAuditSubsystem::ReadyOpen() const
 			|| !Visible(Icon) || Icon->GetBrush().GetResourceObject() != Atlas
 			|| !Uv.Min.Equals(ExpectedMin, 0.0001f) || !Uv.Max.Equals(ExpectedMax, 0.0001f)) return false;
 	}
-	return !Modal->GetWidgetFromName(TEXT("BuffListDefinitionRow_2"));
+	return !RokUiFind::Find(Modal, TEXT("BuffListDefinitionRow_2"));
 }
 bool URokCityBuffReferenceAuditSubsystem::ReadyManager() const
 {
@@ -381,7 +382,7 @@ TSharedRef<FJsonObject> URokCityBuffReferenceAuditSubsystem::State() const
 		TEXT("BuffListDefinitionFields_0"), TEXT("BuffListDefinitionFields_1"),
 		TEXT("BuffListDefinitionIcon_0"), TEXT("BuffListDefinitionIcon_1"),
 		TEXT("BuffListMoreButton"), TEXT("ModalDismissMask")})
-		Widgets->SetObjectField(Name, WidgetState(Modal->GetWidgetFromName(Name)));
+		Widgets->SetObjectField(Name, WidgetState(RokUiFind::Find(Modal, Name)));
 	if (Screen.IsValid()) for (const TCHAR* Name : {TEXT("CityManagerListScroll"), TEXT("FeatureFrameClose")})
 		Widgets->SetObjectField(Name, WidgetState(Screen->GetWidgetFromName(Name)));
 	Json->SetObjectField(TEXT("widgets"), Widgets);
@@ -408,7 +409,7 @@ bool URokCityBuffReferenceAuditSubsystem::Click(UButton* Target, const TCHAR* La
 	const FVector2D Center = bOutside ? Geometry.LocalToAbsolute(FVector2D(70,70)) : Geometry.LocalToAbsolute(Size * .5f);
 	if (bOutside)
 	{
-		const UWidget* Popup = Modal->GetWidgetFromName(TEXT("BuffListAnimationRoot"));
+		const UWidget* Popup = RokUiFind::Find(Modal, TEXT("BuffListAnimationRoot"));
 		const FGeometry PopupGeometry = Popup ? Popup->GetCachedGeometry() : FGeometry();
 		const FVector2D PopupA = PopupGeometry.LocalToAbsolute(FVector2D::ZeroVector);
 		const FVector2D PopupB = PopupGeometry.LocalToAbsolute(PopupGeometry.GetLocalSize());
@@ -591,7 +592,7 @@ void URokCityBuffReferenceAuditSubsystem::Tick(float DeltaTime)
 	case 0: if (!bBegun) bBegun = Begin(); if (bBegun && PrepareOwnWindowFocus()) Enter(1); break;
 	case 1: if (Boundary() && Stable(ReadyOpen())) Capture(TEXT("00_buff_popup"), 2); break;
 	case 2:
-		if (Boundary() && Click(Cast<UButton>(Modal->GetWidgetFromName(
+		if (Boundary() && Click(Cast<UButton>(RokUiFind::Find(Modal,
 			bReference ? TEXT("BuffListMoreButton") : TEXT("ModalDismissMask"))),
 			bReference ? TEXT("more_to_city_manager") : TEXT("outside_close"), !bReference)) Enter(3);
 		break;

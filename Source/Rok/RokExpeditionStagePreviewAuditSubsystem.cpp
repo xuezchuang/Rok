@@ -1,4 +1,5 @@
 #include "RokExpeditionStagePreviewAuditSubsystem.h"
+#include "RokUiWidgets.h"
 
 #include "RokBuildingUpgradeSubsystem.h"
 #include "RokDataPaths.h"
@@ -336,6 +337,8 @@ TSharedRef<FJsonObject> URokExpeditionStagePreviewAuditSubsystem::State() const
 	const TCHAR* Selectors[] = {
 		TEXT("ExpeditionStageButton_1"), TEXT("ExpeditionStageButton_2"),
 		TEXT("ExpeditionStageTitle_1"), TEXT("ExpeditionStageTitle_2"),
+		TEXT("ExpeditionStageSelectedGlow_1"), TEXT("ExpeditionStageNormalTitle_1"),
+		TEXT("ExpeditionStageSelectedTitle_1"), TEXT("ExpeditionFirstRewardStamp"),
 		TEXT("ExpeditionPreviewButton"), TEXT("ExpeditionBackButton"),
 		TEXT("ExpeditionChallenge"), TEXT("ExpeditionPreviewRoot"),
 		TEXT("ExpeditionSideRoot"), TEXT("ExpeditionCenterRoot"),
@@ -356,6 +359,9 @@ TSharedRef<FJsonObject> URokExpeditionStagePreviewAuditSubsystem::State() const
 		const TCHAR* ArtSelectors[] = {
 			TEXT("ExpeditionMapScroll"), TEXT("ExpeditionMapSelectedPanel"),
 			TEXT("ExpeditionChallenge"), TEXT("ExpeditionTroopCount"),
+			TEXT("ExpeditionStageSelectedGlow_1"), TEXT("ExpeditionStageNormalTitle_1"),
+			TEXT("ExpeditionStageSelectedTitle_1"), TEXT("ExpeditionFirstRewardSeal"),
+			TEXT("ExpeditionFirstRewardStamp"),
 			TEXT("ExpeditionStageFlag_1"), TEXT("ExpeditionStageFlag_2"),
 			TEXT("ExpeditionTaskPanelImage"), TEXT("ExpeditionCenterRoot"),
 			TEXT("ExpeditionCenterImg"),
@@ -1001,7 +1007,7 @@ void URokExpeditionStagePreviewAuditSubsystem::Tick(float DeltaTime)
 		if (Begin()) Enter(1);
 		break;
 	case 1:
-		if (Click(Hud->GetWidgetFromName(TEXT("CampaignFeatureButton")), TEXT("open_from_hud"))) Enter(2);
+		if (Click(RokUiFind::Find(Hud, TEXT("CampaignFeatureButton")), TEXT("open_from_hud"))) Enter(2);
 		break;
 	case 2:
 		if (Normal(1) && Screen->GetExpeditionRenderedStageCountForAudit() == 80
@@ -1113,7 +1119,7 @@ void URokExpeditionStagePreviewAuditSubsystem::Tick(float DeltaTime)
 			Capture(TEXT("13_closed"), 18);
 		break;
 	case 18:
-		if (Click(Hud->GetWidgetFromName(TEXT("CampaignFeatureButton")), TEXT("reopen_from_hud"))) Enter(19);
+		if (Click(RokUiFind::Find(Hud, TEXT("CampaignFeatureButton")), TEXT("reopen_from_hud"))) Enter(19);
 		break;
 	case 19:
 		if (Normal(1) && Screen->GetExpeditionRenderedStageCountForAudit() == 80)
@@ -1182,7 +1188,7 @@ void URokExpeditionStagePreviewAuditSubsystem::TickArt()
 		break;
 	case 1:
 		if (ArtTexturesReady()
-			&& Click(Hud->GetWidgetFromName(TEXT("CampaignFeatureButton")), TEXT("open_from_hud"))) Enter(2);
+			&& Click(RokUiFind::Find(Hud, TEXT("CampaignFeatureButton")), TEXT("open_from_hud"))) Enter(2);
 		break;
 	case 2:
 		if (Map(1) && Screen->GetExpeditionRenderedStageCountForAudit() == 80)
@@ -1344,7 +1350,7 @@ void URokExpeditionStagePreviewAuditSubsystem::TickArt()
 			Capture(TEXT("21_closed"), 25);
 		break;
 	case 25:
-		if (Click(Hud->GetWidgetFromName(TEXT("CampaignFeatureButton")), TEXT("reopen_from_hud"))) Enter(26);
+		if (Click(RokUiFind::Find(Hud, TEXT("CampaignFeatureButton")), TEXT("reopen_from_hud"))) Enter(26);
 		break;
 	case 26:
 		if (Map(1) && Screen->GetExpeditionRenderedStageCountForAudit() == 80)

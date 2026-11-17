@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
+#include "RokUiWidgets.h"
 #include "Components/TextBlock.h"
 #include "../RokUnityModalWidget.h"
 
@@ -22,21 +23,21 @@ bool FRokVipPrivilegeLayoutTest::RunTest(const FString& Parameters)
 	Modal->OpenVipPrivilege();
 
 	if (!TestNotNull(TEXT("The first privilege row exists"),
-		Modal->GetWidgetFromName(TEXT("VipPrivilegeRow_0"))))
+		RokUiFind::Find(Modal, TEXT("VipPrivilegeRow_0"))))
 	{
 		return false;
 	}
 	const UTextBlock* Title = Cast<UTextBlock>(
-		Modal->GetWidgetFromName(TEXT("VipPrivilegeRowTitle_0")));
+		RokUiFind::Find(Modal, TEXT("VipPrivilegeRowTitle_0")));
 	TestTrue(TEXT("The first row names 食物产量"),
 		Title != nullptr && Title->GetText().ToString() == TEXT("食物产量"));
 	const UTextBlock* Detail = Cast<UTextBlock>(
-		Modal->GetWidgetFromName(TEXT("VipPrivilegeRowDetail_0")));
+		RokUiFind::Find(Modal, TEXT("VipPrivilegeRowDetail_0")));
 	TestTrue(TEXT("The detail shows the granted value"),
 		Detail != nullptr && Detail->GetText().ToString().StartsWith(TEXT("+")));
 
 	TestNotNull(TEXT("The search box exists"),
-		Modal->GetWidgetFromName(TEXT("VipPrivilegeSearch")));
+		RokUiFind::Find(Modal, TEXT("VipPrivilegeSearch")));
 	const int32 FullCount = Modal->GetDefinitionRowCount();
 	Modal->SetDefinitionFilter(TEXT("产量"));
 	const int32 FilteredCount = Modal->GetDefinitionRowCount();

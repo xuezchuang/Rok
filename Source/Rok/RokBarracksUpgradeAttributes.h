@@ -9,6 +9,7 @@ class ROK_API URokBarracksUpgradeAttributes : public UUserWidget
 {
     GENERATED_BODY()
 public:
+    static TSubclassOf<URokBarracksUpgradeAttributes> ResolveAttributesClass();
     static bool Supports(int32 BuildingType, int32 CurrentLevel, int32 NextLevel)
     { return BuildingType == 9 && CurrentLevel == 1 && NextLevel == 2; }
     bool InitializeAttributes();

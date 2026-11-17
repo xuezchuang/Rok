@@ -1,5 +1,6 @@
 #if WITH_DEV_AUTOMATION_TESTS
 #include "Misc/AutomationTest.h"
+#include "RokUiWidgets.h"
 #include "../RokModalNineSlice.h"
 #include "../RokUnityModalWidget.h"
 #include "Components/CanvasPanel.h"
@@ -39,12 +40,12 @@ bool FRokModalNineSliceTest::RunTest(const FString&)
 	auto* Modal = NewObject<URokUnityModalWidget>(); Modal->Initialize();
 	const TSharedRef<SWidget> Slate = Modal->TakeWidget();
 	Modal->OpenPlayerProfile();
-	auto* Frame = Cast<UBorder>(Modal->GetWidgetFromName(TEXT("Type1BodyRight")));
+	auto* Frame = Cast<UBorder>(RokUiFind::Find(Modal, TEXT("Type1BodyRight")));
 	if (!TestNotNull(TEXT("Shared helper retains UBorder identity"), Frame)) return false;
 	TestTrue(TEXT("Container no longer batches full-atlas Box geometry"), Frame->Background.DrawAs == ESlateBrushDrawType::NoDrawType);
 	TestNotNull(TEXT("Nine slices remain inside border content"), Cast<UCanvasPanel>(Frame->GetContent()));
 	TestEqual(TEXT("Whole source half keeps mirror transform"), Frame->GetRenderTransform().Scale, FVector2D(-1, 1));
-	auto* Image = Cast<UImage>(Modal->GetWidgetFromName(TEXT("Type1BodyRightSlice_0")));
+	auto* Image = Cast<UImage>(RokUiFind::Find(Modal, TEXT("Type1BodyRightSlice_0")));
 	if (!TestNotNull(TEXT("Real profile frame has explicit image patch"), Image)) return false;
 	TestTrue(TEXT("Patch draws only image UV region"), Image->GetBrush().DrawAs == ESlateBrushDrawType::Image);
 	TestEqual(TEXT("Real frame corner uses sprite borders"), CastChecked<UCanvasPanelSlot>(Image->Slot)->GetSize(), FVector2D(493, 278));
@@ -53,15 +54,15 @@ bool FRokModalNineSliceTest::RunTest(const FString&)
 	TestEqual(TEXT("Brush color remains observable"), Frame->GetBrushColor(), Tint);
 	TestEqual(TEXT("Children receive tint including alpha"), Frame->GetContentColorAndOpacity(), Tint);
 	TestEqual(TEXT("Child has no duplicate tint multiplication"), Image->GetColorAndOpacity(), FLinearColor::White);
-	auto* ActionCenter = Cast<UImage>(Modal->GetWidgetFromName(TEXT("ActionBackgroundSlice_4")));
+	auto* ActionCenter = Cast<UImage>(RokUiFind::Find(Modal, TEXT("ActionBackgroundSlice_4")));
 	if (!TestNotNull(TEXT("Real action background retains coincident-UV center"), ActionCenter)) return false;
 	const FBox2f ActionUV = ActionCenter->GetBrush().GetUVRegion();
 	TestTrue(TEXT("Coincident UV box remains valid for Slate"), ActionUV.bIsValid);
 	TestEqual(TEXT("Coincident source U is not widened or omitted"), ActionUV.Min.X, ActionUV.Max.X);
-	auto* Picture = Cast<UButton>(Modal->GetWidgetFromName(TEXT("ProfilePictureButton")));
+	auto* Picture = Cast<UButton>(RokUiFind::Find(Modal, TEXT("ProfilePictureButton")));
 	if (!TestNotNull(TEXT("Actual profile picture entry"), Picture)) return false;
 	Picture->OnClicked.Broadcast();
-	auto* Grid = Cast<UBorder>(Modal->GetWidgetFromName(TEXT("PlayerHeadGridPanel")));
+	auto* Grid = Cast<UBorder>(RokUiFind::Find(Modal, TEXT("PlayerHeadGridPanel")));
 	if (!TestNotNull(TEXT("Real tinted atlas caller opens"), Grid)) return false;
 	TestEqual(TEXT("Source player-head background retains authored white tint"), Grid->GetBrushColor(), FLinearColor::White);
 	TestEqual(TEXT("Existing caller forwards tint to slice subtree"), Grid->GetContentColorAndOpacity(), Grid->GetBrushColor());

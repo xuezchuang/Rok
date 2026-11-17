@@ -1,4 +1,5 @@
 #include "RokLocalConstructionRuntimeAuditSubsystem.h"
+#include "RokUiWidgets.h"
 
 #include "RokBuildingPanelWidget.h"
 #include "RokBuildingUpgradeSubsystem.h"
@@ -817,9 +818,9 @@ bool URokLocalConstructionRuntimeAuditSubsystem::CheckPreview(int32 TypeId,
     for (TActorIterator<ARokCityPlacementPreviewActor> It(GetWorld()); It; ++It)
         if (!It->IsActorBeingDestroyed()) { ++Ghosts; Ghost = *It; }
     const UWidget* Controls = Hud.IsValid()
-        ? Hud->GetWidgetFromName(TEXT("CityPlacementControls")) : nullptr;
+        ? RokUiFind::Find(Hud, TEXT("CityPlacementControls")) : nullptr;
     const UWidget* Confirm = Hud.IsValid()
-        ? Hud->GetWidgetFromName(TEXT("CityPlacementConfirmButton")) : nullptr;
+        ? RokUiFind::Find(Hud, TEXT("CityPlacementConfirmButton")) : nullptr;
     if (!Expect(Value.bActive == bExpectedActive
         && Value.bDragging == bExpectedDragging
         && Value.bGridValid == (bExpectedActive && bExpectedValid)
@@ -1128,11 +1129,11 @@ TSharedRef<FJsonObject> URokLocalConstructionRuntimeAuditSubsystem::PlacementMen
 {
 	auto Evidence = MakeShared<FJsonObject>();
 	const URokMainHudWidget* MainHud = Hud.Get();
-	const UWidget* Controls = MainHud ? MainHud->GetWidgetFromName(TEXT("CityPlacementControls")) : nullptr;
-	const UWidget* Confirm = MainHud ? MainHud->GetWidgetFromName(TEXT("CityPlacementConfirmButton")) : nullptr;
-	const UWidget* Cancel = MainHud ? MainHud->GetWidgetFromName(TEXT("CityPlacementCancelButton")) : nullptr;
-	const UImage* ConfirmImage = MainHud ? Cast<UImage>(MainHud->GetWidgetFromName(TEXT("CityPlacementConfirmImage"))) : nullptr;
-	const UImage* CancelImage = MainHud ? Cast<UImage>(MainHud->GetWidgetFromName(TEXT("CityPlacementCancelImage"))) : nullptr;
+	const UWidget* Controls = MainHud ? RokUiFind::Find(MainHud, TEXT("CityPlacementControls")) : nullptr;
+	const UWidget* Confirm = MainHud ? RokUiFind::Find(MainHud, TEXT("CityPlacementConfirmButton")) : nullptr;
+	const UWidget* Cancel = MainHud ? RokUiFind::Find(MainHud, TEXT("CityPlacementCancelButton")) : nullptr;
+	const UImage* ConfirmImage = MainHud ? Cast<UImage>(RokUiFind::Find(MainHud, TEXT("CityPlacementConfirmImage"))) : nullptr;
+	const UImage* CancelImage = MainHud ? Cast<UImage>(RokUiFind::Find(MainHud, TEXT("CityPlacementCancelImage"))) : nullptr;
 	Evidence->SetObjectField(TEXT("controls"), PlacementWidgetGeometry(Controls));
 	Evidence->SetObjectField(TEXT("confirm_button"), PlacementWidgetGeometry(Confirm));
 	Evidence->SetObjectField(TEXT("cancel_button"), PlacementWidgetGeometry(Cancel));
@@ -1323,7 +1324,7 @@ bool URokLocalConstructionRuntimeAuditSubsystem::ObservePlacementMenuReadiness(T
 	if (!bPlacementMenuPointerCleared)
 	{
 		const UWidget* ControlsWidget = Hud.IsValid()
-			? Hud->GetWidgetFromName(TEXT("CityPlacementControls")) : nullptr;
+			? RokUiFind::Find(Hud, TEXT("CityPlacementControls")) : nullptr;
 		const FGeometry Viewport = UWidgetLayoutLibrary::GetViewportWidgetGeometry(this);
 		const FVector2D ViewportSize = Viewport.GetLocalSize();
 		if (!Expect(ControlsWidget && ViewportSize.X > 100 && ViewportSize.Y > 100
@@ -1543,7 +1544,7 @@ bool URokLocalConstructionRuntimeAuditSubsystem::SlateClick(UWidget* Target, con
 		Action->SetNumberField(TEXT("wallet_food_after_up"), WalletAfter.Food);
 		Action->SetNumberField(TEXT("wallet_wood_after_up"), WalletAfter.Wood);
 		const UWidget* PlacementControls = Hud.IsValid()
-			? Hud->GetWidgetFromName(TEXT("CityPlacementControls")) : nullptr;
+			? RokUiFind::Find(Hud, TEXT("CityPlacementControls")) : nullptr;
 		const UCanvasPanelSlot* PlacementSlot = PlacementControls
 			? Cast<UCanvasPanelSlot>(PlacementControls->Slot) : nullptr;
 		Action->SetObjectField(TEXT("placement_menu_last_anchor_after_up"), PointJson(
@@ -2032,11 +2033,11 @@ TSharedRef<FJsonObject> URokLocalConstructionRuntimeAuditSubsystem::State() cons
 	}
 	if (Hud.IsValid())
 	{
-		const UWidget* Controls = Hud->GetWidgetFromName(TEXT("CityPlacementControls"));
+		const UWidget* Controls = RokUiFind::Find(Hud, TEXT("CityPlacementControls"));
 		const UTextBlock* Status = Cast<UTextBlock>(
-			Hud->GetWidgetFromName(TEXT("CityPlacementStatus")));
+			RokUiFind::Find(Hud, TEXT("CityPlacementStatus")));
 		const UTextBlock* Reason = Cast<UTextBlock>(
-			Hud->GetWidgetFromName(TEXT("CityPlacementReason")));
+			RokUiFind::Find(Hud, TEXT("CityPlacementReason")));
 		Json->SetBoolField(TEXT("controls_visible"), Controls && Controls->IsVisible());
 		Json->SetStringField(TEXT("status"), Status ? Status->GetText().ToString() : FString());
 		Json->SetStringField(TEXT("reason"), Reason ? Reason->GetText().ToString() : FString());
@@ -2320,7 +2321,7 @@ bool URokLocalConstructionRuntimeAuditSubsystem::ProjectConstructedActor(
 bool URokLocalConstructionRuntimeAuditSubsystem::DisabledConfirmClick()
 {
 	UWidget* Target = Hud.IsValid()
-		? Hud->GetWidgetFromName(TEXT("CityPlacementConfirmButton")) : nullptr;
+		? RokUiFind::Find(Hud, TEXT("CityPlacementConfirmButton")) : nullptr;
 	if (!Expect(Target && Visible(Target) && !Target->GetIsEnabled(),
 		TEXT("Invalid source grid did not disable confirmation"))) return false;
 	const FGeometry Geometry = Target->GetCachedGeometry();
@@ -2438,9 +2439,9 @@ bool URokLocalConstructionRuntimeAuditSubsystem::RepeatConfirmPointer(const TCHA
 	const FWidgetPath Path = App.LocateWindowUnderMouse(
 		LastConfirmAbsolutePointer, App.GetInteractiveTopLevelWindows(), false, 0);
 	UWidget* Confirm = Hud.IsValid()
-		? Hud->GetWidgetFromName(TEXT("CityPlacementConfirmButton")) : nullptr;
+		? RokUiFind::Find(Hud, TEXT("CityPlacementConfirmButton")) : nullptr;
 	UWidget* Controls = Hud.IsValid()
-		? Hud->GetWidgetFromName(TEXT("CityPlacementControls")) : nullptr;
+		? RokUiFind::Find(Hud, TEXT("CityPlacementControls")) : nullptr;
 	const bool bConfirmStillHittable = Confirm && Path.IsValid()
 		&& Path.ContainsWidget(&Confirm->TakeWidget().Get()) && Confirm->GetIsEnabled();
 	bool bClosing = false;
@@ -3540,9 +3541,9 @@ void URokLocalConstructionRuntimeAuditSubsystem::Tick(float DeltaTime)
         break;
     case 2:
         if (Modal->IsModalOpen()
-            && ReadyForClick(Modal->GetWidgetFromName(TEXT("TimedUpgradeButton")),
+            && ReadyForClick(RokUiFind::Find(Modal, TEXT("TimedUpgradeButton")),
                 Modal->GetWindowAnimationForTesting().IsAnimating())
-            && SlateClick(Modal->GetWidgetFromName(TEXT("TimedUpgradeButton")),
+            && SlateClick(RokUiFind::Find(Modal, TEXT("TimedUpgradeButton")),
                 TEXT("hall_timed_upgrade_start")))
         {
             HallClickedWall = FPlatformTime::Seconds();
@@ -3677,14 +3678,14 @@ void URokLocalConstructionRuntimeAuditSubsystem::Tick(float DeltaTime)
         break;
     case 14:
         if (CheckPreview(2, true, false, true)
-            && ReadyForClick(Hud->GetWidgetFromName(TEXT("CityPlacementConfirmButton")), false))
+            && ReadyForClick(RokUiFind::Find(Hud, TEXT("CityPlacementConfirmButton")), false))
         {
             FarmGrid = ValidGrid;
             ConfirmCountBefore = Controller->GetCityPlacementPreviewSnapshot().ConfirmClickCount;
-            UWidget* Confirm = Hud->GetWidgetFromName(TEXT("CityPlacementConfirmButton"));
+            UWidget* Confirm = RokUiFind::Find(Hud, TEXT("CityPlacementConfirmButton"));
             LastConfirmAbsolutePointer = Confirm->GetCachedGeometry().LocalToAbsolute(
                 Confirm->GetCachedGeometry().GetLocalSize() * 0.5);
-            if (SlateClick(Hud->GetWidgetFromName(TEXT("CityPlacementConfirmButton")),
+            if (SlateClick(RokUiFind::Find(Hud, TEXT("CityPlacementConfirmButton")),
                 TEXT("farm_confirm_ordinary_hud")))
             {
                 FarmClickedWall = FPlatformTime::Seconds();
@@ -3857,13 +3858,13 @@ void URokLocalConstructionRuntimeAuditSubsystem::Tick(float DeltaTime)
         }
         break;
     case 22:
-        if (ReadyForClick(Hud->GetWidgetFromName(TEXT("CityPlacementConfirmButton")), false))
+        if (ReadyForClick(RokUiFind::Find(Hud, TEXT("CityPlacementConfirmButton")), false))
         {
             ConfirmCountBefore = Controller->GetCityPlacementPreviewSnapshot().ConfirmClickCount;
-            UWidget* Confirm = Hud->GetWidgetFromName(TEXT("CityPlacementConfirmButton"));
+            UWidget* Confirm = RokUiFind::Find(Hud, TEXT("CityPlacementConfirmButton"));
             LastConfirmAbsolutePointer = Confirm->GetCachedGeometry().LocalToAbsolute(
                 Confirm->GetCachedGeometry().GetLocalSize() * 0.5);
-            if (SlateClick(Hud->GetWidgetFromName(TEXT("CityPlacementConfirmButton")),
+            if (SlateClick(RokUiFind::Find(Hud, TEXT("CityPlacementConfirmButton")),
                 TEXT("wood_confirm_ordinary_hud")))
             {
                 WoodClickedWall = FPlatformTime::Seconds();

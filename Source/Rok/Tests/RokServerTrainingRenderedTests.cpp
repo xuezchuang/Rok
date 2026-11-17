@@ -13,6 +13,7 @@
 #include "../RokMainHudWidget.h"
 #include "../RokServerCitySubsystem.h"
 #include "../RokUnityFeatureScreenWidget.h"
+#include "../RokUiWidgets.h"
 
 namespace
 {
@@ -88,8 +89,8 @@ public:
 			if (!Screen || !Building) continue;
 			if (bReady)
 			{
-				const auto* Ready = It->GetWidgetFromName(TEXT("TrainingPopReady_0"));
-				auto* Bubble = Cast<UButton>(It->GetWidgetFromName(TEXT("TrainingPopReadyAction_0")));
+				const auto* Ready = RokUiFind::Find(*It, TEXT("TrainingPopReady_0"));
+				auto* Bubble = Cast<UButton>(RokUiFind::Find(*It, TEXT("TrainingPopReadyAction_0")));
 				if (!Ready || !Ready->IsVisible() || !Bubble) continue;
 				Bubble->OnClicked.Broadcast();
 			}

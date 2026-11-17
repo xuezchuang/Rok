@@ -39,8 +39,13 @@ class AActor;
 class URokClientSettingsSubsystem;
 class URokCommanderMeshWidget;
 struct FRokServerTaskSnapshot;
+struct FRokServerArmySnapshot;
+struct FRokServerTrainingQueue;
+struct FRokUnityCatalogTroop;
+class URokServerArmySubsystem;
 class URokTrainArmyMeshWidget;
 class URokHelpWidget;
+class URokUiPageWidget;
 class URokHospitalExplanationWidget;
 class URokResearchScreenWidget;
 class URokMailAttachmentMeshWidget;
@@ -259,6 +264,9 @@ public:
 	/** User dismissal; CloseScreen remains the synchronous routing API. */
 	void RequestCloseScreen();
 	bool IsScreenOpen() const { return ActiveMode != ERokUnityFeatureScreenMode::None; }
+	bool ExportCurrentModeSpec(const FString& Filename, FString& OutError) const;
+	/** Resolves both native shell widgets and widgets inside the active designer page. */
+	UWidget* GetWidgetFromName(const FName& Name) const;
 	bool IsWorkerQueueOpen() const
 	{
 		return ActiveMode == ERokUnityFeatureScreenMode::WorkerQueue
@@ -340,6 +348,7 @@ public:
 	int32 GetSelectedCommanderSkillDetailIdForAudit() const { return VisibleCommanderSkillIds.IsValidIndex(SelectedCommanderSkillDetailIndex) ? VisibleCommanderSkillIds[SelectedCommanderSkillDetailIndex] : INDEX_NONE; }
 	void AdvanceWindowAnimationForTesting(float DeltaSeconds) { AdvanceWindowAnimation(DeltaSeconds); }
 	void AdvanceArmyShowPanelAnimationForTesting(float DeltaSeconds) { AdvanceArmyShowPanelAnimation(DeltaSeconds); }
+	void AdvanceActivityCountdownForTesting(float DeltaSeconds) { UpdateActivityCountdown(DeltaSeconds); }
 	void AdvanceTrainArmyDetailAnimationForTesting(float DeltaSeconds) { AdvanceTrainArmyDetailAnimation(DeltaSeconds); }
 	void RebuildArmyShowPresentationForTesting() { if (ActiveMode == ERokUnityFeatureScreenMode::ArmyShow) RebuildModeContent(); }
 	void AdvanceCommanderRosterAnimationForTesting(float DeltaSeconds) { AdvanceCommanderRosterAnimation(DeltaSeconds); }
@@ -391,6 +400,12 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UCanvasPanel> ModeCanvas;
+
+	UPROPERTY(Transient)
+	TObjectPtr<URokUiPageWidget> FeatureShellPage;
+
+	UPROPERTY(Transient)
+	TObjectPtr<URokUiPageWidget> ActiveModePage;
 
 	/** Unity pl_content; contact folding is independent of root entry/exit. */
 	UPROPERTY()
@@ -474,6 +489,7 @@ private:
 	uint32 ResourceSearchRequestSerial = 0;
 	bool bResourceSearchPending = false;
 	bool bResourceSearchTaskGuide = false;
+	bool bFreezeResourceSearchGuideForCapture = false;
 
 	ERokUnityFeatureScreenMode ActiveMode = ERokUnityFeatureScreenMode::None;
 	ERokUnityFeatureScreenMode AnimatedMode = ERokUnityFeatureScreenMode::None;
@@ -710,7 +726,7 @@ private:
 	float TrainArmyDetailAnimationTime = 0.25f;
 	TArray<TWeakObjectPtr<UWidget>> TrainArmyAnimatedChildren;
 	UPROPERTY(Transient) TObjectPtr<URokTrainArmyMeshWidget> TrainArmyAnimatedModel;
-	UPROPERTY(Transient) TObjectPtr<UCanvasPanel> TrainArmyTipLayer;
+	UPROPERTY(Transient) TObjectPtr<UWidget> TrainArmyTipLayer;
 	int32 SelectedSpeedUpPage = 0;
 	int32 SelectedSpeedUpItemIndex = 0;
 	int32 SelectedCityManagerPage = 0;
@@ -747,6 +763,7 @@ private:
 	int32 PendingActionId = INDEX_NONE;
 	double ActivityPreviewSecondsRemaining = 91824.0;
 	int32 LastRenderedActivitySecond = INDEX_NONE;
+	bool bFreezeActivityCountdownForCapture = false;
 	float SpeedUpRefreshAccumulator = 0.0f;
 	float WorkerQueueRefreshAccumulator = 0.0f;
 	bool bWorkerQueueRenderedBusy = false;
@@ -766,11 +783,16 @@ private:
 	bool bServerSpeedUpPending = false;
 	TArray<bool> ServerSpeedUpItemCostsGems;
 	UPROPERTY()
-	TObjectPtr<UCanvasPanel> ServerSpeedUpConfirmation;
+	TObjectPtr<UWidget> ServerSpeedUpConfirmation;
 	int32 ServerSpeedUpConfirmIndex = INDEX_NONE;
 
 	void BuildWidgetTree();
 	void RebuildModeContent(bool bOpening = false);
+	static UClass* ResolveFeaturePageClass(FName Name);
+	URokUiPageWidget* MountModePage(FName PageName = NAME_None, bool bBindFrameClose = true, int32 ZOrder = 0);
+	URokUiPageWidget* MountPageItem(UCanvasPanel* Parent, UClass* ItemClass, const TCHAR* LegacyPrefix, int32 Index);
+	void BindPageAction(const URokUiPageWidget& Page, FName Name, int32 ActionId);
+	void BindGeneralSettingsPage(const URokUiPageWidget& Page);
 	void UpdateWindowAnimationForMode(bool bOpening);
 	void ApplyWindowAnimation();
 	void AdvanceWindowAnimation(float DeltaSeconds);
@@ -780,8 +802,14 @@ private:
 	void HandleResearchMainMaskClicked();
 	void RequestResearchMainMaskClose();
 	void BuildActivityCenter();
-	void BuildActivityCalendarReadonly();
+	void BuildActivityCalendarReadonly(const URokUiPageWidget* Page = nullptr, UClass* RowClass = nullptr);
+	void SetActivityIcon(UImage* Image, UTexture2D* Atlas, const FIntRect& Rect) const;
 	void BuildMail();
+	void BindMailPageControls(const URokUiPageWidget& Page);
+	bool TryBuildMailReferencePage(const FRokMailRewardTemplate& MailTemplate, bool bHasMailTemplate,
+		const FString& MailTemplateError);
+	void PreviewMailReferenceSelection();
+	void AttachMailGiftMesh(int32 Index, UCanvasPanel& Pulse);
 	void BuildBattleReportMail(UScrollBox* List);
 	void SelectBattleReport(int64 EmailIndex);
 	void RefreshBattleReportMail();
@@ -789,9 +817,21 @@ private:
 	bool BeginTaskCompletedRowAnimation(UCanvasPanel* Row, TFunction<void()> OnComplete);
 	void AdvanceTaskCompletedRowAnimation();
 	void ResetTaskCompletedRowAnimation();
-	void BuildTaskChapter();
+	void BuildTaskChapter(const URokUiPageWidget* Page = nullptr, UClass* RowClass = nullptr,
+		UClass* AggregateRewardClass = nullptr, UClass* TaskRewardClass = nullptr);
 	void BuildServerTaskChapter(const FRokServerTaskSnapshot& Snapshot);
+	bool TryBuildServerTaskChapterPage(const FRokServerTaskSnapshot& Snapshot);
+	FText GetServerTaskChapterTitle(const FRokServerTaskSnapshot& Snapshot) const;
+	bool TryBuildServerDailyTaskPage(const FRokServerTaskSnapshot& Snapshot);
+	void BindServerTaskPageActions(const URokUiPageWidget& Page, const FRokServerTaskSnapshot& Snapshot);
+	int32 AddServerDailyTaskRows(const FRokServerTaskSnapshot& Snapshot, UScrollBox& Scroll,
+		UClass* RowClass = nullptr, UClass* RewardClass = nullptr);
+	URokUiPageWidget* BuildTaskRowPage(UClass* RowClass, UClass* RewardClass, int32 RowIndex,
+		const FText& Title, const FText& Description, const FIntRect& TaskIconRect, int32 RewardGroupId,
+		const TArray<FRokTaskRewardPreviewRow>& Rewards, bool bServerRow, bool bClaimable, const FText& ButtonLabel);
 	void BuildServerTaskChapterGuide(const FRokTaskChapterPreviewRow& Metadata);
+	void PopulateServerTaskChapterGuide(const FRokTaskChapterPreviewRow& Metadata, class URichTextBlock& Dialogue,
+		UCanvasPanel* ModelSlot);
 	void RefreshTaskMainProjection();
 	void RefreshServerTaskPresentation();
 	void SubmitTaskClaim(ERokTaskClaim Kind, int32 Id);
@@ -875,7 +915,7 @@ private:
 	void OpenTrainArmyInstantConfirmation();
 	void CloseTrainArmyInstantConfirmation(bool bConfirm);
 	UPROPERTY(Transient)
-	TObjectPtr<UCanvasPanel> TrainArmyInstantConfirmation;
+	TObjectPtr<UWidget> TrainArmyInstantConfirmation;
 	int64 TrainArmyInstantPrice = -1;
 	int64 TrainArmyConfirmationPrice = -1;
 	bool bTrainActionReceives = false;
@@ -887,14 +927,24 @@ private:
 	void UpdateTrainResourceCost();
 	void BuildTrainArmySharedDisplay(int32 TroopId);
 	void ApplyTrainParameterLayout(int32 TroopId);
+	bool BuildTrainArmyParameterPage(const FRokUnityCatalogTroop& SelectedTroop,
+		const TArray<FRokUnityCatalogTroop>& Troops, const FRokServerArmySnapshot& ArmySnapshot,
+		const URokServerArmySubsystem* ServerArmy, const FRokServerTrainingQueue* ServerQueue,
+		const FText& ContextText, bool bTierUnlocked, bool bIdle);
 	void UpdateTrainArmyQuantity(int32 Count, float SliderPosition = -1.0f);
 	UFUNCTION() void HandleTrainArmyQuantityTextChanged(const FText& Text);
 	UFUNCTION() void HandleTrainArmyQuantitySliderChanged(float Value);
 	void BuildTrainArmyDetail(int32 TroopId);
+	bool BuildTrainArmyDetailPage(const struct FRokTrainArmyDetail& Detail);
+	void ClickTrainArmyPreviewButton(FName Name);
 	void ShowTrainArmyDetailTip(int32 Index, bool bSkill);
 	void AdvanceTrainArmyDetailAnimation(float DeltaSeconds);
 	void BuildSpeedUp();
 	void BuildHospital();
+	bool BuildHospitalPage(const TArray<FRokHospitalSoldier>& Units, bool bQueue, int32 HospitalMark);
+	void BuildLegacyHospitalPage(const TArray<FRokHospitalSoldier>& Units, bool bQueue, int32 HospitalMark);
+	void PopulateHospitalTroopRows(UScrollBox& List, UClass* RowClass,
+		const TArray<FRokHospitalSoldier>& Units, bool bQueue);
 	void BuildResearch();
 	void HandleResearchDetailVisibilityChanged(bool bVisible);
 	void SetHospitalExplanationVisible(bool bVisible);
@@ -902,7 +952,7 @@ private:
 	UPROPERTY(Transient) TObjectPtr<URokHospitalExplanationWidget> HospitalExplanationWidget;
 	UPROPERTY(Transient) TObjectPtr<URokResearchScreenWidget> ResearchScreenWidget;
 	UPROPERTY(Transient) TObjectPtr<UCanvasPanel> HospitalMainContent;
-	UPROPERTY(Transient) TObjectPtr<UCanvasPanel> HospitalConfirmation;
+	UPROPERTY(Transient) TObjectPtr<UWidget> HospitalConfirmation;
 	UPROPERTY(Transient) TMap<int32, TObjectPtr<URokHospitalQuantity>> HospitalQuantities;
 	FRokHospitalState HospitalState;
 	FRokHospitalQuote HospitalQuote;
@@ -981,6 +1031,8 @@ private:
 	UCanvasPanel* MakeActivityMenuRow(int32 Index);
 	UCanvasPanel* MakeMailRow(int32 Index, const FRokMailRewardTemplate* MailTemplate);
 	void BuildMailRewards(UCanvasPanel* DetailContent);
+	TOptional<float> TryBuildMailRewardGrid(UCanvasPanel& DetailContent);
+	void BindMailRewardCard(URokUiPageWidget& Card, const FRokMailRewardRow& Row, int32 Index, bool bReferenceCard);
 	void BuildMailRewardTooltip();
 	void ShowMailRewardTooltip(int32 RewardIndex);
 	bool ResolveMailRewardIcon(const FRokMailRewardRow& RewardRow, const TCHAR*& OutAtlasPath, FIntRect& OutRect, FIntPoint& OutAtlasSize) const;
@@ -992,7 +1044,7 @@ private:
 		const FText& DisplayName,
 		const FText& StateText,
 		int32 Rare);
-	UCanvasPanel* MakeTaskRow(
+	UWidget* MakeTaskRow(
 		int32 RowIndex,
 		int32 TaskId,
 		const FText& Title,
@@ -1003,7 +1055,8 @@ private:
 		bool bComplete,
 		const FIntRect& TaskIconRect,
 		int32 RewardGroupId,
-		const TArray<FRokTaskRewardPreviewRow>& RewardPreviewRows);
+		const TArray<FRokTaskRewardPreviewRow>& RewardPreviewRows,
+		UClass* RowClass = nullptr, UClass* RewardClass = nullptr);
 	UCanvasPanel* MakeRewardCell(
 		const FName& Name,
 		const TCHAR* TexturePath,

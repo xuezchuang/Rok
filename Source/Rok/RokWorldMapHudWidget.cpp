@@ -37,6 +37,8 @@
 #include "Misc/Parse.h"
 #include "Misc/Paths.h"
 #include "RokMainHudWidget.h"
+#include "RokUiWidgets.h"
+#include "RokUiSpec.h"
 #include "HAL/PlatformApplicationMisc.h"
 #include "RokGameNetSubsystem.h"
 #include "RokPlayerTopBar.h"
@@ -472,9 +474,20 @@ bool URokWorldMapHudWidget::IsResourceEntityKind(
 		|| NormalizedKind == TEXT("gold");
 }
 
+TSubclassOf<URokWorldMapHudWidget> URokWorldMapHudWidget::ResolveHudClass()
+{
+	static const TSoftClassPtr<URokWorldMapHudWidget> WorldClass(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokWorldMapHud.WBP_RokWorldMapHud_C")));
+	UClass* HudClass = URokUiSettings::Resolve(WorldClass);
+	return HudClass ? HudClass : StaticClass();
+}
+
 TSharedRef<SWidget> URokWorldMapHudWidget::RebuildWidget()
 {
-	BuildWidgetTree();
+	if (!IsDesignTime())
+	{
+		BuildWidgetTree();
+	}
 	UE_LOG(
 		LogTemp,
 		Display,
@@ -612,13 +625,188 @@ void URokWorldMapHudWidget::BuildWidgetTree()
 		return;
 	}
 
-	UCanvasPanel* RootCanvas =
-		WidgetTree->ConstructWidget<UCanvasPanel>(
-			UCanvasPanel::StaticClass(),
-			TEXT("RokWorldMapHudRoot"));
-	RootCanvas->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-	WidgetTree->RootWidget = RootCanvas;
+	UCanvasPanel* RootCanvas = Cast<UCanvasPanel>(WidgetTree->RootWidget);
+	if (RootCanvas)
+	{
+		RootCanvas->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+		BindHudLayout();
+		if (!ExpandedDesignCanvas)
+		{
+			return;
+		}
+	}
+	else
+	{
+		RootCanvas = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("RokWorldMapHudRoot"));
+		RootCanvas->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+		WidgetTree->RootWidget = RootCanvas;
+		BuildHudLayout(RootCanvas);
+	}
 
+	URokWorldMapSelectionInputWidget* SelectionInput =
+		WidgetTree->ConstructWidget<URokWorldMapSelectionInputWidget>(
+			URokWorldMapSelectionInputWidget::StaticClass(),
+			TEXT("WorldMapSelectionInput"));
+	SelectionInput->SetOwningHud(this);
+	SelectionInput->SetVisibility(ESlateVisibility::Visible);
+	if (UCanvasPanelSlot* SelectionInputSlot =
+			ExpandedDesignCanvas->AddChildToCanvas(SelectionInput))
+	{
+		SelectionInputSlot->SetAnchors(
+			FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
+		SelectionInputSlot->SetOffsets(FMargin(0.0f));
+		SelectionInputSlot->SetZOrder(-100);
+	}
+
+#if WITH_EDITOR
+	if (URokUiSettings::IsLegacyForced())
+	{
+		FString Filename;
+		if (FParse::Value(FCommandLine::Get(), TEXT("RokUiExportWorldHud="), Filename))
+		{
+			FString Error;
+			if (RokUiSpec::ExportChildren(RootCanvas, Filename, TEXT("world_hud"), Error))
+			{
+				UE_LOG(LogTemp, Display, TEXT("Rok UI: HUD widget spec saved to %s"), *Filename);
+			}
+			else
+			{
+				UE_LOG(LogTemp, Error, TEXT("Rok UI: HUD widget spec export failed: %s"), *Error);
+			}
+		}
+	}
+#endif
+
+	if (const UGameInstance* GameInstance = GetGameInstance())
+	{
+		const URokWorldMapEntitySubsystem* EntitySubsystem =
+			GameInstance->GetSubsystem<
+				URokWorldMapEntitySubsystem>();
+		if (EntitySubsystem)
+		{
+			LevelBadgeTexture = LoadTransientUiTexture(
+				EntitySubsystem->GetLevelBadgeTexturePath());
+		}
+	}
+	BuildSelfMarker();
+	BuildEntityBadges();
+	BuildWorldObjectInfo();
+	BuildServerListOverlay();
+	BuildWorldMarchQueue();
+	BuildWorldOverlayArt();
+	BuildWorldDamageArt();
+	BuildGatherPanel();
+#if WITH_EDITOR
+	if (URokUiSettings::IsLegacyForced())
+	{
+		FString Filename;
+		if (FParse::Value(FCommandLine::Get(), TEXT("RokUiExportWorldOverlayArt="), Filename))
+		{
+			FString Error;
+			if (!RokUiSpec::ExportChildren(WorldOverlayArtRoot, Filename, TEXT("world_overlay_art"), Error))
+			{
+				UE_LOG(LogTemp, Error, TEXT("Rok UI: world overlay art export failed: %s"), *Error);
+			}
+		}
+		if (FParse::Value(FCommandLine::Get(), TEXT("RokUiExportWorldDamageArt="), Filename))
+		{
+			FString Error;
+			if (!RokUiSpec::ExportChildren(WorldDamageArtRoot, Filename, TEXT("world_damage_art"), Error))
+			{
+				UE_LOG(LogTemp, Error, TEXT("Rok UI: world damage art export failed: %s"), *Error);
+			}
+		}
+		FString BattleRowSpecDir;
+		if (FParse::Value(FCommandLine::Get(), TEXT("RokUiExportWorldBattleRows="), BattleRowSpecDir))
+		{
+			const auto Export = [&BattleRowSpecDir](const UPanelWidget* Panel, const FString& SpecName)
+			{
+				FString Error;
+				if (!RokUiSpec::ExportChildren(Panel, BattleRowSpecDir / (SpecName + TEXT(".json")), SpecName, Error))
+				{
+					UE_LOG(LogTemp, Error, TEXT("Rok UI: %s spec export failed: %s"), *SpecName, *Error);
+				}
+			};
+			auto* SampleReward = NewObject<UCanvasPanel>();
+			BuildBarbarianRewardLayout(SampleReward, 0);
+			Export(SampleReward, TEXT("world_barbarian_reward"));
+			auto* SampleChoice = NewObject<UCanvasPanel>();
+			const FAttackArmyChoiceLayout Choice = BuildAttackArmyChoiceLayout(0);
+			Choice.Label->SetText(NSLOCTEXT("RokGather", "ArmyChoicePreview", "部队"));
+			PlaceOnCanvas(SampleChoice, Choice.Root, FVector2D::ZeroVector, FVector2D::ZeroVector,
+				FAnchors(0, 0, 1, 1))->SetAutoSize(true);
+			Export(SampleChoice, TEXT("world_attack_army_choice"));
+		}
+		FString ProjectedSpecDir;
+		if (FParse::Value(FCommandLine::Get(), TEXT("RokUiExportWorldProjected="), ProjectedSpecDir))
+		{
+			const auto Export = [&ProjectedSpecDir](const UPanelWidget* Panel, const FString& SpecName)
+			{
+				FString Error;
+				if (!RokUiSpec::ExportChildren(Panel, ProjectedSpecDir / (SpecName + TEXT(".json")), SpecName, Error))
+				{
+					UE_LOG(LogTemp, Error, TEXT("Rok UI: %s spec export failed: %s"), *SpecName, *Error);
+				}
+			};
+			Export(ExpandedDesignCanvas, TEXT("world_projected_hud"));
+			FEntityBadgeEntry SampleBadge;
+			SampleBadge.Root = NewObject<UCanvasPanel>();
+			BuildEntityBadgeLayout(SampleBadge, 0, true);
+			SampleBadge.LevelText->SetText(FText::AsNumber(1));
+			Export(SampleBadge.Root, TEXT("world_projected_entity_badge"));
+			UCanvasPanel* SampleMarch = NewObject<UCanvasPanel>();
+			BuildWorldMarchRowLayout(SampleMarch, FString());
+			Export(SampleMarch, TEXT("world_march_row"));
+		}
+		if (FParse::Value(FCommandLine::Get(), TEXT("RokUiExportWorldPanels="), Filename))
+		{
+			FString Error;
+			if (!RokUiSpec::ExportChildren(ExpandedDesignCanvas, Filename, TEXT("world_panels"), Error))
+			{
+				UE_LOG(LogTemp, Error, TEXT("Rok UI: world HUD panel spec export failed: %s"), *Error);
+			}
+		}
+	}
+#endif
+
+	ModalWidget = WidgetTree->ConstructWidget<URokUnityModalWidget>(
+		URokUnityModalWidget::ResolveShellClass(),
+		TEXT("WorldMapUnityModalWidget"));
+	ModalWidget->SetVisibility(ESlateVisibility::Collapsed);
+	UCanvasPanelSlot* ModalSlot = RootCanvas->AddChildToCanvas(ModalWidget);
+	ModalSlot->SetAnchors(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
+	ModalSlot->SetOffsets(FMargin(0.0f));
+	ModalSlot->SetZOrder(100);
+
+	FeatureScreenWidget =
+		WidgetTree->ConstructWidget<URokUnityFeatureScreenWidget>(
+			URokUnityFeatureScreenWidget::StaticClass(),
+			TEXT("WorldMapUnityFeatureScreenWidget"));
+	FeatureScreenWidget->SetVisibility(ESlateVisibility::Collapsed);
+	UCanvasPanelSlot* FeatureScreenSlot =
+		RootCanvas->AddChildToCanvas(FeatureScreenWidget);
+	FeatureScreenSlot->SetAnchors(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
+	FeatureScreenSlot->SetOffsets(FMargin(0.0f));
+	FeatureScreenSlot->SetZOrder(110);
+	ModalWidget->SetFeatureScreenWidget(FeatureScreenWidget);
+
+	const TSubclassOf<URokMainHudWidget> TacticalClass = GetClass()->HasAnyClassFlags(CLASS_CompiledFromBlueprint)
+		? URokMainHudWidget::ResolveHudClass(true) : TSubclassOf<URokMainHudWidget>(URokMainHudWidget::StaticClass());
+	TacticalHudWidget = WidgetTree->ConstructWidget<URokMainHudWidget>(
+		TacticalClass,
+		TEXT("WorldMapTacticalHud"));
+	TacticalHudWidget->ConfigureWorldMapTacticalOverlay(
+		ModalWidget,
+		FeatureScreenWidget);
+	TacticalHudWidget->SetVisibility(ESlateVisibility::Collapsed);
+	UCanvasPanelSlot* TacticalSlot = RootCanvas->AddChildToCanvas(TacticalHudWidget);
+	TacticalSlot->SetAnchors(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
+	TacticalSlot->SetOffsets(FMargin(0.0f));
+	TacticalSlot->SetZOrder(10);
+}
+
+void URokWorldMapHudWidget::BuildHudLayout(UCanvasPanel* RootCanvas)
+{
 	UScaleBox* ExpandScaleBox =
 		WidgetTree->ConstructWidget<UScaleBox>(
 			UScaleBox::StaticClass(),
@@ -648,21 +836,6 @@ void URokWorldMapHudWidget::BuildWidgetTree()
 	ExpandedDesignCanvas->SetVisibility(
 		ESlateVisibility::SelfHitTestInvisible);
 	ExpandedDesignSizeBox->SetContent(ExpandedDesignCanvas);
-	URokWorldMapSelectionInputWidget* SelectionInput =
-		WidgetTree->ConstructWidget<URokWorldMapSelectionInputWidget>(
-			URokWorldMapSelectionInputWidget::StaticClass(),
-			TEXT("WorldMapSelectionInput"));
-	SelectionInput->SetOwningHud(this);
-	SelectionInput->SetVisibility(ESlateVisibility::Visible);
-	if (UCanvasPanelSlot* SelectionInputSlot =
-			ExpandedDesignCanvas->AddChildToCanvas(SelectionInput))
-	{
-		SelectionInputSlot->SetAnchors(
-			FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
-		SelectionInputSlot->SetOffsets(FMargin(0.0f));
-		SelectionInputSlot->SetZOrder(-100);
-	}
-
 	// The search overlay keeps the map and resources visible while hiding HUD controls.
 	UCanvasPanel* Design = ExpandedDesignCanvas;
 	WorldMapChrome = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("WorldMapChrome"));
@@ -677,56 +850,6 @@ void URokWorldMapHudWidget::BuildWidgetTree()
 	BuildRelationFilters();
 	BuildBottomControls();
 	ExpandedDesignCanvas = Design;
-	if (const UGameInstance* GameInstance = GetGameInstance())
-	{
-		const URokWorldMapEntitySubsystem* EntitySubsystem =
-			GameInstance->GetSubsystem<
-				URokWorldMapEntitySubsystem>();
-		if (EntitySubsystem)
-		{
-			LevelBadgeTexture = LoadTransientUiTexture(
-				EntitySubsystem->GetLevelBadgeTexturePath());
-		}
-	}
-	BuildSelfMarker();
-	BuildEntityBadges();
-	BuildWorldObjectInfo();
-	BuildServerListOverlay();
-	BuildWorldMarchQueue();
-	BuildGatherPanel();
-
-	ModalWidget = WidgetTree->ConstructWidget<URokUnityModalWidget>(
-		URokUnityModalWidget::StaticClass(),
-		TEXT("WorldMapUnityModalWidget"));
-	ModalWidget->SetVisibility(ESlateVisibility::Collapsed);
-	UCanvasPanelSlot* ModalSlot = RootCanvas->AddChildToCanvas(ModalWidget);
-	ModalSlot->SetAnchors(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
-	ModalSlot->SetOffsets(FMargin(0.0f));
-	ModalSlot->SetZOrder(100);
-
-	FeatureScreenWidget =
-		WidgetTree->ConstructWidget<URokUnityFeatureScreenWidget>(
-			URokUnityFeatureScreenWidget::StaticClass(),
-			TEXT("WorldMapUnityFeatureScreenWidget"));
-	FeatureScreenWidget->SetVisibility(ESlateVisibility::Collapsed);
-	UCanvasPanelSlot* FeatureScreenSlot =
-		RootCanvas->AddChildToCanvas(FeatureScreenWidget);
-	FeatureScreenSlot->SetAnchors(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
-	FeatureScreenSlot->SetOffsets(FMargin(0.0f));
-	FeatureScreenSlot->SetZOrder(110);
-	ModalWidget->SetFeatureScreenWidget(FeatureScreenWidget);
-
-	TacticalHudWidget = WidgetTree->ConstructWidget<URokMainHudWidget>(
-		URokMainHudWidget::StaticClass(),
-		TEXT("WorldMapTacticalHud"));
-	TacticalHudWidget->ConfigureWorldMapTacticalOverlay(
-		ModalWidget,
-		FeatureScreenWidget);
-	TacticalHudWidget->SetVisibility(ESlateVisibility::Collapsed);
-	UCanvasPanelSlot* TacticalSlot = RootCanvas->AddChildToCanvas(TacticalHudWidget);
-	TacticalSlot->SetAnchors(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
-	TacticalSlot->SetOffsets(FMargin(0.0f));
-	TacticalSlot->SetZOrder(10);
 }
 
 void URokWorldMapHudWidget::UpdateZoomPresentation(float Dxf)
@@ -796,6 +919,105 @@ void URokWorldMapHudWidget::AdvanceMiniMapAnimation(float DeltaSeconds)
 	// Off disables raycasts immediately, but finishes the visible exit motion.
 	MiniMapRoot->SetVisibility(bMiniMapTargetVisible ? ESlateVisibility::SelfHitTestInvisible
 		: (MiniMapAnimationSeconds < 0.25f ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed));
+}
+
+void URokWorldMapHudWidget::AddPowerGain(UCanvasPanel* Group)
+{
+	static const TSoftClassPtr<URokUiPageWidget> Class(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokHudPowerGain.WBP_RokHudPowerGain_C")));
+	if (auto* Page = AddWorldHudPage(Group, Class, TEXT("HudPowerGainPage"), 51))
+	{
+		PowerGain = Page->Get<URokPowerGainWidget>(TEXT("PlayerPowerGain"));
+		if (PowerGain)
+		{
+			Page->LegacyNames.Add(PowerGain->GetFName(), TEXT("WorldMapPowerGain"));
+			return;
+		}
+		Page->RemoveFromParent();
+	}
+	PowerGain = WidgetTree->ConstructWidget<URokPowerGainWidget>(URokPowerGainWidget::StaticClass(), TEXT("WorldMapPowerGain"));
+	PlaceOnCanvas(Group, PowerGain, FVector2D(199.65989f - 320, 31.47f - 180), FVector2D(640, 360))->SetZOrder(51);
+}
+
+void URokWorldMapHudWidget::BindHudLayout()
+{
+	ExpandedDesignCanvas = WidgetTree->FindWidget<UCanvasPanel>(TEXT("WorldMapExpandedDesignCanvas"));
+	ExpandedDesignSizeBox = WidgetTree->FindWidget<USizeBox>(TEXT("WorldMapExpandedDesignSize"));
+	WorldMapChrome = WidgetTree->FindWidget<UCanvasPanel>(TEXT("WorldMapChrome"));
+	if (!ExpandedDesignCanvas || !ExpandedDesignSizeBox || !WorldMapChrome)
+	{
+		UE_LOG(LogTemp, Error, TEXT("Rok UI: required HUD layout containers are missing from %s"), *GetClass()->GetName());
+		ExpandedDesignCanvas = nullptr;
+		return;
+	}
+
+	PowerText = WidgetTree->FindWidget<UTextBlock>(TEXT("WorldMapPowerText"));
+	VipText = WidgetTree->FindWidget<UTextBlock>(TEXT("WorldMapVipText"));
+	CoordinateText = WidgetTree->FindWidget<UTextBlock>(TEXT("WorldMapCoordinateText"));
+	if (UCanvasPanel* Identity = WidgetTree->FindWidget<UCanvasPanel>(TEXT("WorldMapPlayerIdentity")))
+	{
+		AddPowerGain(Identity);
+	}
+
+	MiniMapRoot = WidgetTree->FindWidget<UCanvasPanel>(TEXT("WorldMapMiniMap"));
+	MiniMapViewportRoot = WidgetTree->FindWidget<UCanvasPanel>(TEXT("WorldMapMiniMapViewport"));
+	MiniMapSelfDot = WidgetTree->FindWidget<UBorder>(TEXT("WorldMapMiniMapSelfDot"));
+	MiniMapViewportCanvasSlot = MiniMapViewportRoot ? Cast<UCanvasPanelSlot>(MiniMapViewportRoot->Slot) : nullptr;
+	MiniMapSelfCanvasSlot = MiniMapSelfDot ? Cast<UCanvasPanelSlot>(MiniMapSelfDot->Slot) : nullptr;
+	if (MiniMapRoot)
+	{
+		AddMiniMapInput(MiniMapRoot);
+	}
+	AdvanceMiniMapAnimation(0.0f);
+
+	StrategicGlobeButton = WidgetTree->FindWidget<UButton>(TEXT("WorldMapGlobeButton"));
+	StrategicFilterRoot = WidgetTree->FindWidget<UCanvasPanel>(TEXT("WorldMapRelationFilters"));
+	AdvanceStrategicModuleAnimation(0.0f);
+	FilterClickSound = LoadObject<USoundBase>(nullptr,
+		TEXT("/Game/RokPrototype/UI/Audio/Sound_Ui_CommonSidePage.Sound_Ui_CommonSidePage"));
+	for (int32 Index = 0; Index < 4; ++Index)
+	{
+		const auto Name = [Index](const TCHAR* Stem)
+		{
+			return FName(*FString::Printf(TEXT("WorldMapFilter%s_%d"), Stem, Index));
+		};
+		FilterBackgrounds.Add(WidgetTree->FindWidget<UImage>(Name(TEXT("Background"))));
+		FilterButtons.Add(WidgetTree->FindWidget<UButton>(Name(TEXT("Hit"))));
+		FilterLabels.Add(WidgetTree->FindWidget<UTextBlock>(Name(TEXT("Label"))));
+		UImage* Dot = WidgetTree->FindWidget<UImage>(Name(TEXT("Dot")));
+		FilterDots.Add(Dot);
+		FilterTints.AddDefaulted();
+		FilterStartAlphas.Add(Dot ? Dot->GetRenderOpacity() : 0.0f);
+	}
+	UpdateFilterLegend();
+
+	const auto Bind = [this](const FName Name, const FName Function)
+	{
+		if (UButton* Button = WidgetTree->FindWidget<UButton>(Name))
+		{
+			FScriptDelegate Handler;
+			Handler.BindUFunction(this, Function);
+			Button->OnClicked.AddUnique(Handler);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("Rok UI: %s has no HUD button named %s"), *GetClass()->GetName(), *Name.ToString());
+		}
+	};
+	Bind(TEXT("WorldMapPlayerProfileHitButton"), GET_FUNCTION_NAME_CHECKED(URokWorldMapHudWidget, HandleOpenPlayerProfileClicked));
+	Bind(TEXT("WorldMapVipHitButton"), GET_FUNCTION_NAME_CHECKED(URokWorldMapHudWidget, HandleOpenVipClicked));
+	Bind(TEXT("WorldMapPlayerArrowHitButton"), GET_FUNCTION_NAME_CHECKED(URokWorldMapHudWidget, HandleOpenCityManagerClicked));
+	Bind(TEXT("WorldMapCoordinateSearchButton"), GET_FUNCTION_NAME_CHECKED(URokWorldMapHudWidget, HandleOpenPositionSearchClicked));
+	Bind(TEXT("WorldMapFavoriteButton"), GET_FUNCTION_NAME_CHECKED(URokWorldMapHudWidget, HandleOpenMapMarkersClicked));
+	Bind(TEXT("WorldMapFilterHit_0"), GET_FUNCTION_NAME_CHECKED(URokWorldMapHudWidget, HandleAllianceFilterClicked));
+	Bind(TEXT("WorldMapFilterHit_1"), GET_FUNCTION_NAME_CHECKED(URokWorldMapHudWidget, HandleExploreFilterClicked));
+	Bind(TEXT("WorldMapFilterHit_2"), GET_FUNCTION_NAME_CHECKED(URokWorldMapHudWidget, HandleResourceFilterClicked));
+	Bind(TEXT("WorldMapFilterHit_3"), GET_FUNCTION_NAME_CHECKED(URokWorldMapHudWidget, HandleBookmarkFilterClicked));
+	Bind(TEXT("WorldMapChatButton"), GET_FUNCTION_NAME_CHECKED(URokWorldMapHudWidget, HandleOpenChatClicked));
+	Bind(TEXT("WorldMapSearchButton"), GET_FUNCTION_NAME_CHECKED(URokWorldMapHudWidget, HandleOpenResourceSearchClicked));
+	Bind(TEXT("WorldMapHomeCityButton"), GET_FUNCTION_NAME_CHECKED(URokWorldMapHudWidget, HandleEnterPlayerCityClicked));
+	Bind(TEXT("WorldMapGlobeButton"), GET_FUNCTION_NAME_CHECKED(URokWorldMapHudWidget, HandleOpenServerListClicked));
+	Bind(TEXT("WorldMapMailButton"), GET_FUNCTION_NAME_CHECKED(URokWorldMapHudWidget, HandleOpenMailClicked));
 }
 
 void URokWorldMapHudWidget::BuildPlayerIdentity()
@@ -868,8 +1090,7 @@ void URokWorldMapHudWidget::BuildPlayerIdentity()
 		PowerText,
 		FVector2D(145.0f, 5.0f),
 		FVector2D(135.0f, 36.0f));
-	PowerGain = WidgetTree->ConstructWidget<URokPowerGainWidget>(URokPowerGainWidget::StaticClass(), TEXT("WorldMapPowerGain"));
-	PlaceOnCanvas(Group, PowerGain, FVector2D(199.65989f - 320, 31.47f - 180), FVector2D(640, 360))->SetZOrder(51);
+	AddPowerGain(Group);
 
 	PlaceOnCanvas(
 		Group,
@@ -1100,6 +1321,11 @@ void URokWorldMapHudWidget::BuildMiniMap()
 		MiniMapContentOffset,
 		FVector2D(8.0f, 8.0f));
 
+	AddMiniMapInput(Group);
+}
+
+void URokWorldMapHudWidget::AddMiniMapInput(UCanvasPanel* Group)
+{
 	URokWorldMapMiniMapInputWidget* MiniMapInput =
 		WidgetTree->ConstructWidget<URokWorldMapMiniMapInputWidget>(
 			URokWorldMapMiniMapInputWidget::StaticClass(),
@@ -1488,8 +1714,65 @@ void URokWorldMapHudWidget::BuildBottomControls()
 		FVector2D(1.0f, 1.0f));
 }
 
+URokUiPageWidget* URokWorldMapHudWidget::CreateWorldHudPage(
+	const TSoftClassPtr<URokUiPageWidget>& Class, FName Name)
+{
+	UClass* PageClass = GetClass()->HasAnyClassFlags(CLASS_CompiledFromBlueprint)
+		? URokUiSettings::Resolve(Class) : nullptr;
+	if (!PageClass)
+	{
+		return nullptr;
+	}
+	auto* Page = WidgetTree->ConstructWidget<URokUiPageWidget>(PageClass, Name);
+	Page->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+	if (UWidget* Root = Page->GetRootWidget())
+	{
+		Root->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+	}
+	return Page;
+}
+
+URokUiPageWidget* URokWorldMapHudWidget::AddWorldHudPage(UCanvasPanel* Parent,
+	const TSoftClassPtr<URokUiPageWidget>& Class, FName Name, int32 ZOrder)
+{
+	auto* Page = CreateWorldHudPage(Class, Name);
+	if (!Page) return nullptr;
+	auto* PageSlot = Parent->AddChildToCanvas(Page);
+	PageSlot->SetAnchors(FAnchors(0, 0, 1, 1));
+	PageSlot->SetOffsets(FMargin(0));
+	PageSlot->SetZOrder(ZOrder);
+	return Page;
+}
+
+void URokWorldMapHudWidget::BindWorldHudButton(const UUserWidget& Owner, FName Name, FName Function)
+{
+	if (auto* Button = Cast<UButton>(Owner.GetWidgetFromName(Name)))
+	{
+		FScriptDelegate Handler;
+		Handler.BindUFunction(this, Function);
+		Button->OnClicked.AddUnique(Handler);
+	}
+	else
+	{
+		UE_LOG(LogTemp, Error, TEXT("Rok UI: %s has no HUD button named %s"), *Owner.GetClass()->GetName(), *Name.ToString());
+	}
+}
+
 void URokWorldMapHudWidget::BuildServerListOverlay()
 {
+	static const TSoftClassPtr<URokUiPageWidget> ServerPage(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokWorldKingdoms.WBP_RokWorldKingdoms_C")));
+	if (auto* Page = AddWorldHudPage(ExpandedDesignCanvas, ServerPage, TEXT("WorldMapKingdomPage"), 95))
+	{
+		ServerListOverlay = Page->Get<UCanvasPanel>(TEXT("WorldMapServerListOverlay"));
+		ServerListStatusText = Page->Get<UTextBlock>(TEXT("WorldMapServerListStatus"));
+		BindWorldHudButton(*Page, TEXT("WorldMapServerSelectUnavailableButton"),
+			GET_FUNCTION_NAME_CHECKED(URokWorldMapHudWidget, HandleServerSelectionUnavailableClicked));
+		BindWorldHudButton(*Page, TEXT("WorldMapServerListCloseButton"),
+			GET_FUNCTION_NAME_CHECKED(URokWorldMapHudWidget, HandleCloseServerListClicked));
+		return;
+	}
+
 	ServerListOverlay =
 		WidgetTree->ConstructWidget<UCanvasPanel>(
 			UCanvasPanel::StaticClass(),
@@ -1672,32 +1955,58 @@ void URokWorldMapHudWidget::BuildSelfMarker()
 	SelfPortraitRoot->SetRenderTransformPivot(FVector2D(0.5f, 0.5f));
 	PlaceOnCanvas(ExpandedDesignCanvas, SelfPortraitRoot,
 		FVector2D::ZeroVector, FVector2D(200, 200))->SetZOrder(81);
-	PlaceOnCanvas(SelfPortraitRoot, MakeAtlasImage(TEXT("WorldMapSelfPortraitPointer"),
-		MapAtlasPath, SpriteRect(559, 184, 56, 71), MapAtlasSize, FVector2D(42, 53.25f)),
-		FVector2D(79, 46.75f), FVector2D(42, 53.25f));
-	PlaceOnCanvas(SelfPortraitRoot, MakeAtlasImage(TEXT("WorldMapSelfPortraitImage"),
-		PlayerHeadAtlasPath, PlayerHead1000Rect, PlayerHeadAtlasSize, FVector2D(94.5f, 94.5f)),
-		FVector2D(52.75f, -28.85f), FVector2D(94.5f, 94.5f));
-	PlaceOnCanvas(SelfPortraitRoot, MakeAtlasImage(TEXT("WorldMapSelfPortraitFrame"),
-		PlayerHeadAtlasPath, PlayerFrameRect, PlayerHeadAtlasSize, FVector2D(110.775f, 110.775f)),
-		FVector2D(44.6125f, -36.9875f), FVector2D(110.775f, 110.775f));
+	static const TSoftClassPtr<URokUiPageWidget> PortraitClass(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokWorldCityPortrait.WBP_RokWorldCityPortrait_C")));
+	if (!AddWorldHudPage(SelfPortraitRoot, PortraitClass, TEXT("WorldCityPortraitPage")))
+	{
+		PlaceOnCanvas(SelfPortraitRoot, MakeAtlasImage(TEXT("WorldMapSelfPortraitPointer"),
+			MapAtlasPath, SpriteRect(559, 184, 56, 71), MapAtlasSize, FVector2D(42, 53.25f)),
+			FVector2D(79, 46.75f), FVector2D(42, 53.25f));
+		PlaceOnCanvas(SelfPortraitRoot, MakeAtlasImage(TEXT("WorldMapSelfPortraitImage"),
+			PlayerHeadAtlasPath, PlayerHead1000Rect, PlayerHeadAtlasSize, FVector2D(94.5f, 94.5f)),
+			FVector2D(52.75f, -28.85f), FVector2D(94.5f, 94.5f));
+		PlaceOnCanvas(SelfPortraitRoot, MakeAtlasImage(TEXT("WorldMapSelfPortraitFrame"),
+			PlayerHeadAtlasPath, PlayerFrameRect, PlayerHeadAtlasSize, FVector2D(110.775f, 110.775f)),
+			FVector2D(44.6125f, -36.9875f), FVector2D(110.775f, 110.775f));
+	}
 	// UI_Tip_Screen: exact ui_map atlas sprites, not the globe/menu icon.
 	HomeIndicatorRoot = WidgetTree->ConstructWidget<UCanvasPanel>(
 		UCanvasPanel::StaticClass(), TEXT("WorldMapHomeIndicator"));
 	HomeIndicatorRoot->SetVisibility(ESlateVisibility::Collapsed);
 	PlaceOnCanvas(ExpandedDesignCanvas, HomeIndicatorRoot,
 		FVector2D::ZeroVector, FVector2D(100, 120))->SetZOrder(80);
-	HomeIndicatorArrow = MakeAtlasImage(TEXT("WorldMapHomeDirection"), MapAtlasPath,
-		SpriteRect(254, 203, 73, 88), MapAtlasSize, FVector2D(73, 88));
-	PlaceOnCanvas(HomeIndicatorRoot, HomeIndicatorArrow, FVector2D(13.5f, 12), FVector2D(73, 88));
-	HomeIndicatorArrow->SetRenderTransformPivot(FVector2D(0.5f, 0.42f));
-	UButton* HomeIndicatorButton = MakeAtlasButton(TEXT("WorldMapHomeIndicatorButton"),
-		MapAtlasPath, SpriteRect(495, 185, 62, 70), MapAtlasSize, FVector2D(62, 70));
-	HomeIndicatorButton->OnClicked.AddDynamic(this, &URokWorldMapHudWidget::FocusPlayerLocation);
-	PlaceOnCanvas(HomeIndicatorRoot, HomeIndicatorButton, FVector2D(19, 5), FVector2D(62, 70));
-	HomeIndicatorDistance = MakeHudText(TEXT("WorldMapHomeDistance"), 18, FLinearColor::White, true);
-	HomeIndicatorDistance->SetJustification(ETextJustify::Center);
-	PlaceOnCanvas(HomeIndicatorRoot, HomeIndicatorDistance, FVector2D(0, 89), FVector2D(100, 26));
+	static const TSoftClassPtr<URokUiPageWidget> HomeIndicatorClass(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokWorldHomeIndicator.WBP_RokWorldHomeIndicator_C")));
+	if (auto* Page = AddWorldHudPage(HomeIndicatorRoot, HomeIndicatorClass, TEXT("WorldHomeIndicatorPage")))
+	{
+		auto* Arrow = Page->Get<UImage>(TEXT("WorldMapHomeDirection"));
+		auto* Distance = Page->Get<UTextBlock>(TEXT("WorldMapHomeDistance"));
+		auto* Button = Page->Get<UButton>(TEXT("WorldMapHomeIndicatorButton"));
+		if (Arrow && Distance && Button)
+		{
+			HomeIndicatorArrow = Arrow;
+			HomeIndicatorDistance = Distance;
+			Button->OnClicked.AddDynamic(this, &URokWorldMapHudWidget::FocusPlayerLocation);
+		}
+		else
+		{
+			Page->RemoveFromParent();
+		}
+	}
+	if (!HomeIndicatorArrow)
+	{
+		HomeIndicatorArrow = MakeAtlasImage(TEXT("WorldMapHomeDirection"), MapAtlasPath,
+			SpriteRect(254, 203, 73, 88), MapAtlasSize, FVector2D(73, 88));
+		PlaceOnCanvas(HomeIndicatorRoot, HomeIndicatorArrow, FVector2D(13.5f, 12), FVector2D(73, 88));
+		HomeIndicatorArrow->SetRenderTransformPivot(FVector2D(0.5f, 0.42f));
+		UButton* HomeIndicatorButton = MakeAtlasButton(TEXT("WorldMapHomeIndicatorButton"),
+			MapAtlasPath, SpriteRect(495, 185, 62, 70), MapAtlasSize, FVector2D(62, 70));
+		HomeIndicatorButton->OnClicked.AddDynamic(this, &URokWorldMapHudWidget::FocusPlayerLocation);
+		PlaceOnCanvas(HomeIndicatorRoot, HomeIndicatorButton, FVector2D(19, 5), FVector2D(62, 70));
+		HomeIndicatorDistance = MakeHudText(TEXT("WorldMapHomeDistance"), 18, FLinearColor::White, true);
+		HomeIndicatorDistance->SetJustification(ETextJustify::Center);
+		PlaceOnCanvas(HomeIndicatorRoot, HomeIndicatorDistance, FVector2D(0, 89), FVector2D(100, 26));
+	}
 	SelfMarkerRoot =
 		WidgetTree->ConstructWidget<UCanvasPanel>(
 			UCanvasPanel::StaticClass(),
@@ -1712,6 +2021,34 @@ void URokWorldMapHudWidget::BuildSelfMarker()
 	if (SelfMarkerCanvasSlot.IsValid())
 	{
 		SelfMarkerCanvasSlot->SetZOrder(80);
+	}
+
+	static const TSoftClassPtr<URokUiPageWidget> SelfMarkerClass(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokWorldCityNameplate.WBP_RokWorldCityNameplate_C")));
+	if (auto* Page = AddWorldHudPage(SelfMarkerRoot, SelfMarkerClass, TEXT("WorldCityNameplatePage")))
+	{
+		auto* CityName = Page->Get<UTextBlock>(TEXT("WorldMapSelfCityName"));
+		auto* CityLevel = Page->Get<UTextBlock>(TEXT("WorldMapSelfCityLevel"));
+		auto* Badge = Page->Get<UImage>(TEXT("WorldMapSelfCityLevelBadge"));
+		if (CityName && CityLevel && Badge)
+		{
+			SelfCityNameText = CityName;
+			if (LevelBadgeTexture)
+			{
+				FSlateBrush Brush = Badge->GetBrush();
+				Brush.SetResourceObject(LevelBadgeTexture);
+				Badge->SetBrush(Brush);
+				SelfCityLevelText = CityLevel;
+				SelfCityLevelText->SetText(FText::AsNumber(ReadInitialCityHallLevel()));
+			}
+			else
+			{
+				Badge->SetVisibility(ESlateVisibility::Collapsed);
+				CityLevel->SetVisibility(ESlateVisibility::Collapsed);
+			}
+			return;
+		}
+		Page->RemoveFromParent();
 	}
 
 	// Unity UI_Tip_WorldObjectPlayerLevel: a name plate below the own city
@@ -1842,48 +2179,12 @@ void URokWorldMapHudWidget::ReconcileEntityBadges()
 		BadgeRoot->SetVisibility(ESlateVisibility::Collapsed);
 		BadgeRoot->SetRenderTransformPivot(FVector2D::ZeroVector);
 
-		UImage* BadgeImage = WidgetTree->ConstructWidget<UImage>(
-			UImage::StaticClass(),
-			FName(*FString::Printf(TEXT("WorldMapEntityBadgeBg_%llu"), BadgeId)));
-		FSlateBrush BadgeBrush;
-		BadgeBrush.SetResourceObject(LevelBadgeTexture);
-		BadgeBrush.ImageSize = FVector2D(60.0f, 33.0f);
-		BadgeImage->SetBrush(BadgeBrush);
-		BadgeImage->SetVisibility(ESlateVisibility::HitTestInvisible);
-		PlaceOnCanvas(
-			BadgeRoot,
-			BadgeImage,
-			FVector2D(2.0f, 2.0f),
-			FVector2D(60.0f, 33.0f));
-
-		UTextBlock* LevelText = MakeHudText(
-			FName(*FString::Printf(TEXT("WorldMapEntityBadgeLevel_%llu"), BadgeId)),
-			18,
-			FLinearColor(0.184f, 0.176f, 0.153f, 1.0f),
-			true);
-		LevelText->SetText(FText::AsNumber(
-			EntityActor->GetEntityLevel()));
-		LevelText->SetJustification(ETextJustify::Center);
-		PlaceOnCanvas(
-			BadgeRoot,
-			LevelText,
-			FVector2D(2.0f, 7.0f),
-			FVector2D(60.0f, 24.0f));
-
 		FEntityBadgeEntry Entry;
 		Entry.Entity = EntityActor;
 		Entry.ServerObjectId = ServerObjectId;
 		Entry.Root = BadgeRoot;
-		Entry.LevelText = LevelText;
-		if (IsResourceEntityKind(EntityActor->GetEntityKind()) && !ServerObjectId.IsEmpty())
-		{
-			// Unity MapTouchHandler / ui_map[img_map_state_collect1].
-			Entry.GatheringIcon = MakeAtlasImage(
-				*FString::Printf(TEXT("WorldMapGatheringIcon_%llu"), BadgeId),
-				MapAtlasPath, SpriteRect(449, 96, 46, 46), MapAtlasSize, FVector2D(54));
-			Entry.GatheringIcon->SetVisibility(ESlateVisibility::Collapsed);
-			PlaceOnCanvas(BadgeRoot, Entry.GatheringIcon, FVector2D(5, -144), FVector2D(54));
-		}
+		BuildEntityBadgeLayout(Entry, BadgeId, IsResourceEntityKind(EntityActor->GetEntityKind()) && !ServerObjectId.IsEmpty());
+		Entry.LevelText->SetText(FText::AsNumber(EntityActor->GetEntityLevel()));
 		UCanvasPanelSlot* BadgeSlot = PlaceOnCanvas(
 			ExpandedDesignCanvas,
 			BadgeRoot,
@@ -1895,6 +2196,53 @@ void URokWorldMapHudWidget::ReconcileEntityBadges()
 			Entry.CanvasSlot = BadgeSlot;
 		}
 		EntityBadges.Add(MoveTemp(Entry));
+	}
+}
+
+void URokWorldMapHudWidget::BuildEntityBadgeLayout(FEntityBadgeEntry& Entry, uint64 BadgeId, bool bGatherable)
+{
+	static const TSoftClassPtr<URokUiPageWidget> BadgeClass(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokWorldEntityBadge.WBP_RokWorldEntityBadge_C")));
+	if (auto* Page = AddWorldHudPage(Entry.Root, BadgeClass, NAME_None))
+	{
+		auto* Badge = Page->Get<UImage>(TEXT("WorldMapEntityBadgeBg"));
+		auto* Level = Page->Get<UTextBlock>(TEXT("WorldMapEntityBadgeLevel"));
+		auto* Gathering = Page->Get<UImage>(TEXT("WorldMapGatheringIcon"));
+		if (Badge && Level && Gathering)
+		{
+			Page->LegacySuffix = FString::Printf(TEXT("_%llu"), BadgeId);
+			FSlateBrush Brush = Badge->GetBrush();
+			Brush.SetResourceObject(LevelBadgeTexture);
+			Badge->SetBrush(Brush);
+			Entry.LevelText = Level;
+			Gathering->SetVisibility(ESlateVisibility::Collapsed);
+			Entry.GatheringIcon = bGatherable ? Gathering : nullptr;
+			return;
+		}
+		Page->RemoveFromParent();
+	}
+
+	const auto Name = [BadgeId](const TCHAR* Stem) { return FName(*FString::Printf(TEXT("%s_%llu"), Stem, BadgeId)); };
+	UImage* Badge = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), Name(TEXT("WorldMapEntityBadgeBg")));
+	FSlateBrush Brush;
+	Brush.SetResourceObject(LevelBadgeTexture);
+	Brush.ImageSize = FVector2D(60, 33);
+	Badge->SetBrush(Brush);
+	Badge->SetVisibility(ESlateVisibility::HitTestInvisible);
+	PlaceOnCanvas(Entry.Root, Badge, {2, 2}, {60, 33});
+
+	Entry.LevelText = MakeHudText(Name(TEXT("WorldMapEntityBadgeLevel")), 18,
+		FLinearColor(0.184f, 0.176f, 0.153f, 1.0f), true);
+	Entry.LevelText->SetJustification(ETextJustify::Center);
+	PlaceOnCanvas(Entry.Root, Entry.LevelText, {2, 7}, {60, 24});
+
+	if (bGatherable)
+	{
+		// Unity MapTouchHandler / ui_map[img_map_state_collect1].
+		Entry.GatheringIcon = MakeAtlasImage(Name(TEXT("WorldMapGatheringIcon")),
+			MapAtlasPath, SpriteRect(449, 96, 46, 46), MapAtlasSize, FVector2D(54));
+		Entry.GatheringIcon->SetVisibility(ESlateVisibility::Collapsed);
+		PlaceOnCanvas(Entry.Root, Entry.GatheringIcon, {5, -144}, FVector2D(54));
 	}
 }
 
@@ -2112,6 +2460,78 @@ void URokWorldMapHudWidget::BuildWorldObjectInfo()
 		WorldObjectInfoCanvasSlot->SetZOrder(90);
 	}
 
+	static const TSoftClassPtr<URokUiPageWidget> ResourceInfoPage(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokWorldObjectInfo.WBP_RokWorldObjectInfo_C")));
+	if (auto* Page = AddWorldHudPage(WorldObjectInfoRoot, ResourceInfoPage, TEXT("WorldObjectInfoPage")))
+	{
+		BindResourceInfoLayout(*Page);
+	}
+	else
+	{
+		BuildResourceInfoLayout();
+	}
+
+#if WITH_EDITOR
+	if (URokUiSettings::IsLegacyForced())
+	{
+		FString Filename;
+		if (FParse::Value(FCommandLine::Get(), TEXT("RokUiExportWorldObjectHud="), Filename))
+		{
+			FString Error;
+			if (RokUiSpec::ExportChildren(WorldObjectInfoRoot, Filename, TEXT("world_object_hud"), Error))
+			{
+				UE_LOG(LogTemp, Display, TEXT("Rok UI: world-object HUD spec saved to %s"), *Filename);
+			}
+			else
+			{
+				UE_LOG(LogTemp, Error, TEXT("Rok UI: world-object HUD spec export failed: %s"), *Error);
+			}
+		}
+	}
+#endif
+
+	BuildBarbarianInfo();
+	static const TSoftClassPtr<URokUiPageWidget> ArrowClass(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokWorldObjectInfoArrow.WBP_RokWorldObjectInfoArrow_C")));
+	if (auto* Page = AddWorldHudPage(WorldObjectInfoRoot, ArrowClass, TEXT("WorldObjectInfoArrowPage"), 1))
+	{
+		auto* Arrow = Page->Get<UImage>(TEXT("WorldObjectInfoArrow"));
+		auto* ArrowSlot = Arrow ? Cast<UCanvasPanelSlot>(Arrow->Slot) : nullptr;
+		if (Arrow && ArrowSlot)
+		{
+			WorldObjectInfoArrow = Arrow;
+			WorldObjectInfoArrowCanvasSlot = ArrowSlot;
+			WorldObjectInfoArrowBaseAngle = Arrow->GetRenderTransformAngle();
+		}
+		else
+		{
+			Page->RemoveFromParent();
+		}
+	}
+	if (!WorldObjectInfoArrow)
+	{
+		WorldObjectInfoArrow = MakeAtlasImage(TEXT("WorldObjectInfoArrow"),
+			CommonAtlasPath, WorldObjectPopArrowRect, CommonAtlasSize, {12, 15});
+		auto* ArrowSlot = PlaceOnCanvas(WorldObjectInfoRoot, WorldObjectInfoArrow, FVector2D::ZeroVector, {12, 15});
+		ArrowSlot->SetZOrder(1);
+		WorldObjectInfoArrowCanvasSlot = ArrowSlot;
+	}
+#if WITH_EDITOR
+	FString ArrowSpec;
+	if (URokUiSettings::IsLegacyForced()
+		&& FParse::Value(FCommandLine::Get(), TEXT("RokUiExportWorldObjectInfoArrow="), ArrowSpec))
+	{
+		FString Error;
+		if (!RokUiSpec::ExportChildren(WorldObjectInfoRoot, ArrowSpec, TEXT("world_object_info_arrow_source"), Error))
+		{
+			UE_LOG(LogTemp, Error, TEXT("Rok UI: world object arrow export failed: %s"), *Error);
+		}
+	}
+#endif
+}
+
+void URokWorldMapHudWidget::BuildResourceInfoLayout()
+{
 	UCanvasPanel* Panel = WidgetTree->ConstructWidget<UCanvasPanel>(
 		UCanvasPanel::StaticClass(), TEXT("WorldObjectInfoPanel"));
 	Panel->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
@@ -2278,18 +2698,8 @@ void URokWorldMapHudWidget::BuildWorldObjectInfo()
 	auto* DetailsText = WidgetTree->ConstructWidget<URichTextBlock>(
 		URichTextBlock::StaticClass(), TEXT("WorldObjectInfoDetailsText"));
 	DetailsText->SetVisibility(ESlateVisibility::HitTestInvisible);
-	auto* Styles = NewObject<UDataTable>(this);
-	Styles->RowStruct = FRichTextStyleRow::StaticStruct();
-	FRichTextStyleRow Regular;
-	Regular.TextStyle.SetFont(FCoreStyle::GetDefaultFontStyle(TEXT("Regular"), 20));
-	Regular.TextStyle.SetColorAndOpacity(FLinearColor(0.13725491f, 0.13725491f, 0.1254902f, 1));
-	Regular.TextStyle.SetShadowOffset(FVector2D::ZeroVector);
-	Styles->AddRow(TEXT("Default"), Regular);
-	FRichTextStyleRow Bold = Regular;
-	Bold.TextStyle.SetFont(FCoreStyle::GetDefaultFontStyle(TEXT("Bold"), 20));
-	Styles->AddRow(TEXT("b"), Bold);
-	DetailsText->SetTextStyleSet(Styles);
 	WorldObjectDescriptionText = DetailsText;
+	ApplyResourceDescriptionStyles();
 	DetailsText->SetAutoWrapText(true);
 	DetailsText->SetText(NSLOCTEXT(
 		"RokWorldMapHud",
@@ -2310,22 +2720,67 @@ void URokWorldMapHudWidget::BuildWorldObjectInfo()
 		WorldObjectInfoFeedbackText,
 		FVector2D(18.0f, 324.0f),
 		FVector2D(443.0f, 28.0f));
+}
 
-	BuildBarbarianInfo();
-	WorldObjectInfoArrow = MakeAtlasImage(
-		TEXT("WorldObjectInfoArrow"),
-		CommonAtlasPath,
-		WorldObjectPopArrowRect,
-		CommonAtlasSize,
-		FVector2D(12.0f, 15.0f));
-	WorldObjectInfoArrowCanvasSlot = PlaceOnCanvas(
-		WorldObjectInfoRoot,
-		WorldObjectInfoArrow,
-		FVector2D::ZeroVector,
-		FVector2D(12.0f, 15.0f));
-	if (WorldObjectInfoArrowCanvasSlot.IsValid())
+void URokWorldMapHudWidget::ApplyResourceDescriptionStyles()
+{
+	if (!WorldObjectDescriptionText || WorldObjectDescriptionText->GetTextStyleSet())
 	{
-		WorldObjectInfoArrowCanvasSlot->SetZOrder(1);
+		return;
+	}
+	auto* Styles = NewObject<UDataTable>(this);
+	Styles->RowStruct = FRichTextStyleRow::StaticStruct();
+	FRichTextStyleRow Regular;
+	Regular.TextStyle.SetFont(FCoreStyle::GetDefaultFontStyle(TEXT("Regular"), 20));
+	Regular.TextStyle.SetColorAndOpacity(FLinearColor(0.13725491f, 0.13725491f, 0.1254902f, 1));
+	Regular.TextStyle.SetShadowOffset(FVector2D::ZeroVector);
+	Styles->AddRow(TEXT("Default"), Regular);
+	FRichTextStyleRow Bold = Regular;
+	Bold.TextStyle.SetFont(FCoreStyle::GetDefaultFontStyle(TEXT("Bold"), 20));
+	Styles->AddRow(TEXT("b"), Bold);
+	WorldObjectDescriptionText->SetTextStyleSet(Styles);
+}
+
+void URokWorldMapHudWidget::BindResourceInfoLayout(URokUiPageWidget& Page)
+{
+	WorldResourceInfoPanel = Page.Get<UCanvasPanel>(TEXT("WorldObjectInfoPanel"));
+	WorldObjectNormalRoot = Page.Get<UCanvasPanel>(TEXT("WorldObjectInfoPanelContent"));
+	WorldObjectInfoDetailsRoot = Page.Get<UCanvasPanel>(TEXT("WorldObjectInfoDetailsRoot"));
+	WorldObjectInfoCoordinateText = Page.Get<UTextBlock>(TEXT("WorldObjectInfoCoordinate"));
+	WorldObjectInfoNameText = Page.Get<UTextBlock>(TEXT("WorldObjectInfoName"));
+	WorldObjectInfoIcon = Page.Get<UImage>(TEXT("WorldObjectInfoIcon"));
+	WorldObjectInfoAmountText = Page.Get<UTextBlock>(TEXT("WorldObjectInfoAmount"));
+	WorldObjectInfoCollectorText = Page.Get<UTextBlock>(TEXT("WorldObjectInfoCollector"));
+	WorldObjectInfoAllianceText = Page.Get<UTextBlock>(TEXT("WorldObjectInfoAlliance"));
+	WorldObjectInfoFeedbackText = Page.Get<UTextBlock>(TEXT("WorldObjectInfoFeedback"));
+	WorldObjectDescriptionText = Page.Get<URichTextBlock>(TEXT("WorldObjectInfoDetailsText"));
+	ApplyResourceDescriptionStyles();
+	WorldGatherActionButton = Page.Get<UButton>(TEXT("WorldObjectInfoGatherButton"));
+	WorldGatherActionText = Page.Get<UTextBlock>(TEXT("WorldObjectInfoGatherButtonText"));
+	WorldGatherProgressRoot = Page.Get<UCanvasPanel>(TEXT("WorldGatherProgress"));
+	WorldGatherProgressBar = Page.Get<UProgressBar>(TEXT("WorldGatherProgressBar"));
+	WorldGatherProgressIcon = Page.Get<UImage>(TEXT("WorldGatherProgressIcon"));
+	WorldGatherProgressText = Page.Get<UTextBlock>(TEXT("WorldGatherProgressAmount"));
+
+	if (auto* Button = Page.Get<UButton>(TEXT("WorldObjectInfoDetailsButton")))
+	{
+		Button->OnClicked.AddUniqueDynamic(this, &URokWorldMapHudWidget::HandleWorldObjectDetailsClicked);
+	}
+	if (auto* Button = Page.Get<UButton>(TEXT("WorldObjectDescriptionBack")))
+	{
+		Button->OnClicked.AddUniqueDynamic(this, &URokWorldMapHudWidget::HandleWorldObjectDetailsClicked);
+	}
+	if (auto* Button = Page.Get<UButton>(TEXT("WorldObjectBookmarkButton")))
+	{
+		Button->OnClicked.AddUniqueDynamic(this, &URokWorldMapHudWidget::HandleWorldObjectBookmarkClicked);
+	}
+	if (auto* Button = Page.Get<UButton>(TEXT("WorldObjectShareButton")))
+	{
+		Button->OnClicked.AddUniqueDynamic(this, &URokWorldMapHudWidget::HandleWorldObjectShareClicked);
+	}
+	if (WorldGatherActionButton)
+	{
+		WorldGatherActionButton->OnClicked.AddUniqueDynamic(this, &URokWorldMapHudWidget::HandleWorldObjectGatherClicked);
 	}
 }
 
@@ -2614,8 +3069,10 @@ void URokWorldMapHudWidget::UpdateWorldObjectInfoProjection()
 		const FVector2D ArrowCenter = bVertical
 			? FVector2D(FMath::Clamp(LocalPoint.X, 18.0, PanelSize.X - 18.0), bPlaceAbove ? PanelSize.Y + 5.0 : -5.0)
 			: FVector2D(bOnLeft ? -5.0 : PanelSize.X + 5.0, FMath::Clamp(LocalPoint.Y, 18.0, PanelSize.Y - 18.0));
-		WorldObjectInfoArrowCanvasSlot->SetPosition(ArrowCenter - FVector2D(6.0, 7.5));
-		WorldObjectInfoArrow->SetRenderTransformAngle(bVertical ? (bPlaceAbove ? 0.0f : 180.0f) : (bOnLeft ? 90.0f : -90.0f));
+		const FVector2D ArrowSize = WorldObjectInfoArrowCanvasSlot->GetSize();
+		WorldObjectInfoArrowCanvasSlot->SetPosition(ArrowCenter - ArrowSize * 0.5);
+		const float DirectionAngle = bVertical ? (bPlaceAbove ? 0.0f : 180.0f) : (bOnLeft ? 90.0f : -90.0f);
+		WorldObjectInfoArrow->SetRenderTransformAngle(WorldObjectInfoArrowBaseAngle + DirectionAngle);
 	}
 	if (bWorldObjectProjectionDebugPending
 		&& FParse::Param(
@@ -2964,7 +3421,20 @@ void URokWorldMapHudWidget::ShowWorldObjectInfo(AActor* Actor)
 	if (WorldBarbarianInfoPanel) WorldBarbarianInfoPanel->SetVisibility(bBarbarian
 		? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
 	if (WorldObjectInfoCanvasSlot.IsValid())
-		WorldObjectInfoCanvasSlot->SetSize(bBarbarian ? WorldBarbarianPanelSize : WorldObjectInfoPanelSize);
+	{
+		const UCanvasPanel* Panel = bBarbarian ? WorldBarbarianInfoPanel.Get() : WorldResourceInfoPanel.Get();
+		const auto* PanelSlot = Panel ? Cast<UCanvasPanelSlot>(Panel->Slot) : nullptr;
+		FVector2D PanelSize = bBarbarian ? WorldBarbarianPanelSize : WorldObjectInfoPanelSize;
+		if (PanelSlot && PanelSlot->GetAnchors().Minimum == PanelSlot->GetAnchors().Maximum)
+		{
+			const FVector2D AuthoredSize = PanelSlot->GetSize();
+			if (AuthoredSize.X > 0 && AuthoredSize.Y > 0)
+			{
+				PanelSize = AuthoredSize;
+			}
+		}
+		WorldObjectInfoCanvasSlot->SetSize(PanelSize);
+	}
 	if (bBarbarian)
 	{
 		const auto* Army = GetGameInstance() ? GetGameInstance()->GetSubsystem<URokServerArmySubsystem>() : nullptr;
@@ -3186,7 +3656,7 @@ void URokWorldMapHudWidget::SetWorldObjectDetailsExpanded(
 	if (WorldObjectNormalRoot) WorldObjectNormalRoot->SetVisibility(bExpanded
 		? ESlateVisibility::Collapsed : ESlateVisibility::SelfHitTestInvisible);
 	WorldObjectPageSeconds = 0;
-	if (auto* Scroll = Cast<UScrollBox>(GetWidgetFromName(TEXT("WorldObjectDescriptionScroll")))) Scroll->ScrollToStart();
+	if (auto* Scroll = Cast<UScrollBox>(RokUiFind::Find(this, TEXT("WorldObjectDescriptionScroll")))) Scroll->ScrollToStart();
 	AdvanceWorldObjectPageAnimation(0);
 }
 
@@ -3803,7 +4273,7 @@ void URokWorldMapHudWidget::AdvanceFilterInputFeedback(float DeltaSeconds)
 	for (int32 Index = 0; Index < FilterButtons.Num(); ++Index)
 	{
 		UButton* Button = FilterButtons[Index];
-		if (!Button || !FilterBackgrounds.IsValidIndex(Index) || !FilterTints.IsValidIndex(Index)) continue;
+		if (!Button || !FilterBackgrounds.IsValidIndex(Index) || !FilterBackgrounds[Index] || !FilterTints.IsValidIndex(Index)) continue;
 		bool bVisible = IsVisible();
 		for (const UWidget* Parent = Button; Parent; Parent = Parent->GetParent())
 			bVisible = bVisible && Parent->IsVisible();

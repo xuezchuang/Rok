@@ -29,6 +29,7 @@ public:
 	FRokScoutScreenClosed OnClosed;
 #if WITH_DEV_AUTOMATION_TESTS
 	void AdvanceForTesting(float Seconds) { Advance(Seconds); }
+	void SetCatalogPathForTesting(const FString& Path) { CatalogPathForTesting = Path; }
 #endif
 protected:
 	virtual TSharedRef<SWidget> RebuildWidget() override;
@@ -37,6 +38,7 @@ protected:
 	virtual void NativeDestruct() override;
 private:
 	void Build();
+	bool BuildFromBlueprint();
 	void Advance(float Seconds);
 	void ApplyAnimation();
 	void AcquireKeyboardFocus();
@@ -49,6 +51,9 @@ private:
 	FRokScoutCatalog Catalog;
 	FRokUiWindowAnimation WindowAnimation;
 	FString CatalogError;
+#if WITH_DEV_AUTOMATION_TESTS
+	FString CatalogPathForTesting;
+#endif
 	int32 CampLevel = INDEX_NONE;
 	float PanelSeconds = 0.25f;
 	bool bOpen = false;

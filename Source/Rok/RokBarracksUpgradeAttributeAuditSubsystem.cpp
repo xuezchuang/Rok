@@ -1,4 +1,5 @@
 #include "RokBarracksUpgradeAttributeAuditSubsystem.h"
+#include "RokUiWidgets.h"
 #include "RokMainHudWidget.h"
 #include "RokBuildingSourcePreviewWidget.h"
 #include "RokBuildingPreviewGlowWidget.h"
@@ -144,14 +145,14 @@ bool URokBarracksUpgradeAttributeAuditSubsystem::Click(UUserWidget* Owner,FName 
 {
     if(!Identity()||!Unchanged())return false;
     if(!Expect(Name==TEXT("BuildingUpgradeButton")||Name==TEXT("Type2CloseButton"),TEXT("Only navigation delegates allowed; upgrade commands forbidden")))return false;
-    auto* B=Owner?Cast<UButton>(Owner->GetWidgetFromName(Name)):nullptr;
+    auto* B=Owner?Cast<UButton>(RokUiFind::Find(Owner, Name)):nullptr;
     if(!Expect(B&&Visible(B)&&B->GetIsEnabled(),TEXT("Missing enabled navigation button")))return false;
     auto A=MakeShared<FJsonObject>();A->SetStringField(TEXT("button"),Name.ToString());A->SetNumberField(TEXT("frame"),GFrameCounter);A->SetNumberField(TEXT("step"),Step);Actions.Add(MakeShared<FJsonValueObject>(A));B->OnClicked.Broadcast();
     if(Name==TEXT("BuildingUpgradeButton"))
     {
         // This audit isolates building Image visibility. Source glow animation
         // has its own natural-tick audit; fix its diagnostic phase for pixel diffs.
-        auto* Glow=Cast<URokBuildingPreviewGlowWidget>(Modal->GetWidgetFromName(TEXT("BuildingPreviewGlowWidget")));
+        auto* Glow=Cast<URokBuildingPreviewGlowWidget>(RokUiFind::Find(Modal, TEXT("BuildingPreviewGlowWidget")));
         if(!Expect(Glow&&Glow->IsInitialized(),TEXT("Source glow missing in preview regression")))return false;
         Glow->SetAutoAdvance(false);
         if(!Expect(Glow->SetPlaybackTime(0),TEXT("Failed to set diagnostic glow phase")))return false;
@@ -161,30 +162,30 @@ bool URokBarracksUpgradeAttributeAuditSubsystem::Click(UUserWidget* Owner,FName 
 bool URokBarracksUpgradeAttributeAuditSubsystem::Validate()
 {
     if(!Identity()||!Unchanged())return false;
-    const auto* Group=Cast<UUserWidget>(Modal->GetWidgetFromName(TEXT("BarracksUpgradeAttributes")));
-    if(!bPageOpen)return Expect(!Modal->IsModalOpen()&&!Group&&!Modal->GetWidgetFromName(TEXT("UpgradeCurrentLevel"))&&!Modal->GetWidgetFromName(TEXT("BuildingSourcePreviewWidget")),TEXT("Closed preview retained old attribute tree"));
+    const auto* Group=Cast<UUserWidget>(RokUiFind::Find(Modal, TEXT("BarracksUpgradeAttributes")));
+    if(!bPageOpen)return Expect(!Modal->IsModalOpen()&&!Group&&!RokUiFind::Find(Modal, TEXT("UpgradeCurrentLevel"))&&!RokUiFind::Find(Modal, TEXT("BuildingSourcePreviewWidget")),TEXT("Closed preview retained old attribute tree"));
     if(!Expect(Modal->IsModalOpen()&&Group&&Visible(Group),TEXT("Barracks attribute page unavailable")))return false;
     TSharedPtr<FJsonObject> BodyRect,HeaderRect;
-    if(!Expect(ParentPixelRect(this,Modal->GetWidgetFromName(TEXT("Type2BodyLeft")),BodyRect)&&ParentPixelRect(this,Modal->GetWidgetFromName(TEXT("Type2HeaderLeft")),HeaderRect)&&
+    if(!Expect(ParentPixelRect(this,RokUiFind::Find(Modal, TEXT("Type2BodyLeft")),BodyRect)&&ParentPixelRect(this,RokUiFind::Find(Modal, TEXT("Type2HeaderLeft")),HeaderRect)&&
         FMath::IsNearlyEqual(BodyRect->GetNumberField(TEXT("x")),194.,1.)&&FMath::IsNearlyEqual(BodyRect->GetNumberField(TEXT("y")),94.2,1.)&&
         FMath::IsNearlyEqual(BodyRect->GetNumberField(TEXT("right")),737.,1.)&&FMath::IsNearlyEqual(BodyRect->GetNumberField(TEXT("bottom")),755.,1.)&&
         FMath::IsNearlyEqual(HeaderRect->GetNumberField(TEXT("y")),63.,1.)&&FMath::IsNearlyEqual(HeaderRect->GetNumberField(TEXT("bottom")),123.,1.),
         TEXT("Type9 parent BodyLeft/HeaderLeft actual pixel geometry differs from source contract")))return false;
-    const auto* Glow=Cast<URokBuildingPreviewGlowWidget>(Modal->GetWidgetFromName(TEXT("BuildingPreviewGlowWidget")));
+    const auto* Glow=Cast<URokBuildingPreviewGlowWidget>(RokUiFind::Find(Modal, TEXT("BuildingPreviewGlowWidget")));
     if(!Expect(Glow&&Visible(Glow)&&Glow->IsInitialized()&&Glow->IsPlaybackActive()&&!Glow->IsAutoAdvance()&&Glow->GetPlaybackTime()==0&&Glow->GetLastPaintLayerCount()==2&&Glow->GetPaintCount()>0,TEXT("Preview regression requires painted source glow at diagnostic time zero")))return false;
 #if !UE_BUILD_SHIPPING
     if(!Expect(Modal->GetSelectedBuildingActorForAudit()==Barracks.Get(),TEXT("Preview lost source actor context")))return false;
 #endif
-    const auto* Current=Cast<URokBarracksSourceTextWidget>(Modal->GetWidgetFromName(TEXT("UpgradeCurrentLevel")));const auto* Next=Cast<URokBarracksSourceTextWidget>(Modal->GetWidgetFromName(TEXT("UpgradeNextLevel")));
+    const auto* Current=Cast<URokBarracksSourceTextWidget>(RokUiFind::Find(Modal, TEXT("UpgradeCurrentLevel")));const auto* Next=Cast<URokBarracksSourceTextWidget>(RokUiFind::Find(Modal, TEXT("UpgradeNextLevel")));
     if(!Expect(Current&&Next&&Current->GetText().ToString()==TEXT("等级1")&&Next->GetText().ToString()==TEXT("2"),TEXT("Wrong preview levels")))return false;
     const auto GlyphValid=[](const URokBarracksSourceTextWidget* W,const TCHAR* Key){return W&&Visible(W)&&W->HasSourceMesh()&&W->GetSourceKey()==Key&&W->GetPaintCount()>0&&W->GetLastPaintSourceKey()==W->GetSourceKey();};
     if(!Expect(GlyphValid(Current,TEXT("level_before"))&&GlyphValid(Next,TEXT("level_after")),TEXT("Source level glyph key has not actually painted")))return false;
-    const auto* Arrow=Cast<UImage>(Modal->GetWidgetFromName(TEXT("UpgradeLevelArrow")));
+    const auto* Arrow=Cast<UImage>(RokUiFind::Find(Modal, TEXT("UpgradeLevelArrow")));
     if(!Expect(Arrow&&Visible(Arrow)&&Arrow->GetRenderTransform().Scale.Equals(FVector2D(-1,1),.001),TEXT("Source Chinese level arrow must be mirrored")))return false;
-    const auto* BeforeRegion=Modal->GetWidgetFromName(TEXT("UpgradeCurrentLevelRegion"));const auto* AfterRegion=Modal->GetWidgetFromName(TEXT("UpgradeNextLevelRegion"));
+    const auto* BeforeRegion=RokUiFind::Find(Modal, TEXT("UpgradeCurrentLevelRegion"));const auto* AfterRegion=RokUiFind::Find(Modal, TEXT("UpgradeNextLevelRegion"));
     const auto CheckRect=[](const UWidget* W,FVector2D P,FVector2D Size){const auto* Slot=W?Cast<UCanvasPanelSlot>(W->Slot):nullptr;return Slot&&Slot->GetPosition().Equals(P,.02)&&Slot->GetSize().Equals(Size,.02);};
     if(!Expect(CheckRect(BeforeRegion,FVector2D(702,181.82007),FVector2D(61,50))&&CheckRect(AfterRegion,FVector2D(826.7,181.82007),FVector2D(13,50))&&CheckRect(Arrow,FVector2D(779.3,193.82),FVector2D(24,26))&&Arrow->GetRenderTransformPivot().Equals(FVector2D(.5),.001),TEXT("Source level regions or mirrored arrow geometry differs")))return false;
-    const auto* Preview=Cast<URokBuildingSourcePreviewWidget>(Modal->GetWidgetFromName(TEXT("BuildingSourcePreviewWidget")));
+    const auto* Preview=Cast<URokBuildingSourcePreviewWidget>(RokUiFind::Find(Modal, TEXT("BuildingSourcePreviewWidget")));
     const auto* Image=Preview?Cast<UImage>(Preview->GetWidgetFromName(TEXT("BuildingSourcePreviewImage"))):nullptr;
     if(Step>=5&&Step<=7&&!Expect(Image==PreviewImage.Get(),TEXT("Preview diagnostic replaced image instance")))return false;
     const auto* Texture=Image?Cast<UTexture2D>(Image->GetBrush().GetResourceObject()):nullptr;
@@ -202,7 +203,7 @@ bool URokBarracksUpgradeAttributeAuditSubsystem::Validate()
         if(!Expect(Label&&Value&&Separator&&Visible(Label)&&Visible(Value)&&Label->GetText().ToString()==Labels[I]&&Value->GetText().ToString()==Values[I]&&Visible(Separator)==(I==0),TEXT("Attribute text/last separator differs from source")))return false;
         if(!Expect(GlyphValid(Label,*FString::Printf(TEXT("label_%d"),I))&&GlyphValid(Value,*FString::Printf(TEXT("value_%d"),I)),TEXT("Source attribute glyph key has not actually painted")))return false;
     }
-    if(!Expect(!Group->GetWidgetFromName(TEXT("UpgradeStatLabel_2"))&&!Modal->GetWidgetFromName(TEXT("UpgradeStatDelta_0")),TEXT("Zero attack or old farm attribute row leaked")))return false;
+    if(!Expect(!Group->GetWidgetFromName(TEXT("UpgradeStatLabel_2"))&&!RokUiFind::Find(Modal, TEXT("UpgradeStatDelta_0")),TEXT("Zero attack or old farm attribute row leaked")))return false;
     const auto* A=Group->GetWidgetFromName(TEXT("UpgradeStatLabel_0"));const auto* B=Group->GetWidgetFromName(TEXT("UpgradeStatLabel_1"));
     const FVector2D LocalA=Root->GetCachedGeometry().AbsoluteToLocal(A->GetCachedGeometry().GetAbsolutePosition());const FVector2D LocalB=Root->GetCachedGeometry().AbsoluteToLocal(B->GetCachedGeometry().GetAbsolutePosition());
     return Expect(FMath::IsNearlyEqual(LocalB.Y-LocalA.Y,40.,.1),TEXT("Source row stride must be40"));
@@ -210,10 +211,10 @@ bool URokBarracksUpgradeAttributeAuditSubsystem::Validate()
 TSharedRef<FJsonObject> URokBarracksUpgradeAttributeAuditSubsystem::State() const
 {
     auto S=MakeShared<FJsonObject>();S->SetNumberField(TEXT("frame"),GFrameCounter);S->SetNumberField(TEXT("step"),Step);S->SetBoolField(TEXT("open"),bPageOpen);S->SetBoolField(TEXT("state_unchanged"),true);
-    const auto* Group=Cast<UUserWidget>(Modal->GetWidgetFromName(TEXT("BarracksUpgradeAttributes")));S->SetBoolField(TEXT("attributes_attached"),Group!=nullptr);
-    const auto* Preview=Cast<URokBuildingSourcePreviewWidget>(Modal->GetWidgetFromName(TEXT("BuildingSourcePreviewWidget")));
+    const auto* Group=Cast<UUserWidget>(RokUiFind::Find(Modal, TEXT("BarracksUpgradeAttributes")));S->SetBoolField(TEXT("attributes_attached"),Group!=nullptr);
+    const auto* Preview=Cast<URokBuildingSourcePreviewWidget>(RokUiFind::Find(Modal, TEXT("BuildingSourcePreviewWidget")));
     S->SetBoolField(TEXT("preview_attached"),Preview!=nullptr);S->SetBoolField(TEXT("preview_hidden"),bPreviewHidden);
-    if(const auto* Glow=Cast<URokBuildingPreviewGlowWidget>(Modal->GetWidgetFromName(TEXT("BuildingPreviewGlowWidget"))))
+    if(const auto* Glow=Cast<URokBuildingPreviewGlowWidget>(RokUiFind::Find(Modal, TEXT("BuildingPreviewGlowWidget"))))
     {
         S->SetBoolField(TEXT("glow_diagnostic_fixed_time"),!Glow->IsAutoAdvance());
         S->SetNumberField(TEXT("glow_time"),Glow->GetPlaybackTime());
@@ -222,7 +223,7 @@ TSharedRef<FJsonObject> URokBarracksUpgradeAttributeAuditSubsystem::State() cons
     if(Preview)
     {
         TSharedPtr<FJsonObject> BodyRect,HeaderRect;
-        if(ParentPixelRect(this,Modal->GetWidgetFromName(TEXT("Type2BodyLeft")),BodyRect)&&ParentPixelRect(this,Modal->GetWidgetFromName(TEXT("Type2HeaderLeft")),HeaderRect))
+        if(ParentPixelRect(this,RokUiFind::Find(Modal, TEXT("Type2BodyLeft")),BodyRect)&&ParentPixelRect(this,RokUiFind::Find(Modal, TEXT("Type2HeaderLeft")),HeaderRect))
         {S->SetObjectField(TEXT("body_left_pixel_rect"),BodyRect);S->SetObjectField(TEXT("header_left_pixel_rect"),HeaderRect);}
         const auto* Image=Cast<UImage>(Preview->GetWidgetFromName(TEXT("BuildingSourcePreviewImage")));const auto* Texture=Cast<UTexture2D>(Image->GetBrush().GetResourceObject());
         auto P=MakeShared<FJsonObject>();P->SetStringField(TEXT("model"),Preview->GetPresentationModel());P->SetStringField(TEXT("texture"),Texture->GetPathName());P->SetBoolField(TEXT("visible"),Visible(Image));P->SetNumberField(TEXT("width"),Texture->GetSizeX());P->SetNumberField(TEXT("height"),Texture->GetSizeY());P->SetNumberField(TEXT("filter"),static_cast<int32>(Texture->Filter));P->SetNumberField(TEXT("compression"),static_cast<int32>(Texture->CompressionSettings));P->SetBoolField(TEXT("srgb"),Texture->SRGB);P->SetNumberField(TEXT("mips"),Texture->GetNumMips());P->SetNumberField(TEXT("address_x"),static_cast<int32>(Texture->AddressX));P->SetNumberField(TEXT("address_y"),static_cast<int32>(Texture->AddressY));P->SetBoolField(TEXT("render_resource"),Texture->GetResource()!=nullptr);P->SetNumberField(TEXT("brush_draw_as"),static_cast<int32>(Image->GetBrush().DrawAs));
@@ -244,18 +245,18 @@ TSharedRef<FJsonObject> URokBarracksUpgradeAttributeAuditSubsystem::State() cons
         }
         TArray<TSharedPtr<FJsonValue>> Glyphs;
         for(const auto* Name:{TEXT("UpgradeCurrentLevel"),TEXT("UpgradeNextLevel"),TEXT("UpgradeStatLabel_0"),TEXT("UpgradeStatCurrent_0"),TEXT("UpgradeStatLabel_1"),TEXT("UpgradeStatCurrent_1")})
-        {const auto* W=Cast<URokBarracksSourceTextWidget>(Modal->GetWidgetFromName(Name));if(!W)W=Cast<URokBarracksSourceTextWidget>(Group->GetWidgetFromName(Name));auto G=MakeShared<FJsonObject>();G->SetStringField(TEXT("name"),Name);G->SetStringField(TEXT("text"),W->GetText().ToString());G->SetStringField(TEXT("source_key"),W->GetSourceKey());G->SetStringField(TEXT("paint_key"),W->GetLastPaintSourceKey());G->SetNumberField(TEXT("paint_count"),W->GetPaintCount());Glyphs.Add(MakeShared<FJsonValueObject>(G));}S->SetArrayField(TEXT("glyphs"),Glyphs);
+        {const auto* W=Cast<URokBarracksSourceTextWidget>(RokUiFind::Find(Modal, Name));if(!W)W=Cast<URokBarracksSourceTextWidget>(Group->GetWidgetFromName(Name));auto G=MakeShared<FJsonObject>();G->SetStringField(TEXT("name"),Name);G->SetStringField(TEXT("text"),W->GetText().ToString());G->SetStringField(TEXT("source_key"),W->GetSourceKey());G->SetStringField(TEXT("paint_key"),W->GetLastPaintSourceKey());G->SetNumberField(TEXT("paint_count"),W->GetPaintCount());Glyphs.Add(MakeShared<FJsonValueObject>(G));}S->SetArrayField(TEXT("glyphs"),Glyphs);
         S->SetArrayField(TEXT("rows"),Rows);
-        const auto* Before=Cast<URokBarracksSourceTextWidget>(Modal->GetWidgetFromName(TEXT("UpgradeCurrentLevel")));const auto* After=Cast<URokBarracksSourceTextWidget>(Modal->GetWidgetFromName(TEXT("UpgradeNextLevel")));
+        const auto* Before=Cast<URokBarracksSourceTextWidget>(RokUiFind::Find(Modal, TEXT("UpgradeCurrentLevel")));const auto* After=Cast<URokBarracksSourceTextWidget>(RokUiFind::Find(Modal, TEXT("UpgradeNextLevel")));
         S->SetStringField(TEXT("level_before"),Before->GetText().ToString());S->SetStringField(TEXT("level_after"),After->GetText().ToString());
         const FGeometry Viewport=UWidgetLayoutLibrary::GetViewportWidgetGeometry(this);const FVector2D VS=Viewport.GetLocalSize(),PS=UWidgetLayoutLibrary::GetViewportSize(this);
         const auto Pixel=[&](const FGeometry& G,FVector2D Local){const FVector2D Q=Viewport.AbsoluteToLocal(G.LocalToAbsolute(Local));return FVector2D(Q.X*PS.X/FMath::Max(1.,VS.X),Q.Y*PS.Y/FMath::Max(1.,VS.Y));};
         S->SetNumberField(TEXT("attribute_pixel_top"),Pixel(Root->GetCachedGeometry(),FVector2D::ZeroVector).Y);
         TArray<TSharedPtr<FJsonValue>> LevelRegions;
         for(const auto* Name:{TEXT("UpgradeCurrentLevelRegion"),TEXT("UpgradeNextLevelRegion")})
-        {const auto* W=Modal->GetWidgetFromName(Name);const FVector2D P=Pixel(W->GetCachedGeometry(),FVector2D::ZeroVector),E=Pixel(W->GetCachedGeometry(),W->GetCachedGeometry().GetLocalSize());auto R=MakeShared<FJsonObject>();R->SetNumberField(TEXT("x"),P.X);R->SetNumberField(TEXT("y"),P.Y);R->SetNumberField(TEXT("right"),E.X);R->SetNumberField(TEXT("bottom"),E.Y);LevelRegions.Add(MakeShared<FJsonValueObject>(R));}
+        {const auto* W=RokUiFind::Find(Modal, Name);const FVector2D P=Pixel(W->GetCachedGeometry(),FVector2D::ZeroVector),E=Pixel(W->GetCachedGeometry(),W->GetCachedGeometry().GetLocalSize());auto R=MakeShared<FJsonObject>();R->SetNumberField(TEXT("x"),P.X);R->SetNumberField(TEXT("y"),P.Y);R->SetNumberField(TEXT("right"),E.X);R->SetNumberField(TEXT("bottom"),E.Y);LevelRegions.Add(MakeShared<FJsonValueObject>(R));}
         S->SetArrayField(TEXT("level_pixel_regions"),LevelRegions);
-        S->SetBoolField(TEXT("level_arrow_mirrored"),Modal->GetWidgetFromName(TEXT("UpgradeLevelArrow"))->GetRenderTransform().Scale.X<0);
+        S->SetBoolField(TEXT("level_arrow_mirrored"),RokUiFind::Find(Modal, TEXT("UpgradeLevelArrow"))->GetRenderTransform().Scale.X<0);
 
     }
     return S;
@@ -285,7 +286,7 @@ void URokBarracksUpgradeAttributeAuditSubsystem::Tick(float DeltaTime)
     case 1:Capture(TEXT("01_selected_city"));break;
     case 2:if(Click(Cast<UUserWidget>(Hud->GetWidgetFromName(TEXT("BuildingPanelWidget"))),TEXT("BuildingUpgradeButton"))){bPageOpen=true;Enter(3);}break;
     case 3:Capture(TEXT("02_upgrade_attributes"));break;
-    case 4:{auto* P=Cast<UUserWidget>(Modal->GetWidgetFromName(TEXT("BuildingSourcePreviewWidget")));PreviewImage=P?P->GetWidgetFromName(TEXT("BuildingSourcePreviewImage")):nullptr;if(Expect(PreviewImage.IsValid(),TEXT("Preview missing before hide"))){PreviewImage->SetVisibility(ESlateVisibility::Hidden);bPreviewHidden=true;Enter(5);}}break;
+    case 4:{auto* P=Cast<UUserWidget>(RokUiFind::Find(Modal, TEXT("BuildingSourcePreviewWidget")));PreviewImage=P?P->GetWidgetFromName(TEXT("BuildingSourcePreviewImage")):nullptr;if(Expect(PreviewImage.IsValid(),TEXT("Preview missing before hide"))){PreviewImage->SetVisibility(ESlateVisibility::Hidden);bPreviewHidden=true;Enter(5);}}break;
     case 5:Capture(TEXT("06_preview_hidden"));break;
     case 6:if(Expect(PreviewImage.IsValid(),TEXT("Hidden preview instance lost"))){PreviewImage->SetVisibility(ESlateVisibility::HitTestInvisible);bPreviewHidden=false;Enter(7);}break;
     case 7:Capture(TEXT("07_preview_restored"));break;

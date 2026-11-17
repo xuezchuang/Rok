@@ -1,4 +1,5 @@
 #include "RokPlayerHeadAuditSubsystem.h"
+#include "RokUiWidgets.h"
 #include "Blueprint/WidgetBlueprintLibrary.h"
 #include "Components/Button.h"
 #include "Components/ScrollBox.h"
@@ -75,7 +76,7 @@ bool URokPlayerHeadAuditSubsystem::FindWidgets()
 void URokPlayerHeadAuditSubsystem::Next() { ++Step; StepStarted = Elapsed; }
 bool URokPlayerHeadAuditSubsystem::Click(UUserWidget* Owner, const TCHAR* Name)
 {
-	auto* Button = Owner ? Cast<UButton>(Owner->GetWidgetFromName(Name)) : nullptr;
+	auto* Button = Owner ? Cast<UButton>(RokUiFind::Find(Owner, Name)) : nullptr;
 	if (!Owner || Owner->GetWorld() != GetWorld() || !HeadAuditVisible(Owner) || !HeadAuditVisible(Button)
 		|| !Button->GetIsEnabled() || Button->GetCachedGeometry().GetLocalSize().X <= 0)
 	{ Finish(FString::Printf(TEXT("Missing/hidden/disabled/unlaid-out runtime button: %s"), Name)); return false; }
@@ -92,26 +93,26 @@ TSharedRef<FJsonObject> URokPlayerHeadAuditSubsystem::State() const
 	Result->SetBoolField(TEXT("modal_open"), Modal.IsValid() && Modal->IsModalOpen());
 	if (Modal.IsValid())
 	{
-		const UWidget* Tip = Modal->GetWidgetFromName(TEXT("PlayerKillTipRoot"));
+		const UWidget* Tip = RokUiFind::Find(Modal, TEXT("PlayerKillTipRoot"));
 		Result->SetBoolField(TEXT("kill_tip_present"), Tip != nullptr);
 		if (Tip) Result->SetNumberField(TEXT("kill_tip_scale"), Tip->GetRenderTransform().Scale.X);
-		const UWidget* ActionTip = Modal->GetWidgetFromName(TEXT("PlayerActionTipRoot"));
+		const UWidget* ActionTip = RokUiFind::Find(Modal, TEXT("PlayerActionTipRoot"));
 		Result->SetBoolField(TEXT("action_tip_present"), ActionTip != nullptr);
 		if (ActionTip) Result->SetNumberField(TEXT("action_tip_scale"), ActionTip->GetRenderTransform().Scale.X);
-		if (const auto* Recovery = Cast<URichTextBlock>(Modal->GetWidgetFromName(TEXT("PlayerActionTipRecovery"))))
+		if (const auto* Recovery = Cast<URichTextBlock>(RokUiFind::Find(Modal, TEXT("PlayerActionTipRecovery"))))
 			Result->SetStringField(TEXT("action_recovery_text"), Recovery->GetText().ToString());
 		TArray<TSharedPtr<FJsonValue>> TierCounts;
 		for (int32 Tier = 1; Tier <= 5; ++Tier)
 		{
-			const auto* Count = Cast<UTextBlock>(Modal->GetWidgetFromName(*FString::Printf(TEXT("PlayerKillTipTierCount_%d"), Tier)));
+			const auto* Count = Cast<UTextBlock>(RokUiFind::Find(Modal, *FString::Printf(TEXT("PlayerKillTipTierCount_%d"), Tier)));
 			if (Count) TierCounts.Add(MakeShared<FJsonValueString>(Count->GetText().ToString()));
 		}
 		Result->SetArrayField(TEXT("kill_tip_counts"), TierCounts);
-		if (const auto* Scroll = Cast<UScrollBox>(Modal->GetWidgetFromName(TEXT("PlayerHeadGridScroll"))))
+		if (const auto* Scroll = Cast<UScrollBox>(RokUiFind::Find(Modal, TEXT("PlayerHeadGridScroll"))))
 		{ Result->SetNumberField(TEXT("scroll_offset"), Scroll->GetScrollOffset()); Result->SetNumberField(TEXT("scroll_end"), Scroll->GetScrollOffsetOfEnd()); }
-		if (const auto* Name = Cast<UTextBlock>(Modal->GetWidgetFromName(TEXT("PlayerHeadPreviewName")))) Result->SetStringField(TEXT("selected_name"), Name->GetText().ToString());
-		if (const auto* Confirm = Cast<UButton>(Modal->GetWidgetFromName(TEXT("PlayerHeadConfirmButton")))) Result->SetBoolField(TEXT("confirm_enabled"), Confirm->GetIsEnabled());
-		Result->SetBoolField(TEXT("missing_art_notice"), Modal->GetWidgetFromName(TEXT("PlayerHeadPreviewMissingArt")) != nullptr);
+		if (const auto* Name = Cast<UTextBlock>(RokUiFind::Find(Modal, TEXT("PlayerHeadPreviewName")))) Result->SetStringField(TEXT("selected_name"), Name->GetText().ToString());
+		if (const auto* Confirm = Cast<UButton>(RokUiFind::Find(Modal, TEXT("PlayerHeadConfirmButton")))) Result->SetBoolField(TEXT("confirm_enabled"), Confirm->GetIsEnabled());
+		Result->SetBoolField(TEXT("missing_art_notice"), RokUiFind::Find(Modal, TEXT("PlayerHeadPreviewMissingArt")) != nullptr);
 	}
 	return Result;
 }
@@ -134,7 +135,7 @@ void URokPlayerHeadAuditSubsystem::ScreenshotProcessed()
 	Captures.Add(MakeShared<FJsonValueObject>(PendingCapture)); PendingCapture.Reset();
 	if (Step == 13 || Step == 20)
 	{
-		const UWidget* Tip = Modal.IsValid() ? Modal->GetWidgetFromName(
+		const UWidget* Tip = Modal.IsValid() ? RokUiFind::Find(Modal,
 			Step == 13 ? TEXT("PlayerKillTipRoot") : TEXT("PlayerActionTipRoot")) : nullptr;
 		if (!Tip || Tip->GetRenderTransform().Scale.X <= 0 || Tip->GetRenderTransform().Scale.X >= 1)
 		{ Finish(TEXT("Tooltip midpoint request did not remain intermediate through screenshot processing.")); return; }
@@ -211,13 +212,13 @@ void URokPlayerHeadAuditSubsystem::Tick(float DeltaTime)
 	case 6: Capture(TEXT("03_frames_before_scroll")); break;
 	case 7:
 	{
-		auto* Scroll = Cast<UScrollBox>(Modal->GetWidgetFromName(TEXT("PlayerHeadGridScroll")));
+		auto* Scroll = Cast<UScrollBox>(RokUiFind::Find(Modal, TEXT("PlayerHeadGridScroll")));
 		if (!Scroll || Scroll->GetScrollOffsetOfEnd() <= 0) { Finish(TEXT("Frame grid is not scrollable after layout.")); return; }
 		Scroll->ScrollToEnd(); Next(); break;
 	}
 	case 8:
 	{
-		auto* Scroll = Cast<UScrollBox>(Modal->GetWidgetFromName(TEXT("PlayerHeadGridScroll")));
+		auto* Scroll = Cast<UScrollBox>(RokUiFind::Find(Modal, TEXT("PlayerHeadGridScroll")));
 		if (!Scroll || Scroll->GetScrollOffset() <= 0 || !FMath::IsNearlyEqual(Scroll->GetScrollOffset(), Scroll->GetScrollOffsetOfEnd(), 1.0f))
 		{ Finish(TEXT("ScrollToEnd did not reach the last frame row on the next runtime ticks.")); return; }
 		ScrollBeforeSelection = Scroll->GetScrollOffset(); Capture(TEXT("04_frames_scrolled")); break;
@@ -225,15 +226,15 @@ void URokPlayerHeadAuditSubsystem::Tick(float DeltaTime)
 	case 9: Click(Modal.Get(), TEXT("PlayerHeadChoiceButton_15")); break;
 	case 10:
 	{
-		auto* Scroll = Cast<UScrollBox>(Modal->GetWidgetFromName(TEXT("PlayerHeadGridScroll")));
-		auto* Name = Cast<UTextBlock>(Modal->GetWidgetFromName(TEXT("PlayerHeadPreviewName")));
-		auto* Confirm = Cast<UButton>(Modal->GetWidgetFromName(TEXT("PlayerHeadConfirmButton")));
+		auto* Scroll = Cast<UScrollBox>(RokUiFind::Find(Modal, TEXT("PlayerHeadGridScroll")));
+		auto* Name = Cast<UTextBlock>(RokUiFind::Find(Modal, TEXT("PlayerHeadPreviewName")));
+		auto* Confirm = Cast<UButton>(RokUiFind::Find(Modal, TEXT("PlayerHeadConfirmButton")));
 		TArray<FRokPlayerHeadRow> Rows; FString Error;
 		if (!RokPlayerHeadCatalog::Load(Rows, Error)) { Finish(Error); return; }
 		const auto* Row = Rows.FindByPredicate([](const auto& Item) { return Item.Id == 2015; });
 		if (!Row || !Scroll || !Name || !Confirm || Confirm->GetIsEnabled() || Name->GetText().ToString() != Row->Name
 			|| !FMath::IsNearlyEqual(Scroll->GetScrollOffset(), ScrollBeforeSelection, 1.0f)
-			|| (!Row->bArtAvailable && !Modal->GetWidgetFromName(TEXT("PlayerHeadPreviewMissingArt"))))
+			|| (!Row->bArtAvailable && !RokUiFind::Find(Modal, TEXT("PlayerHeadPreviewMissingArt"))))
 		{ Finish(TEXT("Last-frame selection failed name/art/disabled-apply/scroll-preservation checks.")); return; }
 		Capture(TEXT("05_last_frame_selected")); break;
 	}
@@ -241,7 +242,7 @@ void URokPlayerHeadAuditSubsystem::Tick(float DeltaTime)
 	case 12: if (Elapsed - StepStarted > 0.5) Click(Modal.Get(), TEXT("ProfileKillsHelpButton")); break;
 	case 13:
 	{
-		const UWidget* Tip = Modal->GetWidgetFromName(TEXT("PlayerKillTipRoot"));
+		const UWidget* Tip = RokUiFind::Find(Modal, TEXT("PlayerKillTipRoot"));
 		if (!Tip) { Finish(TEXT("Kills help did not create the runtime tooltip.")); return; }
 		const float Scale = Tip->GetRenderTransform().Scale.X;
 		if (Scale <= 0) break;
@@ -251,12 +252,12 @@ void URokPlayerHeadAuditSubsystem::Tick(float DeltaTime)
 	case 14:
 	{
 		if (Elapsed - StepStarted < 0.25) break;
-		const UWidget* Tip = Modal->GetWidgetFromName(TEXT("PlayerKillTipRoot"));
+		const UWidget* Tip = RokUiFind::Find(Modal, TEXT("PlayerKillTipRoot"));
 		if (!Tip || !FMath::IsNearlyEqual(Tip->GetRenderTransform().Scale.X, 1.0))
 		{ Finish(TEXT("Kills tooltip failed to settle at unit scale.")); return; }
 		for (int32 Tier = 1; Tier <= 5; ++Tier)
 		{
-			const auto* Count = Cast<UTextBlock>(Modal->GetWidgetFromName(*FString::Printf(TEXT("PlayerKillTipTierCount_%d"), Tier)));
+			const auto* Count = Cast<UTextBlock>(RokUiFind::Find(Modal, *FString::Printf(TEXT("PlayerKillTipTierCount_%d"), Tier)));
 			if (!Count || Count->GetText().ToString() != TEXT("—"))
 			{ Finish(TEXT("Kills tooltip must expose all five unknown server counts.")); return; }
 		}
@@ -264,8 +265,8 @@ void URokPlayerHeadAuditSubsystem::Tick(float DeltaTime)
 	}
 	case 15: Click(Modal.Get(), TEXT("PlayerKillTipClickAway")); break;
 	case 16:
-		if (!Modal->IsModalOpen() || Modal->GetWidgetFromName(TEXT("PlayerKillTipRoot"))
-			|| !Modal->GetWidgetFromName(TEXT("ProfilePictureButton"))) Finish(TEXT("Click-away did not preserve profile and remove tooltip."));
+		if (!Modal->IsModalOpen() || RokUiFind::Find(Modal, TEXT("PlayerKillTipRoot"))
+			|| !RokUiFind::Find(Modal, TEXT("ProfilePictureButton"))) Finish(TEXT("Click-away did not preserve profile and remove tooltip."));
 		else Capture(TEXT("08_profile_after_tip"));
 		break;
 	case 17:
@@ -281,7 +282,7 @@ void URokPlayerHeadAuditSubsystem::Tick(float DeltaTime)
 	case 19: Finish(); break;
 	case 20:
 	{
-		const UWidget* Tip = Modal->GetWidgetFromName(TEXT("PlayerActionTipRoot"));
+		const UWidget* Tip = RokUiFind::Find(Modal, TEXT("PlayerActionTipRoot"));
 		if (!Tip) { Finish(TEXT("Action help did not create the runtime tooltip.")); return; }
 		const float Scale = Tip->GetRenderTransform().Scale.X;
 		if (Scale <= 0) break;
@@ -291,20 +292,20 @@ void URokPlayerHeadAuditSubsystem::Tick(float DeltaTime)
 	case 21:
 	{
 		if (Elapsed - StepStarted < 0.25) break;
-		const UWidget* Tip = Modal->GetWidgetFromName(TEXT("PlayerActionTipRoot"));
+		const UWidget* Tip = RokUiFind::Find(Modal, TEXT("PlayerActionTipRoot"));
 		if (!Tip || !FMath::IsNearlyEqual(Tip->GetRenderTransform().Scale.X, 1.0))
 		{ Finish(TEXT("Action tooltip failed to settle at unit scale.")); return; }
-		const auto* Recovery = Cast<URichTextBlock>(Modal->GetWidgetFromName(TEXT("PlayerActionTipRecovery")));
+		const auto* Recovery = Cast<URichTextBlock>(RokUiFind::Find(Modal, TEXT("PlayerActionTipRecovery")));
 		if (!Recovery || Recovery->GetText().ToString() != TEXT("行动力恢复1点需要—秒\n（恢复速度提升：+ —%）\n\n全部恢复还需   <Remaining>—</>"))
 		{ Finish(TEXT("Action tooltip must retain unknown recovery, bonus, and full-recovery time.")); return; }
 		for (const TCHAR* Name : {TEXT("PlayerActionTipDescription"), TEXT("PlayerActionTipWarning")})
-			if (!Modal->GetWidgetFromName(Name)) { Finish(TEXT("Action tooltip is missing a source text region.")); return; }
+			if (!RokUiFind::Find(Modal, Name)) { Finish(TEXT("Action tooltip is missing a source text region.")); return; }
 		Capture(TEXT("10_action_tip_open")); break;
 	}
 	case 22: Click(Modal.Get(), TEXT("PlayerActionTipClickAway")); break;
 	case 23:
-		if (!Modal->IsModalOpen() || Modal->GetWidgetFromName(TEXT("PlayerActionTipRoot"))
-			|| !Modal->GetWidgetFromName(TEXT("ProfilePictureButton"))) Finish(TEXT("Action tooltip click-away did not preserve the profile."));
+		if (!Modal->IsModalOpen() || RokUiFind::Find(Modal, TEXT("PlayerActionTipRoot"))
+			|| !RokUiFind::Find(Modal, TEXT("ProfilePictureButton"))) Finish(TEXT("Action tooltip click-away did not preserve the profile."));
 		else Capture(TEXT("11_profile_after_action_tip"));
 		break;
 	case 24: Click(Modal.Get(), TEXT("Type1CloseButton")); break;

@@ -1,4 +1,5 @@
 #include "RokResearchAuditSubsystem.h"
+#include "RokUiWidgets.h"
 #include "RokBuildingUpgradeSubsystem.h"
 #include "RokDataPaths.h"
 #include "RokMainHudWidget.h"
@@ -462,7 +463,7 @@ bool URokResearchAuditSubsystem::DelegateClick(UUserWidget* Owner,FName Name)
     if (!Identity() || !Unchanged()) return false;
     if (!Expect(Name==TEXT("MailFeatureHitButton") || Name==TEXT("FeatureFrameClose"),
         TEXT("Research audit attempted unreviewed HUD delegate"))) return false;
-    auto* Button=Owner?Cast<UButton>(Owner->GetWidgetFromName(Name)):nullptr;
+    auto* Button=Owner?Cast<UButton>(RokUiFind::Find(Owner, Name)):nullptr;
     if (!Expect(Button && Button->GetIsEnabled(),TEXT("Research cross-feature HUD/close button unavailable"))) return false;
     auto Action=MakeShared<FJsonObject>(); Action->SetStringField(TEXT("button"),Name.ToString());
     Action->SetStringField(TEXT("method"),TEXT("UButton.OnClicked.Broadcast"));

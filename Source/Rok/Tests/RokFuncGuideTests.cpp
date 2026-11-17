@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
+#include "RokUiWidgets.h"
 #include "Components/TextBlock.h"
 #include "../RokUnityModalWidget.h"
 
@@ -22,21 +23,21 @@ bool FRokFuncGuideLayoutTest::RunTest(const FString& Parameters)
 	Modal->OpenFuncGuide();
 
 	if (!TestNotNull(TEXT("The first guide row exists"),
-		Modal->GetWidgetFromName(TEXT("FuncGuideRow_0"))))
+		RokUiFind::Find(Modal, TEXT("FuncGuideRow_0"))))
 	{
 		return false;
 	}
 	const UTextBlock* Title = Cast<UTextBlock>(
-		Modal->GetWidgetFromName(TEXT("FuncGuideRowTitle_0")));
+		RokUiFind::Find(Modal, TEXT("FuncGuideRowTitle_0")));
 	TestTrue(TEXT("The first row is the opening guide step"),
 		Title != nullptr
 			&& Title->GetText().ToString().Contains(TEXT("开场引导")));
 	const UTextBlock* Detail = Cast<UTextBlock>(
-		Modal->GetWidgetFromName(TEXT("FuncGuideRowDetail_0")));
+		RokUiFind::Find(Modal, TEXT("FuncGuideRowDetail_0")));
 	TestTrue(TEXT("The detail states the stage"),
 		Detail != nullptr && Detail->GetText().ToString().Contains(TEXT("阶段")));
 	TestTrue(TEXT("The list holds more than six steps"),
-		Modal->GetWidgetFromName(TEXT("FuncGuideRow_6")) != nullptr);
+		RokUiFind::Find(Modal, TEXT("FuncGuideRow_6")) != nullptr);
 
 	Modal->CloseModal();
 	TestFalse(TEXT("Closing clears the guide mode"), Modal->IsModalOpen());

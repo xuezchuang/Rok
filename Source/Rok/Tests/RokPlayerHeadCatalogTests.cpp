@@ -1,5 +1,6 @@
 #if WITH_DEV_AUTOMATION_TESTS
 #include "Misc/AutomationTest.h"
+#include "RokUiWidgets.h"
 #include "../RokPlayerHeadCatalog.h"
 #include "../RokUnityModalWidget.h"
 #include "Components/Button.h"
@@ -28,18 +29,18 @@ bool FRokPlayerHeadCatalogTest::RunTest(const FString&)
 
 	auto* Modal = NewObject<URokUnityModalWidget>(); Modal->Initialize(); Modal->TakeWidget();
 	Modal->OpenPlayerHeadSelection(); Modal->AdvanceWindowAnimationForTesting(1);
-	auto* Tab = Cast<UButton>(Modal->GetWidgetFromName(TEXT("PlayerHeadPageButton_1")));
+	auto* Tab = Cast<UButton>(RokUiFind::Find(Modal, TEXT("PlayerHeadPageButton_1")));
 	if (!TestNotNull(TEXT("Actual frame tab"), Tab)) return false;
 	Tab->OnClicked.Broadcast();
-	auto* Last = Cast<UButton>(Modal->GetWidgetFromName(TEXT("PlayerHeadChoiceButton_15")));
+	auto* Last = Cast<UButton>(RokUiFind::Find(Modal, TEXT("PlayerHeadChoiceButton_15")));
 	if (!TestNotNull(TEXT("All sixteen frame choices built"), Last)) return false;
 	Last->OnClicked.Broadcast();
-	TestNotNull(TEXT("Missing frame shown explicitly"), Modal->GetWidgetFromName(TEXT("PlayerHeadPreviewMissingArt")));
-	auto* Name = Cast<UTextBlock>(Modal->GetWidgetFromName(TEXT("PlayerHeadPreviewName")));
+	TestNotNull(TEXT("Missing frame shown explicitly"), RokUiFind::Find(Modal, TEXT("PlayerHeadPreviewMissingArt")));
+	auto* Name = Cast<UTextBlock>(RokUiFind::Find(Modal, TEXT("PlayerHeadPreviewName")));
 	if (TestNotNull(TEXT("Selected row name"), Name)) TestEqual(TEXT("Selection uses source localized name"), Name->GetText().ToString(), Locked->Name);
-	auto* Confirm = Cast<UButton>(Modal->GetWidgetFromName(TEXT("PlayerHeadConfirmButton")));
+	auto* Confirm = Cast<UButton>(RokUiFind::Find(Modal, TEXT("PlayerHeadConfirmButton")));
 	if (TestNotNull(TEXT("Confirm boundary"), Confirm)) TestFalse(TEXT("Browsing locked frame cannot submit"), Confirm->GetIsEnabled());
-	TestNotNull(TEXT("Four rows scroll"), Modal->GetWidgetFromName(TEXT("PlayerHeadGridScroll")));
+	TestNotNull(TEXT("Four rows scroll"), RokUiFind::Find(Modal, TEXT("PlayerHeadGridScroll")));
 	Modal->CloseModal();
 	return true;
 }

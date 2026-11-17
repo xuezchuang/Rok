@@ -13,6 +13,7 @@
 #include "../RokUnityFeatureScreenWidget.h"
 #include "../RokWorldMapEntityActor.h"
 #include "../RokWorldMapHudWidget.h"
+#include "../RokUiWidgets.h"
 #include "../RokWorldMapPlayerController.h"
 
 namespace
@@ -125,7 +126,7 @@ public:
 			if (!Test.TestTrue(TEXT("Map click selects the level-1 enemy"),
 				Controller->ProjectWorldLocationToScreen(Target->GetSelectionAnchorWorldPosition(), Point, true)
 				&& Controller->SelectWorldMapActorAtScreenPosition(Point))) return true;
-			if (auto* Stay = Cast<UCheckBox>(Hud->GetWidgetFromName(TEXT("WorldBarbarianStay")))) Stay->SetIsChecked(false);
+			if (auto* Stay = Cast<UCheckBox>(RokUiFind::Find(Hud, TEXT("WorldBarbarianStay")))) Stay->SetIsChecked(false);
 			if (!Click(Hud.Get(), TEXT("WorldBarbarianAttack"))) return true;
 			++Step;
 			return false;
@@ -211,7 +212,7 @@ public:
 private:
 	bool Click(UUserWidget* Widget, FName Name)
 	{
-		auto* Button = Cast<UButton>(Widget->GetWidgetFromName(Name));
+		auto* Button = Cast<UButton>(RokUiFind::Find(Widget, Name));
 		if (!Test.TestTrue(Name.ToString(), Button && Button->GetIsEnabled())) return false;
 		Button->OnClicked.Broadcast();
 		if (Widget == Screen.Get()) Screen->FlushPendingActionForTesting();

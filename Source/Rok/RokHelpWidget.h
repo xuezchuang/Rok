@@ -5,6 +5,8 @@
 
 class UCanvasPanel;
 class UScrollBox;
+class UBorder;
+class USizeBox;
 class UTextBlock;
 class URokHelpSourceTextData;
 class URokHelpSourceTextWidget;
@@ -17,6 +19,7 @@ class ROK_API URokHelpWidget : public UUserWidget
 {
     GENERATED_BODY()
 public:
+    static TSubclassOf<URokHelpWidget> ResolvePresentationClass();
     bool InitializeHelp();
     void ResetHelp();
     void SuspendInput();
@@ -37,13 +40,17 @@ private:
     int32 SelectedId=0;
     bool bAcceptActions=true;
     float ListOffset=0;
-    UPROPERTY(Transient) TObjectPtr<UCanvasPanel> Root;
-    UPROPERTY(Transient) TObjectPtr<UCanvasPanel> ListPage;
-    UPROPERTY(Transient) TObjectPtr<UCanvasPanel> DetailPage;
-    UPROPERTY(Transient) TObjectPtr<UScrollBox> ListScroll;
-    UPROPERTY(Transient) TObjectPtr<UScrollBox> DetailScroll;
-    UPROPERTY(Transient) TObjectPtr<URokHelpSourceTextWidget> QuestionText;
-    UPROPERTY(Transient) TObjectPtr<URokHelpSourceTextWidget> AnswerText;
+    UPROPERTY(Transient, meta=(BindWidgetOptional)) TObjectPtr<UCanvasPanel> Root;
+    UPROPERTY(Transient, meta=(BindWidgetOptional)) TObjectPtr<UCanvasPanel> ListPage;
+    UPROPERTY(Transient, meta=(BindWidgetOptional)) TObjectPtr<UCanvasPanel> DetailPage;
+    UPROPERTY(Transient, meta=(BindWidgetOptional)) TObjectPtr<UScrollBox> ListScroll;
+    UPROPERTY(Transient, meta=(BindWidgetOptional)) TObjectPtr<UScrollBox> DetailScroll;
+    UPROPERTY(Transient, meta=(BindWidgetOptional)) TObjectPtr<URokHelpSourceTextWidget> TitleText;
+    UPROPERTY(Transient, meta=(BindWidgetOptional)) TObjectPtr<URokHelpSourceTextWidget> QuestionText;
+    UPROPERTY(Transient, meta=(BindWidgetOptional)) TObjectPtr<URokHelpSourceTextWidget> AnswerText;
+    UPROPERTY(Transient, meta=(BindWidgetOptional)) TObjectPtr<UBorder> QuestionTextRegion;
+    UPROPERTY(Transient, meta=(BindWidgetOptional)) TObjectPtr<UBorder> AnswerInset;
+    UPROPERTY(Transient, meta=(BindWidgetOptional)) TObjectPtr<USizeBox> AnswerWidth;
     UPROPERTY(Transient) TObjectPtr<URokHelpSourceTextData> SourceTextData;
     bool LoadCatalog();
     void Build();

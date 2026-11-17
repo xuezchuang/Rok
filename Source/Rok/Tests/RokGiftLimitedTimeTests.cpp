@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
+#include "RokUiWidgets.h"
 #include "Components/TextBlock.h"
 #include "../RokUnityModalWidget.h"
 #include "../RokCsv.h"
@@ -31,16 +32,16 @@ bool FRokGiftLimitedTimeLayoutTest::RunTest(const FString& Parameters)
 	Modal->OpenGiftLimitedTime();
 
 	if (!TestNotNull(TEXT("The first pack row exists"),
-		Modal->GetWidgetFromName(TEXT("GiftLimitedTimeRow_0"))))
+		RokUiFind::Find(Modal, TEXT("GiftLimitedTimeRow_0"))))
 	{
 		return false;
 	}
 	const UTextBlock* Title = Cast<UTextBlock>(
-		Modal->GetWidgetFromName(TEXT("GiftLimitedTimeRowTitle_0")));
+		RokUiFind::Find(Modal, TEXT("GiftLimitedTimeRowTitle_0")));
 	TestTrue(TEXT("The first row names a pack"),
 		Title != nullptr && !Title->GetText().ToString().IsEmpty());
 	const UTextBlock* Detail = Cast<UTextBlock>(
-		Modal->GetWidgetFromName(TEXT("GiftLimitedTimeRowDetail_0")));
+		RokUiFind::Find(Modal, TEXT("GiftLimitedTimeRowDetail_0")));
 	TestTrue(TEXT("The detail states price and unlock level"),
 		Detail != nullptr
 			&& Detail->GetText().ToString().Contains(TEXT("价格"))

@@ -21,6 +21,7 @@
 #include "../RokWorldMapCameraPawn.h"
 #include "../RokWorldMapEntityActor.h"
 #include "../RokWorldMapHudWidget.h"
+#include "../RokUiWidgets.h"
 
 namespace
 {
@@ -128,7 +129,7 @@ public:
 private:
 	bool Click(UUserWidget* Widget, FName Name)
 	{
-		auto* Button = Cast<UButton>(Widget->GetWidgetFromName(Name));
+		auto* Button = Cast<UButton>(RokUiFind::Find(Widget, Name));
 		if (!Test.TestTrue(Name.ToString(), Button && Button->GetIsEnabled())) return false;
 		Button->OnClicked.Broadcast();
 		if (Widget == Screen.Get()) Screen->FlushPendingActionForTesting();
@@ -137,7 +138,7 @@ private:
 
 	static bool Visible(UUserWidget* Widget, FName Name)
 	{
-		const auto* Child = Widget->GetWidgetFromName(Name);
+		const auto* Child = RokUiFind::Find(Widget, Name);
 		return Child && Child->IsVisible();
 	}
 
@@ -201,10 +202,10 @@ bool FRokGatherActiveRenderedTest::RunTest(const FString&)
 				if (IFileManager::Get().FileSize(*Output) <= 0) return false;
 				auto* Hud = ActiveHud.Get();
 				if (!Test.TestNotNull(TEXT("Active HUD after capture"), Hud)) return true;
-				auto* Recall = Cast<UButton>(Hud->GetWidgetFromName(TEXT("WorldObjectInfoGatherButton")));
+				auto* Recall = Cast<UButton>(RokUiFind::Find(Hud, TEXT("WorldObjectInfoGatherButton")));
 				if (!Test.TestTrue(TEXT("Recall is actionable for the owned point"), Recall && Recall->GetIsEnabled())) return true;
 				Recall->OnClicked.Broadcast();
-				const auto* Feedback = Cast<UTextBlock>(Hud->GetWidgetFromName(TEXT("WorldObjectInfoFeedback")));
+				const auto* Feedback = Cast<UTextBlock>(RokUiFind::Find(Hud, TEXT("WorldObjectInfoFeedback")));
 				Test.TestTrue(TEXT("Snapshot prevents a real recall"), Feedback
 					&& Feedback->GetText().ToString().Contains(TEXT("快照")));
 				return true;
@@ -214,12 +215,12 @@ bool FRokGatherActiveRenderedTest::RunTest(const FString&)
 			{
 				auto* Hud = *It;
 				if (!Hud->IsInViewport()) continue;
-				auto* List = Cast<UScrollBox>(Hud->GetWidgetFromName(TEXT("WorldMarchQueueList")));
+				auto* List = Cast<UScrollBox>(RokUiFind::Find(Hud, TEXT("WorldMarchQueueList")));
 				if (!List || !List->IsVisible() || List->GetChildrenCount() != 1) continue;
 				auto* Slot = Cast<UContentWidget>(List->GetChildAt(0));
 				auto* Row = Slot ? Cast<UButton>(Slot->GetContent()) : nullptr;
 				if (!Test.TestNotNull(TEXT("Clickable commander row"), Row)) return true;
-				auto* Toggle = Cast<UButton>(Hud->GetWidgetFromName(TEXT("WorldMarchQueueToggle")));
+				auto* Toggle = Cast<UButton>(RokUiFind::Find(Hud, TEXT("WorldMarchQueueToggle")));
 				if (!Test.TestNotNull(TEXT("Queue toggle"), Toggle)) return true;
 				Toggle->OnClicked.Broadcast();
 				Test.TestFalse(TEXT("Queue folds"), List->IsVisible());
@@ -227,16 +228,16 @@ bool FRokGatherActiveRenderedTest::RunTest(const FString&)
 				Test.TestTrue(TEXT("Queue expands"), List->IsVisible());
 				Row->OnClicked.Broadcast();
 				Test.TestTrue(TEXT("Portrait opens the active resource point"), Hud->IsWorldObjectInfoOpen());
-				const auto* Count = Cast<UTextBlock>(Hud->GetWidgetFromName(TEXT("WorldMarchQueueCount")));
+				const auto* Count = Cast<UTextBlock>(RokUiFind::Find(Hud, TEXT("WorldMarchQueueCount")));
 				Test.TestTrue(TEXT("Dispatch count reflects the role"), Count && Count->GetText().ToString() == TEXT("1/2"));
-				const auto* Collector = Cast<UTextBlock>(Hud->GetWidgetFromName(TEXT("WorldObjectInfoCollector")));
+				const auto* Collector = Cast<UTextBlock>(RokUiFind::Find(Hud, TEXT("WorldObjectInfoCollector")));
 				Test.TestTrue(TEXT("Collector name comes from the server cityName field"),
 					Collector && Collector->GetText().ToString() == TEXT("snow"));
-				const auto* Bar = Cast<UProgressBar>(Hud->GetWidgetFromName(TEXT("WorldGatherProgressBar")));
+				const auto* Bar = Cast<UProgressBar>(RokUiFind::Find(Hud, TEXT("WorldGatherProgressBar")));
 				Test.TestTrue(TEXT("Current amount fills the progress bar"), Bar && Bar->GetPercent() > 0 && Bar->GetPercent() < 1);
-				const auto* Amount = Cast<UTextBlock>(Hud->GetWidgetFromName(TEXT("WorldGatherProgressAmount")));
+				const auto* Amount = Cast<UTextBlock>(RokUiFind::Find(Hud, TEXT("WorldGatherProgressAmount")));
 				Test.TestTrue(TEXT("Gathering uses the recorded army's load"), Amount && Amount->GetText().ToString().Contains(TEXT("33,680")));
-				const auto* Label = Cast<UTextBlock>(Hud->GetWidgetFromName(TEXT("WorldObjectInfoGatherButtonText")));
+				const auto* Label = Cast<UTextBlock>(RokUiFind::Find(Hud, TEXT("WorldObjectInfoGatherButtonText")));
 				Test.TestTrue(TEXT("Owned point shows recall"), Label && Label->GetText().ToString() == TEXT("召回"));
 				ActiveHud = Hud;
 				CaptureAt = Now + 0.75;
@@ -313,7 +314,7 @@ public:
 			for (int32 Index = 0; Index < 6; ++Index)
 			{
 				const FString Prefix = FString::Printf(TEXT("WorldBarbarianReward_%d"), Index);
-				const auto* Icon = Cast<UImage>(Hud->GetWidgetFromName(*(Prefix + TEXT("Icon"))));
+				const auto* Icon = Cast<UImage>(RokUiFind::Find(Hud, *(Prefix + TEXT("Icon"))));
 				auto* Texture = Icon ? Cast<UTexture>(Icon->GetBrush().GetResourceObject()) : nullptr;
 				Test.TestTrue(TEXT("The configured reward has an atlas and quantity"),
 					Texture && !Text(Hud.Get(), *(Prefix + TEXT("Count"))).IsEmpty());
@@ -336,7 +337,7 @@ public:
 			Capture(TEXT("AttackPopup"));
 			return false;
 		case 3:
-			if (auto* Stay = Cast<UCheckBox>(Hud->GetWidgetFromName(TEXT("WorldBarbarianStay")))) Stay->SetIsChecked(true);
+			if (auto* Stay = Cast<UCheckBox>(RokUiFind::Find(Hud, TEXT("WorldBarbarianStay")))) Stay->SetIsChecked(true);
 			if (!Click(Hud.Get(), TEXT("WorldBarbarianAttack"))) return true;
 			if (!Click(Hud.Get(), TEXT("WorldAttackArmy_27"))) return true;
 			Test.TestTrue(TEXT("Existing army can be selected"), Text(Hud.Get(), TEXT("WorldGatherCreateLabel")) == TEXT("出征"));
@@ -378,7 +379,7 @@ public:
 private:
 	bool Click(UUserWidget* Widget, FName Name)
 	{
-		auto* Button = Cast<UButton>(Widget->GetWidgetFromName(Name));
+		auto* Button = Cast<UButton>(RokUiFind::Find(Widget, Name));
 		if (!Test.TestTrue(Name.ToString(), Button && Button->GetIsEnabled())) return false;
 		Button->OnClicked.Broadcast();
 		if (Widget == Screen.Get()) Screen->FlushPendingActionForTesting();
@@ -387,7 +388,7 @@ private:
 
 	static FString Text(UUserWidget* Widget, FName Name)
 	{
-		const auto* Label = Cast<UTextBlock>(Widget->GetWidgetFromName(Name));
+		const auto* Label = Cast<UTextBlock>(RokUiFind::Find(Widget, Name));
 		return Label ? Label->GetText().ToString() : FString();
 	}
 

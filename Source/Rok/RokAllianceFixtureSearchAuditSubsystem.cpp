@@ -1,4 +1,5 @@
 #include "RokAllianceFixtureSearchAuditSubsystem.h"
+#include "RokUiWidgets.h"
 
 #include "RokBuildingUpgradeSubsystem.h"
 #include "RokDataPaths.h"
@@ -568,7 +569,7 @@ TSharedRef<FJsonObject> URokAllianceFixtureSearchAuditSubsystem::State() const
         VisibleIds.Add(MakeShared<FJsonValueNumber>(Index));
     Json->SetArrayField(TEXT("visible_original_indices"), VisibleIds);
     auto Widgets = MakeShared<FJsonObject>();
-    Widgets->SetObjectField(TEXT("AllianceFeatureButton"), WidgetState(Hud.IsValid() ? Hud->GetWidgetFromName(TEXT("AllianceFeatureButton")) : nullptr));
+    Widgets->SetObjectField(TEXT("AllianceFeatureButton"), WidgetState(Hud.IsValid() ? RokUiFind::Find(Hud, TEXT("AllianceFeatureButton")) : nullptr));
     for (const TCHAR* Name : {TEXT("FeatureModeCanvas"), TEXT("FeatureFrameClose"), TEXT("FeatureFrameTitle"),
         TEXT("AllianceWelcomeJoin"), TEXT("AllianceSearchInput"), TEXT("AllianceSearch"),
         TEXT("AllianceJoinFixtureTag"), TEXT("AllianceJoinFixtureEmpty"), TEXT("AllianceJoinEmptyState"),
@@ -604,7 +605,7 @@ bool URokAllianceFixtureSearchAuditSubsystem::Ready(int32 Phase) const
         || Server->GetSuppressedLocalRequestCount() != 0 || Modal->IsModalOpen()) return false;
     const bool bHud = Phase == 0 || (bFixture && (Phase == 12 || Phase == 15))
         || (!bFixture && Phase == 5);
-    if (bHud) return !Screen->IsScreenOpen() && Visible(Hud->GetWidgetFromName(TEXT("AllianceFeatureButton")));
+    if (bHud) return !Screen->IsScreenOpen() && Visible(RokUiFind::Find(Hud, TEXT("AllianceFeatureButton")));
     if (!Screen->IsScreenOpen() || Screen->ActiveMode != ERokUnityFeatureScreenMode::Alliance
         || Screen->bAllianceTestFixtureState != bFixture || Screen->GetPendingActionIdForAudit() != INDEX_NONE
         || !SampleUi(Screen.Get()).bReady || !Visible(Screen->GetWidgetFromName(TEXT("FeatureFrameClose")))) return false;
@@ -1124,7 +1125,7 @@ void URokAllianceFixtureSearchAuditSubsystem::Tick(float DeltaTime)
     auto Button = [this](const TCHAR* Name) -> UButton*
     { return Cast<UButton>(Screen->GetWidgetFromName(Name)); };
     auto HudButton = [this]() -> UButton*
-    { return Cast<UButton>(Hud->GetWidgetFromName(TEXT("AllianceFeatureButton"))); };
+    { return Cast<UButton>(RokUiFind::Find(Hud, TEXT("AllianceFeatureButton"))); };
     auto Take = [this](UButton* Target, const TCHAR* Label, int32 Next)
     { if (Click(Target, Label)) Enter(Next); };
     auto Type = [this](const TCHAR* Label, const TCHAR* Text, int32 Next)

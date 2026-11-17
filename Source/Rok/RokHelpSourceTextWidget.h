@@ -11,7 +11,15 @@ class ROK_API URokHelpSourceTextWidget : public UWidget
 {
     GENERATED_BODY()
 public:
+    /** Exact source glyph key and paint values serialized in a Help WBP. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Help|Source Glyph") int32 SourceFontSize=0;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Help|Source Glyph") bool bSourceBold=false;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Help|Source Glyph") int32 SourceAlignment=0;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Help|Source Glyph") FVector2D SourceGlyphSize=FVector2D::ZeroVector;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Help|Source Glyph") FLinearColor SourceGlyphColor=FLinearColor::White;
     void Configure(URokHelpSourceTextData* InData,int32 InFontSize,bool InBold,int32 InAlignment,FVector2D InSize,FLinearColor InColor);
+    /** Binds runtime glyph data while preserving the WBP-authored glyph key and color. */
+    void BindData(URokHelpSourceTextData* InData);
     bool SetText(const FText& InText);
     UFUNCTION(BlueprintPure,Category="Help") FText GetText() const { return Text; }
     bool HasSourceMesh() const { return Mesh!=nullptr; }

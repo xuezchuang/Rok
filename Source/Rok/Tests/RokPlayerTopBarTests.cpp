@@ -1,11 +1,13 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
+#include "Components/CanvasPanelSlot.h"
 #include "Components/TextBlock.h"
 #include "Dom/JsonObject.h"
 #include "../RokMainHudWidget.h"
 #include "../RokPlayerTopBar.h"
 #include "../RokTrainResourceCost.h"
+#include "../RokUiWidgets.h"
 
 namespace
 {
@@ -36,7 +38,7 @@ TSharedPtr<FJsonObject> MakeRoleInfoFixture(int64 Level)
 
 FString TextOf(URokMainHudWidget* Hud, const TCHAR* Name)
 {
-	const UTextBlock* Text = Cast<UTextBlock>(Hud->GetWidgetFromName(Name));
+	const UTextBlock* Text = Cast<UTextBlock>(RokUiFind::Find(Hud, Name));
 	return Text ? Text->GetText().ToString() : FString(TEXT("<missing>"));
 }
 }
@@ -132,10 +134,35 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FRokPlayerTopBarHudTest::RunTest(const FString& Parameters)
 {
-	URokMainHudWidget* Hud = NewObject<URokMainHudWidget>(GetTransientPackage());
+	const bool bLegacy = URokUiSettings::IsLegacyForced();
+	URokMainHudWidget* Hud = NewObject<URokMainHudWidget>(GetTransientPackage(), URokMainHudWidget::ResolveHudClass(false));
 	if (!TestNotNull(TEXT("HUD"), Hud) || !TestTrue(TEXT("HUD initializes"), Hud->Initialize()))
 	{
 		return false;
+	}
+	const auto Slot = [Hud](FName Name)
+	{
+		UWidget* Widget = Hud->GetWidgetFromName(Name);
+		return Widget ? Cast<UCanvasPanelSlot>(Widget->Slot) : nullptr;
+	};
+	if (!bLegacy)
+	{
+		if (!TestTrue(TEXT("The actual city HUD resolves its normal blueprint"),
+			Hud->GetClass()->HasAnyClassFlags(CLASS_CompiledFromBlueprint))) return false;
+		const struct { const TCHAR* Name; FVector2D Position; FVector2D Size; } Design[] = {
+			{TEXT("FoodResource"), {5, 2}, {149, 42}}, {TEXT("WoodResource"), {161, 3}, {151, 42}},
+			{TEXT("StoneResource"), {321, 4}, {111, 42}}, {TEXT("GoldResource"), {444, 5}, {153, 42}},
+			{TEXT("GemResource"), {331, 6}, {171, 42}}};
+		for (const auto& Cell : Design)
+		{
+			auto* CellSlot = Slot(Cell.Name);
+			if (!TestNotNull(Cell.Name, CellSlot)) return false;
+			CellSlot->SetPosition(Cell.Position);
+			CellSlot->SetSize(Cell.Size);
+		}
+		auto* GroupSlot = Slot(TEXT("PlayerResourcesGroup"));
+		if (!TestNotNull(TEXT("Designer resource group slot"), GroupSlot)) return false;
+		GroupSlot->SetSize(FVector2D(521, 55));
 	}
 	Hud->TakeWidget();
 
@@ -160,6 +187,22 @@ bool FRokPlayerTopBarHudTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("VIP red dot shows"), VipRedPoint && VipRedPoint->GetVisibility() == ESlateVisibility::HitTestInvisible);
 	TestEqual(TEXT("Head follows headId"), Hud->GetShownHeadIdForTesting(), 1001);
 	TestEqual(TEXT("Frame stays 2000"), Hud->GetShownHeadFrameIdForTesting(), 2000);
+	const auto* Gem = Slot(TEXT("GemResource"));
+	const auto* Group = Slot(TEXT("PlayerResourcesGroup"));
+	if (!TestTrue(TEXT("Reflow uses named resource slots"), Gem && Group)) return false;
+	const FVector2D CompactGem = bLegacy ? FVector2D(272, 0) : FVector2D(331, 6);
+	const FVector2D CompactGroup = bLegacy ? FVector2D(440, 44) : FVector2D(521, 55);
+	TestEqual(TEXT("Hidden resources preserve design spacing and gem Y"), Gem->GetPosition(), CompactGem);
+	TestEqual(TEXT("Compact group retains authored height and padding"), Group->GetSize(), CompactGroup);
+	FRokPlayerTopBar FullTopBar;
+	if (!TestTrue(TEXT("Level 10 enables stone and gold"), RokPlayerTopBar::FromRoleInfo(MakeRoleInfoFixture(10), FullTopBar, Error)
+		&& FullTopBar.bShowStone && FullTopBar.bShowGold)) return false;
+	Hud->ApplyServerTopBar(FullTopBar);
+	TestEqual(TEXT("Gem follows genuinely visible widths and gaps"), Gem->GetPosition(), bLegacy ? FVector2D(544, 0) : FVector2D(616, 6));
+	TestEqual(TEXT("Full group keeps design height and padding"), Group->GetSize(), bLegacy ? FVector2D(712, 44) : FVector2D(806, 55));
+	Hud->ApplyServerTopBar(TopBar);
+	TestEqual(TEXT("Reflow restores the compact gem position"), Gem->GetPosition(), CompactGem);
+	TestEqual(TEXT("Reflow restores compact bounds without accumulating margins"), Group->GetSize(), CompactGroup);
 	return true;
 }
 

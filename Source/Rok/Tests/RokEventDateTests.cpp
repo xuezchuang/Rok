@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
+#include "RokUiWidgets.h"
 #include "Components/TextBlock.h"
 #include "../RokUnityModalWidget.h"
 
@@ -23,22 +24,22 @@ bool FRokEventDateLayoutTest::RunTest(const FString& Parameters)
 	Modal->OpenEventDate();
 
 	if (!TestNotNull(TEXT("The first activity row exists"),
-		Modal->GetWidgetFromName(TEXT("EventDateRow_0"))))
+		RokUiFind::Find(Modal, TEXT("EventDateRow_0"))))
 	{
 		return false;
 	}
 	const UTextBlock* Title = Cast<UTextBlock>(
-		Modal->GetWidgetFromName(TEXT("EventDateRowTitle_0")));
+		RokUiFind::Find(Modal, TEXT("EventDateRowTitle_0")));
 	TestTrue(TEXT("The first row shows a resolved activity name"),
 		Title != nullptr && !Title->GetText().ToString().IsEmpty());
 	const UTextBlock* Detail = Cast<UTextBlock>(
-		Modal->GetWidgetFromName(TEXT("EventDateRowDetail_0")));
+		RokUiFind::Find(Modal, TEXT("EventDateRowDetail_0")));
 	TestTrue(TEXT("The row states its start time and duration"),
 		Detail != nullptr
 			&& Detail->GetText().ToString().Contains(TEXT("开始"))
 			&& Detail->GetText().ToString().Contains(TEXT("小时")));
 	TestNotNull(TEXT("The footer note is present"),
-		Modal->GetWidgetFromName(TEXT("EventDateFooter")));
+		RokUiFind::Find(Modal, TEXT("EventDateFooter")));
 
 	Modal->CloseModal();
 	TestFalse(TEXT("Closing clears the event-date mode"), Modal->IsModalOpen());

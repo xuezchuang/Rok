@@ -4,11 +4,14 @@
 #include "RokMailRewardDetails.h"
 #include "RokMainInterfaceModuleAnimation.h"
 #include "RokUiAnimatedButton.h"
+#include "RokUiWidgets.h"
+#include "RokUiSpec.h"
 #include "RokCityPlacementPreviewActor.h"
 #include "RokCitySpriteActor.h"
 #include "RokCityLifeSubsystem.h"
 #include "RokBuildingUpgradeSubsystem.h"
 #include "RokUiTextTable.h"
+#include "RokUiFonts.h"
 #include "RokGameNetSubsystem.h"
 #include "RokSproto.h"
 #include "RokUnityConfigSubsystem.h"
@@ -77,6 +80,16 @@ const FVector2D PlacementCancelPosition(142.85f, 167.5f);
 const FVector2D PlacementConfirmPosition(242.85f, 167.5f);
 constexpr float PlacementMenuDesignHeight = 900.0f;
 constexpr float PlacementMenuGroundOffsetY = 71.0f;
+FAnchorData MakeDefaultPlacementControlsBounds()
+{
+	FAnchorData Bounds;
+	Bounds.Anchors = FAnchors(0.5f, 1.0f);
+	Bounds.Alignment = FVector2D(0.5f, 1.0f);
+	Bounds.Offsets = FMargin(0.0f, -55.0f, 472.7f, 220.0f);
+	return Bounds;
+}
+const FName ResourceCellNames[] = {TEXT("FoodResource"), TEXT("WoodResource"), TEXT("StoneResource"),
+	TEXT("GoldResource"), TEXT("GemResource")};
 const FLinearColor PlacementButtonDisabledSourceTint(200.0f / 255.0f, 200.0f / 255.0f, 200.0f / 255.0f, 128.0f / 255.0f);
 const FLinearColor PlacementButtonHoverSourceTint(245.0f / 255.0f, 245.0f / 255.0f, 245.0f / 255.0f, 1.0f);
 const FLinearColor PlacementButtonPressedSourceTint(200.0f / 255.0f, 200.0f / 255.0f, 200.0f / 255.0f, 1.0f);
@@ -155,33 +168,10 @@ FSlateFontInfo URokMainHudWidget::MakeUnitySourceFont(int32 Pixels, bool bBold)
 {
 	const FName Weight = bBold ? TEXT("Bold") : TEXT("Regular");
 	const float PointSize = Pixels * (72.0f / 96.0f);
-#if PLATFORM_WINDOWS
-	// Unity HUD prefabs use Unity's built-in Arial (fileID 10102).
-	// Unity 2019 uses Microsoft YaHei for the Chinese fallback.
-	static const TSharedPtr<const FCompositeFont> SourceFont = []() -> TSharedPtr<const FCompositeFont>
-	{
-		const FString Fonts = FPaths::Combine(FPlatformMisc::GetEnvironmentVariable(TEXT("WINDIR")), TEXT("Fonts"));
-		const FString Arial = Fonts / TEXT("arial.ttf");
-		const FString ArialBold = Fonts / TEXT("arialbd.ttf");
-		const FString YaHei = Fonts / TEXT("msyh.ttc");
-		const FString YaHeiBold = Fonts / TEXT("msyhbd.ttc");
-		IFileManager& Files = IFileManager::Get();
-		if (!Files.FileExists(*Arial) || !Files.FileExists(*ArialBold)
-			|| !Files.FileExists(*YaHei) || !Files.FileExists(*YaHeiBold))
-		{
-			return nullptr;
-		}
-
-		constexpr EFontHinting Hinting = EFontHinting::Default;
-		constexpr EFontLoadingPolicy Loading = EFontLoadingPolicy::LazyLoad;
-		auto Composite = MakeShared<FStandaloneCompositeFont>(TEXT("Regular"), Arial, Hinting, Loading);
-		Composite->DefaultTypeface.AppendFont(TEXT("Bold"), ArialBold, Hinting, Loading);
-		Composite->FallbackTypeface.Typeface.AppendFont(TEXT("Regular"), YaHei, Hinting, Loading);
-		Composite->FallbackTypeface.Typeface.AppendFont(TEXT("Bold"), YaHeiBold, Hinting, Loading);
-		return Composite;
-	}();
+	// The composite lives in RokUiFonts so WBP text (font role UnitySource)
+	// resolves to the very same object.
+	const TSharedPtr<const FCompositeFont> SourceFont = RokUiFonts::GetUnitySourceComposite();
 	if (SourceFont.IsValid()) return FSlateFontInfo(SourceFont, PointSize, Weight);
-#endif
 	return FCoreStyle::GetDefaultFontStyle(Weight, PointSize);
 }
 
@@ -413,7 +403,24 @@ void URokMainHudWidget::OpenCommandLineModal()
 	else if (ModalName == TEXT("mail") || ModalName == TEXT("email"))
 	{
 		if (ModalWidget) ModalWidget->CloseModal();
-		if (FeatureScreenWidget) FeatureScreenWidget->OpenMail(false);
+		if (FeatureScreenWidget)
+		{
+			FeatureScreenWidget->OpenMail(false);
+#if !UE_BUILD_SHIPPING
+			const TCHAR* CommandLine = FCommandLine::Get();
+			if (FParse::Param(CommandLine, TEXT("RokLocalOnly"))
+				&& FParse::Param(CommandLine, TEXT("RokNoNet"))
+				&& FParse::Param(CommandLine, TEXT("RokMailReportPreview")))
+			{
+				auto* Tab = Cast<UButton>(RokUiFind::Find(FeatureScreenWidget, TEXT("MailTab_1")));
+				if (Tab && Tab->GetIsEnabled())
+				{
+					Tab->OnClicked.Broadcast();
+					UE_LOG(LogTemp, Display, TEXT("Rok local mail report preview: clicked MailTab_1."));
+				}
+			}
+#endif
+		}
 	}
 	else if (ModalName == TEXT("mail_local_unread"))
 	{
@@ -455,7 +462,42 @@ void URokMainHudWidget::OpenCommandLineModal()
 	else if (ModalName == TEXT("commander") || ModalName == TEXT("hero") || ModalName == TEXT("captain"))
 	{
 		if (ModalWidget) ModalWidget->CloseModal();
-		if (FeatureScreenWidget) FeatureScreenWidget->OpenCommander();
+		if (FeatureScreenWidget)
+		{
+			FeatureScreenWidget->OpenCommander();
+#if !UE_BUILD_SHIPPING
+			const TCHAR* CommandLine = FCommandLine::Get();
+			if (FParse::Param(CommandLine, TEXT("RokLocalOnly")))
+			{
+				int32 Index = INDEX_NONE;
+				FName PreviewEntry;
+				if (FParse::Value(CommandLine, TEXT("RokCommanderPreviewSkill="), Index) && Index >= 0 && Index <= 4)
+				{
+					PreviewEntry = *FString::Printf(TEXT("CommanderSkillAction_%d"), Index);
+				}
+				else if (FParse::Value(CommandLine, TEXT("RokCommanderPreviewTalent="), Index) && Index >= 0 && Index <= 2)
+				{
+					PreviewEntry = *FString::Printf(TEXT("CommanderTalentLabel_%d"), Index);
+				}
+				else if (FParse::Param(CommandLine, TEXT("RokCommanderPreviewBiography")))
+				{
+					PreviewEntry = TEXT("CommanderBiographyAction");
+				}
+				else if (FParse::Param(CommandLine, TEXT("RokCommanderPreviewSort")))
+				{
+					PreviewEntry = TEXT("CommanderSortAction");
+				}
+				if (!PreviewEntry.IsNone())
+				{
+					auto* Entry = Cast<UButton>(RokUiFind::Find(FeatureScreenWidget, PreviewEntry));
+					if (Entry && Entry->GetIsEnabled())
+					{
+						Entry->OnClicked.Broadcast();
+					}
+				}
+			}
+#endif
+		}
 	}
 	else if (ModalName == TEXT("items") || ModalName == TEXT("bag"))
 	{
@@ -465,22 +507,60 @@ void URokMainHudWidget::OpenCommandLineModal()
 	else if (ModalName == TEXT("alliance") || ModalName == TEXT("alliance_welcome") || ModalName == TEXT("alliance_unjoined"))
 	{
 		if (ModalWidget) ModalWidget->CloseModal();
-		if (FeatureScreenWidget) FeatureScreenWidget->OpenAlliance(false);
+		if (FeatureScreenWidget)
+		{
+			FeatureScreenWidget->OpenAlliance(false);
+			FName PreviewEntry;
+			if (FParse::Param(FCommandLine::Get(), TEXT("RokAllianceOfficePreview")))
+			{
+				PreviewEntry = TEXT("AllianceOfficeReferenceOpen");
+			}
+			else if (FParse::Param(FCommandLine::Get(), TEXT("RokAllianceJoinPreview")))
+			{
+				PreviewEntry = TEXT("AllianceWelcomeJoin");
+			}
+			else if (FParse::Param(FCommandLine::Get(), TEXT("RokAllianceCreatePreview")))
+			{
+				PreviewEntry = TEXT("AllianceWelcomeCreate");
+			}
+			if (!PreviewEntry.IsNone())
+			{
+				if (auto* Entry = Cast<UButton>(RokUiFind::Find(FeatureScreenWidget, PreviewEntry)); Entry && Entry->GetIsEnabled())
+				{
+					Entry->OnClicked.Broadcast();
+				}
+			}
+		}
 	}
 	else if (ModalName == TEXT("alliance_joined") || ModalName == TEXT("alliance_main"))
 	{
 		if (ModalWidget) ModalWidget->CloseModal();
-		if (FeatureScreenWidget) FeatureScreenWidget->OpenAlliance(true);
+		if (FeatureScreenWidget)
+		{
+			FeatureScreenWidget->OpenAlliance(true);
+			int32 JoinedPage = 0;
+			if (FParse::Param(FCommandLine::Get(), TEXT("RokLocalOnly"))
+				&& FParse::Value(FCommandLine::Get(), TEXT("RokAllianceJoinedPage="), JoinedPage)
+				&& (JoinedPage == 1 || JoinedPage == 2))
+			{
+				auto* Tab = Cast<UButton>(RokUiFind::Find(FeatureScreenWidget,
+					*FString::Printf(TEXT("AlliancePageHit_%d"), JoinedPage)));
+				if (Tab && Tab->GetIsEnabled()) Tab->OnClicked.Broadcast();
+			}
+		}
 	}
-	else if (ModalName == TEXT("vip") || ModalName == TEXT("vip0"))
+	else if (ModalName == TEXT("vip") || ModalName == TEXT("vip0") || ModalName == TEXT("vip_reference"))
 	{
 		if (ModalWidget) ModalWidget->CloseModal();
-		if (FeatureScreenWidget) FeatureScreenWidget->OpenVip();
-	}
-	else if (ModalName == TEXT("vip_reference"))
-	{
-		if (ModalWidget) ModalWidget->CloseModal();
-		if (FeatureScreenWidget) FeatureScreenWidget->OpenVip(true);
+		if (FeatureScreenWidget)
+		{
+			FeatureScreenWidget->OpenVip(ModalName == TEXT("vip_reference"));
+			if (FParse::Param(FCommandLine::Get(), TEXT("RokVipHelpPreview")))
+			{
+				auto* Help = Cast<UButton>(RokUiFind::Find(FeatureScreenWidget, TEXT("VipHelp")));
+				if (Help && Help->GetIsEnabled()) Help->OnClicked.Broadcast();
+			}
+		}
 	}
 	else if (ModalName == TEXT("chat"))
 	{
@@ -669,6 +749,11 @@ void URokMainHudWidget::OpenCommandLineModal()
 		|| ModalName == TEXT("troop_queue"))
 	{
 		HandleOpenArmyShow();
+		if (FeatureScreenWidget && FParse::Param(FCommandLine::Get(), TEXT("RokArmyShowRulesPreview")))
+		{
+			auto* Rules = Cast<UButton>(RokUiFind::Find(FeatureScreenWidget, TEXT("ArmyShowRulesButton")));
+			if (Rules && Rules->GetIsEnabled()) Rules->OnClicked.Broadcast();
+		}
 	}
 	else if (ModalName == TEXT("settings"))
 	{
@@ -800,7 +885,9 @@ void URokMainHudWidget::OpenCommandLineModal()
 		|| ModalName == TEXT("ui_charge"))
 	{
 		if (ModalWidget) ModalWidget->CloseModal();
-		if (FeatureScreenWidget) FeatureScreenWidget->OpenCharge(107);
+		int32 ChargePage = 107;
+		FParse::Value(FCommandLine::Get(), TEXT("RokChargePage="), ChargePage);
+		if (FeatureScreenWidget) FeatureScreenWidget->OpenCharge(ChargePage >= 101 && ChargePage <= 107 ? ChargePage : 107);
 	}
 	else
 	{
@@ -809,6 +896,27 @@ void URokMainHudWidget::OpenCommandLineModal()
 	}
 
 	UE_LOG(LogTemp, Log, TEXT("Rok modal UI: opened command-line mode '%s'."), *ModalName);
+
+	// Captures of states reached by clicks (a ranking category, the frame tab, a
+	// level page): -RokModalClick=A+B clicks those modal buttons in order, as a player would.
+	FString Clicks;
+	if (ModalWidget && FParse::Value(FCommandLine::Get(), TEXT("RokModalClick="), Clicks))
+	{
+		TArray<FString> Names;
+		Clicks.ParseIntoArray(Names, TEXT("+"));
+		for (const FString& Name : Names)
+		{
+			if (UButton* Button = Cast<UButton>(RokUiFind::Find(ModalWidget, FName(*Name))))
+			{
+				Button->OnClicked.Broadcast();
+				UE_LOG(LogTemp, Display, TEXT("Rok modal UI: clicked %s"), *Name);
+			}
+			else
+			{
+				UE_LOG(LogTemp, Warning, TEXT("Rok modal UI: no button %s to click"), *Name);
+			}
+		}
+	}
 }
 
 void URokMainHudWidget::RefreshFromSubsystem()
@@ -1001,9 +1109,22 @@ void URokMainHudWidget::RefreshFromSubsystem()
 	}
 }
 
+TSubclassOf<URokMainHudWidget> URokMainHudWidget::ResolveHudClass(bool bTactical)
+{
+	static const TSoftClassPtr<URokMainHudWidget> CityClass(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokCityHud.WBP_RokCityHud_C")));
+	static const TSoftClassPtr<URokMainHudWidget> TacticalClass(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokTacticalHud.WBP_RokTacticalHud_C")));
+	UClass* HudClass = URokUiSettings::Resolve(bTactical ? TacticalClass : CityClass);
+	return HudClass ? HudClass : StaticClass();
+}
+
 TSharedRef<SWidget> URokMainHudWidget::RebuildWidget()
 {
-	BuildWidgetTree();
+	if (!IsDesignTime())
+	{
+		BuildWidgetTree();
+	}
 	UE_LOG(LogTemp, Log, TEXT("Rok UI: Unity MainInterface HUD widget tree rebuilt."));
 	return Super::RebuildWidget();
 }
@@ -1125,8 +1246,7 @@ void URokMainHudWidget::SetPlacementPresentation(bool bVisible, bool bGridValid,
 			: static_cast<UObject*>(PlacementMenuAtlas.Get());
 		if (PlacementConfirmIcon->GetBrush().GetResourceObject() != DesiredResource)
 		{
-			FSlateBrush Brush = MakeAtlasBrush(PlacementMenuAtlas, PlacementConfirmRect,
-				PlacementAtlasSize, FVector2D(87.0f, 87.0f));
+			FSlateBrush Brush = PlacementConfirmIcon->GetBrush();
 			Brush.SetResourceObject(DesiredResource);
 			PlacementConfirmIcon->SetBrush(Brush);
 		}
@@ -1266,10 +1386,252 @@ void URokMainHudWidget::BuildWidgetTree()
 		return;
 	}
 
-	UCanvasPanel* RootCanvas = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("RokMainHudRoot"));
-	RootCanvas->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-	WidgetTree->RootWidget = RootCanvas;
+	UCanvasPanel* RootCanvas = Cast<UCanvasPanel>(WidgetTree->RootWidget);
+	const bool bDesignedLayout = RootCanvas != nullptr;
+	if (bDesignedLayout)
+	{
+		RootCanvas->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+		BindHudLayout();
+		if (!ExpandedDesignCanvas)
+		{
+			return;
+		}
+	}
+	else
+	{
+		RootCanvas = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("RokMainHudRoot"));
+		RootCanvas->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+		WidgetTree->RootWidget = RootCanvas;
+		BuildHudLayout(RootCanvas);
+	}
 
+	CacheResourceGroupLayout();
+	BuildTaskGroup();
+	if (!bDesignedLayout && !bWorldMapTacticalOverlay)
+	{
+		BuildChatAndMapGroup();
+	}
+	UCanvasPanel* DesignCanvas = ExpandedDesignCanvas;
+	if (bWorldMapTacticalOverlay)
+	{
+		ExpandedDesignCanvas = WorldMapNonResourceModules;
+	}
+	BuildFeatureGroup();
+	ExpandedDesignCanvas = DesignCanvas;
+#if WITH_EDITOR
+	if (URokUiSettings::IsLegacyForced())
+	{
+		FString Filename;
+		if (FParse::Value(FCommandLine::Get(), TEXT("RokUiExportMainHud="), Filename))
+		{
+			FString Error;
+			if (RokUiSpec::ExportChildren(RootCanvas, Filename, bWorldMapTacticalOverlay ? TEXT("tactical_hud") : TEXT("city_hud"), Error))
+			{
+				UE_LOG(LogTemp, Display, TEXT("Rok UI: HUD widget spec saved to %s"), *Filename);
+			}
+			else
+			{
+				UE_LOG(LogTemp, Error, TEXT("Rok UI: HUD widget spec export failed: %s"), *Error);
+			}
+		}
+	}
+#endif
+
+	if (bWorldMapTacticalOverlay)
+	{
+		AdvanceWorldMapModuleAnimation(0.0f);
+		// The world HUD owns the city markers, selection input and modal layers.
+		return;
+	}
+	BuildCityMarker();
+	BuildConstructionBarPool();
+	BuildServerTrainingPopPool();
+	BuildCityHarvestPops();
+	BuildBarracksIdleMarker();
+
+	static const TSoftClassPtr<URokUiPageWidget> SelectionStatusPage(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokCitySelectionStatus.WBP_RokCitySelectionStatus_C")));
+	if (auto* Page = AddHudPage(ExpandedDesignCanvas, SelectionStatusPage, TEXT("CitySelectionStatusPage")))
+	{
+		StatusText = Page->Get<UTextBlock>(TEXT("SelectionStatusText"));
+		if (!StatusText) Page->RemoveFromParent();
+	}
+	if (!StatusText)
+	{
+		StatusText = MakeHudText(TEXT("SelectionStatusText"), 14, FLinearColor(0.95f, 0.9f, 0.75f, 1.0f), true);
+		StatusText->SetJustification(ETextJustify::Center);
+		PlaceOnCanvas(ExpandedDesignCanvas, StatusText, {0.0f, -22.0f}, {360.0f, 26.0f},
+			FAnchors(0.5f, 1.0f), FVector2D(0.5f, 1.0f));
+	}
+
+	BuildingPanelWidget = WidgetTree->ConstructWidget<URokBuildingPanelWidget>(URokBuildingPanelWidget::ResolvePanelClass(), TEXT("BuildingPanelWidget"));
+	BuildingPanelWidget->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+	BuildingPanelWidget->OnInfoRequested.AddUObject(this, &URokMainHudWidget::HandleBuildingInfoRequested);
+	BuildingPanelWidget->OnUpgradeRequested.AddUObject(this, &URokMainHudWidget::HandleBuildingUpgradeRequested);
+	BuildingPanelWidget->OnFeatureRequested.AddUObject(this, &URokMainHudWidget::HandleBuildingFeatureRequested);
+	UCanvasPanelSlot* BuildingPanelSlot = RootCanvas->AddChildToCanvas(BuildingPanelWidget);
+	BuildingPanelSlot->SetAnchors(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
+	BuildingPanelSlot->SetOffsets(FMargin(0.0f));
+	BuildingPanelSlot->SetZOrder(20);
+
+	ModalWidget = WidgetTree->ConstructWidget<URokUnityModalWidget>(URokUnityModalWidget::ResolveShellClass(), TEXT("UnityModalWidget"));
+	ModalWidget->SetVisibility(ESlateVisibility::Collapsed);
+	UCanvasPanelSlot* ModalSlot = RootCanvas->AddChildToCanvas(ModalWidget);
+	ModalSlot->SetAnchors(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
+	ModalSlot->SetOffsets(FMargin(0.0f));
+	ModalSlot->SetZOrder(100);
+
+	FeatureScreenWidget = WidgetTree->ConstructWidget<URokUnityFeatureScreenWidget>(URokUnityFeatureScreenWidget::StaticClass(), TEXT("UnityFeatureScreenWidget"));
+	FeatureScreenWidget->SetVisibility(ESlateVisibility::Collapsed);
+	FeatureScreenWidget->OnTaskGoTownHallRequested.BindUObject(
+		this, &URokMainHudWidget::HandleTaskGoTownHallRequested);
+	UCanvasPanelSlot* FeatureScreenSlot = RootCanvas->AddChildToCanvas(FeatureScreenWidget);
+	FeatureScreenSlot->SetAnchors(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
+	FeatureScreenSlot->SetOffsets(FMargin(0.0f));
+	FeatureScreenSlot->SetZOrder(HospitalFeatureLayer);
+	ModalWidget->SetFeatureScreenWidget(FeatureScreenWidget);
+	FeatureScreenWidget->OnExpeditionStoreRequested.BindUObject(ModalWidget, &URokUnityModalWidget::OpenExpeditionStore);
+
+	ScoutScreenWidget = WidgetTree->ConstructWidget<URokScoutScreenWidget>(URokScoutScreenWidget::StaticClass(), TEXT("ScoutScreenWidget"));
+	ScoutScreenWidget->SetVisibility(ESlateVisibility::Collapsed);
+	UCanvasPanelSlot* ScoutSlot = RootCanvas->AddChildToCanvas(ScoutScreenWidget);
+	ScoutSlot->SetAnchors(FAnchors(0, 0, 1, 1));
+	ScoutSlot->SetOffsets(FMargin(0));
+	ScoutSlot->SetZOrder(120);
+
+	BuildPlacementControls(RootCanvas);
+#if WITH_EDITOR
+	if (URokUiSettings::IsLegacyForced())
+	{
+		FString Filename;
+		if (FParse::Value(FCommandLine::Get(), TEXT("RokUiExportCityProjected="), Filename))
+		{
+			FString Error;
+			if (!RokUiSpec::ExportChildren(RootCanvas, Filename, TEXT("city_projected_hud"), Error))
+			{
+				UE_LOG(LogTemp, Error, TEXT("Rok UI: projected city HUD spec export failed: %s"), *Error);
+			}
+		}
+	}
+#endif
+}
+
+void URokMainHudWidget::BuildPlacementControls(UCanvasPanel* RootCanvas)
+{
+	// UI_Pop_BuildingMenu follows the temporary building's `button` transform.
+	// Only its two UI_Model_CommandBtn images receive input; the canvas passes
+	// world drags through. The source title is hidden for menu IDs [2,1].
+	PlacementControls = WidgetTree->ConstructWidget<UCanvasPanel>(
+		UCanvasPanel::StaticClass(), TEXT("CityPlacementControls"));
+	PlacementControls->SetVisibility(ESlateVisibility::Collapsed);
+	PlacementControls->SetRenderTransformPivot(FVector2D(0.5f, 0.5f));
+	PlacementControlsSlot = RootCanvas->AddChildToCanvas(PlacementControls);
+	PlacementControlsSlot->SetLayout(MakeDefaultPlacementControlsBounds());
+	PlacementControlsSlot->SetZOrder(130);
+
+	ConfigurePlacementMaterial();
+	static const TSoftClassPtr<URokUiPageWidget> PlacementPage(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokCityPlacementControls.WBP_RokCityPlacementControls_C")));
+	if (auto* Page = AddHudPage(PlacementControls, PlacementPage, TEXT("CityPlacementPage")))
+	{
+		const UWidget* Bounds = Page->GetWidgetFromName(TEXT("CityPlacementDefaultBounds"));
+		auto* BoundsSlot = Bounds ? Cast<UCanvasPanelSlot>(Bounds->Slot) : nullptr;
+		if (BoundsSlot && BoundsSlot->GetAnchors().Minimum == BoundsSlot->GetAnchors().Maximum
+			&& BoundsSlot->GetSize().X > 0 && BoundsSlot->GetSize().Y > 0)
+		{
+			PlacementControlsDesignSlot = BoundsSlot;
+			PlacementControlsSlot->SetLayout(BoundsSlot->GetLayout());
+		}
+		PlacementButtonShadow = Cast<UImage>(Page->GetWidgetFromName(TEXT("CityPlacementButtonShadow")));
+		PlacementStatusText = Page->Get<UTextBlock>(TEXT("CityPlacementStatus"));
+		PlacementReasonText = Page->Get<UTextBlock>(TEXT("CityPlacementReason"));
+		PlacementConfirmIcon = Page->Get<UImage>(TEXT("CityPlacementConfirmImage"));
+		PlacementCancelIcon = Page->Get<UImage>(TEXT("CityPlacementCancelImage"));
+		PlacementConfirmButton = Page->Get<UButton>(TEXT("CityPlacementConfirmButton"));
+		PlacementCancelButton = Page->Get<UButton>(TEXT("CityPlacementCancelButton"));
+		return;
+	}
+
+	PlacementButtonShadow = nullptr;
+	if (UTexture2D* ShadowTexture = LoadUiTexture(PlacementShadowPath))
+	{
+		// UI_Item_CMDBtns/bgbig uses pl_hud_1000 at 374x156. Its top is
+		// 96 units above the button centers (75 + 50 - 29 in the prefab).
+		const FVector2D ShadowSize(374.0f, 156.0f);
+		const FVector2D ShadowPosition((472.7f - ShadowSize.X) * 0.5f, PlacementCancelPosition.Y + 43.5f - 96.0f);
+		PlacementButtonShadow = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("CityPlacementButtonShadow"));
+		PlacementButtonShadow->SetBrushFromTexture(ShadowTexture);
+		PlacementButtonShadow->SetVisibility(ESlateVisibility::HitTestInvisible);
+		PlaceOnCanvas(PlacementControls, PlacementButtonShadow, ShadowPosition, ShadowSize);
+	}
+
+	// Retain the existing read-only feedback nodes for the no-preview failure
+	// route. They are hidden for the source two-icon temporary building menu.
+	PlacementStatusText = MakeHudText(TEXT("CityPlacementStatus"), 17, FLinearColor::White, true);
+	PlacementStatusText->SetVisibility(ESlateVisibility::Collapsed);
+	PlaceOnCanvas(PlacementControls, PlacementStatusText, FVector2D(36.0f, 12.0f), FVector2D(400.0f, 26.0f));
+	PlacementReasonText = MakeHudText(TEXT("CityPlacementReason"), 13, FLinearColor(0.92f, 0.88f, 0.75f, 1.0f));
+	PlacementReasonText->SetAutoWrapText(true);
+	PlacementReasonText->SetVisibility(ESlateVisibility::Collapsed);
+	PlaceOnCanvas(PlacementControls, PlacementReasonText, FVector2D(36.0f, 42.0f), FVector2D(400.0f, 56.0f));
+
+	// Keep the graphic beside the disabled hit button. Slate paints descendants
+	// of a disabled SButton with DisabledEffect; Unity GrayChildrens instead
+	// applies ImageGrayShader to the image while GameButton stops interaction.
+	PlacementConfirmIcon = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("CityPlacementConfirmImage"));
+	PlacementConfirmIcon->SetVisibility(PlacementMenuAtlas ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+	if (PlacementMenuAtlas)
+	{
+		PlacementConfirmIcon->SetBrush(MakeAtlasBrush(PlacementMenuAtlas, PlacementConfirmRect,
+			PlacementAtlasSize, FVector2D(87.0f, 87.0f)));
+	}
+	PlaceOnCanvas(PlacementControls, PlacementConfirmIcon, PlacementConfirmPosition, FVector2D(87.0f, 87.0f));
+	UTextBlock* ConfirmLabel = MakeHudText(TEXT("CityPlacementConfirmLabel"), 17, FLinearColor::White, true);
+	ConfirmLabel->SetText(NSLOCTEXT("RokHud", "PlacementConfirm", "建造"));
+	ConfirmLabel->SetJustification(ETextJustify::Center);
+	ConfirmLabel->SetVisibility(PlacementMenuAtlas ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
+	PlaceOnCanvas(PlacementControls, ConfirmLabel, PlacementConfirmPosition, FVector2D(87.0f, 87.0f));
+	PlacementConfirmButton = MakeTransparentHitButton(TEXT("CityPlacementConfirmButton"));
+	PlaceOnCanvas(PlacementControls, PlacementConfirmButton, PlacementConfirmPosition, FVector2D(87.0f, 87.0f));
+
+	PlacementCancelIcon = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("CityPlacementCancelImage"));
+	PlacementCancelIcon->SetVisibility(PlacementMenuAtlas ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+	if (PlacementMenuAtlas)
+	{
+		PlacementCancelIcon->SetBrush(MakeAtlasBrush(PlacementMenuAtlas, PlacementCancelRect,
+			PlacementAtlasSize, FVector2D(87.0f, 87.0f)));
+	}
+	PlaceOnCanvas(PlacementControls, PlacementCancelIcon, PlacementCancelPosition, FVector2D(87.0f, 87.0f));
+	UTextBlock* CancelLabel = MakeHudText(TEXT("CityPlacementCancelLabel"), 17, FLinearColor::White, true);
+	CancelLabel->SetText(NSLOCTEXT("RokHud", "PlacementCancel", "取消摆放"));
+	CancelLabel->SetJustification(ETextJustify::Center);
+	CancelLabel->SetVisibility(PlacementMenuAtlas ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
+	PlaceOnCanvas(PlacementControls, CancelLabel, PlacementCancelPosition, FVector2D(87.0f, 87.0f));
+	PlacementCancelButton = MakeTransparentHitButton(TEXT("CityPlacementCancelButton"));
+	PlacementCancelButton->SetToolTipText(NSLOCTEXT("RokHud", "PlacementCancelTip", "取消本次临时摆放"));
+	PlaceOnCanvas(PlacementControls, PlacementCancelButton, PlacementCancelPosition, FVector2D(87.0f, 87.0f));
+}
+
+void URokMainHudWidget::ConfigurePlacementMaterial()
+{
+	PlacementMenuAtlas = LoadUiTexture(PlacementAtlasPath);
+	if (PlacementMenuAtlas)
+	{
+		if (UMaterialInterface* GrayMaterial = LoadObject<UMaterialInterface>(nullptr, PlacementGrayMaterialPath))
+		{
+			PlacementConfirmGrayMaterial = UMaterialInstanceDynamic::Create(GrayMaterial, this);
+			PlacementConfirmGrayMaterial->SetTextureParameterValue(TEXT("SourceAtlas"), PlacementMenuAtlas);
+			PlacementConfirmGrayMaterial->SetVectorParameterValue(TEXT("SourceTint"), FLinearColor::White);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("Rok placement: dedicated Placement gray UI material is missing"));
+		}
+	}
+}
+
+void URokMainHudWidget::BuildHudLayout(UCanvasPanel* RootCanvas)
+{
 	UScaleBox* ExpandScaleBox = WidgetTree->ConstructWidget<UScaleBox>(UScaleBox::StaticClass(), TEXT("UnityExpandScaleBox"));
 	ExpandScaleBox->SetStretch(EStretch::ScaleToFit);
 	ExpandScaleBox->SetStretchDirection(EStretchDirection::Both);
@@ -1318,158 +1680,6 @@ void URokMainHudWidget::BuildWidgetTree()
 	}
 	BuildAgeGroup();
 	ExpandedDesignCanvas = DesignCanvas;
-	BuildTaskGroup();
-	if (!bWorldMapTacticalOverlay)
-	{
-		BuildChatAndMapGroup();
-	}
-	if (bWorldMapTacticalOverlay) ExpandedDesignCanvas = WorldMapNonResourceModules;
-	BuildFeatureGroup();
-	ExpandedDesignCanvas = DesignCanvas;
-	if (bWorldMapTacticalOverlay)
-	{
-		AdvanceWorldMapModuleAnimation(0.0f);
-		// The world HUD already owns city markers, selection input and modal
-		// layers. Reuse only the MainInterface tactical controls here.
-		return;
-	}
-	BuildCityMarker();
-	BuildConstructionBarPool();
-	BuildServerTrainingPopPool();
-	BuildCityHarvestPops();
-	BuildBarracksIdleMarker();
-
-	StatusText = MakeHudText(TEXT("SelectionStatusText"), 14, FLinearColor(0.95f, 0.9f, 0.75f, 1.0f), true);
-	StatusText->SetJustification(ETextJustify::Center);
-	PlaceOnCanvas(
-		ExpandedDesignCanvas,
-		StatusText,
-		FVector2D(0.0f, -22.0f),
-		FVector2D(360.0f, 26.0f),
-		FAnchors(0.5f, 1.0f),
-		FVector2D(0.5f, 1.0f));
-
-	BuildingPanelWidget = WidgetTree->ConstructWidget<URokBuildingPanelWidget>(URokBuildingPanelWidget::StaticClass(), TEXT("BuildingPanelWidget"));
-	BuildingPanelWidget->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-	BuildingPanelWidget->OnInfoRequested.AddUObject(this, &URokMainHudWidget::HandleBuildingInfoRequested);
-	BuildingPanelWidget->OnUpgradeRequested.AddUObject(this, &URokMainHudWidget::HandleBuildingUpgradeRequested);
-	BuildingPanelWidget->OnFeatureRequested.AddUObject(this, &URokMainHudWidget::HandleBuildingFeatureRequested);
-	UCanvasPanelSlot* BuildingPanelSlot = RootCanvas->AddChildToCanvas(BuildingPanelWidget);
-	BuildingPanelSlot->SetAnchors(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
-	BuildingPanelSlot->SetOffsets(FMargin(0.0f));
-	BuildingPanelSlot->SetZOrder(20);
-
-	ModalWidget = WidgetTree->ConstructWidget<URokUnityModalWidget>(URokUnityModalWidget::StaticClass(), TEXT("UnityModalWidget"));
-	ModalWidget->SetVisibility(ESlateVisibility::Collapsed);
-	UCanvasPanelSlot* ModalSlot = RootCanvas->AddChildToCanvas(ModalWidget);
-	ModalSlot->SetAnchors(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
-	ModalSlot->SetOffsets(FMargin(0.0f));
-	ModalSlot->SetZOrder(100);
-
-	FeatureScreenWidget = WidgetTree->ConstructWidget<URokUnityFeatureScreenWidget>(URokUnityFeatureScreenWidget::StaticClass(), TEXT("UnityFeatureScreenWidget"));
-	FeatureScreenWidget->SetVisibility(ESlateVisibility::Collapsed);
-	FeatureScreenWidget->OnTaskGoTownHallRequested.BindUObject(
-		this, &URokMainHudWidget::HandleTaskGoTownHallRequested);
-	UCanvasPanelSlot* FeatureScreenSlot = RootCanvas->AddChildToCanvas(FeatureScreenWidget);
-	FeatureScreenSlot->SetAnchors(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
-	FeatureScreenSlot->SetOffsets(FMargin(0.0f));
-	FeatureScreenSlot->SetZOrder(HospitalFeatureLayer);
-	ModalWidget->SetFeatureScreenWidget(FeatureScreenWidget);
-	FeatureScreenWidget->OnExpeditionStoreRequested.BindUObject(ModalWidget, &URokUnityModalWidget::OpenExpeditionStore);
-
-	ScoutScreenWidget = WidgetTree->ConstructWidget<URokScoutScreenWidget>(URokScoutScreenWidget::StaticClass(), TEXT("ScoutScreenWidget"));
-	ScoutScreenWidget->SetVisibility(ESlateVisibility::Collapsed);
-	UCanvasPanelSlot* ScoutSlot = RootCanvas->AddChildToCanvas(ScoutScreenWidget);
-	ScoutSlot->SetAnchors(FAnchors(0, 0, 1, 1));
-	ScoutSlot->SetOffsets(FMargin(0));
-	ScoutSlot->SetZOrder(120);
-
-	// UI_Pop_BuildingMenu follows the temporary building's `button` transform.
-	// Only its two UI_Model_CommandBtn images receive input; the canvas passes
-	// world drags through. The source title is hidden for menu IDs [2,1].
-	PlacementControls = WidgetTree->ConstructWidget<UCanvasPanel>(
-		UCanvasPanel::StaticClass(), TEXT("CityPlacementControls"));
-	PlacementControls->SetVisibility(ESlateVisibility::Collapsed);
-	PlacementControls->SetRenderTransformPivot(FVector2D(0.5f, 0.5f));
-	PlacementControlsSlot = RootCanvas->AddChildToCanvas(PlacementControls);
-	PlacementControlsSlot->SetAnchors(FAnchors(0.5f, 1.0f));
-	PlacementControlsSlot->SetAlignment(FVector2D(0.5f, 1.0f));
-	PlacementControlsSlot->SetPosition(FVector2D(0.0f, -55.0f));
-	PlacementControlsSlot->SetSize(FVector2D(472.7f, 220.0f));
-	PlacementControlsSlot->SetZOrder(130);
-
-	PlacementButtonShadow = nullptr;
-	if (UTexture2D* ShadowTexture = LoadUiTexture(PlacementShadowPath))
-	{
-		// UI_Item_CMDBtns/bgbig uses pl_hud_1000 at 374x156. Its top is
-		// 96 units above the button centers (75 + 50 - 29 in the prefab).
-		const FVector2D ShadowSize(374.0f, 156.0f);
-		const FVector2D ShadowPosition((472.7f - ShadowSize.X) * 0.5f, PlacementCancelPosition.Y + 43.5f - 96.0f);
-		PlacementButtonShadow = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("CityPlacementButtonShadow"));
-		PlacementButtonShadow->SetBrushFromTexture(ShadowTexture);
-		PlacementButtonShadow->SetVisibility(ESlateVisibility::HitTestInvisible);
-		PlaceOnCanvas(PlacementControls, PlacementButtonShadow, ShadowPosition, ShadowSize);
-	}
-
-	// Retain the existing read-only feedback nodes for the no-preview failure
-	// route. They are hidden for the source two-icon temporary building menu.
-	PlacementStatusText = MakeHudText(TEXT("CityPlacementStatus"), 17, FLinearColor::White, true);
-	PlacementStatusText->SetVisibility(ESlateVisibility::Collapsed);
-	PlaceOnCanvas(PlacementControls, PlacementStatusText, FVector2D(36.0f, 12.0f), FVector2D(400.0f, 26.0f));
-	PlacementReasonText = MakeHudText(TEXT("CityPlacementReason"), 13, FLinearColor(0.92f, 0.88f, 0.75f, 1.0f));
-	PlacementReasonText->SetAutoWrapText(true);
-	PlacementReasonText->SetVisibility(ESlateVisibility::Collapsed);
-	PlaceOnCanvas(PlacementControls, PlacementReasonText, FVector2D(36.0f, 42.0f), FVector2D(400.0f, 56.0f));
-
-	PlacementMenuAtlas = LoadUiTexture(PlacementAtlasPath);
-	if (PlacementMenuAtlas)
-	{
-		if (UMaterialInterface* GrayMaterial = LoadObject<UMaterialInterface>(nullptr, PlacementGrayMaterialPath))
-		{
-			PlacementConfirmGrayMaterial = UMaterialInstanceDynamic::Create(GrayMaterial, this);
-			PlacementConfirmGrayMaterial->SetTextureParameterValue(TEXT("SourceAtlas"), PlacementMenuAtlas);
-			PlacementConfirmGrayMaterial->SetVectorParameterValue(TEXT("SourceTint"), FLinearColor::White);
-		}
-		else
-		{
-			UE_LOG(LogTemp, Error, TEXT("Rok placement: dedicated Placement gray UI material is missing"));
-		}
-	}
-	// Keep the graphic beside the disabled hit button. Slate paints descendants
-	// of a disabled SButton with DisabledEffect; Unity GrayChildrens instead
-	// applies ImageGrayShader to the image while GameButton stops interaction.
-	PlacementConfirmIcon = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("CityPlacementConfirmImage"));
-	PlacementConfirmIcon->SetVisibility(PlacementMenuAtlas ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
-	if (PlacementMenuAtlas)
-	{
-		PlacementConfirmIcon->SetBrush(MakeAtlasBrush(PlacementMenuAtlas, PlacementConfirmRect,
-			PlacementAtlasSize, FVector2D(87.0f, 87.0f)));
-	}
-	PlaceOnCanvas(PlacementControls, PlacementConfirmIcon, PlacementConfirmPosition, FVector2D(87.0f, 87.0f));
-	UTextBlock* ConfirmLabel = MakeHudText(TEXT("CityPlacementConfirmLabel"), 17, FLinearColor::White, true);
-	ConfirmLabel->SetText(NSLOCTEXT("RokHud", "PlacementConfirm", "建造"));
-	ConfirmLabel->SetJustification(ETextJustify::Center);
-	ConfirmLabel->SetVisibility(PlacementMenuAtlas ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
-	PlaceOnCanvas(PlacementControls, ConfirmLabel, PlacementConfirmPosition, FVector2D(87.0f, 87.0f));
-	PlacementConfirmButton = MakeTransparentHitButton(TEXT("CityPlacementConfirmButton"));
-	PlaceOnCanvas(PlacementControls, PlacementConfirmButton, PlacementConfirmPosition, FVector2D(87.0f, 87.0f));
-
-	PlacementCancelIcon = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("CityPlacementCancelImage"));
-	PlacementCancelIcon->SetVisibility(PlacementMenuAtlas ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
-	if (PlacementMenuAtlas)
-	{
-		PlacementCancelIcon->SetBrush(MakeAtlasBrush(PlacementMenuAtlas, PlacementCancelRect,
-			PlacementAtlasSize, FVector2D(87.0f, 87.0f)));
-	}
-	PlaceOnCanvas(PlacementControls, PlacementCancelIcon, PlacementCancelPosition, FVector2D(87.0f, 87.0f));
-	UTextBlock* CancelLabel = MakeHudText(TEXT("CityPlacementCancelLabel"), 17, FLinearColor::White, true);
-	CancelLabel->SetText(NSLOCTEXT("RokHud", "PlacementCancel", "取消摆放"));
-	CancelLabel->SetJustification(ETextJustify::Center);
-	CancelLabel->SetVisibility(PlacementMenuAtlas ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
-	PlaceOnCanvas(PlacementControls, CancelLabel, PlacementCancelPosition, FVector2D(87.0f, 87.0f));
-	PlacementCancelButton = MakeTransparentHitButton(TEXT("CityPlacementCancelButton"));
-	PlacementCancelButton->SetToolTipText(NSLOCTEXT("RokHud", "PlacementCancelTip", "取消本次临时摆放"));
-	PlaceOnCanvas(PlacementControls, PlacementCancelButton, PlacementCancelPosition, FVector2D(87.0f, 87.0f));
 }
 
 void URokMainHudWidget::BuildCityTopBar(UCanvasPanel* RootCanvas)
@@ -1516,10 +1726,7 @@ void URokMainHudWidget::BuildPlayerPowerGroup(UCanvasPanel* Parent)
 	PowerText = MakeHudText(TEXT("PlayerPowerText"), 25, FLinearColor(0.9f, 0.96f, 1.0f, 1.0f), true);
 	PowerText->SetText(NSLOCTEXT("RokHud", "InitialPowerUnavailable", "--"));
 	PlaceOnCanvas(Group, PowerText, FVector2D(145.0f, 5.0f), FVector2D(135.0f, 36.0f));
-	PowerGain = WidgetTree->ConstructWidget<URokPowerGainWidget>(URokPowerGainWidget::StaticClass(), TEXT("PlayerPowerGain"));
-	// UI_Item_PlayerPowerInfo/Pl_Power/btn_powerShow, mirrored for the LTR HUD.
-	// Pivot X = 98.19989 + 193.42/2 + 4.75; Y = 28.75 + 2.72.
-	PlaceOnCanvas(Group, PowerGain, FVector2D(199.65989f - 320, 31.47f - 180), FVector2D(640, 360))->SetZOrder(51);
+	AddPowerGain(Group);
 
 	PlaceOnCanvas(Group, MakeAtlasImage(TEXT("VipIcon"), VipAtlasPath, VipIcon100Rect, VipAtlasSize, FVector2D(34.0f, 34.0f)), FVector2D(112.0f, 49.0f), FVector2D(34.0f, 34.0f));
 	VipText = MakeHudText(TEXT("VipText"), 20, FLinearColor(1.0f, 0.88f, 0.4f, 1.0f), true);
@@ -1544,6 +1751,89 @@ void URokMainHudWidget::BuildPlayerPowerGroup(UCanvasPanel* Parent)
 	{
 		ProfileHitSlot->SetZOrder(10);
 	}
+}
+
+void URokMainHudWidget::AddPowerGain(UCanvasPanel* Group)
+{
+	static const TSoftClassPtr<URokUiPageWidget> Class(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokHudPowerGain.WBP_RokHudPowerGain_C")));
+	if (auto* Page = AddHudPage(Group, Class, TEXT("HudPowerGainPage"), 51))
+	{
+		PowerGain = Page->Get<URokPowerGainWidget>(TEXT("PlayerPowerGain"));
+		if (PowerGain)
+		{
+			return;
+		}
+		Page->RemoveFromParent();
+	}
+	PowerGain = WidgetTree->ConstructWidget<URokPowerGainWidget>(URokPowerGainWidget::StaticClass(), TEXT("PlayerPowerGain"));
+	// UI_Item_PlayerPowerInfo/Pl_Power/btn_powerShow, mirrored for the LTR HUD.
+	// Pivot X = 98.19989 + 193.42/2 + 4.75; Y = 28.75 + 2.72.
+	PlaceOnCanvas(Group, PowerGain, FVector2D(199.65989f - 320, 31.47f - 180), FVector2D(640, 360))->SetZOrder(51);
+}
+
+void URokMainHudWidget::BindHudLayout()
+{
+	ExpandedDesignCanvas = WidgetTree->FindWidget<UCanvasPanel>(TEXT("UnityExpandedDesignCanvas"));
+	ExpandedDesignSizeBox = WidgetTree->FindWidget<USizeBox>(TEXT("UnityExpandedDesignSize"));
+	WorldMapRightModules = WidgetTree->FindWidget<UCanvasPanel>(TEXT("WorldMapRightModules"));
+	WorldMapNonResourceModules = WidgetTree->FindWidget<UCanvasPanel>(TEXT("WorldMapNonResourceModules"));
+	if (!ExpandedDesignCanvas || !ExpandedDesignSizeBox
+		|| (bWorldMapTacticalOverlay && (!WorldMapRightModules || !WorldMapNonResourceModules)))
+	{
+		UE_LOG(LogTemp, Error, TEXT("Rok UI: required HUD layout containers are missing from %s"), *GetClass()->GetName());
+		ExpandedDesignCanvas = nullptr;
+		return;
+	}
+
+	FoodText = WidgetTree->FindWidget<UTextBlock>(TEXT("FoodResourceValue"));
+	WoodText = WidgetTree->FindWidget<UTextBlock>(TEXT("WoodResourceValue"));
+	GemText = WidgetTree->FindWidget<UTextBlock>(TEXT("GemResourceValue"));
+	AgeText = WidgetTree->FindWidget<UTextBlock>(TEXT("AgeText"));
+	RuntimeInfoText = WidgetTree->FindWidget<UTextBlock>(TEXT("RuntimeInfoText"));
+	BindHudButton(*this, TEXT("FoodResourceHitButton"), GET_FUNCTION_NAME_CHECKED(URokMainHudWidget, HandleOpenFoodResources));
+	BindHudButton(*this, TEXT("WoodResourceHitButton"), GET_FUNCTION_NAME_CHECKED(URokMainHudWidget, HandleOpenWoodResources));
+	BindHudButton(*this, TEXT("GemResourceHitButton"), GET_FUNCTION_NAME_CHECKED(URokMainHudWidget, HandleOpenCharge));
+
+	if (bWorldMapTacticalOverlay)
+	{
+		return;
+	}
+
+	CityTopBarLayer = WidgetTree->FindWidget<UScaleBox>(TEXT("CityTopBarLayer"));
+	CityTopBarSizeBox = WidgetTree->FindWidget<USizeBox>(TEXT("CityTopBarDesignSize"));
+	PowerText = WidgetTree->FindWidget<UTextBlock>(TEXT("PlayerPowerText"));
+	VipText = WidgetTree->FindWidget<UTextBlock>(TEXT("VipText"));
+	VipRedPointImage = WidgetTree->FindWidget<UImage>(TEXT("VipRedPoint"));
+	PlayerHeadImage = WidgetTree->FindWidget<UImage>(TEXT("PlayerHead1000"));
+	PlayerHeadFrameImage = WidgetTree->FindWidget<UImage>(TEXT("PlayerHeadFrame"));
+	if (UCanvasPanel* PowerGroup = WidgetTree->FindWidget<UCanvasPanel>(TEXT("PlayerPowerGroup")))
+	{
+		AddPowerGain(PowerGroup);
+	}
+
+	PositionGroup = WidgetTree->FindWidget<UCanvasPanel>(TEXT("PositionGroup"));
+	CoordinateText = WidgetTree->FindWidget<UTextBlock>(TEXT("CoordinateText"));
+	ChatWorldMarker = WidgetTree->FindWidget<UImage>(TEXT("ChatWorldMarker"));
+	ChatAllianceMarkerBase = WidgetTree->FindWidget<UImage>(TEXT("ChatAllianceMarkerBase"));
+	ChatAllianceMarker = WidgetTree->FindWidget<UImage>(TEXT("ChatAllianceMarker"));
+	BuildCityButton = WidgetTree->FindWidget<UButton>(TEXT("BuildCityButton"));
+	WorldSearchButton = WidgetTree->FindWidget<UButton>(TEXT("WorldSearchButton"));
+	CityWorldButton = WidgetTree->FindWidget<UButton>(TEXT("CityWorldButton"));
+	WorldGlobeButton = WidgetTree->FindWidget<UButton>(TEXT("WorldGlobeButton"));
+	BindHudButton(*this, TEXT("VipHitButton"), GET_FUNCTION_NAME_CHECKED(URokMainHudWidget, HandleOpenVip));
+	BindHudButton(*this, TEXT("PlayerArrowButton"), GET_FUNCTION_NAME_CHECKED(URokMainHudWidget, HandleOpenCityManager));
+	BindHudButton(*this, TEXT("PlayerProfileHitButton"), GET_FUNCTION_NAME_CHECKED(URokMainHudWidget, HandleOpenPlayerProfile));
+	BindHudButton(*this, TEXT("PositionSearchButton"), GET_FUNCTION_NAME_CHECKED(URokMainHudWidget, HandleOpenWorldPositionSearch));
+	BindHudButton(*this, TEXT("FavoriteButton"), GET_FUNCTION_NAME_CHECKED(URokMainHudWidget, HandleOpenMapMarkers));
+	BindHudButton(*this, TEXT("ChatButton"), GET_FUNCTION_NAME_CHECKED(URokMainHudWidget, HandleOpenChat));
+	BindHudButton(*this, TEXT("BuildCityButton"), GET_FUNCTION_NAME_CHECKED(URokMainHudWidget, HandleOpenBuildCity));
+	BindHudButton(*this, TEXT("WorldSearchButton"), GET_FUNCTION_NAME_CHECKED(URokMainHudWidget, HandleOpenWorldPositionSearch));
+	BindHudButton(*this, TEXT("CityWorldButton"), GET_FUNCTION_NAME_CHECKED(URokMainHudWidget, HandleFocusCityCenter));
+	BindHudButton(*this, TEXT("WorldGlobeButton"), GET_FUNCTION_NAME_CHECKED(URokMainHudWidget, HandleReturnToWorldMap));
+	ApplyChatChannelPresentation();
+	ApplyCityHudBand(true);
+	ApplyCityHudButtons(false);
 }
 
 void URokMainHudWidget::BuildPositionGroup()
@@ -1639,22 +1929,20 @@ void URokMainHudWidget::BuildResourceGroup(UCanvasPanel* Parent)
 	Group->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
 	PlaceOnCanvas(Parent, Group, FVector2D(-20, 10), FVector2D(440, 44), FAnchors(1, 0), FVector2D(1, 0));
 
-	const FName Names[] = {TEXT("FoodResource"), TEXT("WoodResource"), TEXT("StoneResource"),
-		TEXT("GoldResource"), TEXT("GemResource")};
 	const FIntRect Icons[] = {FoodRect, WoodRect, StoneRect, GoldRect, GemRect};
-	for (int32 Index = 0; Index < UE_ARRAY_COUNT(Names); ++Index)
+	for (int32 Index = 0; Index < UE_ARRAY_COUNT(ResourceCellNames); ++Index)
 	{
 		const bool bGem = Index == 4;
 		const float Width = bGem ? 164.0f : 136.0f;
 		UTextBlock* Text = nullptr;
-		auto* Cell = MakeResourceCell(Names[Index], Icons[Index], Text, bGem);
+		auto* Cell = MakeResourceCell(ResourceCellNames[Index], Icons[Index], Text, bGem);
 		const bool bUnlockedInLocalPreview = Index < 2 || bGem;
 		Cell->SetVisibility(bUnlockedInLocalPreview ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
 		const float DefaultX = bGem ? 272.0f : Index * 136.0f;
 		PlaceOnCanvas(Group, Cell, FVector2D(DefaultX, 0), FVector2D(Width, 44));
 		if (Index == 0 || Index == 1 || bGem)
 		{
-			auto* Hit = MakeTransparentHitButton(*(Names[Index].ToString() + TEXT("HitButton")));
+			auto* Hit = MakeTransparentHitButton(*(ResourceCellNames[Index].ToString() + TEXT("HitButton")));
 			if (Index == 0)
 			{
 				FoodText = Text;
@@ -1673,6 +1961,38 @@ void URokMainHudWidget::BuildResourceGroup(UCanvasPanel* Parent)
 			PlaceOnCanvas(Cell, Hit, FVector2D::ZeroVector, FVector2D(Width, 44))->SetZOrder(10);
 		}
 	}
+}
+
+void URokMainHudWidget::CacheResourceGroupLayout()
+{
+	ResourceCellLayouts.Reset(UE_ARRAY_COUNT(ResourceCellNames));
+	double PreviousRight = 0.0;
+	double VisibleRight = 0.0;
+	for (int32 Index = 0; Index < UE_ARRAY_COUNT(ResourceCellNames); ++Index)
+	{
+		const auto* Cell = GetWidgetFromName(ResourceCellNames[Index]);
+		const auto* CellSlot = Cell ? Cast<UCanvasPanelSlot>(Cell->Slot) : nullptr;
+		const bool bGem = Index == UE_ARRAY_COUNT(ResourceCellNames) - 1;
+		const FVector2D Position = CellSlot ? CellSlot->GetPosition() : FVector2D(bGem ? 272.0 : Index * 136.0, 0.0);
+		const double Width = CellSlot ? CellSlot->GetSize().X : bGem ? 164.0 : 136.0;
+		if (Index == 0)
+		{
+			ResourceGroupLeftPadding = Position.X;
+			PreviousRight = Position.X;
+		}
+		// The default layout places gems immediately after wood while stone and gold are hidden.
+		const double Gap = Position.X - (bGem && Position.X < PreviousRight ? VisibleRight : PreviousRight);
+		ResourceCellLayouts.Add({Width, Gap, Position.Y});
+		PreviousRight = Position.X + Width;
+		const ESlateVisibility CellVisibility = Cell ? Cell->GetVisibility() : ESlateVisibility::Collapsed;
+		if (CellVisibility != ESlateVisibility::Collapsed && CellVisibility != ESlateVisibility::Hidden)
+		{
+			VisibleRight = FMath::Max(VisibleRight, PreviousRight);
+		}
+	}
+	const auto* Group = GetWidgetFromName(TEXT("PlayerResourcesGroup"));
+	const auto* GroupSlot = Group ? Cast<UCanvasPanelSlot>(Group->Slot) : nullptr;
+	ResourceGroupRightPadding = GroupSlot ? GroupSlot->GetSize().X - VisibleRight : 4.0;
 }
 
 void URokMainHudWidget::BuildAgeGroup()
@@ -1697,11 +2017,124 @@ void URokMainHudWidget::BuildAgeGroup()
 	PlaceOnCanvas(Group, RuntimeInfoText, FVector2D(0.0f, 20.0f), FVector2D(380.0f, 28.0f));
 }
 
+void URokMainHudWidget::BindHudButton(const UUserWidget& Owner, FName Name, FName Function)
+{
+	if (UButton* Button = Cast<UButton>(Owner.GetWidgetFromName(Name)))
+	{
+		FScriptDelegate Handler;
+		Handler.BindUFunction(this, Function);
+		Button->OnClicked.AddUnique(Handler);
+	}
+	else
+	{
+		UE_LOG(LogTemp, Error, TEXT("Rok UI: %s has no HUD button named %s"), *Owner.GetClass()->GetName(), *Name.ToString());
+	}
+}
+
+URokUiPageWidget* URokMainHudWidget::CreateHudPage(const TSoftClassPtr<URokUiPageWidget>& Class, FName Name)
+{
+	UClass* PageClass = GetClass()->HasAnyClassFlags(CLASS_CompiledFromBlueprint)
+		? URokUiSettings::Resolve(Class) : nullptr;
+	if (!PageClass)
+	{
+		return nullptr;
+	}
+	auto* Page = WidgetTree->ConstructWidget<URokUiPageWidget>(PageClass, Name);
+	Page->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+	if (UWidget* Root = Page->GetRootWidget())
+	{
+		Root->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+	}
+	return Page;
+}
+
+URokUiPageWidget* URokMainHudWidget::AddHudPage(UCanvasPanel* Parent,
+	const TSoftClassPtr<URokUiPageWidget>& Class, FName Name, int32 ZOrder)
+{
+	auto* Page = CreateHudPage(Class, Name);
+	if (!Page)
+	{
+		return nullptr;
+	}
+	UCanvasPanelSlot* PageSlot = Parent->AddChildToCanvas(Page);
+	PageSlot->SetAnchors(FAnchors(0, 0, 1, 1));
+	PageSlot->SetOffsets(FMargin(0));
+	PageSlot->SetZOrder(ZOrder);
+	return Page;
+}
+
+void URokMainHudWidget::BindTaskGroup(URokUiPageWidget& Page)
+{
+	HotTaskGroup = Page.Get<UCanvasPanel>(TEXT("HotTaskGroup"));
+	TaskListBackground = Page.Get<UCanvasPanel>(TEXT("TaskListBackground"));
+	TaskListClip = Page.Get<UCanvasPanel>(TEXT("TaskListClip"));
+	TaskFoldButton = Page.Get<UButton>(TEXT("TaskFoldButton"));
+	TaskScroll = Page.Get<UScrollBox>(TEXT("HudTaskScroll"));
+	TaskListBox = Page.Get<UVerticalBox>(TEXT("TaskList"));
+	static const TSoftClassPtr<URokUiPageWidget> ListLayoutClass(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokHudListLayout.WBP_RokHudListLayout_C")));
+	if (auto* Layout = CreateHudPage(ListLayoutClass, NAME_None))
+	{
+		if (const auto* Row = Layout->Get<UCanvasPanel>(TEXT("TaskRow")))
+		{
+			if (const auto* RowLayoutSlot = Cast<UCanvasPanelSlot>(Row->Slot))
+			{
+				TaskRowLayoutSize = RowLayoutSlot->GetSize();
+			}
+		}
+		if (const auto* Gap = Layout->Get<UCanvasPanel>(TEXT("TaskRowGap")))
+		{
+			if (const auto* GapLayoutSlot = Cast<UCanvasPanelSlot>(Gap->Slot))
+			{
+				TaskRowBottomPadding = GapLayoutSlot->GetSize().Y;
+			}
+		}
+	}
+	ArmyQueueGroup = Page.Get<UCanvasPanel>(TEXT("ArmyQueueEntry"));
+	ArmyQueueCountText = Page.Get<UTextBlock>(TEXT("ArmyQueueEntryState"));
+	if (UTextBlock* Badge = Page.Get<UTextBlock>(TEXT("TaskEntryBadgeCount")))
+	{
+		NotificationTexts.Add(TEXT("TaskEntry"), Badge);
+	}
+	BindHudButton(Page, TEXT("TaskEntryButton"), GET_FUNCTION_NAME_CHECKED(URokMainHudWidget, HandleOpenTasks));
+	BindHudButton(Page, TEXT("TaskFoldButton"), GET_FUNCTION_NAME_CHECKED(URokMainHudWidget, HandleToggleTaskPanel));
+	BindHudButton(Page, TEXT("ArmyQueueButton"), GET_FUNCTION_NAME_CHECKED(URokMainHudWidget, HandleOpenArmyShow));
+	RebuildTaskRows(1, false);
+	CacheTaskFoldLayout();
+	ApplyTaskFoldPresentation();
+}
+
+void URokMainHudWidget::CacheTaskFoldLayout()
+{
+	if (const auto* BackgroundSlot = TaskListBackground ? Cast<UCanvasPanelSlot>(TaskListBackground->Slot) : nullptr)
+	{
+		TaskBackgroundOpenSize = BackgroundSlot->GetSize();
+	}
+	if (const auto* ClipSlot = TaskListClip ? Cast<UCanvasPanelSlot>(TaskListClip->Slot) : nullptr)
+	{
+		TaskClipOpenSize = ClipSlot->GetSize();
+		TaskClipOpenPosition = ClipSlot->GetPosition();
+	}
+	if (const auto* FoldSlot = TaskFoldButton ? Cast<UCanvasPanelSlot>(TaskFoldButton->Slot) : nullptr)
+	{
+		TaskFoldOpenPosition = FoldSlot->GetPosition();
+		TaskFoldOpenAngle = TaskFoldButton->GetRenderTransformAngle();
+	}
+}
+
 void URokMainHudWidget::BuildTaskGroup()
 {
 	TaskFoldSound = LoadObject<USoundBase>(nullptr,
 		TEXT("/Game/RokPrototype/UI/Audio/Sound_Ui_CommonClickButton1.Sound_Ui_CommonClickButton1"));
 	if (!TaskFoldSound) UE_LOG(LogTemp, Warning, TEXT("Missing source task-fold audio: Sound_Ui_CommonClickButton1"));
+	static const TSoftClassPtr<URokUiPageWidget> TaskPage(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokHudTasks.WBP_RokHudTasks_C")));
+	if (URokUiPageWidget* Page = AddHudPage(ExpandedDesignCanvas, TaskPage, TEXT("HudTasksPage")))
+	{
+		BindTaskGroup(*Page);
+		return;
+	}
+
 	UCanvasPanel* Group = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("HotTaskGroup"));
 	HotTaskGroup = Group;
 	Group->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
@@ -1739,6 +2172,7 @@ void URokMainHudWidget::BuildTaskGroup()
 	TaskListBox->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
 	TaskScroll->AddChild(TaskListBox);
 	RebuildTaskRows(1, false);
+	CacheTaskFoldLayout();
 	ApplyTaskFoldPresentation();
 
 	UCanvasPanel* ArmyQueueEntry = WidgetTree->ConstructWidget<UCanvasPanel>(
@@ -1947,11 +2381,96 @@ void URokMainHudWidget::BuildChatAndMapGroup()
 	ApplyCityHudButtons(false);
 }
 
+void URokMainHudWidget::BindFeatureGroup(URokUiPageWidget& Page)
+{
+	FeatureBackground = Page.Get<UCanvasPanel>(TEXT("FeatureBackground"));
+	MoreFeatureButton = Page.Get<UButton>(TEXT("MoreFeatureButton"));
+	MoreFeatureOverlay = Page.Get<UImage>(TEXT("MoreFeatureSourceHideImage"));
+	ChargeEventsButton = Page.Get<UButton>(TEXT("ChargeEventsButton"));
+
+	CollapsibleFeatureWidgets.Reset();
+	CollapsibleFeatureWidgets.Add(FeatureBackground);
+	for (const FName Name : {TEXT("CampaignFeature"), TEXT("AllianceFeature"), TEXT("ItemsFeature"), TEXT("CommanderFeature")})
+	{
+		CollapsibleFeatureWidgets.Add(Page.Get<UCanvasPanel>(Name));
+	}
+	for (const FName Name : {TEXT("CampaignFeature"), TEXT("CommanderFeature"), TEXT("MailFeature"), TEXT("Activity"), TEXT("ChargeEvents")})
+	{
+		const FName CountName(*(Name.ToString() + TEXT("BadgeCount")));
+		if (UTextBlock* Count = Page.Get<UTextBlock>(CountName))
+		{
+			NotificationTexts.Add(Name, Count);
+		}
+	}
+
+	BindHudButton(Page, TEXT("CampaignFeatureButton"), GET_FUNCTION_NAME_CHECKED(URokMainHudWidget, HandleOpenExpedition));
+	BindHudButton(Page, TEXT("AllianceFeatureButton"), GET_FUNCTION_NAME_CHECKED(URokMainHudWidget, HandleOpenAlliance));
+	BindHudButton(Page, TEXT("ItemsFeatureButton"), GET_FUNCTION_NAME_CHECKED(URokMainHudWidget, HandleOpenItems));
+	BindHudButton(Page, TEXT("CommanderFeatureButton"), GET_FUNCTION_NAME_CHECKED(URokMainHudWidget, HandleOpenCommander));
+	BindHudButton(Page, TEXT("MoreFeatureButton"), GET_FUNCTION_NAME_CHECKED(URokMainHudWidget, HandleToggleFeatureBar));
+	BindHudButton(Page, TEXT("MailFeatureHitButton"), GET_FUNCTION_NAME_CHECKED(URokMainHudWidget, HandleOpenMail));
+	BindHudButton(Page, TEXT("ActivityButton"), GET_FUNCTION_NAME_CHECKED(URokMainHudWidget, HandleOpenActivityCenter));
+	BindHudButton(Page, TEXT("ChargeEventsButton"), GET_FUNCTION_NAME_CHECKED(URokMainHudWidget, HandleOpenChargeEvents));
+	CacheFeatureFoldLayout();
+	ApplyFeatureBarVisibility();
+}
+
+void URokMainHudWidget::CacheFeatureFoldLayout()
+{
+	if (const auto* BackgroundSlot = FeatureBackground ? Cast<UCanvasPanelSlot>(FeatureBackground->Slot) : nullptr)
+	{
+		FeatureBackgroundOpenSize = BackgroundSlot->GetSize();
+		const UWidget* Left = FeatureBackground->GetChildAt(0);
+		const UWidget* Right = FeatureBackground->GetChildAt(2);
+		const auto* LeftSlot = Left ? Cast<UCanvasPanelSlot>(Left->Slot) : nullptr;
+		const auto* RightSlot = Right ? Cast<UCanvasPanelSlot>(Right->Slot) : nullptr;
+		if (LeftSlot && RightSlot)
+		{
+			FeatureBackgroundBorders = FVector2D(LeftSlot->GetOffsets().Right, RightSlot->GetOffsets().Right);
+		}
+	}
+	MoreFeatureOpenAngle = MoreFeatureButton ? MoreFeatureButton->GetRenderTransformAngle() : 0.0f;
+	CollapsibleFeatureOpenTranslations.Reset();
+	for (const UWidget* Widget : CollapsibleFeatureWidgets)
+	{
+		CollapsibleFeatureOpenTranslations.Add(Widget ? Widget->GetRenderTransform().Translation : FVector2D::ZeroVector);
+	}
+}
+
+void URokMainHudWidget::BuildExpeditionUnlockTip()
+{
+	// Keep the tip above projected city widgets in the same parent canvas.
+	static const TSoftClassPtr<URokUiPageWidget> TipPage(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokHudExpeditionTip.WBP_RokHudExpeditionTip_C")));
+	if (URokUiPageWidget* Page = AddHudPage(ExpandedDesignCanvas, TipPage, TEXT("HudExpeditionTipPage"), 50))
+	{
+		ExpeditionUnlockTip = Page->Get<UTextBlock>(TEXT("ExpeditionUnlockTip"));
+		return;
+	}
+
+	ExpeditionUnlockTip = MakeHudText(TEXT("ExpeditionUnlockTip"), 21, FLinearColor::White, true);
+	ExpeditionUnlockTip->SetJustification(ETextJustify::Center);
+	ExpeditionUnlockTip->SetShadowOffset(FVector2D(1.5));
+	ExpeditionUnlockTip->SetShadowColorAndOpacity(FLinearColor::Black);
+	ExpeditionUnlockTip->SetVisibility(ESlateVisibility::Collapsed);
+	PlaceOnCanvas(ExpandedDesignCanvas, ExpeditionUnlockTip, FVector2D::ZeroVector, FVector2D(620, 45),
+		FAnchors(0.5f, 0.5f), FVector2D(0.5f, 0.5f))->SetZOrder(50);
+}
+
 void URokMainHudWidget::BuildFeatureGroup()
 {
+	BuildExpeditionUnlockTip();
 	FeatureFoldSound = LoadObject<USoundBase>(nullptr,
 		TEXT("/Game/RokPrototype/UI/Audio/Sound_Ui_PickUp.Sound_Ui_PickUp"));
 	if (!FeatureFoldSound) UE_LOG(LogTemp, Warning, TEXT("Missing source feature-fold audio: Sound_Ui_PickUp"));
+	static const TSoftClassPtr<URokUiPageWidget> FeaturePage(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokHudFeatures.WBP_RokHudFeatures_C")));
+	if (URokUiPageWidget* Page = AddHudPage(ExpandedDesignCanvas, FeaturePage, TEXT("HudFeaturesPage")))
+	{
+		BindFeatureGroup(*Page);
+		return;
+	}
+
 	CollapsibleFeatureWidgets.Reset();
 	// UI_IF_MainInterface/pl_menu/UI_Item_Features/pl_rect, Chinese runtime
 	// layout after ArabLayoutCompment: keep the background separate from mask.
@@ -1978,13 +2497,6 @@ void URokMainHudWidget::BuildFeatureGroup()
 	{
 		CampaignCoreButton->OnClicked.AddDynamic(this, &URokMainHudWidget::HandleOpenExpedition);
 	}
-	ExpeditionUnlockTip = MakeHudText(TEXT("ExpeditionUnlockTip"), 21, FLinearColor::White, true);
-	ExpeditionUnlockTip->SetJustification(ETextJustify::Center);
-	ExpeditionUnlockTip->SetShadowOffset(FVector2D(1.5));
-	ExpeditionUnlockTip->SetShadowColorAndOpacity(FLinearColor::Black);
-	ExpeditionUnlockTip->SetVisibility(ESlateVisibility::Collapsed);
-	PlaceOnCanvas(ExpandedDesignCanvas, ExpeditionUnlockTip, FVector2D::ZeroVector, FVector2D(620, 45),
-		FAnchors(0.5f, 0.5f), FVector2D(0.5f, 0.5f))->SetZOrder(50);
 	UButton* AllianceCoreButton = nullptr;
 	UCanvasPanel* AllianceButton = MakeFeatureButton(TEXT("AllianceFeature"), NSLOCTEXT("RokHud", "Alliance", "联盟"), AllianceRect, false, &AllianceCoreButton);
 	PlaceOnCanvas(FeatureClip, AllianceButton, FVector2D(110.0f, 10.8f), FVector2D(100.0f, 100.0f));
@@ -2026,6 +2538,7 @@ void URokMainHudWidget::BuildFeatureGroup()
 	MoreButton->SetRenderTransformPivot(FVector2D(0.5f));
 	MoreButton->OnClicked.AddDynamic(this, &URokMainHudWidget::HandleToggleFeatureBar);
 	PlaceOnCanvas(ExpandedDesignCanvas, MoreButton, FVector2D(-20.045f, -14.865f), FVector2D(87.0f, 88.0f), FAnchors(1.0f, 1.0f), FVector2D(1.0f, 1.0f));
+	CacheFeatureFoldLayout();
 	ApplyFeatureBarVisibility();
 
 	UCanvasPanel* MailButton = MakeFeatureButton(TEXT("MailFeature"), FText::GetEmpty(), MailRect, true);
@@ -2060,14 +2573,15 @@ void URokMainHudWidget::ApplyFeatureBarVisibility()
 	const ESlateVisibility FeatureVisibility = bMoving
 		? ESlateVisibility::HitTestInvisible
 		: (bFeatureBarExpanded ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
-	for (UWidget* Widget : CollapsibleFeatureWidgets)
+	for (int32 Index = 0; Index < CollapsibleFeatureWidgets.Num(); ++Index)
 	{
-		if (Widget)
+		if (UWidget* Widget = CollapsibleFeatureWidgets[Index])
 		{
 			Widget->SetVisibility(FeatureVisibility);
 			if (Widget != FeatureBackground)
 			{
-				Widget->SetRenderTranslation(FVector2D(FeatureButtonsOffset, 0.0f));
+				Widget->SetRenderTranslation(CollapsibleFeatureOpenTranslations[Index]
+					+ FVector2D(FeatureButtonsOffset, 0.0f));
 			}
 		}
 	}
@@ -2075,22 +2589,27 @@ void URokMainHudWidget::ApplyFeatureBarVisibility()
 	{
 		// Unity's centered size delta -437.96 + center X218.98 keeps the
 		// right edge fixed; this UMG slot is already right-anchored.
-		const float Width = 539.06f - 437.96f * FeatureFold;
-		CastChecked<UCanvasPanelSlot>(FeatureBackground->Slot)->SetSize(FVector2D(Width, 98.0f));
-		// Unity Image.GetAdjustedBorders proportionally compresses borders when
-		// the animated rect is narrower than their sum (collapsed width 101.1).
-		const float BorderScale = FMath::Min(1.0f, Width / 112.0f);
-		const float Left = 59.0f * BorderScale;
-		const float Right = 53.0f * BorderScale;
+		const double Width = FMath::Max(1.0, FeatureBackgroundOpenSize.X - 437.96f * FeatureFold);
+		if (auto* BackgroundSlot = Cast<UCanvasPanelSlot>(FeatureBackground->Slot))
+		{
+			BackgroundSlot->SetSize(FVector2D(Width, FeatureBackgroundOpenSize.Y));
+		}
+		// Unity Image.GetAdjustedBorders proportionally compresses the borders.
+		const double BorderScale = FMath::Min(1.0, Width / FMath::Max(1.0, FeatureBackgroundBorders.X + FeatureBackgroundBorders.Y));
+		const double Left = FeatureBackgroundBorders.X * BorderScale;
+		const double Right = FeatureBackgroundBorders.Y * BorderScale;
 		for (int32 Row = 0; Row < 3; ++Row)
 		{
 			for (int32 Column = 0; Column < 3; ++Column)
 			{
-				UCanvasPanelSlot* PatchSlot = CastChecked<UCanvasPanelSlot>(FeatureBackground->GetChildAt(Row * 3 + Column)->Slot);
-				FMargin Offsets = PatchSlot->GetOffsets();
-				Offsets.Left = Column == 0 ? 0.0f : (Column == 1 ? Left : -Right);
-				Offsets.Right = Column == 0 ? Left : Right;
-				PatchSlot->SetOffsets(Offsets);
+				UWidget* Patch = FeatureBackground->GetChildAt(Row * 3 + Column);
+				if (auto* PatchSlot = Patch ? Cast<UCanvasPanelSlot>(Patch->Slot) : nullptr)
+				{
+					FMargin Offsets = PatchSlot->GetOffsets();
+					Offsets.Left = Column == 0 ? 0.0f : (Column == 1 ? Left : -Right);
+					Offsets.Right = Column == 0 ? Left : Right;
+					PatchSlot->SetOffsets(Offsets);
+				}
 			}
 		}
 		FeatureBackground->SetRenderOpacity(FeatureAlpha);
@@ -2098,25 +2617,33 @@ void URokMainHudWidget::ApplyFeatureBarVisibility()
 	if (MoreFeatureButton)
 	{
 		// Unity Z rotation is opposite UMG's screen-down rotation.
-		MoreFeatureButton->SetRenderTransformAngle(90.0f * FeatureFold);
+		MoreFeatureButton->SetRenderTransformAngle(MoreFeatureOpenAngle + 90.0f * FeatureFold);
 	}
 }
 
 void URokMainHudWidget::ApplyTaskFoldPresentation()
 {
-	if (!TaskListBackground || !TaskListClip || !TaskFoldButton) return;
-	CastChecked<UCanvasPanelSlot>(TaskListBackground->Slot)->SetSize(
-		FVector2D(FMath::Lerp(230.0f, 166.0f, TaskFold), FMath::Lerp(322.0f, 43.0f, TaskFold)));
-	CastChecked<UCanvasPanelSlot>(TaskListClip->Slot)->SetSize(
-		FVector2D(FMath::Lerp(210.0f, 146.0f, TaskFold), FMath::Lerp(280.0f, 0.0f, TaskFold)));
-	// Source list pivot/anchor is centered with anchored Y=-16.28.
-	CastChecked<UCanvasPanelSlot>(TaskListClip->Slot)->SetPosition(
-		FVector2D(15.63f, 81.8f + 0.5f * TaskFold));
-	TaskListClip->SetVisibility(TaskFold >= 1.0f
-		? ESlateVisibility::Collapsed : ESlateVisibility::SelfHitTestInvisible);
-	CastChecked<UCanvasPanelSlot>(TaskFoldButton->Slot)->SetPosition(
-		FVector2D(202.13f - 64.0f * TaskFold, 49.52f));
-	TaskFoldButton->SetRenderTransformAngle(-180.0f * TaskFold);
+	const auto Resize = [this](UWidget* Widget, const FVector2D& OpenSize, const FVector2D& SizeDelta)
+	{
+		if (auto* CanvasSlot = Widget ? Cast<UCanvasPanelSlot>(Widget->Slot) : nullptr)
+		{
+			const FVector2D Size = OpenSize + SizeDelta * TaskFold;
+			CanvasSlot->SetSize(FVector2D(FMath::Max(0.0, Size.X), FMath::Max(0.0, Size.Y)));
+		}
+	};
+	Resize(TaskListBackground, TaskBackgroundOpenSize, FVector2D(-64, -279));
+	Resize(TaskListClip, TaskClipOpenSize, FVector2D(-64, -TaskClipOpenSize.Y));
+	if (auto* ClipSlot = TaskListClip ? Cast<UCanvasPanelSlot>(TaskListClip->Slot) : nullptr)
+	{
+		ClipSlot->SetPosition(TaskClipOpenPosition + FVector2D(0.0, 0.5 * TaskFold));
+		TaskListClip->SetVisibility(TaskFold >= 1.0f
+			? ESlateVisibility::Collapsed : ESlateVisibility::SelfHitTestInvisible);
+	}
+	if (auto* FoldSlot = TaskFoldButton ? Cast<UCanvasPanelSlot>(TaskFoldButton->Slot) : nullptr)
+	{
+		FoldSlot->SetPosition(TaskFoldOpenPosition + FVector2D(-64.0 * TaskFold, 0.0));
+		TaskFoldButton->SetRenderTransformAngle(TaskFoldOpenAngle - 180.0f * TaskFold);
+	}
 }
 
 void URokMainHudWidget::SetTaskRewardPresentation(int32 TaskId, bool bComplete)
@@ -2153,9 +2680,17 @@ void URokMainHudWidget::RebuildTaskRows(int32 Count, bool bServer)
 	bTaskRewardVisible = false;
 	TaskRewardTime = 0.0f;
 	bServerTaskRows = bServer;
+	static const TSoftClassPtr<URokUiPageWidget> TaskRowClass(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokHudTaskRow.WBP_RokHudTaskRow_C")));
 	for (int32 Index = 0; Index < Count; ++Index)
 	{
-		UCanvasPanel* Row = MakeTaskRow(Index);
+		auto* Page = CreateHudPage(TaskRowClass, NAME_None);
+		auto* Row = Page ? Cast<UCanvasPanel>(Page->GetRootWidget()) : nullptr;
+		if (!Row || !BindTaskRow(*Page, Index))
+		{
+			Page = nullptr;
+			Row = MakeTaskRow(Index);
+		}
 		if (bServer)
 		{
 			URokUnityIndexedButton* Hit = WidgetTree->ConstructWidget<URokUnityIndexedButton>(
@@ -2168,19 +2703,44 @@ void URokMainHudWidget::RebuildTaskRows(int32 Count, bool bServer)
 			Hit->SetBackgroundColor(FLinearColor::Transparent);
 			Hit->ConfigureAction(Index);
 			Hit->OnIndexedClicked.AddUObject(this, &URokMainHudWidget::HandleServerTaskClicked);
-			PlaceOnCanvas(Row, Hit, FVector2D::ZeroVector, FVector2D(196.0f, 80.0f))->SetZOrder(10);
+			PlaceOnCanvas(Row, Hit, FVector2D::ZeroVector, TaskRowLayoutSize)->SetZOrder(10);
 		}
 		const FName SizeName = Index == 0 ? FName(TEXT("TaskRowSize"))
 			: FName(*FString::Printf(TEXT("TaskRowSize_%d"), Index));
 		USizeBox* Size = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), SizeName);
-		Size->SetHeightOverride(80.0f);
-		Size->SetWidthOverride(196.0f);
-		Size->SetContent(Row);
+		Size->SetHeightOverride(TaskRowLayoutSize.Y);
+		Size->SetWidthOverride(TaskRowLayoutSize.X);
+		Size->SetContent(Page ? static_cast<UWidget*>(Page) : Row);
 		UVerticalBoxSlot* RowSlot = TaskListBox->AddChildToVerticalBox(Size);
 		RowSlot->SetHorizontalAlignment(HAlign_Left);
-		RowSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 4.0f));
+		RowSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, TaskRowBottomPadding));
 		RowSlot->SetSize(FSlateChildSize(ESlateSizeRule::Automatic));
 	}
+}
+
+bool URokMainHudWidget::BindTaskRow(URokUiPageWidget& Page, int32 Index)
+{
+	Page.LegacySuffix = FString::Printf(TEXT("_%d"), Index);
+	Page.LegacyNames.Add(Page.GetRootWidget()->GetFName(), TEXT("TaskRow{Suffix}"));
+	auto* Title = Cast<UTextBlock>(Page.GetWidgetFromName(TEXT("TaskTitle")));
+	auto* Progress = Cast<UTextBlock>(Page.GetWidgetFromName(TEXT("TaskProgress")));
+	auto* Reward = Cast<UImage>(Page.GetWidgetFromName(TEXT("TaskReward")));
+	if (!Title || !Progress || !Reward)
+	{
+		UE_LOG(LogTemp, Error, TEXT("Rok UI: %s needs TaskTitle, TaskProgress and TaskReward"), *Page.GetClass()->GetName());
+		return false;
+	}
+
+	if (Index > 0)
+	{
+		Title->SetColorAndOpacity(FSlateColor(FLinearColor(0.96f, 0.94f, 0.9f, 1.0f)));
+		Progress->SetVisibility(ESlateVisibility::HitTestInvisible);
+	}
+	TaskTitleTexts.Add(Title);
+	TaskProgressTexts.Add(Progress);
+	ServerTaskRewardImages.Add(Reward);
+	if (Index == 0) TaskRewardImage = Reward;
+	return true;
 }
 
 bool URokMainHudWidget::ApplyServerTasks()
@@ -2522,34 +3082,40 @@ void URokMainHudWidget::ApplyServerTopBar(const FRokPlayerTopBar& TopBar)
 	}
 	const struct
 	{
-		const TCHAR* Name;
 		int64 Value;
 		bool bVisible;
-		float Width;
 	} Cells[] = {
-		{TEXT("FoodResource"), TopBar.Food, TopBar.bShowFood, 136},
-		{TEXT("WoodResource"), TopBar.Wood, TopBar.bShowWood, 136},
-		{TEXT("StoneResource"), TopBar.Stone, TopBar.bShowStone, 136},
-		{TEXT("GoldResource"), TopBar.Gold, TopBar.bShowGold, 136},
-		{TEXT("GemResource"), TopBar.Denar, TopBar.bShowGem, 164}};
-	float Width = 0;
-	for (const auto& Cell : Cells)
+		{TopBar.Food, TopBar.bShowFood}, {TopBar.Wood, TopBar.bShowWood},
+		{TopBar.Stone, TopBar.bShowStone}, {TopBar.Gold, TopBar.bShowGold}, {TopBar.Denar, TopBar.bShowGem}};
+	double Width = ResourceGroupLeftPadding;
+	for (int32 Index = 0; Index < ResourceCellLayouts.Num(); ++Index)
 	{
-		if (auto* Widget = GetWidgetFromName(Cell.Name))
+		const auto& Cell = Cells[Index];
+		const auto& Layout = ResourceCellLayouts[Index];
+		if (auto* Widget = GetWidgetFromName(ResourceCellNames[Index]))
 		{
 			Widget->SetVisibility(Cell.bVisible ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
 			if (!Cell.bVisible) continue;
+			Width += Layout.Gap;
 			if (auto* CellSlot = Cast<UCanvasPanelSlot>(Widget->Slot))
-				CellSlot->SetPosition(FVector2D(Width, 0));
-			const FName ValueName(*(FString(Cell.Name) + TEXT("Value")));
+			{
+				CellSlot->SetPosition(FVector2D(Width, Layout.Y));
+			}
+			const FName ValueName(*(ResourceCellNames[Index].ToString() + TEXT("Value")));
 			if (auto* Value = Cast<UTextBlock>(GetWidgetFromName(ValueName)))
+			{
 				Value->SetText(FormatResource(Cell.Value));
-			Width += Cell.Width;
+			}
+			Width += Layout.Width;
 		}
 	}
 	if (auto* Group = GetWidgetFromName(TEXT("PlayerResourcesGroup")))
+	{
 		if (auto* GroupSlot = Cast<UCanvasPanelSlot>(Group->Slot))
-			GroupSlot->SetSize(FVector2D(Width + 4, 44));
+		{
+			GroupSlot->SetSize(FVector2D(FMath::Max(0.0, Width + ResourceGroupRightPadding), GroupSlot->GetSize().Y));
+		}
+	}
 	if (VipText) VipText->SetText(FText::FromString(TopBar.VipText));
 	if (VipRedPointImage)
 	{
@@ -2659,6 +3225,14 @@ void URokMainHudWidget::BuildCityMarker()
 	CityMarkerRoot = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("PlayerCityWorldMarker"));
 	CityMarkerRoot->SetVisibility(ESlateVisibility::Collapsed);
 	CityMarkerCanvasSlot = PlaceOnCanvas(ExpandedDesignCanvas, CityMarkerRoot, FVector2D(640.0f, 710.0f), FVector2D(160.0f, 110.0f));
+	static const TSoftClassPtr<URokUiPageWidget> MarkerPage(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokCityNameplate.WBP_RokCityNameplate_C")));
+	if (auto* Page = AddHudPage(CityMarkerRoot, MarkerPage, TEXT("CityNameplatePage")))
+	{
+		CityNameText = Page->Get<UTextBlock>(TEXT("CityNameText"));
+		CityLevelText = Page->Get<UTextBlock>(TEXT("CityLevelText"));
+		return;
+	}
 
 	PlaceOnCanvas(CityMarkerRoot, MakeAtlasBorder(TEXT("CityNameBackground"), MapAtlasPath, CityNameBackgroundRect, MapAtlasSize, FVector2D(140.0f, 42.0f), FMargin(0.2f)), FVector2D(10.0f, 14.0f), FVector2D(140.0f, 42.0f));
 	CityNameText = MakeHudText(TEXT("CityNameText"), 20, FLinearColor(0.12f, 0.95f, 0.48f, 1.0f), true);
@@ -2886,14 +3460,14 @@ void URokMainHudWidget::UpdatePlacementMenuProjection()
 	ARokStrategyCameraPawn* Camera = Controller
 		? Cast<ARokStrategyCameraPawn>(Controller->GetPawn()) : nullptr;
 	UCanvasPanelSlot* MenuSlot = PlacementControlsSlot.Get();
+	const auto* BoundsSlot = PlacementControlsDesignSlot.Get();
+	const FAnchorData Bounds = BoundsSlot ? BoundsSlot->GetLayout() : MakeDefaultPlacementControlsBounds();
 	if (!Snapshot.bActive || !Preview || !Bottom || !Camera)
 	{
 		// The explicit no-preview feedback route has no Unity world target.
 		// Keep cancellation and its existing reason visible without pretending
 		// that a source building menu has a valid screen projection.
-		MenuSlot->SetAnchors(FAnchors(0.5f, 1.0f));
-		MenuSlot->SetAlignment(FVector2D(0.5f, 1.0f));
-		MenuSlot->SetPosition(FVector2D(0.0f, -55.0f));
+		MenuSlot->SetLayout(Bounds);
 		PlacementControls->SetRenderScale(FVector2D(1.0f));
 		PlacementControls->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
 		if (PlacementButtonShadow) PlacementButtonShadow->SetVisibility(ESlateVisibility::Collapsed);
@@ -2923,6 +3497,7 @@ void URokMainHudWidget::UpdatePlacementMenuProjection()
 	const float MenuScale = (172.0f / Dxf) * (CurrentRootSize.Y / PlacementMenuDesignHeight);
 	MenuSlot->SetAnchors(FAnchors(0.0f, 0.0f));
 	MenuSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+	MenuSlot->SetSize(FVector2D(Bounds.Offsets.Right, Bounds.Offsets.Bottom));
 	// Anchor the two-button row below the footprint as in the Unity 16:10 placement capture.
 	MenuSlot->SetPosition(ScreenPosition + FVector2D(0.0f, PlacementMenuGroundOffsetY * MenuScale));
 	PlacementControls->SetRenderScale(FVector2D(MenuScale));
@@ -3423,6 +3998,25 @@ void URokMainHudWidget::BuildConstructionBarPool()
 		UCanvasPanelSlot* BarSlot = PlaceOnCanvas(ExpandedDesignCanvas, Bar,
 			FVector2D::ZeroVector, FVector2D(100.0f, 100.0f), FAnchors(0.0f, 0.0f), FVector2D(0.5f, 0.5f));
 		BarSlot->SetZOrder(6);
+		static const TSoftClassPtr<URokUiPageWidget> BarClass(FSoftObjectPath(
+			TEXT("/Game/RokUI/Hud/WBP_RokCityConstructionBar.WBP_RokCityConstructionBar_C")));
+		if (auto* Page = AddHudPage(Bar, BarClass, NAME_None))
+		{
+			auto* Label = Page->Get<UTextBlock>(TEXT("ConstructionBarTime"));
+			auto* Fill = Page->Get<UCanvasPanel>(TEXT("ConstructionBarFill"));
+			auto* Icon = Page->Get<UImage>(TEXT("ConstructionBarIcon"));
+			if (Label && Fill && Icon)
+			{
+				Page->LegacySuffix = FString::Printf(TEXT("_%d"), Index);
+				ConstructionBars.Add(Bar);
+				ConstructionBarLabels.Add(Label);
+				ConstructionBarFills.Add(Fill);
+				ConstructionBarIcons.Add(Icon);
+				continue;
+			}
+			Page->RemoveFromParent();
+		}
+
 		PlaceOnCanvas(Bar,
 			MakeHudSlicedAtlasPanel(*FString::Printf(TEXT("ConstructionBarBackground_%d"), Index),
 				MainMenuAtlasPath, BuildBarBackgroundRect, MainMenuAtlasSize, FMargin(2, 0, 1, 0)),
@@ -3610,6 +4204,21 @@ void URokMainHudWidget::UpdateServerArmyHud()
 
 void URokMainHudWidget::BuildBarracksIdleMarker()
 {
+	static const TSoftClassPtr<URokUiPageWidget> BarracksIdleClass(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokCityBarracksIdle.WBP_RokCityBarracksIdle_C")));
+	if (auto* Page = AddHudPage(ExpandedDesignCanvas, BarracksIdleClass, TEXT("CityBarracksIdlePage"), 5))
+	{
+		auto* Large = Page->Get<UTextBlock>(TEXT("BarracksIdleZ"));
+		auto* Small = Page->Get<UTextBlock>(TEXT("BarracksIdleSmallZ"));
+		if (Large && Small)
+		{
+			BarracksIdleGlyphs.Add(Large);
+			BarracksIdleGlyphs.Add(Small);
+			return;
+		}
+		Page->RemoveFromParent();
+	}
+
 	for (int32 Index = 0; Index < 2; ++Index)
 	{
 		auto* Glyph = MakeHudText(Index == 0 ? TEXT("BarracksIdleZ") : TEXT("BarracksIdleSmallZ"),
@@ -3658,11 +4267,24 @@ void URokMainHudWidget::BuildCityHarvestPops()
 	// Unity UI_Pop_IconOnBuilding, img_bg0 / img_bg1 and m_img_icon.
 	constexpr int32 MaxResourceBuildings = 16;
 	const FVector2D BubbleSize(80.0f, 98.0f);
-	CityHarvestFeedback = MakeHudText(TEXT("CityHarvestFeedback"), 19, FLinearColor(1.0f, 0.88f, 0.58f), true);
-	CityHarvestFeedback->SetJustification(ETextJustify::Center);
-	CityHarvestFeedback->SetVisibility(ESlateVisibility::Collapsed);
-	PlaceOnCanvas(ExpandedDesignCanvas, CityHarvestFeedback, FVector2D(0, -86), FVector2D(570, 30),
-		FAnchors(0.5f, 1.0f), FVector2D(0.5f, 1.0f))->SetZOrder(12);
+	static const TSoftClassPtr<URokUiPageWidget> FeedbackClass(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokCityHarvestFeedback.WBP_RokCityHarvestFeedback_C")));
+	if (auto* Page = AddHudPage(ExpandedDesignCanvas, FeedbackClass, TEXT("CityHarvestFeedbackPage"), 12))
+	{
+		CityHarvestFeedback = Page->Get<UTextBlock>(TEXT("CityHarvestFeedback"));
+		if (!CityHarvestFeedback) Page->RemoveFromParent();
+	}
+	if (!CityHarvestFeedback)
+	{
+		CityHarvestFeedback = MakeHudText(TEXT("CityHarvestFeedback"), 19, FLinearColor(1.0f, 0.88f, 0.58f), true);
+		CityHarvestFeedback->SetJustification(ETextJustify::Center);
+		CityHarvestFeedback->SetVisibility(ESlateVisibility::Collapsed);
+		PlaceOnCanvas(ExpandedDesignCanvas, CityHarvestFeedback, FVector2D(0, -86), FVector2D(570, 30),
+			FAnchors(0.5f, 1.0f), FVector2D(0.5f, 1.0f))->SetZOrder(12);
+	}
+
+	static const TSoftClassPtr<URokUiPageWidget> HarvestClass(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokCityHarvestBubble.WBP_RokCityHarvestBubble_C")));
 	CityHarvestPopTypes.SetNumZeroed(MaxResourceBuildings);
 	for (int32 Index = 0; Index < MaxResourceBuildings; ++Index)
 	{
@@ -3671,11 +4293,33 @@ void URokMainHudWidget::BuildCityHarvestPops()
 		Root->SetVisibility(ESlateVisibility::Collapsed);
 		Root->SetRenderTransformPivot(FVector2D(0.5f, 1.0f));
 		PlaceOnCanvas(ExpandedDesignCanvas, Root, FVector2D::ZeroVector, BubbleSize, FAnchors(0), FVector2D(0.5f, 1.0f))->SetZOrder(6);
-		UImage* Normal = MakeAtlasImage(NAME_None, MainMenuAtlasPath, SpriteRect(689, 806, 82, 100), MainMenuAtlasSize, BubbleSize);
-		UImage* Full = MakeAtlasImage(NAME_None, MainMenuAtlasPath, SpriteRect(605, 806, 82, 100), MainMenuAtlasSize, BubbleSize);
+		if (auto* Page = AddHudPage(Root, HarvestClass, NAME_None))
+		{
+			auto* Normal = Page->Get<UImage>(TEXT("CityHarvestNormal"));
+			auto* Full = Page->Get<UImage>(TEXT("CityHarvestFull"));
+			auto* Icon = Page->Get<UImage>(TEXT("CityHarvestIcon"));
+			auto* Button = Page->Get<URokUnityIndexedButton>(TEXT("CityHarvestAction"));
+			if (Normal && Full && Icon && Button)
+			{
+				Page->LegacySuffix = FString::Printf(TEXT("_%d"), Index);
+				Button->ConfigureAction(Index);
+				Button->OnIndexedClicked.AddUObject(this, &URokMainHudWidget::HandleCityHarvestClicked);
+				CityHarvestRoots.Add(Root);
+				CityHarvestNormalBackgrounds.Add(Normal);
+				CityHarvestFullBackgrounds.Add(Full);
+				CityHarvestIcons.Add(Icon);
+				continue;
+			}
+			Page->RemoveFromParent();
+		}
+
+		UImage* Normal = MakeAtlasImage(Name(TEXT("CityHarvestNormal")), MainMenuAtlasPath,
+			SpriteRect(689, 806, 82, 100), MainMenuAtlasSize, BubbleSize);
+		UImage* Full = MakeAtlasImage(Name(TEXT("CityHarvestFull")), MainMenuAtlasPath,
+			SpriteRect(605, 806, 82, 100), MainMenuAtlasSize, BubbleSize);
 		PlaceOnCanvas(Root, Normal, FVector2D::ZeroVector, BubbleSize);
 		PlaceOnCanvas(Root, Full, FVector2D::ZeroVector, BubbleSize);
-		UImage* Icon = WidgetTree->ConstructWidget<UImage>();
+		UImage* Icon = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), Name(TEXT("CityHarvestIcon")));
 		Icon->SetVisibility(ESlateVisibility::HitTestInvisible);
 		PlaceOnCanvas(Root, Icon, FVector2D(10.0f, 10.0f), FVector2D(60.0f));
 		URokUnityIndexedButton* Button = WidgetTree->ConstructWidget<URokUnityIndexedButton>(URokUnityIndexedButton::StaticClass(), Name(TEXT("CityHarvestAction")));
@@ -3889,6 +4533,8 @@ void URokMainHudWidget::BuildServerTrainingPopPool()
 	TrainingTroopAtlas = LoadUiTexture(TEXT("/Game/RokPrototype/UI/FullScreenAtlases/rok_fullscreen_troops_head.rok_fullscreen_troops_head"));
 	TrainingPopAnchors.SetNum(Count);
 	TrainingPopFamilies.SetNumZeroed(Count);
+	static const TSoftClassPtr<URokUiPageWidget> TrainingClass(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokCityTrainingIndicator.WBP_RokCityTrainingIndicator_C")));
 	for (int32 Index = 0; Index < Count; ++Index)
 	{
 		const auto Name = [Index](const TCHAR* Stem) { return FName(*FString::Printf(TEXT("%s_%d"), Stem, Index)); };
@@ -3896,6 +4542,32 @@ void URokMainHudWidget::BuildServerTrainingPopPool()
 		Root->SetVisibility(ESlateVisibility::Collapsed);
 		Root->SetRenderTransformPivot(FVector2D(.5f));
 		PlaceOnCanvas(ExpandedDesignCanvas, Root, FVector2D::ZeroVector, FVector2D(100), FAnchors(0), FVector2D(.5f))->SetZOrder(7);
+		if (auto* Page = AddHudPage(Root, TrainingClass, NAME_None))
+		{
+			auto* Progress = Page->Get<UCanvasPanel>(TEXT("TrainingPopProgress"));
+			auto* Ready = Page->Get<UCanvasPanel>(TEXT("TrainingPopReady"));
+			auto* Fill = Page->Get<UCanvasPanel>(TEXT("TrainingPopFill"));
+			auto* Label = Page->Get<UTextBlock>(TEXT("TrainingPopTime"));
+			auto* Icon = Page->Get<UImage>(TEXT("TrainingPopIcon"));
+			auto* ReadyIcon = Page->Get<UImage>(TEXT("TrainingPopReadyIcon"));
+			auto* Hit = Page->Get<URokUnityIndexedButton>(TEXT("TrainingPopReadyAction"));
+			if (Progress && Ready && Fill && Label && Icon && ReadyIcon && Hit)
+			{
+				Page->LegacySuffix = FString::Printf(TEXT("_%d"), Index);
+				Hit->ConfigureAction(Index);
+				Hit->OnIndexedClicked.AddUObject(this, &URokMainHudWidget::HandleTrainingPopClicked);
+				TrainingPopRoots.Add(Root);
+				TrainingPopProgressAreas.Add(Progress);
+				TrainingPopReadyAreas.Add(Ready);
+				TrainingPopFills.Add(Fill);
+				TrainingPopLabels.Add(Label);
+				TrainingPopIcons.Add(Icon);
+				TrainingPopReadyIcons.Add(ReadyIcon);
+				continue;
+			}
+			Page->RemoveFromParent();
+		}
+
 		UCanvasPanel* Progress = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), Name(TEXT("TrainingPopProgress")));
 		PlaceOnCanvas(Root, Progress, FVector2D::ZeroVector, FVector2D(100));
 		const FVector2D BarTopLeft(-25, 87);

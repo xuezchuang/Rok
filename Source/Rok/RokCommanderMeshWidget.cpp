@@ -29,7 +29,7 @@ public:
 	virtual FVector2D ComputeDesiredSize(float) const override { return FVector2D(1440, 900); }
 	virtual void Tick(const FGeometry&, double, float Delta) override
 	{
-		if (Owner.IsValid() && Owner->Duration > 0)
+		if (Owner.IsValid() && Owner->Duration > 0 && !Owner->bAnimationFrozenForCapture)
 		{
 			Owner->AdvanceAnimation(Delta);
 			Invalidate(EInvalidateWidgetReason::Paint);
@@ -150,8 +150,25 @@ void URokCommanderMeshWidget::AdvanceAnimation(float Delta)
 	if (!bPlayingStandby) Time = FMath::Fmod(Time, Duration);
 }
 
+bool URokCommanderMeshWidget::FreezeAnimationForCapture(float Seconds)
+{
+	if (!FMath::IsFinite(Seconds) || Seconds < 0.0f || Duration <= 0.0f || Frames.IsEmpty())
+	{
+		return false;
+	}
+	Time = bPlayingStandby ? FMath::Min(Seconds, Duration) : FMath::Fmod(Seconds, Duration);
+	bAnimationFrozenForCapture = true;
+	if (MeshWidget.IsValid())
+	{
+		MeshWidget->Invalidate(EInvalidateWidgetReason::Paint);
+	}
+	UE_LOG(LogTemp, Display, TEXT("Rok modal preview capture: commander mesh clip phase %.6fs."), Time);
+	return true;
+}
+
 bool URokCommanderMeshWidget::LoadClip(const FString& RelativePath)
 {
+	bAnimationFrozenForCapture = false;
 	Frames.Reset(); Brushes.Reset(); Textures.Reset(); Time = 0;
 	FString Json;
 	const FString Path = RokDataPaths::Resolve(RelativePath);

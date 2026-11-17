@@ -1,4 +1,5 @@
 #include "RokActivityCalendarReadonlyAuditSubsystem.h"
+#include "RokUiWidgets.h"
 
 #include "RokBuildingUpgradeSubsystem.h"
 #include "RokDataPaths.h"
@@ -603,7 +604,7 @@ TSharedRef<FJsonObject> URokActivityCalendarReadonlyAuditSubsystem::State() cons
     Json->SetNumberField(TEXT("camera_scale_y"), Camera.GetScale3D().Y);
     Json->SetNumberField(TEXT("camera_scale_z"), Camera.GetScale3D().Z);
     auto Widgets = MakeShared<FJsonObject>();
-    Widgets->SetObjectField(TEXT("ActivityButton"), WidgetState(Hud.IsValid() ? Hud->GetWidgetFromName(TEXT("ActivityButton")) : nullptr));
+    Widgets->SetObjectField(TEXT("ActivityButton"), WidgetState(Hud.IsValid() ? RokUiFind::Find(Hud, TEXT("ActivityButton")) : nullptr));
     for (const TCHAR* Name : {TEXT("FeatureModeCanvas"), TEXT("ActivityClose"), TEXT("ActivityMenuHit_0"),
         TEXT("ActivityCalendarReferenceScroll"), TEXT("ActivityCalendarReferenceScope"),
         TEXT("ActivityCalendarSelectedTitle"), TEXT("ActivityCalendarSelectedSketch"),
@@ -667,7 +668,7 @@ bool URokActivityCalendarReadonlyAuditSubsystem::Ready(int32 Phase) const
         || !Server.IsValid() || !Server->IsLocalOnlyRun() || Server->GetHttpDispatchAttemptCount() != 0
         || Server->GetSuppressedLocalRequestCount() != 0 || Modal->IsModalOpen()) return false;
     if (Phase == 0 || Phase == 6)
-        return !Screen->IsScreenOpen() && Visible(Hud->GetWidgetFromName(TEXT("ActivityButton")));
+        return !Screen->IsScreenOpen() && Visible(RokUiFind::Find(Hud, TEXT("ActivityButton")));
     const UWidget* Mode = Screen->GetWidgetFromName(TEXT("FeatureModeCanvas"));
     if (!Screen->IsScreenOpen() || !Mode || !Visible(Mode)
         || !FMath::IsNearlyEqual(Mode->GetRenderOpacity(), 1.0, .01)
@@ -1083,7 +1084,7 @@ void URokActivityCalendarReadonlyAuditSubsystem::Tick(float DeltaTime)
             Capture(TEXT("00_city_hud"), 2);
         }
         break;
-    case 2: if (Boundary() && Click(Cast<UButton>(Hud->GetWidgetFromName(TEXT("ActivityButton"))), TEXT("open_activity_from_hud"))) Enter(3); break;
+    case 2: if (Boundary() && Click(Cast<UButton>(RokUiFind::Find(Hud, TEXT("ActivityButton"))), TEXT("open_activity_from_hud"))) Enter(3); break;
     case 3: if (Boundary() && Stable(1)) Capture(TEXT("01_activity_landing"), 4); break;
     case 4: if (Boundary() && Click(Cast<UButton>(Screen->GetWidgetFromName(TEXT("ActivityMenuHit_0"))), TEXT("select_calendar_action100"))) Enter(5); break;
     case 5: if (Boundary() && Stable(2)) Capture(TEXT("02_action100_reset"), 6); break;

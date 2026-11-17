@@ -1,4 +1,5 @@
 #include "RokSpeedUpAuditSubsystem.h"
+#include "RokUiWidgets.h"
 
 #include "Blueprint/WidgetBlueprintLibrary.h"
 #include "Components/Button.h"
@@ -253,7 +254,7 @@ bool URokSpeedUpAuditSubsystem::Begin()
 	InitialPawn = Controller->GetPawn(); InitialViewTarget = Controller->GetViewTarget();
 	RuntimeState = GetWorld()->GetGameInstance()->GetSubsystem<URokUnityRuntimeStateSubsystem>();
 	Server = GetWorld()->GetGameInstance()->GetSubsystem<URokServerSubsystem>();
-	PowerGain = Cast<URokPowerGainWidget>(Hud->GetWidgetFromName(TEXT("PlayerPowerGain")));
+	PowerGain = Cast<URokPowerGainWidget>(RokUiFind::Find(Hud, TEXT("PlayerPowerGain")));
 	if (!RuntimeState.IsValid() || !RuntimeState->IsRuntimeStateLoaded() || !Server.IsValid()
 		|| !Server->IsLocalOnlyRun() || Server->GetHttpDispatchAttemptCount() != 0
 		|| Server->GetSuppressedLocalRequestCount() != 0 || !PowerGain.IsValid()
@@ -513,8 +514,8 @@ bool URokSpeedUpAuditSubsystem::Validate()
 	}
 	if (View == EView::Upgrade || View == EView::BlockedUpgrade || View == EView::HallUpgrade)
 	{
-		const auto* Timed = Cast<UButton>(Modal->GetWidgetFromName(TEXT("TimedUpgradeButton")));
-		const auto* Close = Cast<UButton>(Modal->GetWidgetFromName(TEXT("Type2CloseButton")));
+		const auto* Timed = Cast<UButton>(RokUiFind::Find(Modal, TEXT("TimedUpgradeButton")));
+		const auto* Close = Cast<UButton>(RokUiFind::Find(Modal, TEXT("Type2CloseButton")));
 		if (!Modal->IsModalOpen() || Feature->IsScreenOpen() || !SpeedUpAuditVisible(Timed)
 			|| !SpeedUpAuditVisible(Close) || !Close->GetIsEnabled()
 			|| !CheckSelectedActor(Modal.Get(), View == EView::HallUpgrade ? HallActor.Get() : TargetActor.Get())
@@ -522,7 +523,7 @@ bool URokSpeedUpAuditSubsystem::Validate()
 		{ if (!bFinished) Finish(TEXT("Actual upgrade dialog identity/enabled state differs from source prerequisites.")); return false; }
 		if (View == EView::BlockedUpgrade)
 		{
-			const auto* Feedback = Cast<UTextBlock>(Modal->GetWidgetFromName(TEXT("UpgradeFeedback")));
+			const auto* Feedback = Cast<UTextBlock>(RokUiFind::Find(Modal, TEXT("UpgradeFeedback")));
 			if (!SpeedUpAuditVisible(Feedback) || Feedback->GetText().ToString() != TEXT("需要 2 级市政厅（当前 1 级）"))
 			{ Finish(TEXT("Blocked upgrade does not display the exact localized unmet source requirement.")); return false; }
 		}
@@ -600,7 +601,7 @@ bool URokSpeedUpAuditSubsystem::Validate()
 bool URokSpeedUpAuditSubsystem::Click(UUserWidget* Owner, FName Name)
 {
 	static const TSet<FName> Allowed = {TEXT("BuildingUpgradeButton"), TEXT("TimedUpgradeButton"), TEXT("BuildingFeatureButton"), TEXT("SpeedUpItemAction_1"), TEXT("FeatureFrameClose"), TEXT("Type2CloseButton")};
-	auto* Button = Owner ? Cast<UButton>(Owner->GetWidgetFromName(Name)) : nullptr;
+	auto* Button = Owner ? Cast<UButton>(RokUiFind::Find(Owner, Name)) : nullptr;
 	if (!Allowed.Contains(Name) || !Button || Owner->GetWorld() != GetWorld() || !SpeedUpAuditVisible(Button) || !Button->GetIsEnabled() || !Validate())
 	{ if (!bFinished) Finish(FString::Printf(TEXT("Forbidden/missing/disabled button %s."), *Name.ToString())); return false; }
 	auto Action = MakeShared<FJsonObject>(); Action->SetStringField(TEXT("button"), Name.ToString());
@@ -649,7 +650,7 @@ TSharedRef<FJsonObject> URokSpeedUpAuditSubsystem::State() const
 			Value->SetStringField(TEXT("hud_task_progress_text"), Text->GetText().ToString());
 			Value->SetStringField(TEXT("hud_task_progress_tooltip"), Text->GetToolTipText().ToString());
 		}
-		if (const UWidget* Reward = Hud->GetWidgetFromName(TEXT("TaskReward_0"))) Value->SetBoolField(TEXT("hud_task_reward_visible"), Reward->GetVisibility() != ESlateVisibility::Collapsed && Reward->GetVisibility() != ESlateVisibility::Hidden);
+		if (const UWidget* Reward = RokUiFind::Find(Hud, TEXT("TaskReward_0"))) Value->SetBoolField(TEXT("hud_task_reward_visible"), Reward->GetVisibility() != ESlateVisibility::Collapsed && Reward->GetVisibility() != ESlateVisibility::Hidden);
 	}
 	Value->SetStringField(TEXT("actor"), GetNameSafe(TargetActor.Get())); Value->SetBoolField(TEXT("feature_open"), Feature.IsValid() && Feature->IsScreenOpen());
 	Value->SetNumberField(TEXT("original_started_at"), BoundState.UpgradeStartedAt); Value->SetNumberField(TEXT("original_finishes_at"), BoundState.UpgradeFinishesAt);

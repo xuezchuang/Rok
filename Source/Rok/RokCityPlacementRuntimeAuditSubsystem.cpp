@@ -1,4 +1,5 @@
 #include "RokCityPlacementRuntimeAuditSubsystem.h"
+#include "RokUiWidgets.h"
 
 #include "RokBuildingPanelWidget.h"
 #include "RokBuildingUpgradeSubsystem.h"
@@ -730,7 +731,7 @@ bool URokCityPlacementRuntimeAuditSubsystem::CheckPreview(int32 TypeId,
 		if (!It->IsActorBeingDestroyed()) { ++PreviewCount; TaggedPreview = *It; }
 	}
 	const UWidget* Controls = Hud.IsValid()
-		? Hud->GetWidgetFromName(TEXT("CityPlacementControls")) : nullptr;
+		? RokUiFind::Find(Hud, TEXT("CityPlacementControls")) : nullptr;
 	if (!Expect(SnapshotValue.bActive == bExpectedActive
 		&& SnapshotValue.bDragging == bExpectedDragging
 		&& SnapshotValue.bGridValid == (bExpectedActive && bExpectedValid)
@@ -1482,11 +1483,11 @@ TSharedRef<FJsonObject> URokCityPlacementRuntimeAuditSubsystem::State() const
 	}
 	if (Hud.IsValid())
 	{
-		const UWidget* Controls = Hud->GetWidgetFromName(TEXT("CityPlacementControls"));
+		const UWidget* Controls = RokUiFind::Find(Hud, TEXT("CityPlacementControls"));
 		const UTextBlock* Status = Cast<UTextBlock>(
-			Hud->GetWidgetFromName(TEXT("CityPlacementStatus")));
+			RokUiFind::Find(Hud, TEXT("CityPlacementStatus")));
 		const UTextBlock* Reason = Cast<UTextBlock>(
-			Hud->GetWidgetFromName(TEXT("CityPlacementReason")));
+			RokUiFind::Find(Hud, TEXT("CityPlacementReason")));
 		Json->SetBoolField(TEXT("controls_visible"), Controls && Controls->IsVisible());
 		Json->SetStringField(TEXT("status"), Status ? Status->GetText().ToString() : FString());
 		Json->SetStringField(TEXT("reason"), Reason ? Reason->GetText().ToString() : FString());
@@ -1850,9 +1851,9 @@ void URokCityPlacementRuntimeAuditSubsystem::Tick(float DeltaTime)
 		break;
 	case 2:
 		if (Modal->IsModalOpen()
-			&& ReadyForClick(Modal->GetWidgetFromName(TEXT("TimedUpgradeButton")),
+			&& ReadyForClick(RokUiFind::Find(Modal, TEXT("TimedUpgradeButton")),
 				Modal->GetWindowAnimationForTesting().IsAnimating())
-			&& SlateClick(Modal->GetWidgetFromName(TEXT("TimedUpgradeButton")),
+			&& SlateClick(RokUiFind::Find(Modal, TEXT("TimedUpgradeButton")),
 				TEXT("hall_timed_upgrade_start")))
 		{
 			HallClickedWall = FPlatformTime::Seconds();
@@ -1883,7 +1884,7 @@ void URokCityPlacementRuntimeAuditSubsystem::Tick(float DeltaTime)
 		}
 		break;
 	case 7:
-		if (SlateUiOriginNoDrag(Hud->GetWidgetFromName(TEXT("TaskProgress_0"))))
+		if (SlateUiOriginNoDrag(RokUiFind::Find(Hud, TEXT("TaskProgress_0"))))
 			Enter(70);
 		break;
 	case 70:
@@ -1983,8 +1984,8 @@ void URokCityPlacementRuntimeAuditSubsystem::Tick(float DeltaTime)
 			Capture(TEXT("09_release_camera_restored"), 20);
 		break;
 	case 20:
-		if (ReadyForClick(Hud->GetWidgetFromName(TEXT("CityPlacementCancelButton")), false)
-			&& SlateClick(Hud->GetWidgetFromName(TEXT("CityPlacementCancelButton")),
+		if (ReadyForClick(RokUiFind::Find(Hud, TEXT("CityPlacementCancelButton")), false)
+			&& SlateClick(RokUiFind::Find(Hud, TEXT("CityPlacementCancelButton")),
 			TEXT("placement_cancel_button"))) Enter(21);
 		break;
 	case 21:

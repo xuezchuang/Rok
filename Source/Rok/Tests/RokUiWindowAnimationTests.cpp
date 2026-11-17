@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
+#include "RokUiWidgets.h"
 #include "Components/Button.h"
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
@@ -133,13 +134,13 @@ bool FRokCivilizationListAnimationTest::RunTest(const FString& Parameters)
 	Modal->Initialize();
 	Modal->TakeWidget();
 	Modal->OpenCivilizationSelection();
-	auto* List = Modal->GetWidgetFromName(TEXT("CivilizationListRoot"));
-	auto* Back = Modal->GetWidgetFromName(TEXT("CivilizationSelectionBackButton"));
+	auto* List = RokUiFind::Find(Modal, TEXT("CivilizationListRoot"));
+	auto* Back = RokUiFind::Find(Modal, TEXT("CivilizationSelectionBackButton"));
 	if (!TestNotNull(TEXT("Source country-list group"), List) || !TestNotNull(TEXT("Independent back control"), Back)) return false;
 	const auto* ListSlot = CastChecked<UCanvasPanelSlot>(List->Slot);
 	TestTrue(TEXT("Country list follows viewport bottom"), ListSlot->GetAnchors().Minimum.Equals(FVector2D(0.5, 1)));
 	TestTrue(TEXT("Country list retains source reference offset"), ListSlot->GetPosition().Equals(FVector2D(-720, -810)));
-	const auto* Shade = Modal->GetWidgetFromName(TEXT("CivilizationListShade"));
+	const auto* Shade = RokUiFind::Find(Modal, TEXT("CivilizationListShade"));
 	if (!TestNotNull(TEXT("Country list backdrop"), Shade)) return false;
 	const auto* ShadeSlot = CastChecked<UCanvasPanelSlot>(Shade->Slot);
 	TestTrue(TEXT("List backdrop fills expanded width"), ShadeSlot->GetAnchors().Maximum.Equals(FVector2D(1, 1)));
@@ -158,7 +159,7 @@ bool FRokCivilizationListAnimationTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Source hold keeps opacity"), List->GetRenderOpacity(), 1.0f);
 	Modal->CloseModal();
 	Modal->OpenCivilizationSelection();
-	List = Modal->GetWidgetFromName(TEXT("CivilizationListRoot"));
+	List = RokUiFind::Find(Modal, TEXT("CivilizationListRoot"));
 	TestEqual(TEXT("Fresh entry restarts list animation"), List->GetRenderOpacity(), 0.0f);
 	return true;
 }
@@ -257,8 +258,8 @@ bool FRokUiWindowAnimationModalLifecycleTest::RunTest(const FString& Parameters)
 	Modal->Initialize();
 	const TSharedRef<SWidget> SlateWidget = Modal->TakeWidget();
 	Modal->OpenPlayerProfile();
-	UWidget* Content = Modal->GetWidgetFromName(TEXT("ModalModeCanvas"));
-	UWidget* Mask = Modal->GetWidgetFromName(TEXT("ModalDismissMask"));
+	UWidget* Content = RokUiFind::Find(Modal, TEXT("ModalModeCanvas"));
+	UWidget* Mask = RokUiFind::Find(Modal, TEXT("ModalDismissMask"));
 	if (!TestNotNull(TEXT("Modal content exists"), Content)
 		|| !TestNotNull(TEXT("Modal input mask exists"), Mask))
 	{
@@ -266,7 +267,7 @@ bool FRokUiWindowAnimationModalLifecycleTest::RunTest(const FString& Parameters)
 	}
 	TestEqual(TEXT("Opening content blocks descendant hits"),
 		Content->GetVisibility(), ESlateVisibility::HitTestInvisible);
-	UWidget* AnimationBlocker = Modal->GetWidgetFromName(TEXT("ModalAnimationInputBlocker"));
+	UWidget* AnimationBlocker = RokUiFind::Find(Modal, TEXT("ModalAnimationInputBlocker"));
 	if (!TestNotNull(TEXT("Transition has a non-dismissing click blocker"), AnimationBlocker))
 	{
 		return false;
@@ -295,7 +296,7 @@ bool FRokUiWindowAnimationModalLifecycleTest::RunTest(const FString& Parameters)
 	Modal->OpenResourceInventory();
 	Modal->AdvanceWindowAnimationForTesting(0.1f);
 	const float Elapsed = Modal->GetWindowAnimationForTesting().GetElapsedSeconds();
-	if (UButton* Tab = Cast<UButton>(Modal->GetWidgetFromName(TEXT("ResourceTab_1"))))
+	if (UButton* Tab = Cast<UButton>(RokUiFind::Find(Modal, TEXT("ResourceTab_1"))))
 	{
 		Tab->OnClicked.Broadcast();
 		TestEqual(TEXT("Resource tab rebuild does not restart entry"),

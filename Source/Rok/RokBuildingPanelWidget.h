@@ -25,6 +25,7 @@ class ROK_API URokBuildingPanelWidget : public UUserWidget
 	GENERATED_BODY()
 
 public:
+	static TSubclassOf<URokBuildingPanelWidget> ResolvePanelClass();
 	void SetSelectedBuilding(AActor* InBuildingActor);
 	void AdvanceMenuAnimation(float DeltaSeconds);
 	// Capture-only: restart UA_BuildingMenu_On and freeze it at Seconds
@@ -40,6 +41,9 @@ protected:
 	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 
 private:
+#if WITH_DEV_AUTOMATION_TESTS
+	friend class FRokBuildingMenuDesignerLayoutTest;
+#endif
 	UPROPERTY()
 	TWeakObjectPtr<AActor> SelectedBuildingActor;
 
@@ -51,6 +55,18 @@ private:
 
 	FRokUiWindowAnimation MenuAnimation;
 	bool bMenuOpen = false;
+	bool bDesignLayoutCached = false;
+	FVector2D DesignMenuSize;
+	FVector2D DesignInfoPosition;
+	FVector2D DesignUpgradePosition;
+	FVector2D DesignFeaturePosition;
+	FVector2D DesignShadowPosition;
+	UPROPERTY(EditDefaultsOnly, Category = "Rok UI|Layout")
+	float ProjectedTitleOffset = 53.0f;
+	UPROPERTY(EditDefaultsOnly, Category = "Rok UI|Layout")
+	float ProjectedButtonGap = 6.0f;
+	UPROPERTY(EditDefaultsOnly, Category = "Rok UI|Layout")
+	float ProjectedButtonRowBottomPadding = 148.0f;
 
 	UPROPERTY()
 	TObjectPtr<UCanvasPanelSlot> BuildingMenuSlot;
@@ -164,9 +180,11 @@ private:
 	void HandleFeatureClicked();
 
 	void BuildWidgetTree();
+	void CacheDesignLayout();
 	void Refresh();
 	void ApplyMenuLayout(bool bIsDecoration, bool bIsBuilderHut, bool bHasFeatureAction);
 	void ApplyFeatureButtonVisual(int32 UnityBuildingTypeId, bool bUpgradeInProgress);
+	void SetFeatureButtonArt(UTexture2D* Texture, const FBox2f& UV = FBox2f(ForceInit));
 	void UpdateMenuPosition();
 	UTexture2D* LoadUiTexture(const TCHAR* TexturePath) const;
 	FSlateBrush MakeImageBrush(UTexture2D* Texture, const FVector2D& DesiredSize) const;

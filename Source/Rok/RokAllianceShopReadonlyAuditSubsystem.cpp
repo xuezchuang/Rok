@@ -1,4 +1,5 @@
 #include "RokAllianceShopReadonlyAuditSubsystem.h"
+#include "RokUiWidgets.h"
 
 #include "RokBuildingUpgradeSubsystem.h"
 #include "RokDataPaths.h"
@@ -672,7 +673,7 @@ TSharedRef<FJsonObject> URokAllianceShopReadonlyAuditSubsystem::State() const
     Json->SetNumberField(TEXT("camera_scale_y"), Camera.GetScale3D().Y);
     Json->SetNumberField(TEXT("camera_scale_z"), Camera.GetScale3D().Z);
     auto Widgets = MakeShared<FJsonObject>();
-    Widgets->SetObjectField(TEXT("AllianceFeatureButton"), WidgetState(Hud.IsValid() ? Hud->GetWidgetFromName(TEXT("AllianceFeatureButton")) : nullptr));
+    Widgets->SetObjectField(TEXT("AllianceFeatureButton"), WidgetState(Hud.IsValid() ? RokUiFind::Find(Hud, TEXT("AllianceFeatureButton")) : nullptr));
     for (const TCHAR* Name : {TEXT("FeatureModeCanvas"), TEXT("FeatureFrameClose"), TEXT("FeatureFrameTitle"),
         TEXT("AllianceFeatureHit_7"), TEXT("AllianceJoinedFixtureTag"), TEXT("AllianceShopReferenceBack"),
         TEXT("AllianceShopReferenceBoundary"), TEXT("AllianceShopReferenceUnavailable"),
@@ -863,7 +864,7 @@ bool URokAllianceShopReadonlyAuditSubsystem::Ready(int32 Phase) const
         || !Server.IsValid() || !Server->IsLocalOnlyRun() || Server->GetHttpDispatchAttemptCount() != 0
         || Server->GetSuppressedLocalRequestCount() != 0 || Modal->IsModalOpen()) return false;
     if (Phase == 7 || Phase == 9) return !Screen->IsScreenOpen()
-        && Visible(Hud->GetWidgetFromName(TEXT("AllianceFeatureButton")));
+        && Visible(RokUiFind::Find(Hud, TEXT("AllianceFeatureButton")));
     const UWidget* Mode = Screen->GetWidgetFromName(TEXT("FeatureModeCanvas"));
     if (!Screen->IsScreenOpen() || !Mode || !Visible(Mode)
         || !FMath::IsNearlyEqual(Mode->GetRenderOpacity(), 1.0, .01)

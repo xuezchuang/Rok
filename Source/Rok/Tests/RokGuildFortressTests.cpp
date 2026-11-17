@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
+#include "RokUiWidgets.h"
 #include "Components/TextBlock.h"
 #include "../RokUnityModalWidget.h"
 
@@ -23,24 +24,24 @@ bool FRokGuildFortressLayoutTest::RunTest(const FString& Parameters)
 	Modal->OpenGuildFortress();
 
 	if (!TestNotNull(TEXT("The first structure row exists"),
-		Modal->GetWidgetFromName(TEXT("GuildFortressRow_0"))))
+		RokUiFind::Find(Modal, TEXT("GuildFortressRow_0"))))
 	{
 		return false;
 	}
 	const UTextBlock* Title = Cast<UTextBlock>(
-		Modal->GetWidgetFromName(TEXT("GuildFortressRowTitle_0")));
+		RokUiFind::Find(Modal, TEXT("GuildFortressRowTitle_0")));
 	TestTrue(TEXT("The row names a real alliance structure"),
 		Title != nullptr
 			&& (Title->GetText().ToString().Contains(TEXT("联盟主要塞"))
 				|| Title->GetText().ToString().Contains(TEXT("联盟"))));
 	const UTextBlock* Detail = Cast<UTextBlock>(
-		Modal->GetWidgetFromName(TEXT("GuildFortressRowDetail_0")));
+		RokUiFind::Find(Modal, TEXT("GuildFortressRowDetail_0")));
 	TestTrue(TEXT("The detail lists the resource cost"),
 		Detail != nullptr
 			&& Detail->GetText().ToString().Contains(TEXT("粮"))
 			&& Detail->GetText().ToString().Contains(TEXT("石")));
 	TestTrue(TEXT("At least two costed structure types are listed"),
-		Modal->GetWidgetFromName(TEXT("GuildFortressRow_1")) != nullptr);
+		RokUiFind::Find(Modal, TEXT("GuildFortressRow_1")) != nullptr);
 
 	Modal->CloseModal();
 	TestFalse(TEXT("Closing clears the guild-fortress mode"), Modal->IsModalOpen());

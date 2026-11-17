@@ -8,13 +8,18 @@
 
 bool FRokScoutCatalog::Load(FString& Error)
 {
+	return LoadFromFile(RokDataPaths::Resolve(TEXT("scout_catalog.json")), Error);
+}
+
+bool FRokScoutCatalog::LoadFromFile(const FString& Path, FString& Error)
+{
 	Levels.Reset(); Text.Reset(); Error.Reset();
 	FString Json;
 	TSharedPtr<FJsonObject> Root;
 	const TArray<TSharedPtr<FJsonValue>>* Rows = nullptr;
 	const TSharedPtr<FJsonObject>* Strings = nullptr;
 	int32 BuildingType = 0;
-	if (!FFileHelper::LoadFileToString(Json, *(RokDataPaths::Resolve(TEXT("scout_catalog.json"))))
+	if (!FFileHelper::LoadFileToString(Json, *Path)
 		|| !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json), Root) || !Root.IsValid()
 		|| !Root->TryGetNumberField(TEXT("building_type"), BuildingType) || BuildingType != 28
 		|| !Root->TryGetArrayField(TEXT("levels"), Rows) || !Root->TryGetObjectField(TEXT("text"), Strings))

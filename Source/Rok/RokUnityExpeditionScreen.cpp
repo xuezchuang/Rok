@@ -4,6 +4,7 @@
 #include "Components/Border.h"
 #include "Components/Button.h"
 #include "Components/CanvasPanel.h"
+#include "Components/CanvasPanelSlot.h"
 #include "Components/Image.h"
 #include "Components/ProgressBar.h"
 #include "Components/ScrollBox.h"
@@ -11,7 +12,11 @@
 #include "Components/SizeBox.h"
 #include "Components/TextBlock.h"
 #include "Engine/GameInstance.h"
+#include "Engine/Texture2D.h"
+#include "Misc/CommandLine.h"
 #include "ImageUtils.h"
+#include "Misc/Parse.h"
+#include "Misc/Paths.h"
 #include "RokCommanderMeshWidget.h"
 #include "RokDataPaths.h"
 #include "RokGameNetSubsystem.h"
@@ -19,9 +24,11 @@
 #include "RokSproto.h"
 #include "RokTroopPortrait.h"
 #include "RokUiTextTable.h"
+#include "RokUiWidgets.h"
 #include "RokUnityConfigSubsystem.h"
 #include "RokUnityEconomyCatalogSubsystem.h"
 #include "RokUnityGameplayCatalogSubsystem.h"
+#include "RokUnityRuntimeStateSubsystem.h"
 
 namespace
 {
@@ -43,6 +50,25 @@ constexpr int32 HeroActionBase = 24200;
 constexpr int32 GatherDeputyAction = 24400;
 constexpr int32 GatherRemoveDeputyAction = 24401;
 constexpr int32 GatherInfoAction = 24402;
+
+UTexture2D* LoadExpeditionWbpTexture(const FString& AssetName)
+{
+	const FString ObjectName = FPaths::GetBaseFilename(AssetName);
+	const FString ObjectPath = FString::Printf(
+		TEXT("/Game/RokPrototype/UI/ExpeditionSource/Art/%s.%s"), *ObjectName, *ObjectName);
+	return LoadObject<UTexture2D>(nullptr, *ObjectPath);
+}
+
+void SetExpeditionWbpTexture(UImage* Image, const FString& AssetName)
+{
+	if (Image)
+	{
+		if (UTexture2D* Texture = LoadExpeditionWbpTexture(AssetName))
+		{
+			Image->SetBrushFromTexture(Texture);
+		}
+	}
+}
 
 bool GatherSoldierOrder(int32 A, int32 B)
 {
@@ -94,6 +120,15 @@ TSharedPtr<FJsonObject> GetRole(const UGameInstance* Instance)
 void URokUnityFeatureScreenWidget::RefreshExpeditionAccount()
 {
 	ExpeditionStageStars.Reset();
+#if !UE_BUILD_SHIPPING
+	if (FParse::Param(FCommandLine::Get(), TEXT("RokExpeditionFlowFixture")))
+	{
+		// Test-only account with known, empty expedition progress. This stays in the
+		// transient widget and exercises the locked stage path without a role request.
+		bExpeditionProgressKnown = true;
+		return;
+	}
+#endif
 	const auto Role = GetRole(GetGameInstance());
 	// An empty expeditionInfo is the initial role state in Unity.
 	bExpeditionProgressKnown = ReadInt(Role, TEXT("level")) > 0;
@@ -155,9 +190,28 @@ void URokUnityFeatureScreenWidget::BuildExpedition()
 	ExpeditionCenterImg = nullptr;
 	ExpeditionCenterFlagMes = nullptr;
 	FRokExpeditionStagePreviewRow Stage;
-	if (!RokExpeditionStagePreviewData::FindById(ExpeditionRows, SelectedExpeditionStageId, Stage))
+	bool bForceSourceErrorFixture = false;
+#if WITH_DEV_AUTOMATION_TESTS && !UE_BUILD_SHIPPING
+	// A deterministic local UI fixture for the otherwise rare missing-source branch.
+	bForceSourceErrorFixture = FParse::Param(FCommandLine::Get(), TEXT("RokLocalOnly"))
+		&& FParse::Param(FCommandLine::Get(), TEXT("RokExpeditionSourceErrorFixture"));
+#endif
+	if (bForceSourceErrorFixture || !RokExpeditionStagePreviewData::FindById(ExpeditionRows, SelectedExpeditionStageId, Stage))
 	{
 		BuildSplitWindowFrame(FVector2D::ZeroVector, FVector2D(1440, 810), FText::FromString(TEXT("远征")), FVector2D(1357, 4));
+		if (bForceSourceErrorFixture)
+		{
+			ExpeditionLoadError = TEXT("远征配置暂不可用（本地 UI 诊断夹具）");
+		}
+		if (URokUiPageWidget* ErrorPage = MountModePage(TEXT("ExpeditionSourceError"), false, 11))
+		{
+			if (UTextBlock* ErrorText = Cast<UTextBlock>(RokUiFind::Find(ErrorPage, TEXT("ExpeditionSourceErrorText"))))
+			{
+				ErrorText->SetText(FText::FromString(ExpeditionLoadError));
+				return;
+			}
+			ErrorPage->RemoveFromParent();
+		}
 		auto* Error = MakeScreenText(TEXT("ExpeditionSourceError"), 20, FLinearColor::White, false, ETextJustify::Center);
 		Error->SetText(FText::FromString(ExpeditionLoadError));
 		PlaceOnCanvas(ModeCanvas, Error, FVector2D(240, 340), FVector2D(960, 60), 10);
@@ -174,6 +228,186 @@ void URokUnityFeatureScreenWidget::BuildExpedition()
 
 void URokUnityFeatureScreenWidget::BuildExpeditionMap(const FRokExpeditionStagePreviewRow& Stage)
 {
+	if (ResolveFeaturePageClass(TEXT("Expedition"))
+		&& ResolveFeaturePageClass(TEXT("ExpeditionStageRow"))
+		&& ResolveFeaturePageClass(TEXT("ExpeditionMapRewardRow")))
+	{
+		if (URokUiPageWidget* Page = MountModePage(TEXT("Expedition"), false))
+		{
+			BindPageAction(*Page, TEXT("ExpeditionMapBackButton"), 1122);
+			BindPageAction(*Page, TEXT("ExpeditionRankButton"), 1125);
+			BindPageAction(*Page, TEXT("ExpeditionRulesButton"), 1126);
+			BindPageAction(*Page, TEXT("ExpeditionShopButton"), 1124);
+			BindPageAction(*Page, TEXT("ExpeditionChestButton"), 1127);
+			BindPageAction(*Page, TEXT("ExpeditionChallenge"), 1120);
+
+			auto SetText = [Page](FName Name, const FText& Text)
+			{
+				if (UTextBlock* Block = Cast<UTextBlock>(RokUiFind::Find(Page, Name))) Block->SetText(Text);
+			};
+			auto SetArt = [Page](FName Name, const FString& Asset)
+			{
+				SetExpeditionWbpTexture(Cast<UImage>(RokUiFind::Find(Page, Name)), Asset);
+			};
+			const auto Role = GetRole(GetGameInstance());
+			SetText(TEXT("ExpeditionMedals"), Role
+				? FText::AsNumber(ReadInt(Role, TEXT("expeditionCoin"))) : FText::FromString(TEXT("—")));
+			SetText(TEXT("ExpeditionGems"), Role
+				? FText::AsNumber(ReadInt(Role, TEXT("denar"))) : FText::FromString(TEXT("—")));
+
+			auto* Scroll = Page->Get<UScrollBox>(TEXT("ExpeditionMapScroll"));
+			auto* Map = Page->Get<UCanvasPanel>(TEXT("ExpeditionMapContent"));
+			auto* MapExtent = Page->Get<USizeBox>(TEXT("ExpeditionMapExtent"));
+			const int32 TileCount = FMath::DivideAndRoundUp(ExpeditionRows.Last().BattleCoordinate.Y + 55, 1024);
+			MapExtent->SetHeightOverride(1024.0f * TileCount);
+			for (int32 Index = 0; Index < 8; ++Index)
+			{
+				if (UImage* Tile = Cast<UImage>(RokUiFind::Find(Page,
+					*FString::Printf(TEXT("ExpeditionMapTile_%d"), Index))))
+				{
+					Tile->SetVisibility(Index < TileCount ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+					if (Index < TileCount)
+						SetExpeditionWbpTexture(Tile, FString::Printf(TEXT("img_bg_battle_map%d.jpg"), Index % 3 + 1));
+				}
+			}
+			for (const FRokExpeditionStagePreviewRow& RowData : ExpeditionRows)
+			{
+				const int32 Id = RowData.Id;
+				const bool bUnlocked = CanChallengeExpedition(RowData);
+				const bool bSelected = Id == Stage.Id;
+				URokUiPageWidget* Row = CreateWidget<URokUiPageWidget>(this,
+					ResolveFeaturePageClass(TEXT("ExpeditionStageRow")));
+				if (!Row) continue;
+				Row->LegacyPrefix = TEXT("ExpeditionStage");
+				Row->LegacySuffix = FString::Printf(TEXT("_%d"), Id);
+				Row->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+				if (UCanvasPanelSlot* CanvasSlot = Map->AddChildToCanvas(Row))
+				{
+					const FVector2D Anchor(static_cast<float>(RowData.BattleCoordinate.X), static_cast<float>(RowData.BattleCoordinate.Y));
+					CanvasSlot->SetPosition(Anchor - FVector2D(45, 62));
+					CanvasSlot->SetZOrder(4);
+				}
+				SetExpeditionWbpTexture(Row->Get<UImage>(TEXT("Flag")), bUnlocked
+					? (RowData.Type == 1 ? TEXT("img_bat_flag1.png") : TEXT("img_bat_flag2.png"))
+					: TEXT("img_bat_flag4.png"));
+				SetExpeditionWbpTexture(Row->Get<UImage>(TEXT("Base")),
+					RowData.Type == 1 ? TEXT("img_bat_flagfra.png") : TEXT("img_bat_flagfra2.png"));
+				SetExpeditionWbpTexture(Row->Get<UImage>(TEXT("SelectedGlow")), TEXT("selected_glow.png"));
+				Row->Get<UImage>(TEXT("SelectedGlow"))->SetVisibility(
+					bSelected ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+				Row->Get<UTextBlock>(TEXT("NormalTitle"))->SetText(FText::AsNumber(RowData.Level));
+				Row->Get<UTextBlock>(TEXT("SelectedTitle"))->SetText(FText::AsNumber(RowData.Level));
+				Row->Get<UTextBlock>(TEXT("NormalTitle"))->SetVisibility(
+					bSelected ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
+				Row->Get<UTextBlock>(TEXT("SelectedTitle"))->SetVisibility(
+					bSelected ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+				for (int32 Star = 0; Star < 3; ++Star)
+				{
+					UImage* StarImage = Cast<UImage>(RokUiFind::Find(Row,
+						*FString::Printf(TEXT("Star_%d"), Star)));
+					if (!StarImage) continue;
+					StarImage->SetVisibility(bUnlocked ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+					if (bUnlocked) SetExpeditionWbpTexture(StarImage,
+						Star < ExpeditionStageStars.FindRef(Id) ? TEXT("icon_com_star2.png") : TEXT("icon_com_star1.png"));
+				}
+				BindPageAction(*Row, TEXT("Button"), StageActionBase + Id);
+			}
+			Scroll->SetScrollOffset(ExpeditionMapOffset);
+
+			SetText(TEXT("ExpeditionSelectedLevel"), FText::FromString(
+				FString::Printf(TEXT("%d/%d"), Stage.Level, ExpeditionRows.Num())));
+			const int32 Stars = ExpeditionStageStars.FindRef(Stage.Id);
+			for (int32 Star = 0; Star < 3; ++Star)
+			{
+				SetArt(*FString::Printf(TEXT("ExpeditionSelectionStar_%d"), Star),
+					Star < Stars ? TEXT("icon_com_star2.png") : TEXT("icon_com_star1.png"));
+			}
+			const bool bFirst = !ExpeditionStageStars.Contains(Stage.Id);
+			SetText(TEXT("ExpeditionRewardTitle"), FText::FromString(bFirst ? TEXT("首次完成奖励") : TEXT("关卡奖励")));
+			Page->Get<UImage>(TEXT("ExpeditionFirstRewardSeal"))->SetVisibility(
+				bFirst ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+			Page->Get<UTextBlock>(TEXT("ExpeditionFirstRewardStamp"))->SetVisibility(
+				bFirst ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+			auto* Config = GetGameInstance()
+				? GetGameInstance()->GetSubsystem<URokUnityConfigSubsystem>() : nullptr;
+			const auto* Rewards = Config ? Config->GetTableRows(TEXT("ItemPackage")) : nullptr;
+			const auto* Economy = GetEconomyCatalogSubsystem();
+			const TArray<FRokUnityEconomyItem> Items = Economy ? Economy->GetItems() : TArray<FRokUnityEconomyItem>();
+			UCanvasPanel* RewardContent = Page->Get<UCanvasPanel>(TEXT("ExpeditionRewardContent"));
+			int32 RewardSlot = 0;
+			if (Rewards)
+			{
+				TArray<int32> Groups = Stage.RewardGroups;
+				if (bFirst) Groups.Insert(Stage.FirstRewardGroup, 0);
+				for (const int32 Group : Groups)
+				{
+					for (const auto& Reward : *Rewards)
+					{
+						if (ReadInt(Reward, TEXT("group")) != Group || RewardSlot >= 6) continue;
+						const int32 Id = ReadInt(Reward, TEXT("typeData"));
+						const int32 Type = ReadInt(Reward, TEXT("type"));
+						const int32 SlotIndex = RewardSlot++;
+						URokUiPageWidget* ItemRow = CreateWidget<URokUiPageWidget>(this,
+							ResolveFeaturePageClass(TEXT("ExpeditionMapRewardRow")));
+						if (!ItemRow) continue;
+						ItemRow->LegacyPrefix = TEXT("ExpeditionReward");
+						ItemRow->LegacySuffix = FString::Printf(TEXT("_%d"), SlotIndex);
+						ItemRow->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+						if (UCanvasPanelSlot* CanvasSlot = RewardContent->AddChildToCanvas(ItemRow))
+						{
+							CanvasSlot->SetPosition(FVector2D(396 + SlotIndex * 79, 658));
+						}
+						const auto* Item = Items.FindByPredicate([Id](const FRokUnityEconomyItem& Entry) { return Entry.Id == Id; });
+						UImage* Icon = ItemRow->Get<UImage>(TEXT("Icon"));
+						bool bHasIcon = false;
+						if (Type == 100 && Id == 116)
+						{
+							SetExpeditionWbpTexture(Icon, TEXT("img_com_cur8.png"));
+							bHasIcon = true;
+						}
+						else
+						{
+							const TCHAR* ItemAtlas = nullptr;
+							FIntRect ItemRect;
+							FIntPoint ItemSize;
+							FRokMailRewardRow RewardIcon;
+							RewardIcon.Id = Id;
+							if (Type == 200 && Item)
+							{
+								RewardIcon.Kind = ERokMailRewardKind::Item;
+								RewardIcon.Icon = Item->Icon;
+							}
+							if ((Type == 100 || (Type == 200 && Item))
+								&& ResolveMailRewardIcon(RewardIcon, ItemAtlas, ItemRect, ItemSize))
+							{
+								Icon->SetBrush(MakeAtlasBrush(LoadObject<UTexture2D>(nullptr, ItemAtlas), ItemRect, ItemSize, FVector2D(48)));
+								if (Item) Icon->SetToolTipText(FText::FromString(Item->DisplayNameZhCn));
+								bHasIcon = true;
+							}
+						}
+						Icon->SetVisibility(bHasIcon ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+						UTextBlock* ItemName = ItemRow->Get<UTextBlock>(TEXT("Name"));
+						ItemName->SetVisibility(!bHasIcon && Item ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+						if (Item) ItemName->SetText(FText::FromString(Item->DisplayNameZhCn));
+						ItemRow->Get<UTextBlock>(TEXT("Count"))->SetText(FText::AsNumber(ReadInt(Reward, TEXT("number"))));
+					}
+				}
+			}
+			for (int32 Squad = 0; Squad < 5; ++Squad)
+				SetArt(*FString::Printf(TEXT("ExpeditionCapacitySlot_%d"), Squad),
+					Squad < Stage.TroopsNumber ? TEXT("img_bat_queue1.png") : TEXT("img_bat_queue2.png"));
+
+			UButton* Challenge = Page->Get<UButton>(TEXT("ExpeditionChallenge"));
+			Challenge->SetIsEnabled(CanChallengeExpedition(Stage));
+			Page->Get<UImage>(TEXT("ExpeditionChallengeGold"))->SetVisibility(CanChallengeExpedition(Stage)
+				? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+			Page->Get<UImage>(TEXT("ExpeditionChallengeDisabled"))->SetVisibility(CanChallengeExpedition(Stage)
+				? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
+			ExpeditionAnimationPhase = TEXT("Idle");
+			ExpeditionAnimationElapsed = 0;
+			return;
+		}
+	}
 	const auto Art = [this](FName Name, const TCHAR* Asset, FVector2D Pos, FVector2D Size, int32 Z)
 	{
 		return AddExpeditionArt(ModeCanvas, Name, Asset, Pos, Size, Z);
@@ -232,7 +466,7 @@ void URokUnityFeatureScreenWidget::BuildExpeditionMap(const FRokExpeditionStageP
 
 	for (const auto& Row : ExpeditionRows)
 	{
-		const FVector2D Anchor(Row.BattleCoordinate);
+		const FVector2D Anchor(static_cast<float>(Row.BattleCoordinate.X), static_cast<float>(Row.BattleCoordinate.Y));
 		const bool bUnlocked = CanChallengeExpedition(Row);
 		const bool bSelected = Row.Id == Stage.Id;
 		const FString Suffix = FString::FromInt(Row.Id);
@@ -351,6 +585,182 @@ void URokUnityFeatureScreenWidget::BuildExpeditionMap(const FRokExpeditionStageP
 
 void URokUnityFeatureScreenWidget::BuildExpeditionTask(const FRokExpeditionStagePreviewRow& Stage)
 {
+	if (ResolveFeaturePageClass(TEXT("ExpeditionTask"))
+		&& ResolveFeaturePageClass(TEXT("ExpeditionStarConditionRow"))
+		&& ResolveFeaturePageClass(TEXT("ExpeditionEnemyHeroRow")))
+	{
+		if (URokUiPageWidget* Page = MountModePage(TEXT("ExpeditionTask"), false))
+		{
+			ExpeditionSideRoot = Page->Get<UCanvasPanel>(TEXT("ExpeditionSideRoot"));
+			ExpeditionCenterRoot = Page->Get<UCanvasPanel>(TEXT("ExpeditionCenterRoot"));
+			ExpeditionCenterImg = Page->Get<UCanvasPanel>(TEXT("ExpeditionCenterImg"));
+			ExpeditionCenterFlagMes = Page->Get<UCanvasPanel>(TEXT("ExpeditionCenterFlagMes"));
+			ExpeditionPreviewRoot = Page->Get<UCanvasPanel>(TEXT("ExpeditionPreviewRoot"));
+			BindPageAction(*Page, TEXT("ExpeditionBackButton"), 1122);
+			BindPageAction(*Page, TEXT("ExpeditionPreviewButton"), 1121);
+			BindPageAction(*Page, TEXT("ExpeditionChallenge"), 1120);
+			auto SetText = [Page](FName Name, const FText& Text)
+			{
+				if (UTextBlock* Block = Cast<UTextBlock>(RokUiFind::Find(Page, Name))) Block->SetText(Text);
+			};
+			auto SetArt = [Page](FName Name, const FString& Asset)
+			{
+				SetExpeditionWbpTexture(Cast<UImage>(RokUiFind::Find(Page, Name)), Asset);
+			};
+			SetText(TEXT("ExpeditionTroopCount"), FText::FromString(
+				FString::Printf(TEXT("%d/%d"), ExpeditionTeams.Num(), Stage.TroopsNumber)));
+			for (int32 Index = 0; Index < 5; ++Index)
+			{
+				const bool bUnlocked = Index < Stage.TroopsNumber;
+				const auto* Team = ExpeditionTeams.Find(Index);
+				SetArt(*FString::Printf(TEXT("ExpeditionSquadSlot_%d"), Index),
+					bUnlocked ? TEXT("img_bat_trop3.png") : TEXT("img_bat_trop4.png"));
+				URokUnityIndexedButton* SquadButton = Page->Get<URokUnityIndexedButton>(
+					*FString::Printf(TEXT("ExpeditionSquadButton_%d"), Index));
+				SquadButton->SetIsEnabled(bUnlocked);
+				BindPageAction(*Page, *FString::Printf(TEXT("ExpeditionSquadButton_%d"), Index), SquadActionBase + Index);
+				UImage* HeroFrame = Cast<UImage>(RokUiFind::Find(Page,
+					*FString::Printf(TEXT("ExpeditionSquadHeroFrame_%d"), Index)));
+				UImage* HeroIcon = Cast<UImage>(RokUiFind::Find(Page,
+					*FString::Printf(TEXT("ExpeditionSquadHeroIcon_%d"), Index)));
+				if (Team)
+				{
+					FRokUnityCatalogHero Hero;
+					auto* Catalog = GetGameplayCatalogSubsystem();
+					if (Catalog && Catalog->GetHero(Team->HeroId, Hero) && Hero.IconWidth > 0 && Hero.IconHeight > 0)
+					{
+						const bool bHighRarity = Hero.Rare >= 4;
+						UTexture2D* FrameTexture = LoadObject<UTexture2D>(nullptr, bHighRarity
+							? HeroHeads : TEXT("/Game/RokPrototype/UI/CommanderAtlases/rok_commander_ui.rok_commander_ui"));
+						const FIntRect FrameRect = Hero.Rare >= 5 ? FIntRect(593, 1895, 727, 2047)
+							: Hero.Rare == 4 ? FIntRect(729, 1895, 863, 2047) : FIntRect(1, 53, 135, 205);
+						const FIntPoint FrameSize = bHighRarity ? FIntPoint(1024, 2048) : FIntPoint(2048, 512);
+						HeroFrame->SetBrush(MakeAtlasBrush(FrameTexture, FrameRect, FrameSize, HeroFrame->GetDesiredSize()));
+						if (Hero.Rare == 2) HeroFrame->SetColorAndOpacity(FLinearColor(0.62f, 1.0f, 0.70f));
+						else if (Hero.Rare == 3) HeroFrame->SetColorAndOpacity(FLinearColor(0.55f, 0.78f, 1.0f));
+						UTexture2D* HeadTexture = LoadObject<UTexture2D>(nullptr, HeroHeads);
+						HeroIcon->SetBrush(MakeAtlasBrush(HeadTexture,
+							FIntRect(Hero.IconX, Hero.IconY, Hero.IconX + Hero.IconWidth, Hero.IconY + Hero.IconHeight),
+							FIntPoint(Hero.IconAtlasWidth, Hero.IconAtlasHeight), HeroIcon->GetDesiredSize()));
+						HeroFrame->SetVisibility(ESlateVisibility::HitTestInvisible);
+						HeroIcon->SetVisibility(ESlateVisibility::HitTestInvisible);
+					}
+				}
+				else
+				{
+					HeroFrame->SetVisibility(ESlateVisibility::Collapsed);
+					HeroIcon->SetVisibility(ESlateVisibility::Collapsed);
+				}
+			}
+
+			auto* Config = GetGameInstance() ? GetGameInstance()->GetSubsystem<URokUnityConfigSubsystem>() : nullptr;
+			TArray<int32> EnemyHeroes;
+			if (Config)
+			{
+				TArray<FName> EnemyFields{TEXT("bossID"), TEXT("targetCityMonsterID")};
+				for (int32 Index = 1; Index <= 5; ++Index)
+					EnemyFields.Add(*FString::Printf(TEXT("monster%dID"), Index));
+				for (FName Field : EnemyFields)
+				{
+					int32 Troop = 0;
+					int32 Hero = 0;
+					if (Config->GetIntFieldByKey(TEXT("ExpeditionBattle"), TEXT("ID"), Stage.BattleId, Field, Troop)
+						&& Troop > 0
+						&& Config->GetIntFieldByKey(TEXT("MonsterTroops"), TEXT("ID"), Troop, TEXT("heroID1"), Hero)
+						&& Hero > 0)
+						EnemyHeroes.Add(Hero);
+				}
+			}
+		auto SetHeroHead = [this](URokUiPageWidget* Row, int32 HeroId)
+			{
+				auto* Catalog = GetGameplayCatalogSubsystem();
+				FRokUnityCatalogHero Hero;
+				if (!Catalog || !Catalog->GetHero(HeroId, Hero) || Hero.IconWidth <= 0 || Hero.IconHeight <= 0) return;
+				UImage* Frame = Row->Get<UImage>(TEXT("Frame"));
+				UImage* Icon = Row->Get<UImage>(TEXT("Icon"));
+				const bool bHighRarity = Hero.Rare >= 4;
+				UTexture2D* FrameTexture = LoadObject<UTexture2D>(nullptr, bHighRarity
+					? HeroHeads : TEXT("/Game/RokPrototype/UI/CommanderAtlases/rok_commander_ui.rok_commander_ui"));
+				const FIntRect FrameRect = Hero.Rare >= 5 ? FIntRect(593, 1895, 727, 2047)
+					: Hero.Rare == 4 ? FIntRect(729, 1895, 863, 2047) : FIntRect(1, 53, 135, 205);
+				const FIntPoint FrameSize = bHighRarity ? FIntPoint(1024, 2048) : FIntPoint(2048, 512);
+				Frame->SetBrush(MakeAtlasBrush(FrameTexture, FrameRect, FrameSize, Frame->GetDesiredSize()));
+				if (Hero.Rare == 2) Frame->SetColorAndOpacity(FLinearColor(0.62f, 1.0f, 0.70f));
+				else if (Hero.Rare == 3) Frame->SetColorAndOpacity(FLinearColor(0.55f, 0.78f, 1.0f));
+				UTexture2D* HeadTexture = LoadObject<UTexture2D>(nullptr, HeroHeads);
+				Icon->SetBrush(MakeAtlasBrush(HeadTexture,
+					FIntRect(Hero.IconX, Hero.IconY, Hero.IconX + Hero.IconWidth, Hero.IconY + Hero.IconHeight),
+					FIntPoint(Hero.IconAtlasWidth, Hero.IconAtlasHeight), Icon->GetDesiredSize()));
+			};
+		UCanvasPanel* EnemyContent = Page->Get<UCanvasPanel>(TEXT("ExpeditionEnemyHeroes"));
+		for (int32 Index = 0; Index < EnemyHeroes.Num(); ++Index)
+		{
+			URokUiPageWidget* EnemyRow = CreateWidget<URokUiPageWidget>(this,
+				ResolveFeaturePageClass(TEXT("ExpeditionEnemyHeroRow")));
+			if (!EnemyRow) continue;
+			EnemyRow->LegacyPrefix = TEXT("ExpeditionEnemyHero");
+			EnemyRow->LegacySuffix = FString::Printf(TEXT("_%d"), Index);
+			EnemyRow->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+			if (UCanvasPanelSlot* CanvasSlot = EnemyContent->AddChildToCanvas(EnemyRow))
+			{
+				CanvasSlot->SetPosition(FVector2D(720 - 44 * EnemyHeroes.Num() + 88 * Index + 8, 452));
+				CanvasSlot->SetZOrder(4);
+			}
+			SetHeroHead(EnemyRow, EnemyHeroes[Index]);
+		}
+		UCanvasPanel* PreviewContent = Page->Get<UCanvasPanel>(TEXT("ExpeditionPreviewEnemies"));
+		for (int32 Index = 0; Index < EnemyHeroes.Num(); ++Index)
+		{
+			URokUiPageWidget* EnemyRow = CreateWidget<URokUiPageWidget>(this,
+				ResolveFeaturePageClass(TEXT("ExpeditionEnemyHeroRow")));
+			if (!EnemyRow) continue;
+			EnemyRow->LegacyPrefix = TEXT("ExpeditionPreviewEnemy");
+			EnemyRow->LegacySuffix = FString::Printf(TEXT("_%d"), Index);
+			EnemyRow->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+			if (UCanvasPanelSlot* CanvasSlot = PreviewContent->AddChildToCanvas(EnemyRow))
+			{
+				CanvasSlot->SetPosition(FVector2D(1100 + 140 * (Index % 2), 139 + 118 * (Index / 2)));
+				CanvasSlot->SetZOrder(3);
+			}
+			SetHeroHead(EnemyRow, EnemyHeroes[Index]);
+		}
+		UCanvasPanel* StarContent = Page->Get<UCanvasPanel>(TEXT("ExpeditionStarConditionList"));
+		for (int32 Index = 0; Index < Stage.StarDescriptions.Num(); ++Index)
+		{
+			URokUiPageWidget* StarRow = CreateWidget<URokUiPageWidget>(this,
+				ResolveFeaturePageClass(TEXT("ExpeditionStarConditionRow")));
+			if (!StarRow) continue;
+			StarRow->LegacyPrefix = TEXT("ExpeditionStarCondition");
+			StarRow->LegacySuffix = FString::Printf(TEXT("_%d"), Index);
+			StarRow->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+			if (UCanvasPanelSlot* CanvasSlot = StarContent->AddChildToCanvas(StarRow))
+			{
+				CanvasSlot->SetPosition(FVector2D(486, 248 + Index * 50));
+				CanvasSlot->SetZOrder(2);
+			}
+			StarRow->Get<UTextBlock>(TEXT("Text"))->SetText(FText::FromString(Stage.StarDescriptions[Index]));
+		}
+		SetText(TEXT("ExpeditionChallengeLabel"), FText::FromString(TEXT("开始")));
+		URokUnityIndexedButton* Start = Page->Get<URokUnityIndexedButton>(TEXT("ExpeditionChallenge"));
+		Start->SetIsEnabled(!ExpeditionTeams.IsEmpty());
+		Page->Get<UImage>(TEXT("ExpeditionChallengeGold"))->SetVisibility(ExpeditionTeams.IsEmpty()
+			? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
+		Page->Get<UImage>(TEXT("ExpeditionChallengeDisabled"))->SetVisibility(ExpeditionTeams.IsEmpty()
+			? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+		ExpeditionPreviewRoot->SetVisibility(bExpeditionPreview ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+		if (ExpeditionAnimationPhase != TEXT("Idle") || bExpeditionPreview)
+		{
+			ExpeditionAnimationPhase = bExpeditionPreview ? FName(TEXT("PreviewTransition")) : FName(TEXT("NormalTransition"));
+			ExpeditionAnimationElapsed = 0;
+			AdvanceExpeditionAnimation(0);
+		}
+		else
+		{
+			ExpeditionPreviewRoot->SetVisibility(ESlateVisibility::Collapsed);
+		}
+		return;
+		}
+	}
 	auto* TerrainShade = MakeSolidBorder(TEXT("ExpeditionStagingShade"), FLinearColor(0.002f, 0.026f, 0.065f, 0.71f));
 	PlaceOnCanvas(ModeCanvas, TerrainShade, FVector2D(-400, -180), FVector2D(2240, 1170), 1);
 	const auto Label = [this](UCanvasPanel* Root, FName Name, const FText& Text, FVector2D Pos,
@@ -490,6 +900,20 @@ void URokUnityFeatureScreenWidget::BuildExpeditionTask(const FRokExpeditionStage
 TMap<int32, int32> URokUnityFeatureScreenWidget::GetExpeditionAvailableSoldiers(int32 TeamSlot) const
 {
 	TMap<int32, int32> Result;
+	#if !UE_BUILD_SHIPPING
+	if (FParse::Param(FCommandLine::Get(), TEXT("RokExpeditionFlowFixture")))
+	{
+		const auto* Runtime = GetGameInstance()
+			? GetGameInstance()->GetSubsystem<URokUnityRuntimeStateSubsystem>() : nullptr;
+		if (Runtime)
+		{
+			for (const FRokUnityRuntimeTroopStack& Stack : Runtime->GetStarterTroopStacks())
+				if (Stack.TroopId > 0 && Stack.Count > 0) Result.Add(Stack.TroopId, Stack.Count);
+		}
+	}
+	else
+	#endif
+	{
 	const auto Role = GetRole(GetGameInstance());
 	VisitRoleCollection(Role, TEXT("historySoldiers"), [&Result](const auto& Soldier)
 	{
@@ -502,11 +926,15 @@ TMap<int32, int32> URokUnityFeatureScreenWidget::GetExpeditionAvailableSoldiers(
 		for (const auto& [Id, Count] : Team.Soldiers)
 			if (auto* Available = Result.Find(Id)) *Available = FMath::Max(0, *Available - Count);
 	}
+	}
 	return Result;
 }
 
 int32 URokUnityFeatureScreenWidget::GetExpeditionDraftCapacity() const
 {
+	#if !UE_BUILD_SHIPPING
+	if (FParse::Param(FCommandLine::Get(), TEXT("RokExpeditionFlowFixture"))) return 100000;
+	#endif
 	auto* Instance = GetGameInstance();
 	const auto* HeroSubsystem = Instance ? Instance->GetSubsystem<URokServerHeroSubsystem>() : nullptr;
 	auto* Config = Instance ? Instance->GetSubsystem<URokUnityConfigSubsystem>() : nullptr;
@@ -720,6 +1148,381 @@ void URokUnityFeatureScreenWidget::FinishGatherArmy(int32 ArmyIndex, const FStri
 void URokUnityFeatureScreenWidget::BuildArmyComposer()
 {
 	const bool bGather = ActiveMode == ERokUnityFeatureScreenMode::GatherArmy;
+	if (bGather)
+	{
+		UClass* HeroRowClass = ResolveFeaturePageClass(TEXT("GatherArmyHeroChoiceRow"));
+		UClass* SoldierRowClass = ResolveFeaturePageClass(TEXT("GatherArmySoldierRow"));
+		auto* Page = HeroRowClass && SoldierRowClass ? MountModePage(TEXT("GatherArmy"), false, 21) : nullptr;
+		if (Page)
+		{
+			auto* ArmyContent = Cast<UCanvasPanel>(Page->GetRootWidget());
+			auto* HeroScroll = Page->Get<UScrollBox>(TEXT("ExpeditionHeroChoiceScroll"));
+			auto* TroopScroll = Page->Get<UScrollBox>(TEXT("ExpeditionArmyTroops"));
+			// The chooser has one authored action followed by the runtime hero rows.
+			auto* NoDeputy = HeroScroll ? Cast<URokUnityIndexedButton>(HeroScroll->GetChildAt(0)) : nullptr;
+			if (ArmyContent && HeroScroll && TroopScroll && NoDeputy)
+			{
+				const auto SetText = [Page](FName Name, const FString& Text)
+				{
+					if (auto* Label = Page->Get<UTextBlock>(Name)) Label->SetText(FText::FromString(Text));
+				};
+				const auto SetImage = [this](UImage* Image, const TCHAR* Path, FIntRect Rect, FIntPoint AtlasSize)
+				{
+					if (!Image) return;
+					FSlateBrush Brush = Image->GetBrush();
+					const FSlateBrush Art = MakeAtlasBrush(LoadObject<UTexture2D>(nullptr, Path), Rect, AtlasSize, Brush.GetImageSize());
+					Brush.SetResourceObject(Art.GetResourceObject());
+					Brush.SetUVRegion(static_cast<FBox2f>(Art.GetUVRegion()));
+					Image->SetBrush(Brush);
+				};
+				auto* Catalog = GetGameplayCatalogSubsystem();
+				const auto BindHead = [&SetImage](URokUiPageWidget& Target, FName IconName, FName FrameName, const FRokUnityCatalogHero& Hero)
+				{
+					const bool bHighRarity = Hero.Rare >= 4;
+					auto* Frame = Target.Get<UImage>(FrameName);
+					SetImage(Frame, bHighRarity ? HeroHeads
+						: TEXT("/Game/RokPrototype/UI/CommanderAtlases/rok_commander_ui.rok_commander_ui"),
+						Hero.Rare >= 5 ? FIntRect(593, 1895, 727, 2047)
+						: Hero.Rare == 4 ? FIntRect(729, 1895, 863, 2047) : FIntRect(1, 53, 135, 205),
+						bHighRarity ? FIntPoint(1024, 2048) : FIntPoint(2048, 512));
+					if (Frame) Frame->SetColorAndOpacity(Hero.Rare == 2 ? FLinearColor(0.62f, 1, 0.70f)
+						: Hero.Rare == 3 ? FLinearColor(0.55f, 0.78f, 1) : FLinearColor::White);
+					SetImage(Target.Get<UImage>(IconName), HeroHeads,
+						FIntRect(Hero.IconX, Hero.IconY, Hero.IconX + Hero.IconWidth, Hero.IconY + Hero.IconHeight),
+						FIntPoint(Hero.IconAtlasWidth, Hero.IconAtlasHeight));
+				};
+				BindPageAction(*Page, TEXT("FeatureFrameClose"), 1131);
+				SetText(TEXT("FeatureFrameTitle"), bExpeditionChoosingHero ? TEXT("选择统帅") : TEXT("创建部队"));
+				Page->SetPresent(HeroScroll, bExpeditionChoosingHero);
+				Page->SetPresent(NoDeputy, bExpeditionChoosingHero && bGatherPickingDeputy);
+				if (bExpeditionChoosingHero)
+				{
+					for (UWidget* Child : ArmyContent->GetAllChildren())
+					{
+						const FString Name = Child->GetName();
+						if (Child != HeroScroll && !Name.StartsWith(TEXT("FeatureFrame")) && Name != TEXT("ExpeditionArmyFrameBacking"))
+						{
+							Child->SetVisibility(ESlateVisibility::Collapsed);
+						}
+					}
+					NoDeputy->ConfigureAction(GatherRemoveDeputyAction);
+					NoDeputy->OnIndexedClicked.AddUObject(this, &URokUnityFeatureScreenWidget::HandleIndexedAction);
+					for (int32 Index = 0; Index < ExpeditionVisibleHeroChoices.Num(); ++Index)
+					{
+						const int32 HeroId = ExpeditionVisibleHeroChoices[Index];
+						FRokUnityCatalogHero Info;
+						if (HeroId == (bGatherPickingDeputy ? ExpeditionDraft.HeroId : GatherArmyDeputy)
+							|| !Catalog || !Catalog->GetHero(HeroId, Info)) continue;
+						auto* Row = CreateWidget<URokUiPageWidget>(this, HeroRowClass);
+						Row->LegacyPrefix = TEXT("ExpeditionHeroChoice");
+						Row->LegacySuffix = FString::Printf(TEXT("_%d"), Index);
+						Row->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+						HeroScroll->AddChild(Row);
+						BindHead(*Row, TEXT("Icon"), TEXT("IconFrame"), Info);
+						Row->Get<UTextBlock>(TEXT("Label"))->SetText(FText::FromString(Info.DisplayNameZhCn));
+						BindPageAction(*Row, TEXT("Button"), HeroActionBase + Index);
+					}
+					return;
+				}
+
+				FRokUnityCatalogHero Hero;
+				const bool bHasHero = Catalog && Catalog->GetHero(ExpeditionDraft.HeroId, Hero);
+				const auto* Server = GetGameInstance() ? GetGameInstance()->GetSubsystem<URokServerHeroSubsystem>() : nullptr;
+				const auto Snapshot = Server ? Server->GetSnapshot() : FRokServerHeroSnapshot();
+				const auto* Owned = Snapshot.Heroes.FindByPredicate([&Hero](const auto& Entry) { return Entry.HeroId == Hero.Id; });
+				const auto* Deputy = GatherArmyDeputy > 0 ? Snapshot.Heroes.FindByPredicate([this](const auto& Entry)
+				{
+					return Entry.HeroId == GatherArmyDeputy;
+				}) : nullptr;
+				Page->SetPresent(Page->Get<UTextBlock>(TEXT("GatherCommanderUnavailable")), !bHasHero);
+				SetText(TEXT("ExpeditionArmyCommanderName"), bHasHero ? Hero.DisplayNameZhCn : FString());
+				auto* Portrait = Page->Get<URokCommanderMeshWidget>(TEXT("ExpeditionArmyPortrait"));
+				Page->SetPresent(Portrait, Portrait && bHasHero && Portrait->LoadHero(Hero.Id));
+				BindPageAction(*Page, TEXT("ExpeditionArmySwitchHero"), 1132);
+				Page->Get<UButton>(TEXT("ExpeditionArmySwitchHero"))->SetIsEnabled(!ExpeditionVisibleHeroChoices.IsEmpty());
+				BindPageAction(*Page, TEXT("GatherDeputy"), GatherDeputyAction);
+				const bool bUnlocked = Owned && Owned->bStarKnown && Owned->Star >= 3;
+				auto* DeputyButton = Page->Get<UButton>(TEXT("GatherDeputy"));
+				DeputyButton->SetIsEnabled(bUnlocked);
+				DeputyButton->SetToolTipText(FText::FromString(bUnlocked ? TEXT("选择副将") : TEXT("主将达到三星解锁副将")));
+				FRokUnityCatalogHero DeputyInfo;
+				const bool bHasDeputy = Deputy && Catalog && Catalog->GetHero(Deputy->HeroId, DeputyInfo);
+				Page->SetPresent(Page->Get<UImage>(TEXT("GatherDeputyHead")), bHasDeputy);
+				Page->SetPresent(Page->Get<UImage>(TEXT("GatherDeputyHeadFrame")), bHasDeputy);
+				if (bHasDeputy) BindHead(*Page, TEXT("GatherDeputyHead"), TEXT("GatherDeputyHeadFrame"), DeputyInfo);
+				Page->SetPresent(Page->Get<UBorder>(TEXT("ExpeditionArmySkillsShade")), bHasHero && Owned);
+				for (int32 Index = 0; Index < 5; ++Index)
+				{
+					auto* Icon = Page->Get<UImage>(*FString::Printf(TEXT("ExpeditionArmySkill_%d"), Index));
+					auto* Label = Page->Get<UTextBlock>(*FString::Printf(TEXT("GatherSkillLevel_%d"), Index));
+					FRokUnityCatalogHeroSkill Skill;
+					const bool bValid = bHasHero && Owned && Hero.SkillIds.IsValidIndex(Index)
+						&& Catalog->GetHeroSkill(Hero.SkillIds[Index], Skill) && Skill.IconWidth > 0 && Skill.IconHeight > 0;
+					Page->SetPresent(Icon, bValid);
+					const auto* Progress = bValid ? Owned->Skills.FindByPredicate([&Skill](const auto& Row) { return Row.SkillId == Skill.Id; }) : nullptr;
+					Page->SetPresent(Label, Progress && Progress->Level > 0);
+					if (!bValid) continue;
+					const bool bFirstAtlas = Skill.IconAtlas == TEXT("hero_skill");
+					const FIntRect Rect(Skill.IconX, Skill.IconY, Skill.IconX + Skill.IconWidth, Skill.IconY + Skill.IconHeight);
+					const FIntPoint Size(Skill.IconAtlasWidth, Skill.IconAtlasHeight);
+					SetImage(Icon, bFirstAtlas ? TEXT("/Game/RokPrototype/UI/CommanderAtlases/rok_commander_skill.rok_commander_skill")
+						: TEXT("/Game/RokPrototype/UI/CommanderAtlases/rok_commander_skill2.rok_commander_skill2"), Rect, Size);
+					if (Progress && Progress->Level > 0) Label->SetText(FText::AsNumber(Progress->Level));
+					else if (auto* Gray = LoadCommanderPreviewTexture(bFirstAtlas ? TEXT("Textures/hero_skill_gray.png") : TEXT("Textures/hero_skill2_gray.png")))
+					{
+						FSlateBrush Brush = Icon->GetBrush();
+						Brush.SetResourceObject(Gray);
+						Icon->SetBrush(Brush);
+					}
+				}
+				const bool bAttack = GatherArmyAttackStation.IsSet();
+				SetText(TEXT("GatherArmyAttributes"), bAttack ? FString::Printf(TEXT("进攻乱军   ·   行动力 %d"), GatherArmyActionCost) : TEXT("行军速度   ·   采集负载"));
+				SetText(TEXT("GatherMarchLabel"), bAttack ? TEXT("出征") : TEXT("行军"));
+				SetText(TEXT("ExpeditionArmyHeroPower"), Owned && Owned->bPowerKnown && (!Deputy || Deputy->bPowerKnown)
+					? FString::Printf(TEXT("统帅战力：%s"), *FText::AsNumber(Owned->Power + (Deputy ? Deputy->Power : 0)).ToString()) : TEXT("统帅战力：—"));
+				BindPageAction(*Page, TEXT("GatherArmyAttributesMore"), GatherInfoAction);
+				BindPageAction(*Page, TEXT("GatherArmyHelp"), GatherInfoAction);
+				BindPageAction(*Page, TEXT("ExpeditionArmyClear"), 1133);
+				BindPageAction(*Page, TEXT("ExpeditionArmyReady"), 1134);
+				FeedbackText = Page->Get<UTextBlock>(TEXT("GatherArmyFeedback"));
+
+				auto* Config = GetGameInstance() ? GetGameInstance()->GetSubsystem<URokUnityConfigSubsystem>() : nullptr;
+				ExpeditionDraftCapacity = GetExpeditionDraftCapacity();
+				GatherArmyAvailable.GetKeys(ExpeditionDraftSoldierIds);
+				ExpeditionDraftSoldierIds.Sort(GatherSoldierOrder);
+				int32 Remaining = ExpeditionDraftCapacity;
+				for (int32 Id : ExpeditionDraftSoldierIds)
+				{
+					const int32 Max = GatherArmyAvailable.FindRef(Id);
+					const int32 Selected = FMath::Clamp(ExpeditionDraft.Soldiers.FindRef(Id), 0, FMath::Min(Max, Remaining));
+					Remaining -= Selected;
+					ExpeditionDraft.Soldiers.Add(Id, Selected);
+					FRokUnityCatalogTroop Troop;
+					if (!Catalog || !Catalog->GetTroop(Id, Troop)) continue;
+					auto* Row = CreateWidget<URokUiPageWidget>(this, SoldierRowClass);
+					Row->LegacyPrefix = TEXT("ExpeditionSoldier");
+					Row->LegacySuffix = FString::Printf(TEXT("_%d"), Id);
+					Row->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+					TroopScroll->AddChild(Row);
+					int32 NameId = 0;
+					if (Config) Config->GetIntFieldByKey(TEXT("Arms"), TEXT("ID"), Id, TEXT("l_armsID"), NameId);
+					Row->Get<UTextBlock>(TEXT("Name"))->SetText(FText::FromString(FRokUiTextTable::Resolve(NameId)));
+					FIntRect Rect;
+					auto* Image = Row->Get<UImage>(TEXT("Portrait"));
+					const bool bHasIcon = RokTroopPortrait::Resolve(Troop.Icon, Rect);
+					Row->SetPresent(Image, bHasIcon);
+					if (bHasIcon) SetImage(Image, TroopHeads, Rect, FIntPoint(1024, 1024));
+					auto* Slider = Row->Get<USlider>(TEXT("Slider"));
+					Slider->SetMaxValue(FMath::Max(1, Max));
+					Slider->SetValue(Selected);
+					Slider->SetIsEnabled(Max > 0 && ExpeditionDraftCapacity > 0);
+					Slider->OnValueChanged.AddDynamic(this, &URokUnityFeatureScreenWidget::HandleExpeditionArmySliderChanged);
+					Row->Get<UProgressBar>(TEXT("Fill"))->SetPercent(Max > 0 ? static_cast<float>(Selected) / Max : 0);
+					Row->Get<UTextBlock>(TEXT("Quantity"))->SetText(FText::AsNumber(Selected));
+				}
+				Page->SetPresent(Page->Get<UTextBlock>(TEXT("ExpeditionNoAvailableSoldiers")), ExpeditionDraftSoldierIds.IsEmpty());
+				UpdateExpeditionArmySummary();
+				return;
+			}
+			Page->RemoveFromParent();
+			ActiveModePage = nullptr;
+		}
+	}
+	if (!bGather
+		&& ResolveFeaturePageClass(TEXT("ExpeditionArmyComposer"))
+		&& ResolveFeaturePageClass(TEXT("ExpeditionHeroChoiceRow"))
+		&& ResolveFeaturePageClass(TEXT("ExpeditionSoldierRow")))
+	{
+		if (URokUiPageWidget* Page = MountModePage(TEXT("ExpeditionArmyComposer"), false, 21))
+		{
+			BindPageAction(*Page, TEXT("ExpeditionArmyCloseButton"), 1131);
+			auto* Catalog = GetGameplayCatalogSubsystem();
+			auto SetText = [Page](FName Name, const FText& Text)
+			{
+				if (UTextBlock* Block = Cast<UTextBlock>(RokUiFind::Find(Page, Name))) Block->SetText(Text);
+			};
+			auto SetImageFromAtlas = [this](UUserWidget* Target, FName Name, const TCHAR* TexturePath,
+				const FIntRect& Rect, const FIntPoint& AtlasSize, const FVector2D& DesiredSize)
+			{
+				if (UImage* Image = Cast<UImage>(RokUiFind::Find(Target, Name)))
+					Image->SetBrush(MakeAtlasBrush(LoadObject<UTexture2D>(nullptr, TexturePath), Rect, AtlasSize, DesiredSize));
+			};
+			UCanvasPanel* ArmyRoot = Page->Get<UCanvasPanel>(TEXT("ExpeditionArmyRoot"));
+			UCanvasPanel* ArmyContent = Page->Get<UCanvasPanel>(TEXT("ExpeditionArmyContentRoot"));
+			UCanvasPanel* HeroChoiceRoot = Page->Get<UCanvasPanel>(TEXT("ExpeditionHeroChoiceRoot"));
+			ArmyRoot->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+			ArmyContent->SetVisibility(bExpeditionChoosingHero ? ESlateVisibility::Collapsed : ESlateVisibility::SelfHitTestInvisible);
+			HeroChoiceRoot->SetVisibility(bExpeditionChoosingHero ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+			SetText(TEXT("ExpeditionArmyTitle"), FText::FromString(
+				bExpeditionChoosingHero ? TEXT("选择统帅") : TEXT("创建部队")));
+			URokUnityIndexedButton* Clear = Page->Get<URokUnityIndexedButton>(TEXT("ExpeditionArmyClear"));
+			URokUnityIndexedButton* Ready = Page->Get<URokUnityIndexedButton>(TEXT("ExpeditionArmyReady"));
+			URokUnityIndexedButton* ChangeHero = Page->Get<URokUnityIndexedButton>(TEXT("ExpeditionArmySwitchHero"));
+			BindPageAction(*Page, TEXT("ExpeditionArmyClear"), 1133);
+			BindPageAction(*Page, TEXT("ExpeditionArmyReady"), 1134);
+			BindPageAction(*Page, TEXT("ExpeditionArmySwitchHero"), 1132);
+			ChangeHero->SetIsEnabled(!ExpeditionVisibleHeroChoices.IsEmpty());
+			if (bExpeditionChoosingHero)
+			{
+				UScrollBox* Scroll = Page->Get<UScrollBox>(TEXT("ExpeditionHeroChoiceScroll"));
+				for (int32 Index = 0; Index < ExpeditionVisibleHeroChoices.Num(); ++Index)
+				{
+					const int32 HeroId = ExpeditionVisibleHeroChoices[Index];
+					FRokUnityCatalogHero Hero;
+					if (!Catalog || !Catalog->GetHero(HeroId, Hero)) continue;
+					URokUiPageWidget* Row = CreateWidget<URokUiPageWidget>(this,
+						ResolveFeaturePageClass(TEXT("ExpeditionHeroChoiceRow")));
+					if (!Row) continue;
+					Row->LegacyPrefix = TEXT("ExpeditionHeroChoice");
+					Row->LegacySuffix = FString::Printf(TEXT("_%d"), Index);
+					Row->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+					Scroll->AddChild(WrapFixedSize(Row, *FString::Printf(TEXT("ExpeditionHeroChoiceSize_%d"), Index),
+						FVector2D(1000, 96)));
+					Row->Get<UTextBlock>(TEXT("Name"))->SetText(FText::FromString(Hero.DisplayNameZhCn));
+					URokUnityIndexedButton* Choose = Row->Get<URokUnityIndexedButton>(TEXT("Button"));
+					Choose->ConfigureAction(HeroActionBase + Index);
+					Choose->OnIndexedClicked.AddUObject(this, &URokUnityFeatureScreenWidget::HandleIndexedAction);
+					const bool bHighRarity = Hero.Rare >= 4;
+					const TCHAR* FrameAtlas = bHighRarity ? HeroHeads
+						: TEXT("/Game/RokPrototype/UI/CommanderAtlases/rok_commander_ui.rok_commander_ui");
+					const FIntRect FrameRect = Hero.Rare >= 5 ? FIntRect(593, 1895, 727, 2047)
+						: Hero.Rare == 4 ? FIntRect(729, 1895, 863, 2047) : FIntRect(1, 53, 135, 205);
+					const FIntPoint FrameSize = bHighRarity ? FIntPoint(1024, 2048) : FIntPoint(2048, 512);
+					if (UImage* Frame = Row->Get<UImage>(TEXT("Frame")))
+					{
+						Frame->SetBrush(MakeAtlasBrush(LoadObject<UTexture2D>(nullptr, FrameAtlas),
+							FrameRect, FrameSize, FVector2D(74, 84)));
+						if (Hero.Rare == 2) Frame->SetColorAndOpacity(FLinearColor(0.62f, 1.0f, 0.70f));
+						else if (Hero.Rare == 3) Frame->SetColorAndOpacity(FLinearColor(0.55f, 0.78f, 1.0f));
+					}
+					SetImageFromAtlas(Row, TEXT("Icon"), HeroHeads,
+						FIntRect(Hero.IconX, Hero.IconY, Hero.IconX + Hero.IconWidth, Hero.IconY + Hero.IconHeight),
+						FIntPoint(Hero.IconAtlasWidth, Hero.IconAtlasHeight), FVector2D(69, 78));
+				}
+				return;
+			}
+
+			ExpeditionDraftCapacity = GetExpeditionDraftCapacity();
+		const TMap<int32, int32> Available = GetExpeditionAvailableSoldiers(ExpeditionDraftSlot);
+			ExpeditionDraftSoldierIds.Reset();
+			Available.GetKeys(ExpeditionDraftSoldierIds);
+			ExpeditionDraftSoldierIds.Sort();
+			FRokUnityCatalogHero Hero;
+			const bool bHasHero = Catalog && Catalog->GetHero(ExpeditionDraft.HeroId, Hero);
+			const auto* Server = GetGameInstance() ? GetGameInstance()->GetSubsystem<URokServerHeroSubsystem>() : nullptr;
+			const auto Snapshot = Server ? Server->GetSnapshot() : FRokServerHeroSnapshot();
+			const auto* Owned = Snapshot.Heroes.FindByPredicate([&Hero](const auto& Entry) { return Entry.HeroId == Hero.Id; });
+			SetText(TEXT("ExpeditionArmyCommanderName"), FText::FromString(
+				bHasHero ? Hero.DisplayNameZhCn : TEXT("统帅数据尚未同步")));
+			SetText(TEXT("ExpeditionArmyHeroPower"), Owned && Owned->bPowerKnown
+				? FText::FromString(FString::Printf(TEXT("统帅战力：%s"), *FText::AsNumber(Owned->Power).ToString()))
+				: FText::FromString(TEXT("统帅战力：—")));
+			UCanvasPanel* PortraitHost = Page->Get<UCanvasPanel>(TEXT("ExpeditionArmyPortraitHost"));
+			if (bHasHero)
+			{
+				URokCommanderMeshWidget* Portrait = WidgetTree
+						? WidgetTree->ConstructWidget<URokCommanderMeshWidget>(URokCommanderMeshWidget::StaticClass(),
+							TEXT("ExpeditionArmyPortrait"))
+						: nullptr;
+				if (Portrait && Portrait->LoadHero(Hero.Id))
+				{
+					if (UCanvasPanelSlot* CanvasSlot = PortraitHost->AddChildToCanvas(Portrait))
+					{
+						CanvasSlot->SetAnchors(FAnchors(0, 0, 1, 1));
+						CanvasSlot->SetOffsets(FMargin(0));
+					}
+					Portrait->SetVisibility(ESlateVisibility::HitTestInvisible);
+				}
+			}
+			UCanvasPanel* Skills = Page->Get<UCanvasPanel>(TEXT("ExpeditionArmySkills"));
+			Skills->SetVisibility(bHasHero ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+			if (bHasHero && Catalog)
+			{
+				for (int32 Index = 0; Index < Hero.SkillIds.Num() && Index < 5; ++Index)
+				{
+					FRokUnityCatalogHeroSkill Skill;
+					if (!Catalog->GetHeroSkill(Hero.SkillIds[Index], Skill) || Skill.IconWidth <= 0 || Skill.IconHeight <= 0) continue;
+					const bool bFirstAtlas = Skill.IconAtlas == TEXT("hero_skill");
+					const TCHAR* Atlas = bFirstAtlas
+						? TEXT("/Game/RokPrototype/UI/CommanderAtlases/rok_commander_skill.rok_commander_skill")
+						: TEXT("/Game/RokPrototype/UI/CommanderAtlases/rok_commander_skill2.rok_commander_skill2");
+					const FIntPoint AtlasSize(Skill.IconAtlasWidth, Skill.IconAtlasHeight);
+					SetImageFromAtlas(Page, *FString::Printf(TEXT("ExpeditionArmySkill_%d"), Index), Atlas,
+						FIntRect(Skill.IconX, Skill.IconY, Skill.IconX + Skill.IconWidth, Skill.IconY + Skill.IconHeight),
+						AtlasSize, FVector2D(58));
+					const FRokServerHeroSkill* SkillProgress = Owned
+						? Owned->Skills.FindByPredicate([&Skill](const auto& Entry) { return Entry.SkillId == Skill.Id; })
+						: nullptr;
+					if (!SkillProgress || SkillProgress->Level <= 0)
+					{
+						if (UImage* SkillImage = Cast<UImage>(RokUiFind::Find(Page,
+							*FString::Printf(TEXT("ExpeditionArmySkill_%d"), Index))))
+						{
+							if (UTexture2D* Gray = LoadCommanderPreviewTexture(bFirstAtlas
+								? TEXT("Textures/hero_skill_gray.png") : TEXT("Textures/hero_skill2_gray.png")))
+							{
+								SkillImage->SetBrush(MakeAtlasBrush(Gray,
+									FIntRect(Skill.IconX, Skill.IconY, Skill.IconX + Skill.IconWidth, Skill.IconY + Skill.IconHeight),
+									AtlasSize, FVector2D(58)));
+							}
+						}
+					}
+				}
+			}
+			UScrollBox* SoldierScroll = Page->Get<UScrollBox>(TEXT("ExpeditionArmyTroops"));
+			int32 Remaining = ExpeditionDraftCapacity;
+			int64 Count = 0;
+			int64 Load = 0;
+			int64 Power = 0;
+			auto* Config = GetGameInstance() ? GetGameInstance()->GetSubsystem<URokUnityConfigSubsystem>() : nullptr;
+			for (const int32 Id : ExpeditionDraftSoldierIds)
+			{
+				const int32 Max = Available.FindRef(Id);
+				const int32 Selected = FMath::Clamp(ExpeditionDraft.Soldiers.FindRef(Id), 0, FMath::Min(Max, Remaining));
+				Remaining -= Selected;
+				ExpeditionDraft.Soldiers.Add(Id, Selected);
+				FRokUnityCatalogTroop Troop;
+				if (!Catalog || !Catalog->GetTroop(Id, Troop)) continue;
+				int32 NameId = 0;
+				if (Config) Config->GetIntFieldByKey(TEXT("Arms"), TEXT("ID"), Id, TEXT("l_armsID"), NameId);
+				URokUiPageWidget* Row = CreateWidget<URokUiPageWidget>(this,
+					ResolveFeaturePageClass(TEXT("ExpeditionSoldierRow")));
+				if (!Row) continue;
+				Row->LegacyPrefix = TEXT("ExpeditionSoldier");
+				Row->LegacySuffix = FString::Printf(TEXT("_%d"), Id);
+				Row->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+				SoldierScroll->AddChild(WrapFixedSize(Row, *FString::Printf(TEXT("ExpeditionSoldierSize_%d"), Id), FVector2D(580, 101)));
+				Row->Get<UTextBlock>(TEXT("Name"))->SetText(
+					FText::FromString(FRokUiTextTable::Resolve(NameId)));
+				UImage* TroopImage = Row->Get<UImage>(TEXT("Portrait"));
+				FIntRect TroopRect;
+				if (RokTroopPortrait::Resolve(Troop.Icon, TroopRect))
+					TroopImage->SetBrush(MakeAtlasBrush(LoadObject<UTexture2D>(nullptr, TroopHeads), TroopRect,
+						FIntPoint(1024, 1024), TroopImage->GetDesiredSize()));
+				USlider* Slider = Row->Get<USlider>(TEXT("Slider"));
+				Slider->SetMaxValue(FMath::Max(1, Max));
+				Slider->SetStepSize(1.0f);
+				Slider->SetIsEnabled(Max > 0 && ExpeditionDraftCapacity > 0);
+				Slider->SetValue(Selected);
+				Slider->OnValueChanged.AddDynamic(this, &URokUnityFeatureScreenWidget::HandleExpeditionArmySliderChanged);
+				UProgressBar* Progress = Row->Get<UProgressBar>(TEXT("Fill"));
+				Progress->SetPercent(Max > 0 ? static_cast<float>(Selected) / Max : 0.0f);
+				Row->Get<UTextBlock>(TEXT("Quantity"))->SetText(FText::AsNumber(Selected));
+				Count += Selected;
+				Load += static_cast<int64>(Selected) * Troop.Capacity;
+				Power += static_cast<int64>(Selected) * Troop.Power;
+			}
+			SetText(TEXT("ExpeditionNoAvailableSoldiers"), FText::FromString(TEXT("暂无可编入远征的部队")));
+			Page->Get<UTextBlock>(TEXT("ExpeditionNoAvailableSoldiers"))->SetVisibility(
+				ExpeditionDraftSoldierIds.IsEmpty() ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+			SetText(TEXT("ExpeditionArmyLoad"), FText::FromString(FString::Printf(TEXT("负载：%s"), *FText::AsNumber(Load).ToString())));
+			SetText(TEXT("ExpeditionArmyCount"), FText::FromString(FString::Printf(TEXT("部队数量：%s/%s"),
+				*FText::AsNumber(Count).ToString(), *FText::AsNumber(ExpeditionDraftCapacity).ToString())));
+			SetText(TEXT("ExpeditionArmyTotalPower"), FText::FromString(FString::Printf(TEXT("总战力：%s"), *FText::AsNumber(Power + (Owned ? Owned->Power : 0)).ToString())));
+			Ready->SetIsEnabled(bHasHero && Count > 0 && Count <= ExpeditionDraftCapacity);
+			return;
+		}
+	}
 	auto* CommonTexture = bGather ? LoadUiTexture(Common) : nullptr;
 	if (!bGather)
 	{

@@ -1,4 +1,5 @@
 #include "RokMailRewardDetailAuditSubsystem.h"
+#include "RokUiWidgets.h"
 #include "RokBuildingUpgradeSubsystem.h"
 #include "RokDataPaths.h"
 #include "RokMainHudWidget.h"
@@ -334,7 +335,7 @@ bool URokMailRewardDetailAuditSubsystem::Click(UUserWidget* Owner,FName Name)
     if (!Expect(bAllowed,TEXT("Mail audit attempted non-read-only action"))) return false;
     if (Name==TEXT("MailClaim") && !Expect(VerifyClaimIsLocalFeedbackOnly(),
         TEXT("Claim action source hash differs from reviewed local-feedback-only code"))) return false;
-    auto* Button=Owner?Cast<UButton>(Owner->GetWidgetFromName(Name)):nullptr;
+    auto* Button=Owner?Cast<UButton>(RokUiFind::Find(Owner, Name)):nullptr;
     if (!Expect(Button && Visible(Button) && Button->GetIsEnabled(),TEXT("Missing visible enabled mail navigation/tooltip/boundary button"))) return false;
     auto Action=MakeShared<FJsonObject>(); Action->SetStringField(TEXT("button"),Name.ToString());
     Action->SetStringField(TEXT("method"),TEXT("UButton.OnClicked.Broadcast"));

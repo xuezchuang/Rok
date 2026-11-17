@@ -200,6 +200,71 @@ bool FRokCommanderSkillReadonlySelectionTest::RunTest(const FString& Parameters)
         Widget->GetWidgetFromName(TEXT("CommanderSkillDetailFrame")));
     TestEqual(TEXT("Talent detail remains closed"),
         Widget->GetSelectedCommanderTalentIdForAudit(), INDEX_NONE);
+    UButton* Biography = Cast<UButton>(Widget->GetWidgetFromName(TEXT("CommanderBiographyAction")));
+    if (TestNotNull(TEXT("Biography action"), Biography))
+    {
+        Biography->OnClicked.Broadcast();
+        Widget->FlushPendingActionForTesting();
+        UTextBlock* Identity = Cast<UTextBlock>(Widget->GetWidgetFromName(TEXT("CommanderCapacity")));
+        UTextBlock* Description = Cast<UTextBlock>(Widget->GetWidgetFromName(TEXT("CommanderDescription")));
+        if (TestNotNull(TEXT("Biography identity"), Identity))
+        {
+            const FString ExpectedIdentity = FText::Format(
+                NSLOCTEXT("RokCommander", "CommanderIdentity", "稀有度 {0}  ·  文明 {1}"),
+                FText::AsNumber(Hero.Rare), FText::AsNumber(Hero.Civilization)).ToString();
+            TestEqual(TEXT("Biography identity uses selected hero config"), Identity->GetText().ToString(), ExpectedIdentity);
+        }
+        FString ExpectedDescription = !Hero.DisplayDescriptionZhCn.IsEmpty()
+            ? Hero.DisplayDescriptionZhCn : Hero.DisplayDescriptionEn;
+        if (ExpectedDescription.IsEmpty()) ExpectedDescription = TEXT("暂无统帅介绍。");
+        if (ExpectedDescription.Len() > 58) ExpectedDescription = ExpectedDescription.Left(58) + TEXT("…");
+        if (TestNotNull(TEXT("Biography description"), Description))
+            TestEqual(TEXT("Biography describes selected hero"), Description->GetText().ToString(), ExpectedDescription);
+        Biography = Cast<UButton>(Widget->GetWidgetFromName(TEXT("CommanderBiographyAction")));
+        if (TestNotNull(TEXT("Biography toggle remains available"), Biography))
+        {
+            Biography->OnClicked.Broadcast();
+            Widget->FlushPendingActionForTesting();
+            TestNull(TEXT("Biography closes"), Widget->GetWidgetFromName(TEXT("CommanderBiographyPanel")));
+        }
+    }
+    UScrollBox* Roster = Cast<UScrollBox>(Widget->GetWidgetFromName(TEXT("CommanderRosterScroll")));
+    if (TestNotNull(TEXT("Commander roster scroll"), Roster))
+    {
+        TestTrue(TEXT("Commander roster contains runtime rows"), Roster->GetChildrenCount() > 0);
+    }
+    if (UButton* Sort = Cast<UButton>(Widget->GetWidgetFromName(TEXT("CommanderSortAction"))))
+    {
+        Sort->OnClicked.Broadcast();
+        Widget->FlushPendingActionForTesting();
+        UButton* Star = Cast<UButton>(Widget->GetWidgetFromName(TEXT("CommanderSortOption_1")));
+        if (TestNotNull(TEXT("Star sorting option"), Star))
+        {
+            Star->OnClicked.Broadcast();
+            Widget->FlushPendingActionForTesting();
+            Roster = Cast<UScrollBox>(Widget->GetWidgetFromName(TEXT("CommanderRosterScroll")));
+            if (TestNotNull(TEXT("Commander roster survives sorting"), Roster))
+            {
+                TestTrue(TEXT("Sorted roster contains runtime rows"), Roster->GetChildrenCount() > 0);
+            }
+            Sort = Cast<UButton>(Widget->GetWidgetFromName(TEXT("CommanderSortAction")));
+            if (TestNotNull(TEXT("Sort action remains available"), Sort))
+            {
+                Sort->OnClicked.Broadcast();
+                Widget->FlushPendingActionForTesting();
+                const UTextBlock* Selected = Cast<UTextBlock>(Widget->GetWidgetFromName(TEXT("CommanderSortOption_1Label")));
+                const UTextBlock* Normal = Cast<UTextBlock>(Widget->GetWidgetFromName(TEXT("CommanderSortOption_0Label")));
+                if (TestNotNull(TEXT("Selected sort label"), Selected) && TestNotNull(TEXT("Normal sort label"), Normal))
+                {
+                    TestTrue(TEXT("Selected sort style follows selected state"),
+                        Selected->GetColorAndOpacity().GetSpecifiedColor().Equals(FLinearColor(1.0f, 0.78f, 0.24f, 1.0f)));
+                    TestTrue(TEXT("Other sort style remains normal"),
+                        Normal->GetColorAndOpacity().GetSpecifiedColor().Equals(FLinearColor(0.94f, 0.94f, 0.92f, 1.0f)));
+                }
+            }
+        }
+    }
+    else AddError(TEXT("Commander sort action missing"));
     const TArray<FRokUnityRuntimeHeroState> AfterHeroes = Runtime->GetStarterHeroes();
     TestEqual(TEXT("Bootstrap hero count unchanged"), AfterHeroes.Num(), BeforeHeroes.Num());
     for (int32 Index = 0; Index < BeforeHeroes.Num() && AfterHeroes.IsValidIndex(Index); ++Index)

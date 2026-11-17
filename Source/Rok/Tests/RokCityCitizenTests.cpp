@@ -7,6 +7,7 @@
 #include "UObject/UObjectIterator.h"
 #include "../RokGameNetSubsystem.h"
 #include "../RokMainHudWidget.h"
+#include "../RokUiWidgets.h"
 #include "../RokCityCitizenActor.h"
 
 // City-life preview walkers (Unity citizen.prefab / People.cs). The wander has
@@ -65,7 +66,7 @@ public:
 			if (!Net || !Net->IsSnapshotReplay()) continue;
 			const auto* Farm = Hud->GetWidgetFromName(TEXT("CityHarvestBubble_0"));
 			const auto* Sawmill = Hud->GetWidgetFromName(TEXT("CityHarvestBubble_1"));
-			const auto* Marker = Hud->GetWidgetFromName(TEXT("BarracksIdleZ"));
+			const auto* Marker = RokUiFind::Find(*Hud, TEXT("BarracksIdleZ"));
 			if (!Farm || !Farm->IsVisible() || !Sawmill || !Sawmill->IsVisible() || !Marker || !Marker->IsVisible()) continue;
 			int32 Count = 0;
 			for (TActorIterator<ARokCityCitizenActor> Person(Hud->GetWorld()); Person; ++Person)
@@ -73,11 +74,11 @@ public:
 				Count += !Person->IsHidden();
 			}
 			Test.TestEqual(TEXT("Six source-age residents and two barracks soldiers are visible"), Count, 8);
-			auto* Action = Cast<UButton>(Hud->GetWidgetFromName(TEXT("CityHarvestAction_0")));
+			auto* Action = Cast<UButton>(RokUiFind::Find(*Hud, TEXT("CityHarvestAction_0")));
 			if (Test.TestNotNull(TEXT("Farm bubble has a real action"), Action))
 			{
 				Action->OnClicked.Broadcast();
-				const auto* Feedback = Cast<UTextBlock>(Hud->GetWidgetFromName(TEXT("CityHarvestFeedback")));
+				const auto* Feedback = Cast<UTextBlock>(RokUiFind::Find(*Hud, TEXT("CityHarvestFeedback")));
 				Test.TestTrue(TEXT("Collect in a snapshot explains the write guard"), Feedback && Feedback->IsVisible()
 					&& Feedback->GetText().ToString().Contains(TEXT("快照")));
 			}

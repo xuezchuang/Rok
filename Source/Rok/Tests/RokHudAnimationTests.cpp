@@ -142,6 +142,84 @@ bool FRokResourceSearchMotionTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRokBuildingMenuDesignerLayoutTest,
+	"Rok.Ui.Animation.BuildingMenu.DesignerLayout",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FRokBuildingMenuDesignerLayoutTest::RunTest(const FString& Parameters)
+{
+	const TSubclassOf<URokBuildingPanelWidget> PanelClass = URokBuildingPanelWidget::ResolvePanelClass();
+	auto* Menu = NewObject<URokBuildingPanelWidget>(GetTransientPackage(), PanelClass);
+	if (!TestTrue(TEXT("Building panel initializes"), Menu->Initialize())) return false;
+	const auto FindSlot = [Menu](FName Name)
+	{
+		const UWidget* Widget = Menu->GetWidgetFromName(Name);
+		return Widget ? Cast<UCanvasPanelSlot>(Widget->Slot) : nullptr;
+	};
+	const bool bBlueprint = PanelClass->HasAnyClassFlags(CLASS_CompiledFromBlueprint);
+	const FVector2D IconSize = bBlueprint ? FVector2D(104, 96) : FVector2D(88, 88);
+	const FLinearColor IconTint = bBlueprint ? FLinearColor(0.8f, 0.7f, 0.6f, 1.0f) : FLinearColor::White;
+	FVector2D ExpectedMenuSize(472.7f, 340.0f);
+	FVector2D ExpectedInfo(92.35f, 218.0f);
+	FVector2D ExpectedUpgrade(192.35f, 230.0f);
+	FVector2D ExpectedFeature(292.35f, 218.0f);
+	if (bBlueprint)
+	{
+		auto* MenuRoot = FindSlot(TEXT("BuildingMenuRoot"));
+		auto* Info = FindSlot(TEXT("BuildingInfoButton"));
+		auto* Upgrade = FindSlot(TEXT("BuildingUpgradeButton"));
+		auto* Feature = FindSlot(TEXT("BuildingFeatureButton"));
+		if (!TestTrue(TEXT("Designer slots exist before Slate construction"), MenuRoot && Info && Upgrade && Feature)) return false;
+		ExpectedMenuSize += FVector2D(16, 24);
+		ExpectedInfo += FVector2D(2, 5);
+		ExpectedUpgrade += FVector2D(6, 9);
+		ExpectedFeature += FVector2D(10, 13);
+		MenuRoot->SetSize(ExpectedMenuSize);
+		Info->SetPosition(ExpectedInfo);
+		Upgrade->SetPosition(ExpectedUpgrade);
+		Feature->SetPosition(ExpectedFeature);
+		auto* FeatureIcon = Cast<UImage>(Menu->GetWidgetFromName(TEXT("BuildingFeatureButtonImage")));
+		if (!TestNotNull(TEXT("Designer command icon"), FeatureIcon)) return false;
+		FSlateBrush Brush = FeatureIcon->GetBrush();
+		Brush.ImageSize = IconSize;
+		Brush.TintColor = IconTint;
+		FeatureIcon->SetBrush(Brush);
+	}
+	Menu->TakeWidget();
+	auto* Info = FindSlot(TEXT("BuildingInfoButton"));
+	auto* Upgrade = FindSlot(TEXT("BuildingUpgradeButton"));
+	auto* Feature = FindSlot(TEXT("BuildingFeatureButton"));
+	if (!TestTrue(TEXT("Runtime command slots are bound"), Info && Upgrade && Feature)) return false;
+	TestTrue(TEXT("Initial panel dimensions are captured"), Menu->DesignMenuSize.Equals(ExpectedMenuSize, 0.001));
+	Menu->ApplyMenuLayout(false, false, true);
+	TestTrue(TEXT("Three-button row starts on the design"), Info->GetPosition().Equals(ExpectedInfo, 0.001)
+		&& Upgrade->GetPosition().Equals(ExpectedUpgrade, 0.001) && Feature->GetPosition().Equals(ExpectedFeature, 0.001));
+	Menu->ApplyMenuLayout(false, true, true);
+	TestTrue(TEXT("Builder buttons use centers derived from the design"),
+		FMath::IsNearlyEqual(Info->GetPosition().X, (ExpectedInfo.X + ExpectedUpgrade.X) * 0.5, 0.001)
+		&& FMath::IsNearlyEqual(Feature->GetPosition().X, (ExpectedUpgrade.X + ExpectedFeature.X) * 0.5, 0.001));
+	Menu->ApplyMenuLayout(true, false, false);
+	TestTrue(TEXT("Decoration centers the info button"), FMath::IsNearlyEqual(Info->GetPosition().X, ExpectedUpgrade.X, 0.001));
+	Menu->ApplyMenuLayout(false, false, true);
+	TestTrue(TEXT("Returning to three buttons restores the authored positions"), Info->GetPosition().Equals(ExpectedInfo, 0.001)
+		&& Upgrade->GetPosition().Equals(ExpectedUpgrade, 0.001) && Feature->GetPosition().Equals(ExpectedFeature, 0.001));
+	const auto* Icon = Cast<UImage>(Menu->GetWidgetFromName(TEXT("BuildingFeatureButtonImage")));
+	if (!TestNotNull(TEXT("Command icon is bound"), Icon)) return false;
+	Menu->ApplyFeatureButtonVisual(2, false);
+	TestTrue(TEXT("Resource action uses its original atlas crop"), Icon->GetBrush().GetResourceObject()
+		&& static_cast<FBox2f>(Icon->GetBrush().GetUVRegion()).bIsValid);
+	TestTrue(TEXT("An atlas swap keeps the authored brush dimensions, style and tint"),
+		FVector2D(Icon->GetBrush().GetImageSize()).Equals(IconSize) && Icon->GetBrush().TintColor.GetSpecifiedColor().Equals(IconTint));
+	Menu->ApplyFeatureButtonVisual(28, false);
+	TestTrue(TEXT("The Scout texture no longer inherits the previous atlas UV"), Icon->GetBrush().GetResourceObject()
+		&& Icon->GetBrush().GetResourceObject()->GetName() == TEXT("rok_building_menu_scout")
+		&& !static_cast<FBox2f>(Icon->GetBrush().GetUVRegion()).bIsValid);
+	Menu->ApplyMenuLayout(true, false, true);
+	TestTrue(TEXT("Decoration action swaps preserve the authored brush dimensions and tint"),
+		FVector2D(Icon->GetBrush().GetImageSize()).Equals(IconSize) && Icon->GetBrush().TintColor.GetSpecifiedColor().Equals(IconTint));
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRokBuildingMenuAnimationTest,
 	"Rok.Ui.Animation.BuildingMenu.Lifecycle",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

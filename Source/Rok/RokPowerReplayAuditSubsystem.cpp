@@ -17,6 +17,7 @@
 #include "Misc/Paths.h"
 #include "RokMainHudWidget.h"
 #include "RokPowerGainWidget.h"
+#include "RokUiWidgets.h"
 #include "RokUnityRuntimeStateSubsystem.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
@@ -127,7 +128,7 @@ void URokPowerReplayAuditSubsystem::Tick(float DeltaTime)
 		int32 Count = 0;
 		for (auto* W : Widgets) if (W->GetWorld() == GetWorld() && W->IsVisible() && W->GetRenderOpacity() > 0 && W->GetCachedGeometry().GetLocalSize().X > 1) { Hud = Cast<URokMainHudWidget>(W); ++Count; }
 		if (Count != 1) { Finish(TEXT("Expected unique visible attached HUD.")); return; }
-		Effect = Cast<URokPowerGainWidget>(Hud->GetWidgetFromName(TEXT("PlayerPowerGain")));
+		Effect = Cast<URokPowerGainWidget>(RokUiFind::Find(Hud, TEXT("PlayerPowerGain")));
 		auto* Runtime = GetWorld()->GetGameInstance()->GetSubsystem<URokUnityRuntimeStateSubsystem>();
 		if (!Effect.IsValid() || Effect->IsPlaying() || !Runtime) { Finish(TEXT("Expected idle existing HUD power effect/runtime.")); return; }
 		Baseline = Runtime->GetPlayerProfileState().LocalPreviewScore;
@@ -138,7 +139,7 @@ void URokPowerReplayAuditSubsystem::Tick(float DeltaTime)
 	}
 	if (!Hud.IsValid() || !Effect.IsValid() || !Hud->IsVisible() || Hud->GetRenderOpacity() <= 0
 		|| !Controller.IsValid() || GetWorld()->GetFirstPlayerController() != Controller.Get() || Controller->GetViewTarget() != ViewTarget.Get()
-		|| Hud->GetWidgetFromName(TEXT("PlayerPowerGain")) != Effect.Get()) { Finish(TEXT("HUD/effect/controller identity changed.")); return; }
+		|| RokUiFind::Find(Hud, TEXT("PlayerPowerGain")) != Effect.Get()) { Finish(TEXT("HUD/effect/controller identity changed.")); return; }
 	auto* Runtime = GetWorld()->GetGameInstance()->GetSubsystem<URokUnityRuntimeStateSubsystem>();
 	if (!Runtime || Runtime->GetPlayerProfileState().LocalPreviewScore != Baseline) { Finish(TEXT("Business score changed during presentation-only audit.")); return; }
 	Trace.Add(MakeShared<FJsonValueObject>(State(TEXT("tick"))));

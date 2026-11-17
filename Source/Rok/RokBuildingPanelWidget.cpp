@@ -19,6 +19,10 @@
 #include "GameFramework/PlayerController.h"
 #include "RokBuildingUpgradeSubsystem.h"
 #include "RokCitySpriteActor.h"
+#include "RokUiSpec.h"
+#include "RokUiWidgets.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 #include "Styling/CoreStyle.h"
 #include "Widgets/SWidget.h"
 
@@ -42,12 +46,17 @@ const TCHAR* UiBuildingMenuHospitalPath = TEXT("/Game/RokPrototype/UI/BuildingMe
 const TCHAR* UiBuildingMenuScoutPath = TEXT("/Game/RokPrototype/UI/BuildingMenu/rok_building_menu_scout.rok_building_menu_scout");
 const TCHAR* UiBuildingMenuResearchPath = TEXT("/Game/RokPrototype/UI/BuildingMenu/rok_building_menu_research.rok_building_menu_research");
 const FVector2D BuildingMenuSize(472.7f, 340.0f);
-constexpr float BuildingTitleHeight = 53.0f;
-constexpr float BuildingButtonBoundsGap = 6.0f;
-constexpr float BuildingShadowButtonOffset = 34.0f;
 constexpr float BuildingShadowY = 184.0f;
 constexpr float BuildingInfoButtonY = 218.0f;
 constexpr float BuildingUpgradeButtonY = 230.0f;
+}
+
+TSubclassOf<URokBuildingPanelWidget> URokBuildingPanelWidget::ResolvePanelClass()
+{
+	static const TSoftClassPtr<URokBuildingPanelWidget> PanelClass(
+		FSoftObjectPath(TEXT("/Game/RokUI/Building/WBP_RokBuildingPanel.WBP_RokBuildingPanel_C")));
+	UClass* Class = URokUiSettings::Resolve(PanelClass);
+	return Class ? Class : StaticClass();
 }
 
 void URokBuildingPanelWidget::SetSelectedBuilding(AActor* InBuildingActor)
@@ -108,7 +117,20 @@ void URokBuildingPanelWidget::SampleMenuOpenForCapture(float Seconds)
 TSharedRef<SWidget> URokBuildingPanelWidget::RebuildWidget()
 {
 	BuildWidgetTree();
+	if (!bDesignLayoutCached) CacheDesignLayout();
 	return Super::RebuildWidget();
+}
+
+void URokBuildingPanelWidget::CacheDesignLayout()
+{
+	DesignMenuSize = BuildingMenuSlot ? BuildingMenuSlot->GetSize() : BuildingMenuSize;
+	DesignInfoPosition = InfoButtonSlot ? InfoButtonSlot->GetPosition() : FVector2D(92.35f, BuildingInfoButtonY);
+	DesignUpgradePosition = UpgradeButtonSlot ? UpgradeButtonSlot->GetPosition() : FVector2D(192.35f, BuildingUpgradeButtonY);
+	DesignFeaturePosition = FeatureButtonSlot ? FeatureButtonSlot->GetPosition() : FVector2D(292.35f, BuildingInfoButtonY);
+	const UCanvasPanelSlot* ShadowSlot = WidgetTree
+		? UWidgetLayoutLibrary::SlotAsCanvasSlot(WidgetTree->FindWidget(TEXT("ButtonShadow"))) : nullptr;
+	DesignShadowPosition = ShadowSlot ? ShadowSlot->GetPosition() : FVector2D(50.85f, BuildingShadowY);
+	bDesignLayoutCached = true;
 }
 
 void URokBuildingPanelWidget::NativeConstruct()
@@ -174,8 +196,45 @@ void URokBuildingPanelWidget::HandleFeatureClicked()
 
 void URokBuildingPanelWidget::BuildWidgetTree()
 {
-	if (!WidgetTree || WidgetTree->RootWidget)
+	if (!WidgetTree)
 	{
+		return;
+	}
+	if (WidgetTree->RootWidget)
+	{
+		BuildingMenuRoot = Cast<UCanvasPanel>(WidgetTree->FindWidget(TEXT("BuildingMenuRoot")));
+		BuildingTitleRoot = Cast<UCanvasPanel>(WidgetTree->FindWidget(TEXT("BuildingTitleRoot")));
+		BuildingMenuSlot = BuildingMenuRoot ? Cast<UCanvasPanelSlot>(BuildingMenuRoot->Slot) : nullptr;
+		TitleText = Cast<UTextBlock>(WidgetTree->FindWidget(TEXT("BuildingTitleText")));
+		LevelText = Cast<UTextBlock>(WidgetTree->FindWidget(TEXT("BuildingLevelText")));
+		LevelFrameImage = Cast<UImage>(WidgetTree->FindWidget(TEXT("LevelFrame")));
+		InfoButton = Cast<UButton>(WidgetTree->FindWidget(TEXT("BuildingInfoButton")));
+		UpgradeButton = Cast<UButton>(WidgetTree->FindWidget(TEXT("BuildingUpgradeButton")));
+		FeatureButton = Cast<UButton>(WidgetTree->FindWidget(TEXT("BuildingFeatureButton")));
+		FeatureButtonImage = Cast<UImage>(WidgetTree->FindWidget(TEXT("BuildingFeatureButtonImage")));
+		InfoButtonSlot = InfoButton ? Cast<UCanvasPanelSlot>(InfoButton->Slot) : nullptr;
+		UpgradeButtonSlot = UpgradeButton ? Cast<UCanvasPanelSlot>(UpgradeButton->Slot) : nullptr;
+		FeatureButtonSlot = FeatureButton ? Cast<UCanvasPanelSlot>(FeatureButton->Slot) : nullptr;
+		if (!BuildingMenuRoot || !BuildingTitleRoot || !BuildingMenuSlot || !TitleText || !LevelText
+			|| !LevelFrameImage || !InfoButtonSlot || !UpgradeButtonSlot || !FeatureButtonSlot || !FeatureButtonImage)
+		{
+			UE_LOG(LogTemp, Error, TEXT("Rok building panel WBP is missing required widgets"));
+			return;
+		}
+		FeatureButtonTexture = LoadUiTexture(UiBuildingMenuFeaturePath);
+		RemoveButtonTexture = LoadUiTexture(UiBuildingMenuRemovePath);
+		SpeedUpButtonTexture = LoadUiTexture(UiBuildingMenuSpeedUpPath);
+		WorkerButtonTexture = LoadUiTexture(UiBuildingMenuWorkerPath);
+		InfantryButtonTexture = LoadUiTexture(UiBuildingMenuInfantryPath);
+		CavalryButtonTexture = LoadUiTexture(UiBuildingMenuCavalryPath);
+		ArcherButtonTexture = LoadUiTexture(UiBuildingMenuArcherPath);
+		SiegeButtonTexture = LoadUiTexture(UiBuildingMenuSiegePath);
+		HospitalButtonTexture = LoadUiTexture(UiBuildingMenuHospitalPath);
+		ScoutButtonTexture = LoadUiTexture(UiBuildingMenuScoutPath);
+		ResearchButtonTexture = LoadUiTexture(UiBuildingMenuResearchPath);
+		InfoButton->OnClicked.AddUniqueDynamic(this, &URokBuildingPanelWidget::HandleInfoClicked);
+		UpgradeButton->OnClicked.AddUniqueDynamic(this, &URokBuildingPanelWidget::HandleUpgradeClicked);
+		FeatureButton->OnClicked.AddUniqueDynamic(this, &URokBuildingPanelWidget::HandleFeatureClicked);
 		return;
 	}
 
@@ -306,6 +365,21 @@ void URokBuildingPanelWidget::BuildWidgetTree()
 	InfoButton->OnClicked.AddDynamic(this, &URokBuildingPanelWidget::HandleInfoClicked);
 	UpgradeButton->OnClicked.AddDynamic(this, &URokBuildingPanelWidget::HandleUpgradeClicked);
 	FeatureButton->OnClicked.AddDynamic(this, &URokBuildingPanelWidget::HandleFeatureClicked);
+#if WITH_EDITOR
+	FString SpecPath;
+	if (URokUiSettings::IsLegacyForced() && FParse::Value(FCommandLine::Get(), TEXT("RokUiExportBuildingPanel="), SpecPath))
+	{
+		FString Error;
+		if (!RokUiSpec::ExportChildren(RootCanvas, SpecPath, TEXT("building_panel"), Error))
+		{
+			UE_LOG(LogTemp, Error, TEXT("Rok building panel spec export failed: %s"), *Error);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Display, TEXT("Rok building panel spec saved to %s"), *SpecPath);
+		}
+	}
+#endif
 }
 
 void URokBuildingPanelWidget::Refresh()
@@ -393,26 +467,26 @@ void URokBuildingPanelWidget::ApplyMenuLayout(
 	}
 	if (InfoButtonSlot)
 	{
+		const double TwoButtonX = (DesignInfoPosition.X + DesignUpgradePosition.X) * 0.5;
 		InfoButtonSlot->SetPosition(
-			bIsDecoration
-				? FVector2D(192.35f, BuildingInfoButtonY)
-				: FVector2D(bHasFeatureAction && !bIsBuilderHut ? 92.35f : 142.35f, BuildingInfoButtonY));
+			{bIsDecoration ? DesignUpgradePosition.X
+				: (bHasFeatureAction && !bIsBuilderHut ? DesignInfoPosition.X : TwoButtonX), DesignInfoPosition.Y});
 	}
 	if (UpgradeButtonSlot)
 	{
-		UpgradeButtonSlot->SetPosition(bHasFeatureAction
-			? FVector2D(192.35f, BuildingUpgradeButtonY)
-			: FVector2D(242.35f, BuildingUpgradeButtonY));
+		const double TwoButtonX = (DesignUpgradePosition.X + DesignFeaturePosition.X) * 0.5;
+		UpgradeButtonSlot->SetPosition({bHasFeatureAction ? DesignUpgradePosition.X : TwoButtonX, DesignUpgradePosition.Y});
 	}
 	if (FeatureButtonSlot)
 	{
-		FeatureButtonSlot->SetPosition(FVector2D(bIsBuilderHut ? 242.35f : 292.35f, BuildingInfoButtonY));
+		const double TwoButtonX = (DesignUpgradePosition.X + DesignFeaturePosition.X) * 0.5;
+		FeatureButtonSlot->SetPosition({bIsBuilderHut ? TwoButtonX : DesignFeaturePosition.X, DesignFeaturePosition.Y});
 	}
 	if (UWidget* ButtonShadow = WidgetTree->FindWidget(TEXT("ButtonShadow")))
 	{
 		if (UCanvasPanelSlot* ButtonShadowSlot = UWidgetLayoutLibrary::SlotAsCanvasSlot(ButtonShadow))
 		{
-			ButtonShadowSlot->SetPosition(FVector2D(50.85f, BuildingShadowY));
+			ButtonShadowSlot->SetPosition(DesignShadowPosition);
 		}
 	}
 	if (FeatureButtonImage && bIsDecoration && bHasFeatureAction)
@@ -420,9 +494,18 @@ void URokBuildingPanelWidget::ApplyMenuLayout(
 		UTexture2D* Texture = RemoveButtonTexture.Get();
 		if (Texture)
 		{
-			FeatureButtonImage->SetBrush(MakeImageBrush(Texture, FVector2D(88.0f)));
+			SetFeatureButtonArt(Texture);
 		}
 	}
+}
+
+void URokBuildingPanelWidget::SetFeatureButtonArt(UTexture2D* Texture, const FBox2f& UV)
+{
+	FSlateBrush Brush = GetClass()->HasAnyClassFlags(CLASS_CompiledFromBlueprint)
+		? FeatureButtonImage->GetBrush() : MakeImageBrush(Texture, FVector2D(88.0f));
+	Brush.SetResourceObject(Texture);
+	Brush.SetUVRegion(UV);
+	FeatureButtonImage->SetBrush(Brush);
 }
 
 void URokBuildingPanelWidget::ApplyFeatureButtonVisual(
@@ -440,25 +523,23 @@ void URokBuildingPanelWidget::ApplyFeatureButtonVisual(
 		const FIntPoint Origins[] = {{531, 755}, {504, 845}, {774, 935}, {441, 745}};
 		const FIntPoint Origin = Origins[UnityBuildingTypeId - 2];
 		UTexture2D* Atlas = LoadUiTexture(UiBuildingMenuAtlasPath);
-		FSlateBrush Brush = MakeImageBrush(Atlas, FVector2D(88.0f));
 		const float Top = 1024.0f - Origin.Y - 88.0f;
-		Brush.SetUVRegion(FBox2f(FVector2f(Origin.X / 1024.0f, Top / 1024.0f),
+		SetFeatureButtonArt(Atlas, FBox2f(FVector2f(Origin.X / 1024.0f, Top / 1024.0f),
 			FVector2f((Origin.X + 88.0f) / 1024.0f, (Top + 88.0f) / 1024.0f)));
-		FeatureButtonImage->SetBrush(Brush);
 		if (!Atlas) FeatureButtonImage->SetVisibility(ESlateVisibility::Hidden);
 		return;
 	}
 	if (UnityBuildingTypeId == 13 && !bUpgradeInProgress)
 	{
 		// Source btn_hud_1018; a missing import must not show another feature icon.
-		FeatureButtonImage->SetBrush(MakeImageBrush(ResearchButtonTexture.Get(), FVector2D(88.0f)));
+		SetFeatureButtonArt(ResearchButtonTexture.Get());
 		if (!ResearchButtonTexture) FeatureButtonImage->SetVisibility(ESlateVisibility::Hidden);
 		return;
 	}
 	if (UnityBuildingTypeId == 28 && !bUpgradeInProgress)
 	{
 		// Source btn_hud_1041; do not display another building's action if its import is missing.
-		FeatureButtonImage->SetBrush(MakeImageBrush(ScoutButtonTexture.Get(), FVector2D(88.0f)));
+		SetFeatureButtonArt(ScoutButtonTexture.Get());
 		if (!ScoutButtonTexture) FeatureButtonImage->SetVisibility(ESlateVisibility::Hidden);
 		return;
 	}
@@ -498,7 +579,7 @@ void URokBuildingPanelWidget::ApplyFeatureButtonVisual(
 	}
 	if (Texture)
 	{
-		FeatureButtonImage->SetBrush(MakeImageBrush(Texture, FVector2D(88.0f)));
+		SetFeatureButtonArt(Texture);
 	}
 }
 
@@ -593,7 +674,7 @@ void URokBuildingPanelWidget::UpdateMenuPosition()
 	FVector2D AnchorWidgetPosition;
 	if (ProjectToMenuWidget(AnchorWorldPosition, AnchorWidgetPosition))
 	{
-		float VisualTopY = AnchorWidgetPosition.Y - BuildingInfoButtonY;
+		float VisualTopY = AnchorWidgetPosition.Y - DesignInfoPosition.Y;
 		float VisualBottomY = AnchorWidgetPosition.Y;
 		bool bProjectedBounds = !VisualBoundsExtent.IsNearlyZero();
 
@@ -625,36 +706,40 @@ void URokBuildingPanelWidget::UpdateMenuPosition()
 		}
 
 		const float MenuTopY = bProjectedBounds
-			? VisualTopY - BuildingTitleHeight
-			: AnchorWidgetPosition.Y - BuildingInfoButtonY;
+			? VisualTopY - ProjectedTitleOffset
+			: AnchorWidgetPosition.Y - DesignInfoPosition.Y;
 		const float ButtonY = bProjectedBounds
-			? VisualBottomY + BuildingButtonBoundsGap - MenuTopY
-			: BuildingInfoButtonY;
+			? VisualBottomY + ProjectedButtonGap - MenuTopY
+			: DesignInfoPosition.Y;
+		const double RowProjectionOffset = ButtonY - DesignInfoPosition.Y;
 
 		BuildingMenuSlot->SetPosition(FVector2D(AnchorWidgetPosition.X, MenuTopY));
 		BuildingMenuSlot->SetSize(FVector2D(
-			BuildingMenuSize.X,
-			FMath::Max(BuildingMenuSize.Y, ButtonY + 148.0f)));
+			DesignMenuSize.X,
+			FMath::Max(DesignMenuSize.Y, ButtonY + ProjectedButtonRowBottomPadding)));
 		const bool bTwoButtonRow = bIsDecoration || bShowingBuilderHutLayout;
 		if (InfoButtonSlot)
 		{
-			InfoButtonSlot->SetPosition(FVector2D(bTwoButtonRow ? 142.35f : 92.35f, ButtonY));
+			const double TwoButtonX = (DesignInfoPosition.X + DesignUpgradePosition.X) * 0.5;
+			InfoButtonSlot->SetPosition({bTwoButtonRow ? TwoButtonX : DesignInfoPosition.X, ButtonY});
 		}
 		if (UpgradeButtonSlot)
 		{
-			UpgradeButtonSlot->SetPosition(FVector2D(192.35f, ButtonY + 12.0f));
+			UpgradeButtonSlot->SetPosition(DesignUpgradePosition + FVector2D(0.0, RowProjectionOffset));
 		}
 		if (FeatureButtonSlot)
 		{
-			FeatureButtonSlot->SetPosition(FVector2D(bTwoButtonRow ? 242.35f : 292.35f, ButtonY));
+			const double TwoButtonX = (DesignUpgradePosition.X + DesignFeaturePosition.X) * 0.5;
+			FeatureButtonSlot->SetPosition({bTwoButtonRow ? TwoButtonX : DesignFeaturePosition.X,
+				DesignFeaturePosition.Y + RowProjectionOffset});
 		}
 		if (UWidget* ButtonShadow = WidgetTree->FindWidget(TEXT("ButtonShadow")))
 		{
 			if (UCanvasPanelSlot* ButtonShadowSlot = UWidgetLayoutLibrary::SlotAsCanvasSlot(ButtonShadow))
 			{
 				ButtonShadowSlot->SetPosition(FVector2D(
-					50.85f,
-					FMath::Max(0.0f, ButtonY - BuildingShadowButtonOffset)));
+					DesignShadowPosition.X,
+					FMath::Max(0.0, DesignShadowPosition.Y + RowProjectionOffset)));
 			}
 		}
 		BuildingMenuRoot->SetVisibility(ESlateVisibility::SelfHitTestInvisible);

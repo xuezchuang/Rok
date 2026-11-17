@@ -28,6 +28,7 @@ class URokBuildingUpgradeSubsystem;
 class URokUnityFeatureScreenWidget;
 class URokUnityModalWidget;
 class URokPowerGainWidget;
+class URokUiPageWidget;
 class URokScoutScreenWidget;
 struct FRokPlayerTopBar;
 
@@ -40,6 +41,8 @@ class ROK_API URokMainHudWidget : public UUserWidget
 	GENERATED_BODY()
 
 public:
+	static TSubclassOf<URokMainHudWidget> ResolveHudClass(bool bTactical = false);
+
 	// Nullable until the HUD tree has been built (or when no feature host exists).
 	URokUnityFeatureScreenWidget* GetFeatureScreenWidgetForPlacement() const { return FeatureScreenWidget.Get(); }
 	bool IsPlacementBlockingModalOpen() const;
@@ -217,6 +220,8 @@ private:
 	TObjectPtr<UScrollBox> TaskScroll;
 	UPROPERTY(Transient)
 	TObjectPtr<UVerticalBox> TaskListBox;
+	FVector2D TaskRowLayoutSize{196.0, 80.0};
+	double TaskRowBottomPadding = 4.0;
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UImage>> ServerTaskRewardImages;
 	TArray<int32> ServerHudTaskIds;
@@ -304,6 +309,11 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UButton> TaskFoldButton;
+	FVector2D TaskBackgroundOpenSize = FVector2D::ZeroVector;
+	FVector2D TaskClipOpenSize = FVector2D::ZeroVector;
+	FVector2D TaskClipOpenPosition = FVector2D::ZeroVector;
+	FVector2D TaskFoldOpenPosition = FVector2D::ZeroVector;
+	float TaskFoldOpenAngle = 0.0f;
 
 	UPROPERTY()
 	TObjectPtr<UCanvasPanel> FeatureBackground;
@@ -312,6 +322,10 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UButton> MoreFeatureButton;
+	FVector2D FeatureBackgroundOpenSize = FVector2D::ZeroVector;
+	FVector2D FeatureBackgroundBorders = FVector2D::ZeroVector;
+	float MoreFeatureOpenAngle = 0.0f;
+	TArray<FVector2D> CollapsibleFeatureOpenTranslations;
 
 	UPROPERTY()
 	TObjectPtr<UTextBlock> CityNameText;
@@ -357,6 +371,7 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInstanceDynamic> PlacementConfirmGrayMaterial;
 	TWeakObjectPtr<UCanvasPanelSlot> PlacementControlsSlot;
+	TWeakObjectPtr<UCanvasPanelSlot> PlacementControlsDesignSlot;
 	UPROPERTY(Transient)
 	TObjectPtr<UTextBlock> PlacementStatusText;
 	UPROPERTY(Transient)
@@ -418,16 +433,41 @@ private:
 	float FeatureButtonsStart = 0.0f;
 	float FeatureAlpha = 1.0f;
 	float FeatureAlphaStart = 1.0f;
+	struct FResourceCellLayout
+	{
+		double Width = 0.0;
+		double Gap = 0.0;
+		double Y = 0.0;
+	};
+	TArray<FResourceCellLayout> ResourceCellLayouts;
+	double ResourceGroupLeftPadding = 0.0;
+	double ResourceGroupRightPadding = 4.0;
 
 	void BuildWidgetTree();
+	void BuildHudLayout(UCanvasPanel* RootCanvas);
+	void BindHudLayout();
+	void BuildPlacementControls(UCanvasPanel* RootCanvas);
+	void ConfigurePlacementMaterial();
+	void AddPowerGain(UCanvasPanel* Group);
 	void BuildPlayerPowerGroup(UCanvasPanel* Parent);
 	void BuildPositionGroup();
 	void BuildCityTopBar(UCanvasPanel* RootCanvas);
 	void BuildResourceGroup(UCanvasPanel* Parent);
+	void CacheResourceGroupLayout();
 	void BuildAgeGroup();
 	void BuildTaskGroup();
+	void BindTaskGroup(URokUiPageWidget& Page);
+	void CacheTaskFoldLayout();
 	void BuildChatAndMapGroup();
 	void BuildFeatureGroup();
+	void BuildExpeditionUnlockTip();
+	void BindFeatureGroup(URokUiPageWidget& Page);
+	void CacheFeatureFoldLayout();
+	URokUiPageWidget* CreateHudPage(const TSoftClassPtr<URokUiPageWidget>& Class, FName Name);
+	URokUiPageWidget* AddHudPage(UCanvasPanel* Parent, const TSoftClassPtr<URokUiPageWidget>& Class,
+		FName Name, int32 ZOrder = 0);
+	bool BindTaskRow(URokUiPageWidget& Page, int32 Index);
+	void BindHudButton(const UUserWidget& Owner, FName Name, FName Function);
 	void BuildCityMarker();
 	void UpdateExpandedDesignResolution(const FVector2D& RootSize);
 	void UpdateCityMarkerProjection();

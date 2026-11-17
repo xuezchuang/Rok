@@ -1,4 +1,5 @@
 #include "RokBuildingPreviewGlowAuditSubsystem.h"
+#include "RokUiWidgets.h"
 #include "RokBuildingPreviewGlowWidget.h"
 #include "RokMainHudWidget.h"
 #include "RokUnityModalWidget.h"
@@ -142,7 +143,7 @@ bool URokBuildingPreviewGlowAuditSubsystem::Click(UUserWidget* Owner,FName Name)
 {
     if(!Identity()||!Unchanged())return false;
     if(!Expect(Name==TEXT("BuildingUpgradeButton")||Name==TEXT("Type2CloseButton"),TEXT("Only preview navigation delegates are allowed")))return false;
-    auto* Button=Owner?Cast<UButton>(Owner->GetWidgetFromName(Name)):nullptr;
+    auto* Button=Owner?Cast<UButton>(RokUiFind::Find(Owner, Name)):nullptr;
     if(!Expect(Button&&Visible(Button)&&Button->GetIsEnabled(),TEXT("Missing enabled preview navigation button")))return false;
     auto Action=MakeShared<FJsonObject>();Action->SetStringField(TEXT("button"),Name.ToString());Action->SetNumberField(TEXT("frame"),GFrameCounter);Action->SetNumberField(TEXT("step"),Step);Actions.Add(MakeShared<FJsonValueObject>(Action));
     Button->OnClicked.Broadcast();return true;
@@ -150,17 +151,17 @@ bool URokBuildingPreviewGlowAuditSubsystem::Click(UUserWidget* Owner,FName Name)
 bool URokBuildingPreviewGlowAuditSubsystem::Validate()
 {
     if(!Identity()||!Unchanged()||!Modal.IsValid())return false;
-    auto* Widget=Cast<URokBuildingPreviewGlowWidget>(Modal->GetWidgetFromName(TEXT("BuildingPreviewGlowWidget")));
+    auto* Widget=Cast<URokBuildingPreviewGlowWidget>(RokUiFind::Find(Modal, TEXT("BuildingPreviewGlowWidget")));
     if(!bPageOpen)return Expect(!Modal->IsModalOpen()&&!Widget,TEXT("Closed preview retained source glow widget"));
 #if !UE_BUILD_SHIPPING
     if(!Expect(Modal->GetSelectedBuildingActorForAudit()==Barracks.Get(),TEXT("Glow preview lost actual barracks context")))return false;
 #endif
     if(!Expect(Modal->IsModalOpen()&&Widget&&Visible(Widget)&&Widget->IsInitialized()&&Widget->IsPlaybackActive()&&Widget->GetLastError().IsEmpty()&&Widget->GetPaintCount()>0,TEXT("Source glow not active and painted in real modal")))return false;
     TSharedPtr<FJsonObject> BodyRect,HeaderRect,PreviewRect,InfoButtonRect,InfoGlyphRect;
-    const auto* SourcePreview=Modal->GetWidgetFromName(TEXT("BuildingSourcePreviewWidget"));
-    const auto* InfoButton=Modal->GetWidgetFromName(TEXT("BarracksLevelInfoButton"));
-    const auto* InfoGlyph=Modal->GetWidgetFromName(TEXT("BarracksLevelInfoButtonImage"));
-    if(!Expect(ParentPixelRect(this,Modal->GetWidgetFromName(TEXT("Type2BodyLeft")),BodyRect)&&ParentPixelRect(this,Modal->GetWidgetFromName(TEXT("Type2HeaderLeft")),HeaderRect)&&
+    const auto* SourcePreview=RokUiFind::Find(Modal, TEXT("BuildingSourcePreviewWidget"));
+    const auto* InfoButton=RokUiFind::Find(Modal, TEXT("BarracksLevelInfoButton"));
+    const auto* InfoGlyph=RokUiFind::Find(Modal, TEXT("BarracksLevelInfoButtonImage"));
+    if(!Expect(ParentPixelRect(this,RokUiFind::Find(Modal, TEXT("Type2BodyLeft")),BodyRect)&&ParentPixelRect(this,RokUiFind::Find(Modal, TEXT("Type2HeaderLeft")),HeaderRect)&&
         FMath::IsNearlyEqual(BodyRect->GetNumberField(TEXT("x")),194.,1.)&&FMath::IsNearlyEqual(BodyRect->GetNumberField(TEXT("y")),94.2,1.)&&
         FMath::IsNearlyEqual(BodyRect->GetNumberField(TEXT("right")),737.,1.)&&FMath::IsNearlyEqual(BodyRect->GetNumberField(TEXT("bottom")),755.,1.)&&
         FMath::IsNearlyEqual(HeaderRect->GetNumberField(TEXT("y")),63.,1.)&&FMath::IsNearlyEqual(HeaderRect->GetNumberField(TEXT("bottom")),123.,1.),
@@ -202,16 +203,16 @@ TSharedRef<FJsonObject> URokBuildingPreviewGlowAuditSubsystem::State() const
 {
     auto State=MakeShared<FJsonObject>();State->SetNumberField(TEXT("frame"),GFrameCounter);State->SetNumberField(TEXT("step"),Step);State->SetNumberField(TEXT("elapsed"),Elapsed);
     State->SetBoolField(TEXT("open"),bPageOpen);State->SetBoolField(TEXT("state_unchanged"),true);State->SetBoolField(TEXT("manual_clock"),bManualClock);State->SetNumberField(TEXT("audit_layer_mask"),bManualClock?DiagnosticMask:3);
-    const auto* Widget=Modal.IsValid()?Cast<URokBuildingPreviewGlowWidget>(Modal->GetWidgetFromName(TEXT("BuildingPreviewGlowWidget"))):nullptr;
+    const auto* Widget=Modal.IsValid()?Cast<URokBuildingPreviewGlowWidget>(RokUiFind::Find(Modal, TEXT("BuildingPreviewGlowWidget"))):nullptr;
     State->SetBoolField(TEXT("glow_attached"),Widget!=nullptr);
     if(Widget)
     {
         TSharedPtr<FJsonObject> BodyRect,HeaderRect,PreviewRect,InfoButtonRect,InfoGlyphRect;
-        if(ParentPixelRect(this,Modal->GetWidgetFromName(TEXT("Type2BodyLeft")),BodyRect)&&ParentPixelRect(this,Modal->GetWidgetFromName(TEXT("Type2HeaderLeft")),HeaderRect))
+        if(ParentPixelRect(this,RokUiFind::Find(Modal, TEXT("Type2BodyLeft")),BodyRect)&&ParentPixelRect(this,RokUiFind::Find(Modal, TEXT("Type2HeaderLeft")),HeaderRect))
         {State->SetObjectField(TEXT("body_left_pixel_rect"),BodyRect);State->SetObjectField(TEXT("header_left_pixel_rect"),HeaderRect);}
-        const auto* SourcePreview=Modal->GetWidgetFromName(TEXT("BuildingSourcePreviewWidget"));
-        const auto* InfoButton=Modal->GetWidgetFromName(TEXT("BarracksLevelInfoButton"));
-        const auto* InfoGlyph=Modal->GetWidgetFromName(TEXT("BarracksLevelInfoButtonImage"));
+        const auto* SourcePreview=RokUiFind::Find(Modal, TEXT("BuildingSourcePreviewWidget"));
+        const auto* InfoButton=RokUiFind::Find(Modal, TEXT("BarracksLevelInfoButton"));
+        const auto* InfoGlyph=RokUiFind::Find(Modal, TEXT("BarracksLevelInfoButtonImage"));
         if(ParentPixelRect(this,SourcePreview,PreviewRect)&&ParentPixelRect(this,InfoButton,InfoButtonRect)&&ParentPixelRect(this,InfoGlyph,InfoGlyphRect))
         {
             State->SetObjectField(TEXT("source_preview_pixel_rect"),PreviewRect);

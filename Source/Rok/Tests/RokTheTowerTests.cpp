@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
+#include "RokUiWidgets.h"
 #include "Components/TextBlock.h"
 #include "Components/ProgressBar.h"
 #include "../RokUnityModalWidget.h"
@@ -22,27 +23,27 @@ bool FRokTheTowerStatusTest::RunTest(const FString& Parameters)
 	Modal->TakeWidget();
 	Modal->OpenTheTower();
 
-	UProgressBar* Bar = Cast<UProgressBar>(Modal->GetWidgetFromName(TEXT("TheTowerHpBar")));
+	UProgressBar* Bar = Cast<UProgressBar>(RokUiFind::Find(Modal, TEXT("TheTowerHpBar")));
 	if (!TestNotNull(TEXT("The tower HP bar exists"), Bar))
 	{
 		return false;
 	}
 	TestEqual(TEXT("The bar is full in the local preview"), Bar->GetPercent(), 1.0f);
 
-	const UTextBlock* State = Cast<UTextBlock>(Modal->GetWidgetFromName(TEXT("TheTowerStateText")));
+	const UTextBlock* State = Cast<UTextBlock>(RokUiFind::Find(Modal, TEXT("TheTowerStateText")));
 	TestTrue(TEXT("The state line names level, attack and HP"),
 		State != nullptr
 			&& State->GetText().ToString().Contains(TEXT("级"))
 			&& State->GetText().ToString().Contains(TEXT("攻击"))
 			&& State->GetText().ToString().Contains(TEXT("生命")));
 
-	const UTextBlock* Tip = Cast<UTextBlock>(Modal->GetWidgetFromName(TEXT("TheTowerTipText")));
+	const UTextBlock* Tip = Cast<UTextBlock>(RokUiFind::Find(Modal, TEXT("TheTowerTipText")));
 	TestTrue(TEXT("The tip lists the HP-section rules"),
 		Tip != nullptr
 			&& Tip->GetText().ToString().Contains(TEXT("减伤"))
 			&& Tip->GetText().ToString().Contains(TEXT("生命分段生效")));
 	TestNull(TEXT("The old level table is gone"),
-		Modal->GetWidgetFromName(TEXT("TheTowerRow_0")));
+		RokUiFind::Find(Modal, TEXT("TheTowerRow_0")));
 
 	Modal->CloseModal();
 	TestFalse(TEXT("Closing clears the tower mode"), Modal->IsModalOpen());

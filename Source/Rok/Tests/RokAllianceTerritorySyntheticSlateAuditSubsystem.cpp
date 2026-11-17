@@ -1,4 +1,5 @@
 #include "RokAllianceTerritorySyntheticSlateAuditSubsystem.h"
+#include "RokUiWidgets.h"
 
 #include "../RokAllianceTerritoryReadonlyData.h"
 #include "../RokBuildingUpgradeSubsystem.h"
@@ -381,7 +382,7 @@ bool URokAllianceTerritorySyntheticSlateAuditSubsystem::Ready(int32 Phase, int32
     if (!Boundary() || !Hud.IsValid() || !Hud->IsInViewport() || !Screen.IsValid()
         || Screen->GetPendingActionIdForAudit() != INDEX_NONE) return false;
     if (Phase == 6) return !Screen->IsScreenOpen()
-        && RokTerritorySynthetic::Visible(Hud->GetWidgetFromName(TEXT("AllianceFeatureButton")));
+        && RokTerritorySynthetic::Visible(RokUiFind::Find(Hud, TEXT("AllianceFeatureButton")));
     if (!Screen->IsScreenOpen() || !RokTerritorySynthetic::Visible(Screen->GetWidgetFromName(TEXT("FeatureModeCanvas")))
         || !RokTerritorySynthetic::Visible(Screen->GetWidgetFromName(TEXT("FeatureFrameClose")))) return false;
     const bool bReference = Phase == 1 || Phase == 2 || Phase == 3 || Phase == 5;

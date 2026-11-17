@@ -181,6 +181,10 @@ private:
 	friend class FRokGameNetPlayerAssetsPushTest;
 	friend class FRokGameNetWorldMapPushTest;
 	friend class FRokGameNetWorldMapReplayTest;
+#if WITH_DEV_AUTOMATION_TESTS
+	friend class FRokWorldDamageRenderedTest;
+	friend class FRokGatherArmyRenderedTest;
+#endif
 	friend class FRokGameNetViewportRequestTest;
 	friend class FRokWorldMapSearchProtocolTest;
 	friend class FRokGameNetCityWriteTest;

@@ -1,4 +1,5 @@
 #include "RokLanguageSettingsAuditSubsystem.h"
+#include "RokUiWidgets.h"
 #include "Blueprint/WidgetBlueprintLibrary.h"
 #include "Components/Border.h"
 #include "Components/Button.h"
@@ -237,7 +238,7 @@ bool URokLanguageSettingsAuditSubsystem::Validate()
 	}
 	if (View == EView::Profile)
 	{
-		if (!Modal->IsModalOpen() || Feature->IsScreenOpen() || !LanguageAuditVisible(Modal->GetWidgetFromName(TEXT("ProfileSettingsButton"))))
+		if (!Modal->IsModalOpen() || Feature->IsScreenOpen() || !LanguageAuditVisible(RokUiFind::Find(Modal, TEXT("ProfileSettingsButton"))))
 		{ Finish(TEXT("Expected the real player profile with its settings entry.")); return false; }
 		return true;
 	}
@@ -387,10 +388,10 @@ bool URokLanguageSettingsAuditSubsystem::Click(UUserWidget* Owner, FName Name)
 	// The source confirmation for the unchanged current language only dismisses the window.
 	bAllowed |= Name == TEXT("LanguageConfirmButton") && ExpectedDraftId == 40;
 	const auto* Canvas = Owner == Feature.Get() ? Feature->GetWidgetFromName(TEXT("FeatureModeCanvas")) : nullptr;
-	auto* Button = Owner ? Cast<UButton>(Owner->GetWidgetFromName(Name)) : nullptr;
+	auto* Button = Owner ? Cast<UButton>(RokUiFind::Find(Owner, Name)) : nullptr;
 	if (!bAllowed || !Button || Owner->GetWorld() != GetWorld() || !LanguageAuditVisible(Button) || !Button->GetIsEnabled()
 		|| Button->GetCachedGeometry().GetLocalSize().X <= 0 || (Canvas && Canvas->GetVisibility() == ESlateVisibility::HitTestInvisible)
-		|| (Owner == Modal.Get() && LanguageAuditVisible(Modal->GetWidgetFromName(TEXT("ModalAnimationInputBlocker")))))
+		|| (Owner == Modal.Get() && LanguageAuditVisible(RokUiFind::Find(Modal, TEXT("ModalAnimationInputBlocker")))))
 	{ Finish(FString::Printf(TEXT("Actual permitted button is unavailable: %s."), *Name.ToString())); return false; }
 	auto Action = MakeShared<FJsonObject>(); Action->SetStringField(TEXT("button_delegate"), Name.ToString());
 	Action->SetNumberField(TEXT("draft_before"), ExpectedDraftId); Action->SetNumberField(TEXT("frame"), double(Frame));

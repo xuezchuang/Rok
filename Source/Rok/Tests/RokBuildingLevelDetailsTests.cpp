@@ -1,5 +1,6 @@
 #if WITH_DEV_AUTOMATION_TESTS
 #include "Misc/AutomationTest.h"
+#include "RokUiWidgets.h"
 #include "../RokBuildingLevelDetails.h"
 #include "../RokUnityModalWidget.h"
 #include "Components/Button.h"
@@ -51,15 +52,16 @@ bool FRokBuildingLevelDetailsTest::RunTest(const FString&)
 	// discarding TakeWidget's temporary reference before dynamic children are built.
 	const TSharedRef<SWidget> ModalSlate = Modal->TakeWidget();
 	Modal->OpenResourceBuildingInfoReferencePreview(2); Modal->AdvanceWindowAnimationForTesting(1);
-	auto* Info = Cast<UButton>(Modal->GetWidgetFromName(TEXT("BuildingLevelInfoButton")));
-	auto* Back = Cast<UButton>(Modal->GetWidgetFromName(TEXT("BuildingLevelBackButton")));
-	auto* Scroll = Cast<UScrollBox>(Modal->GetWidgetFromName(TEXT("BuildingLevelDetailsScroll")));
+	auto* Info = Cast<UButton>(RokUiFind::Find(Modal, TEXT("BuildingLevelInfoButton")));
+	auto* Back = Cast<UButton>(RokUiFind::Find(Modal, TEXT("BuildingLevelBackButton")));
+	auto* Scroll = Cast<UScrollBox>(RokUiFind::Find(Modal, TEXT("BuildingLevelDetailsScroll")));
 	if (!TestNotNull(TEXT("Source detail entry"), Info) || !TestNotNull(TEXT("Source back"), Back) || !TestNotNull(TEXT("Scrollable source rows"), Scroll)) return false;
-	TestNull(TEXT("Unknown current level does not highlight a fake level one"), Modal->GetWidgetFromName(TEXT("BuildingLevelCurrentRow")));
+	TestNull(TEXT("Unknown current level does not highlight a fake level one"), RokUiFind::Find(Modal, TEXT("BuildingLevelCurrentRow")));
 	TestEqual(TEXT("Initial description skips child Show"), Modal->BuildingDescriptionRoot->GetRenderOpacity(), 1.f);
 	Info->OnClicked.Broadcast();
 	TestEqual(TEXT("Level page begins at +50"), Modal->BuildingLevelDetailsRoot->GetRenderTransform().Translation.X, 50.0);
-	TestEqual(TEXT("Back is outside animated level subtree"), Back->GetParent(), static_cast<UPanelWidget*>(Modal->ModeCanvas));
+	TestTrue(TEXT("Back is outside animated level subtree"),
+		!Back->IsChildOf(Modal->BuildingLevelDetailsRoot) && !Back->IsChildOf(Modal->BuildingDescriptionRoot));
 	Modal->AdvanceWindowAnimationForTesting(.125f);
 	TestEqual(TEXT("Real animation clock drives alpha"), Modal->BuildingLevelDetailsRoot->GetRenderOpacity(), .5f);
 	const TSharedRef<SWidget> ScrollSlate = Scroll->TakeWidget();
@@ -72,13 +74,13 @@ bool FRokBuildingLevelDetailsTest::RunTest(const FString&)
 	TestEqual(TEXT("Returning to levels retains the same list"), Modal->BuildingLevelDetailsScroll.Get(), Scroll);
 	TestEqual(TEXT("Returning retains the live Slate scroll control"), Scroll->GetCachedWidget().Get(), ScrollSlate.operator->());
 	TestEqual(TEXT("Returning retains requested scroll offset"), Scroll->GetScrollOffset(), 400.f);
-	TestNotNull(TEXT("All levels are built"), Modal->GetWidgetFromName(TEXT("BuildingLevelCell_25_3")));
+	TestNotNull(TEXT("All levels are built"), RokUiFind::Find(Modal, TEXT("BuildingLevelCell_25_3")));
 	Modal->OpenPlayerProfile();
 	TestNull(TEXT("Switching modal clears animation target"), Modal->BuildingLevelDetailsRoot.Get());
 	// Explicit isolated presentation fixture tests highlight semantics without inventing an owned actor.
 	auto* Known = NewObject<URokUnityModalWidget>(); Known->Initialize(); Known->TakeWidget();
 	Known->BuildResourceBuildingInfo(2, 25);
-	TestNotNull(TEXT("Known current level highlights source row"), Known->GetWidgetFromName(TEXT("BuildingLevelCurrentRow")));
+	TestNotNull(TEXT("Known current level highlights source row"), RokUiFind::Find(Known, TEXT("BuildingLevelCurrentRow")));
 	return true;
 }
 #endif

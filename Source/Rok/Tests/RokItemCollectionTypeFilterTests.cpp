@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
+#include "RokUiWidgets.h"
 #include "Components/TextBlock.h"
 #include "../RokUnityModalWidget.h"
 #include "../RokGalleryButton.h"
@@ -23,9 +24,9 @@ bool FRokItemCollectionTypeFilterTest::RunTest(const FString& Parameters)
 	Modal->OpenItemCollection();
 
 	URokGalleryButton* TypeFourChip = Cast<URokGalleryButton>(
-		Modal->GetWidgetFromName(TEXT("ItemCollection类型Chip_4")));
+		RokUiFind::Find(Modal, TEXT("ItemCollection类型Chip_4")));
 	URokGalleryButton* AllChip = Cast<URokGalleryButton>(
-		Modal->GetWidgetFromName(TEXT("ItemCollection类型Chip_0")));
+		RokUiFind::Find(Modal, TEXT("ItemCollection类型Chip_0")));
 	if (!TestNotNull(TEXT("The 类型 4 chip exists"), TypeFourChip)
 		|| !TestNotNull(TEXT("The 全部 chip exists"), AllChip))
 	{
@@ -39,7 +40,7 @@ bool FRokItemCollectionTypeFilterTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("The 类型 4 chip keeps a non-empty subset"), FilteredCount > 0);
 	TestTrue(TEXT("The 类型 4 chip drops other types"), FilteredCount < FullCount);
 	const UTextBlock* FirstDetail = Cast<UTextBlock>(
-		Modal->GetWidgetFromName(TEXT("ItemCollectionRowDetail_0")));
+		RokUiFind::Find(Modal, TEXT("ItemCollectionRowDetail_0")));
 	TestTrue(TEXT("The first filtered card is a 类型 4 item"),
 		FirstDetail != nullptr && FirstDetail->GetText().ToString().Contains(TEXT("类型 4")));
 

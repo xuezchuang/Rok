@@ -1,4 +1,5 @@
 #include "RokAllianceRankingReadonlyAuditSubsystem.h"
+#include "RokUiWidgets.h"
 
 #include "RokAllianceRankingReadonlyCatalog.h"
 #include "RokDataPaths.h"
@@ -578,7 +579,7 @@ bool URokAllianceRankingReadonlyAuditSubsystem::Ready(int32 ExpectedPage, bool b
         || Controller->GetCityPlacementPreviewSnapshot().PrimaryPressEventCount != BaselinePrimary
         || Server->GetHttpDispatchAttemptCount() != BaselineHttpDispatches
         || Server->GetSuppressedLocalRequestCount() != BaselineSuppressedRequests) return false;
-    if (bClosed) return !Screen->IsScreenOpen() && Visible(Hud->GetWidgetFromName(TEXT("AllianceFeatureButton")));
+    if (bClosed) return !Screen->IsScreenOpen() && Visible(RokUiFind::Find(Hud, TEXT("AllianceFeatureButton")));
     return EvidenceState(ExpectedPage, bRanking, ExpectedCategory);
 }
 

@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
+#include "RokUiWidgets.h"
 #include "Components/TextBlock.h"
 #include "../RokUnityModalWidget.h"
 
@@ -23,23 +24,23 @@ bool FRokGuildGiftLayoutTest::RunTest(const FString& Parameters)
 	Modal->OpenGuildGift();
 
 	if (!TestNotNull(TEXT("The first gift row exists"),
-		Modal->GetWidgetFromName(TEXT("GuildGiftRow_0"))))
+		RokUiFind::Find(Modal, TEXT("GuildGiftRow_0"))))
 	{
 		return false;
 	}
 	const UTextBlock* Title = Cast<UTextBlock>(
-		Modal->GetWidgetFromName(TEXT("GuildGiftRowTitle_0")));
+		RokUiFind::Find(Modal, TEXT("GuildGiftRowTitle_0")));
 	TestTrue(TEXT("The first row names a chest and level"),
 		Title != nullptr
 			&& Title->GetText().ToString().Contains(TEXT("Lv")));
 	const UTextBlock* Detail = Cast<UTextBlock>(
-		Modal->GetWidgetFromName(TEXT("GuildGiftRowDetail_0")));
+		RokUiFind::Find(Modal, TEXT("GuildGiftRowDetail_0")));
 	TestTrue(TEXT("The detail states the point thresholds"),
 		Detail != nullptr
 			&& Detail->GetText().ToString().Contains(TEXT("礼物积分"))
 			&& Detail->GetText().ToString().Contains(TEXT("钥匙积分")));
 	TestTrue(TEXT("The list holds more than six rows"),
-		Modal->GetWidgetFromName(TEXT("GuildGiftRow_6")) != nullptr);
+		RokUiFind::Find(Modal, TEXT("GuildGiftRow_6")) != nullptr);
 
 	Modal->CloseModal();
 	TestFalse(TEXT("Closing clears the guild-gift mode"), Modal->IsModalOpen());

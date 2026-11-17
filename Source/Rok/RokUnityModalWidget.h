@@ -22,7 +22,10 @@ class UTextBlock;
 class UTexture2D;
 class UWidget;
 class URokBuildingUpgradeSubsystem;
+struct FRokBuildingUpgradePreview;
 class URokUnityFeatureScreenWidget;
+class URokUiPageWidget;
+class URokModalWindowFrame;
 
 UENUM()
 enum class ERokUnityModalMode : uint8
@@ -115,6 +118,7 @@ UCLASS()class ROK_API URokUnityModalWidget : public UUserWidget
 	GENERATED_BODY()
 
 public:
+	static TSubclassOf<URokUnityModalWidget> ResolveShellClass();
 	void OpenPlayerProfile();
 	void OpenPlayerHeadSelection();
 	void OpenPlayerPowerDetails();
@@ -174,6 +178,7 @@ public:
 	// Capture-only: advance the shared window animation to a deterministic time
 	// so a screenshot can freeze the source open/close curve (e.g. 0.1167 s).
 	void SampleWindowAnimationForCapture(float Seconds);
+	bool FreezePreviewAnimationForCapture(float Seconds);
 	void SetFeatureScreenWidget(
 		URokUnityFeatureScreenWidget* InFeatureScreenWidget);
 	void CloseModal();
@@ -184,6 +189,8 @@ public:
 	/** User dismissal; unlike CloseModal, keeps the input mask until exit ends. */
 	void RequestCloseModal();
 	bool IsModalOpen() const { return ActiveMode != ERokUnityModalMode::None; }
+	// WBP conversion: the canvas every mode builds its content into.
+	UCanvasPanel* GetModeCanvas() const { return ModeCanvas; }
 	// Production handoff proof: the requested actor and BuildingInfo content are mounted.
 	bool IsBuildingInfoOpenForActor(const AActor* Actor) const;
 #if !UE_BUILD_SHIPPING
@@ -265,6 +272,7 @@ private:
 	ERokUnityModalMode AnimatedMode = ERokUnityModalMode::None;
 	ERokUnityModalMode CloseReturnMode = ERokUnityModalMode::None;
 	FRokUiWindowAnimation WindowAnimation;
+	bool bPreviewAnimationFrozenForCapture = false;
 	float CivilizationListAnimationTime = 0.5f;
 	float CivilizationHeroAnimationTime = 0.5f;
 	float CivilizationSelectionAnimationTime = 0;
@@ -286,12 +294,12 @@ private:
 	TObjectPtr<UScrollBox> PlayerHeadGridScroll;
 	float PlayerHeadScrollOffset = 0.0f;
 	UPROPERTY(Transient)
-	TObjectPtr<UCanvasPanel> PlayerKillTipLayer;
+	TObjectPtr<UWidget> PlayerKillTipLayer;
 	UPROPERTY(Transient)
 	TObjectPtr<UCanvasPanel> PlayerKillTipRoot;
 	float PlayerKillTipTime = 0.0f;
 	UPROPERTY(Transient)
-	TObjectPtr<UCanvasPanel> PlayerPowerActionTipLayer;
+	TObjectPtr<UWidget> PlayerPowerActionTipLayer;
 	UPROPERTY(Transient)
 	TObjectPtr<UCanvasPanel> PlayerPowerActionTipRoot;
 	float PlayerPowerActionTipTime = 0.f;
@@ -333,6 +341,33 @@ private:
 
 	void BuildWidgetTree();
 	void RebuildModeContent(bool bOpening = false);
+	// WBP spike: -RokUiModalPage=<WBP class path> mounts that page instead of the C++ build.
+	bool TryMountPageOverride();
+	// Adds a WBP piece laid out on the full 1456x910 mode canvas (frame, list).
+	void MountFullPiece(UUserWidget* Piece, int32 ZOrder);
+	// Mounts a window frame WBP at z 0 with its title set; null when the setting is
+	// empty or -RokUiLegacy is on (the caller then builds the C++ frame).
+	URokModalWindowFrame* MountWindowFrame(const TSoftClassPtr<URokModalWindowFrame>& FrameSetting, const FText& Title);
+	// Mounts the mode's page WBP (URokUiSettings::ModalPages) over the mode canvas;
+	// null, logged, when the mode has none. The page owns layout and static style.
+	URokUiPageWidget* MountModePage(FName Page);
+	// Places one item WBP (a row, tile or cell listed in ModalPages) in a page canvas
+	// as InstanceName; its children answer to their old flat names through Prefix,
+	// Suffix (the data id) and Index (the list index). Null, logged, when unmapped.
+	URokUiPageWidget* MountItem(FName Item, UCanvasPanel* Parent, FName InstanceName,
+		const FVector2D& Position, const FVector2D& Size, int32 ZOrder,
+		const FString& Prefix, const FString& Suffix, const FString& Index = FString());
+	// Gives a page's hit button its action id (HandleProfileSubscreenAction), which
+	// MakeIndexedHitButton set for C++-built buttons.
+	void BindIndexedButton(UWidget* Button, int32 ActionId);
+	/** Mounts a tooltip item WBP over the mode page, filling it (its click-away layer). */
+	URokUiPageWidget* MountTipLayer(FName Item, FName InstanceName);
+	// Points a page image at one Unity atlas sprite (icons that follow state or data).
+	void SetAtlasSprite(UImage* Image, const TCHAR* TexturePath, const FIntRect& UnityRect,
+		const FIntPoint& AtlasSize, const FVector2D& DesiredSize) const;
+	UPROPERTY(Transient)
+	TObjectPtr<URokUiPageWidget> ActivePage;
+	FName ActivePageName;
 	void UpdateWindowAnimationForMode(bool bOpening);
 	void ApplyWindowAnimation();
 	void AdvanceWindowAnimation(float DeltaSeconds);
@@ -361,10 +396,12 @@ private:
 	void HandleBuildingLevelBackClicked();
 	void ApplyBuildingPageAnimation();
 	void BuildBuildingUpgrade();
+	void BindBuildingUpgradePage(URokUiPageWidget* Page, const FRokBuildingUpgradePreview& Preview,
+		bool bIsSourcePreview, bool bHasRuntimePreview, bool bBarracks, bool bBarracksAttributes);
 	void RefreshUpgradeButtons();
 	void SubmitServerUpgrade(bool bImmediately);
 	void ShowUpgradeFeedback(const FText& Text);
-	void BuildBarracksLevelDetails(int32 KnownLevel);
+	void BuildBarracksLevelDetails(int32 KnownLevel, URokUiPageWidget* Page = nullptr);
 	void ApplyBarracksLevelPageAnimation();
 	UFUNCTION()
 	void HandleBarracksLevelInfoClicked();
@@ -469,15 +506,6 @@ private:
 		ERokChangeNameValidationResult Result) const;
 	void UpdateExpandedDesignResolution(const FVector2D& RootSize);
 
-	UCanvasPanel* MakeResourceRow(
-		int32 RowIndex,
-		int32 Amount,
-		int32 Quality,
-		int32 OwnedCount,
-		int32 ShortcutPrice,
-		const FText& ResourceName,
-		const FIntRect& ItemIconRect);
-	UButton* MakeResourceTab(int32 CategoryIndex, bool bSelected);
 	UButton* MakePlayerDataButton(const FName& Name, const FIntRect& IconRect, const FText& Label);
 	UButton* MakeTextAtlasButton(
 		const FName& Name,

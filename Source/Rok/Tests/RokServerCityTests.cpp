@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
+#include "../RokUiWidgets.h"
 #include "Audio.h"
 #include "AudioDevice.h"
 #include "Components/Button.h"
@@ -787,7 +788,7 @@ private:
 
 	bool Click(UUserWidget* Owner, FName Name)
 	{
-		auto* Button = Cast<UButton>(Owner->GetWidgetFromName(Name));
+		auto* Button = Cast<UButton>(RokUiFind::Find(Owner, Name));
 		if (!Test.TestTrue(Name.ToString(), Button && Button->GetIsEnabled())) return false;
 		Button->OnClicked.Broadcast();
 		if (Owner == Screen.Get()) Screen->FlushPendingActionForTesting();
@@ -815,7 +816,7 @@ private:
 				&& Ghost->GetBuildingMeshComponent()->GetStaticMesh() == FSoftObjectPath(Expected->MeshPath).ResolveObject());
 		}
 		Test.TestFalse(TEXT("Replay cannot submit construction"), State.bCanCommit);
-		const auto* Confirm = Hud->GetWidgetFromName(TEXT("CityPlacementConfirmButton"));
+		const auto* Confirm = RokUiFind::Find(Hud, TEXT("CityPlacementConfirmButton"));
 		Test.TestTrue(TEXT("Confirmation is enabled only for the busy-worker route in this replay"),
 			Confirm && Confirm->GetIsEnabled() == (Type == 10));
 		return Capture(CaptureName);

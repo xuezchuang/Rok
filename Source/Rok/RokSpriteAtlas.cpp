@@ -128,11 +128,11 @@ bool FRokSpriteAtlas::Resolve(const FString& IconReference, FRokSpriteRect& Out)
 
 UTexture2D* FRokSpriteAtlas::GetSheetTexture(const FString& SheetPng)
 {
-	if (TObjectPtr<UTexture2D>* Cached = Textures.Find(SheetPng))
+	if (const TWeakObjectPtr<UTexture2D>* Cached = Textures.Find(SheetPng))
 	{
-		if (*Cached)
+		if (UTexture2D* Texture = Cached->Get())
 		{
-			return *Cached;
+			return Texture;
 		}
 	}
 

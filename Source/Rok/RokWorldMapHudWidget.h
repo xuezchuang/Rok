@@ -30,6 +30,8 @@ class UTexture2D;
 class USoundBase;
 class UWidget;
 class URokMainHudWidget;
+class URokUiPageWidget;
+class URokUnityIndexedButton;
 class URokUnityFeatureScreenWidget;
 class URokUnityModalWidget;
 
@@ -117,6 +119,8 @@ class ROK_API URokWorldMapHudWidget : public UUserWidget
 	GENERATED_BODY()
 
 public:
+	static TSubclassOf<URokWorldMapHudWidget> ResolveHudClass();
+
 	static FVector2D ComputeMiniMapPoint(
 		const FRokWorldMapProjection& Projection,
 		const FVector2D& UnityPosition,
@@ -193,10 +197,33 @@ protected:
 private:
 	void PlayResourceClickSound();
 	void BuildGatherPanel();
+	struct FWorldMarchRowLayout
+	{
+		UImage* RarityFrame = nullptr;
+		UImage* Portrait = nullptr;
+		UImage* SelectionFrame = nullptr;
+		UImage* Status = nullptr;
+	};
+
 	void BuildWorldMarchQueue();
+	FWorldMarchRowLayout BuildWorldMarchRowLayout(UCanvasPanel* Row, const FString& Suffix);
+	void BindWorldMarchQueue(URokUiPageWidget& Page);
+	void BindGatherPanel(URokUiPageWidget& Page);
 	void RefreshWorldMarchQueue();
 	void UpdateAttackMarchMarkers(const FRokServerArmySnapshot& Snapshot);
 	void UpdateAttackMarchRoutes();
+	void BuildWorldOverlayArt();
+	void BuildWorldDamageArt();
+	UPROPERTY(Transient) TObjectPtr<URokUiPageWidget> WorldDamageArtPage;
+	UPROPERTY(Transient) TObjectPtr<UCanvasPanel> WorldDamageArtRoot;
+	UPROPERTY(Transient) TArray<TObjectPtr<UTextBlock>> WorldDamageArt;
+	const UImage& GetWorldOverlayArt(FName Name) const;
+	void ApplyWorldOverlayArt(UImage& Image, const UImage& Art) const;
+	UImage* AddWorldOverlayImage(UCanvasPanel* Parent, FName Name, const UImage& Art);
+	UPROPERTY(Transient) TObjectPtr<URokUiPageWidget> WorldOverlayArtPage;
+	UPROPERTY(Transient) TObjectPtr<UCanvasPanel> WorldOverlayArtRoot;
+	UPROPERTY(Transient) TMap<FName, TObjectPtr<UImage>> WorldOverlayImages;
+
 	TArray<FRokServerMarch> AttackMarchRoutes;
 	double AttackMarchSampleTime = 0.0;
 	UPROPERTY(Transient) TArray<TObjectPtr<UImage>> AttackRouteDots;
@@ -218,12 +245,15 @@ private:
 	int32 SelectedMarchArmyIndex = 0;
 	bool bWorldMarchQueueExpanded = true;
 	FString WorldMarchQueueSignature;
+	double WorldMarchRowHeight = 86.0;
+	double WorldMarchViewportHeight = 258.0;
 	UPROPERTY(Transient)
 	TObjectPtr<UCanvasPanel> WorldMarchQueueRoot;
 	UPROPERTY(Transient)
 	TObjectPtr<UTextBlock> WorldMarchQueueCount;
 	UPROPERTY(Transient)
 	TObjectPtr<UImage> WorldMarchQueueArrow;
+	float WorldMarchQueueArrowClosedAngle = 0.0f;
 	UPROPERTY(Transient)
 	TObjectPtr<UScrollBox> WorldMarchQueueList;
 	UPROPERTY(Transient)
@@ -241,10 +271,28 @@ private:
 	void AddWorldPopupFrame(UCanvasPanel* Panel, const FVector2D& PanelSize, const TCHAR* Prefix);
 	void OpenGatherPanel(ARokWorldMapEntityActor* Target, int64 TargetId, TOptional<bool> AttackStationAfterBattle = {});
 	void BuildBarbarianInfo();
+	void BindBarbarianInfo(URokUiPageWidget& Page);
 	void RefreshBarbarianInfo(const ARokWorldMapEntityActor& Target);
 	void SetBarbarianDetailsExpanded(bool bExpanded);
 	UFUNCTION() void HandleBarbarianDetailsClicked();
 	UFUNCTION() void HandleBarbarianDetailsBackClicked();
+	struct FBarbarianRewardLayout
+	{
+		UImage* Frame = nullptr;
+		UImage* Icon = nullptr;
+		UTextBlock* Value = nullptr;
+		UTextBlock* Count = nullptr;
+	};
+
+	struct FAttackArmyChoiceLayout
+	{
+		UWidget* Root = nullptr;
+		URokUnityIndexedButton* Button = nullptr;
+		UTextBlock* Label = nullptr;
+	};
+
+	FBarbarianRewardLayout BuildBarbarianRewardLayout(UCanvasPanel* Cell, int32 Index);
+	FAttackArmyChoiceLayout BuildAttackArmyChoiceLayout(int32 ArmyIndex);
 	void RefreshAttackArmyChoices();
 	void SelectAttackArmy(int32 ArmyIndex);
 	UFUNCTION() void HandleBarbarianAttackClicked();
@@ -284,6 +332,7 @@ private:
 	UPROPERTY(Transient) TObjectPtr<UCanvasPanel> BarbarianNormalPage;
 	UPROPERTY(Transient) TObjectPtr<UCanvasPanel> BarbarianDetailsPage;
 	UPROPERTY(Transient) TObjectPtr<UCanvasPanel> BarbarianRewards;
+	TArray<FBox2D> BarbarianRewardCells;
 	UPROPERTY(Transient) TObjectPtr<UImage> BarbarianPortrait;
 	UPROPERTY(Transient) TObjectPtr<UCanvasPanel> BarbarianTimer;
 	UPROPERTY(Transient) TObjectPtr<UTextBlock> BarbarianTimeRemaining;
@@ -449,6 +498,7 @@ private:
 	TWeakObjectPtr<UCanvasPanelSlot> MiniMapSelfCanvasSlot;
 	TWeakObjectPtr<UCanvasPanelSlot> WorldObjectInfoCanvasSlot;
 	TWeakObjectPtr<UCanvasPanelSlot> WorldObjectInfoArrowCanvasSlot;
+	float WorldObjectInfoArrowBaseAngle = 0.0f;
 	TWeakObjectPtr<ARokWorldMapCityActor> PlayerCityActor;
 	TWeakObjectPtr<ARokStrategicResourceLayer> StrategicResourceLayer;
 	TWeakObjectPtr<ARokStrategicResourceLayer> StrategicExplorationLayer;
@@ -466,6 +516,10 @@ private:
 		ERokWorldMapHudFilter::Alliance;
 
 	void BuildWidgetTree();
+	void BuildHudLayout(UCanvasPanel* RootCanvas);
+	void BindHudLayout();
+	void AddPowerGain(UCanvasPanel* Group);
+	void AddMiniMapInput(UCanvasPanel* Group);
 	void BuildPlayerIdentity();
 	void BuildCoordinatePanel();
 	void BuildMiniMap();
@@ -475,10 +529,18 @@ private:
 	void BuildSelfMarker();
 
 	void BuildEntityBadges();
+	void BuildEntityBadgeLayout(FEntityBadgeEntry& Entry, uint64 BadgeId, bool bGatherable);
 	void ReconcileEntityBadges();
 	void UpdateEntityBadges();
 	void RefreshSelectedWorldObjectValues();
 	void BuildWorldObjectInfo();
+	void BuildResourceInfoLayout();
+	void BindResourceInfoLayout(URokUiPageWidget& Page);
+	URokUiPageWidget* CreateWorldHudPage(const TSoftClassPtr<URokUiPageWidget>& Class, FName Name);
+	URokUiPageWidget* AddWorldHudPage(UCanvasPanel* Parent, const TSoftClassPtr<URokUiPageWidget>& Class,
+		FName Name, int32 ZOrder = 0);
+	void BindWorldHudButton(const UUserWidget& Owner, FName Name, FName Function);
+	void ApplyResourceDescriptionStyles();
 	void BuildServerListOverlay();
 	void UpdateExpandedDesignResolution(const FVector2D& RootSize);
 	void UpdatePlayerMarkerProjection();

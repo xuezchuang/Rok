@@ -1,4 +1,5 @@
 #include "RokCommanderSyntheticSlateAuditSubsystem.h"
+#include "RokUiWidgets.h"
 
 
 #include "../RokDataPaths.h"
@@ -700,7 +701,7 @@ void URokCommanderSyntheticSlateAuditSubsystem::Tick(float DeltaTime)
     };
     const auto HudButton = [this](const TCHAR* Name)
     {
-        return Hud.IsValid() ? Cast<UButton>(Hud->GetWidgetFromName(Name)) : nullptr;
+        return Hud.IsValid() ? Cast<UButton>(RokUiFind::Find(Hud, Name)) : nullptr;
     };
     const auto ScreenButton = [this](const TCHAR* Name)
     {
@@ -713,7 +714,7 @@ void URokCommanderSyntheticSlateAuditSubsystem::Tick(float DeltaTime)
     case 2:
     {
         const UWidget* Parent = Hud.IsValid()
-            ? Hud->GetWidgetFromName(TEXT("CommanderFeature")) : nullptr;
+            ? RokUiFind::Find(Hud, TEXT("CommanderFeature")) : nullptr;
         if (!Expect(Parent != nullptr, TEXT("Commander feature parent missing from real HUD"))) break;
         const ESlateVisibility Visibility = Parent->GetVisibility();
         const TCHAR* State = Visibility == ESlateVisibility::SelfHitTestInvisible
@@ -753,7 +754,7 @@ void URokCommanderSyntheticSlateAuditSubsystem::Tick(float DeltaTime)
     case 22:
     {
         const UWidget* Parent = Hud.IsValid()
-            ? Hud->GetWidgetFromName(TEXT("CommanderFeature")) : nullptr;
+            ? RokUiFind::Find(Hud, TEXT("CommanderFeature")) : nullptr;
         StableFrames = Parent && Parent->GetVisibility() == ESlateVisibility::Collapsed
             ? StableFrames + 1 : 0;
         if (StableFrames >= 2)
@@ -773,7 +774,7 @@ void URokCommanderSyntheticSlateAuditSubsystem::Tick(float DeltaTime)
     case 24:
     {
         const UWidget* Parent = Hud.IsValid()
-            ? Hud->GetWidgetFromName(TEXT("CommanderFeature")) : nullptr;
+            ? RokUiFind::Find(Hud, TEXT("CommanderFeature")) : nullptr;
         const UButton* Commander = HudButton(TEXT("CommanderFeatureButton"));
         StableFrames = Parent && Parent->GetVisibility() == ESlateVisibility::SelfHitTestInvisible
             && Commander && RokCommanderSyntheticAudit::Visible(Commander) && Commander->GetIsEnabled()

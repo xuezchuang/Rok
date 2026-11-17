@@ -20,6 +20,7 @@ public:
 	void SetCivilizationProjection(float AboutOffset) { bCivilizationProjection = true; CivilizationAboutOffset = AboutOffset; }
 	bool PlayStandby();
 	void AdvanceAnimation(float Delta);
+	bool FreezeAnimationForCapture(float Seconds);
 	bool IsPlayingStandby() const { return bPlayingStandby; }
 	void BeginSelectionTransition(bool bForward) { CameraX = bForward ? -10.0f : 10.0f; }
 	float GetSelectionCameraX() const { return CameraX; }
@@ -48,6 +49,7 @@ private:
 	TArray<FFrame> StandbyFrames;
 	float StandbyDuration = 0.0f;
 	bool bPlayingStandby = false;
+	bool bAnimationFrozenForCapture = false;
 	TArray<FSlateBrush> Brushes;
 	UPROPERTY(Transient) TArray<TObjectPtr<UTexture2D>> Textures;
 	FVector2f BoundsMin = FVector2f::ZeroVector;

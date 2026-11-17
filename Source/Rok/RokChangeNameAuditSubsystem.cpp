@@ -1,4 +1,5 @@
 #include "RokChangeNameAuditSubsystem.h"
+#include "RokUiWidgets.h"
 #include "Blueprint/WidgetBlueprintLibrary.h"
 #include "Components/Button.h"
 #include "Components/CanvasPanelSlot.h"
@@ -117,7 +118,7 @@ bool URokChangeNameAuditSubsystem::Begin()
 }
 bool URokChangeNameAuditSubsystem::CheckText(FName Name, const FString& Expected)
 {
-	const auto* Text = Cast<UTextBlock>(Modal->GetWidgetFromName(Name));
+	const auto* Text = Cast<UTextBlock>(RokUiFind::Find(Modal, Name));
 	if (!ChangeNameAuditVisible(Text) || Text->GetText().ToString() != Expected)
 	{ Finish(FString::Printf(TEXT("Unexpected fixed UI label %s; text values omitted."), *Name.ToString())); return false; }
 	return true;
@@ -136,16 +137,16 @@ bool URokChangeNameAuditSubsystem::Validate()
 			{ Finish(TEXT("Final close failed to return to city.")); return false; }
 			return true;
 		}
-		if (!Modal->IsModalOpen() || !ChangeNameAuditVisible(Modal->GetWidgetFromName(TEXT("ProfileRenameButton")))
-			|| Modal->GetWidgetFromName(TEXT("ChangeNameInput")))
+		if (!Modal->IsModalOpen() || !ChangeNameAuditVisible(RokUiFind::Find(Modal, TEXT("ProfileRenameButton")))
+			|| RokUiFind::Find(Modal, TEXT("ChangeNameInput")))
 		{ Finish(TEXT("Expected profile after the name window close.")); return false; }
 		bObservedNameRemoval = true;
 		return true;
 	}
-	const auto* CurrentInput = Cast<UEditableTextBox>(Modal->GetWidgetFromName(TEXT("ChangeNameInput")));
-	const auto* Confirm = Cast<UButton>(Modal->GetWidgetFromName(TEXT("ChangeNameConfirmButton")));
-	const auto* Canvas = Modal->GetWidgetFromName(TEXT("ModalModeCanvas"));
-	const auto* Blocker = Modal->GetWidgetFromName(TEXT("ModalAnimationInputBlocker"));
+	const auto* CurrentInput = Cast<UEditableTextBox>(RokUiFind::Find(Modal, TEXT("ChangeNameInput")));
+	const auto* Confirm = Cast<UButton>(RokUiFind::Find(Modal, TEXT("ChangeNameConfirmButton")));
+	const auto* Canvas = RokUiFind::Find(Modal, TEXT("ModalModeCanvas"));
+	const auto* Blocker = RokUiFind::Find(Modal, TEXT("ModalAnimationInputBlocker"));
 	if (!Modal->IsModalOpen() || !ChangeNameAuditVisible(CurrentInput) || !ChangeNameAuditVisible(Confirm)
 		|| !Canvas || Confirm->GetIsEnabled() || CurrentInput->GetIsReadOnly() || !CurrentInput->GetIsEnabled()
 		|| CurrentInput->GetText().ToString() != ExpectedText)
@@ -167,7 +168,7 @@ bool URokChangeNameAuditSubsystem::Validate()
 	}
 	if (!Scale.Equals(FVector2D(1), .0001) || !FMath::IsNearlyEqual(Opacity, 1.f) || ChangeNameAuditVisible(Blocker))
 	{ Finish(TEXT("T1 window did not settle at scale/opacity 1 with its input shield removed.")); return false; }
-	const auto* Description = Cast<UTextBlock>(Modal->GetWidgetFromName(TEXT("ChangeNameDescription")));
+	const auto* Description = Cast<UTextBlock>(RokUiFind::Find(Modal, TEXT("ChangeNameDescription")));
 	const auto* Justification = Description ? FindFProperty<FByteProperty>(Description->GetClass(), TEXT("Justification")) : nullptr;
 	if (!Input.IsValid() || CurrentInput != Input.Get() || !ChangeNameAuditVisible(Description)
 		|| !ChangeNameAuditRect(Input.Get(), FVector2D(329, 270), FVector2D(782, 54))
@@ -186,7 +187,7 @@ bool URokChangeNameAuditSubsystem::Validate()
 
 bool URokChangeNameAuditSubsystem::BindInput(bool bReopened)
 {
-	Input = Cast<UEditableTextBox>(Modal->GetWidgetFromName(TEXT("ChangeNameInput")));
+	Input = Cast<UEditableTextBox>(RokUiFind::Find(Modal, TEXT("ChangeNameInput")));
 	if (!Input.IsValid() || (bReopened && !bObservedNameRemoval))
 	{ Finish(TEXT("Name input is absent or its preceding removal was not observed.")); return false; }
 	// ConstructWidget uses NewObject with a fixed name and outer. UE may reconstruct
@@ -218,10 +219,10 @@ bool URokChangeNameAuditSubsystem::Click(UUserWidget* Owner, FName Name)
 	if (Name != TEXT("PlayerProfileHitButton") && Name != TEXT("ProfileRenameButton")
 		&& Name != TEXT("TypeMidCloseButton") && Name != TEXT("Type1CloseButton"))
 	{ Finish(TEXT("Audit attempted a button outside its navigation-only allowlist.")); return false; }
-	auto* Button = Owner ? Cast<UButton>(Owner->GetWidgetFromName(Name)) : nullptr;
+	auto* Button = Owner ? Cast<UButton>(RokUiFind::Find(Owner, Name)) : nullptr;
 	if (!Button || Owner->GetWorld() != GetWorld() || !ChangeNameAuditVisible(Button) || !Button->GetIsEnabled()
 		|| Button->GetCachedGeometry().GetLocalSize().X <= 0
-		|| (Owner == Modal.Get() && ChangeNameAuditVisible(Modal->GetWidgetFromName(TEXT("ModalAnimationInputBlocker")))))
+		|| (Owner == Modal.Get() && ChangeNameAuditVisible(RokUiFind::Find(Modal, TEXT("ModalAnimationInputBlocker")))))
 	{ Finish(FString::Printf(TEXT("Navigation button unavailable: %s."), *Name.ToString())); return false; }
 	auto Action = MakeShared<FJsonObject>(); Action->SetStringField(TEXT("button_delegate"), Name.ToString());
 	Action->SetNumberField(TEXT("frame"), double(Frame)); Actions.Add(MakeShared<FJsonValueObject>(Action));
@@ -271,12 +272,12 @@ TSharedRef<FJsonObject> URokChangeNameAuditSubsystem::State() const
 	Result->SetStringField(TEXT("expected_fixture"), ExpectedText); Result->SetNumberField(TEXT("expected_character_count"), ExpectedText.Len());
 	if (Modal.IsValid())
 	{
-		if (const auto* Canvas = Modal->GetWidgetFromName(TEXT("ModalModeCanvas")))
+		if (const auto* Canvas = RokUiFind::Find(Modal, TEXT("ModalModeCanvas")))
 		{
 			Result->SetNumberField(TEXT("actual_window_scale"), Canvas->GetRenderTransform().Scale.X);
 			Result->SetNumberField(TEXT("actual_window_opacity"), Canvas->GetRenderOpacity());
 		}
-		if (const auto* Button = Cast<UButton>(Modal->GetWidgetFromName(TEXT("ChangeNameConfirmButton"))))
+		if (const auto* Button = Cast<UButton>(RokUiFind::Find(Modal, TEXT("ChangeNameConfirmButton"))))
 			Result->SetBoolField(TEXT("confirm_enabled"), Button->GetIsEnabled());
 	}
 	return Result;
@@ -311,7 +312,7 @@ void URokChangeNameAuditSubsystem::Tick(float DeltaTime)
 	Elapsed += FMath::Max(DeltaTime, 0.f); ++Frame;
 	if (Elapsed > 90) { Finish(TEXT("Name audit timed out.")); return; }
 	if (Modal.IsValid())
-		if (const auto* Confirm = Cast<UButton>(Modal->GetWidgetFromName(TEXT("ChangeNameConfirmButton"))); Confirm && Confirm->GetIsEnabled())
+		if (const auto* Confirm = Cast<UButton>(RokUiFind::Find(Modal, TEXT("ChangeNameConfirmButton"))); Confirm && Confirm->GetIsEnabled())
 		{ Finish(TEXT("Confirmation became enabled during an audit tick.")); return; }
 	if (PendingCapture.IsValid()) { if (Elapsed - ScreenshotStarted > 10) Finish(TEXT("Screenshot callback timed out.")); return; }
 	const double Delay = Step == 0 ? 3.0 : (Step == 4 || Step == 20 ? .05 : .5);

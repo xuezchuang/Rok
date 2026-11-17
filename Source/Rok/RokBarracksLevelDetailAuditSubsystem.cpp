@@ -1,4 +1,5 @@
 #include "RokBarracksLevelDetailAuditSubsystem.h"
+#include "RokUiWidgets.h"
 #include "RokBarracksSourceTextWidget.h"
 #include "RokBarracksSourceTextData.h"
 #include "RokBuildingLevelDetails.h"
@@ -266,7 +267,7 @@ bool URokBarracksLevelDetailAuditSubsystem::Click(UUserWidget* Owner, FName Name
     if (!Expect(Name == TEXT("BuildingUpgradeButton") || Name == TEXT("BarracksLevelInfoButton")
         || Name == TEXT("BarracksLevelBackButton") || Name == TEXT("Type2CloseButton"),
         TEXT("Only read-only navigation delegates allowed"))) return false;
-    auto* Button = Owner ? Cast<UButton>(Owner->GetWidgetFromName(Name)) : nullptr;
+    auto* Button = Owner ? Cast<UButton>(RokUiFind::Find(Owner, Name)) : nullptr;
     if (!Expect(Button && Visible(Button) && Button->GetIsEnabled(), TEXT("Missing enabled navigation button"))) return false;
     auto Action = MakeShared<FJsonObject>(); Action->SetStringField(TEXT("button"), Name.ToString());
     Action->SetNumberField(TEXT("frame"), GFrameCounter); Action->SetNumberField(TEXT("step"), Step);
@@ -280,9 +281,9 @@ bool URokBarracksLevelDetailAuditSubsystem::Validate()
     if (!Expect(Modal.IsValid() && Hud.IsValid(), TEXT("Lost city UI host"))) return false;
     const FVector2D Pixels = UWidgetLayoutLibrary::GetViewportSize(this);
     if (!Expect(Pixels.Equals(FVector2D(1440,810),.1), TEXT("Real game viewport must be 1440x810"))) return false;
-    const auto* Detail = Modal->GetWidgetFromName(TEXT("BarracksLevelDetailsRoot"));
-    const auto* Info = Cast<UButton>(Modal->GetWidgetFromName(TEXT("BarracksLevelInfoButton")));
-    const auto* Back = Cast<UButton>(Modal->GetWidgetFromName(TEXT("BarracksLevelBackButton")));
+    const auto* Detail = RokUiFind::Find(Modal, TEXT("BarracksLevelDetailsRoot"));
+    const auto* Info = Cast<UButton>(RokUiFind::Find(Modal, TEXT("BarracksLevelInfoButton")));
+    const auto* Back = Cast<UButton>(RokUiFind::Find(Modal, TEXT("BarracksLevelBackButton")));
     if (Page == 0)
         return Expect(!Modal->IsModalOpen() && !Detail && !Info && !Back,
             TEXT("Closed preview retained barracks level controls"));
@@ -297,7 +298,7 @@ bool URokBarracksLevelDetailAuditSubsystem::Validate()
     if (Page == 1)
     {
         const auto* Slot = Cast<UCanvasPanelSlot>(Info->Slot);
-        const auto* Glyph = Cast<UImage>(Modal->GetWidgetFromName(TEXT("BarracksLevelInfoButtonImage")));
+        const auto* Glyph = Cast<UImage>(RokUiFind::Find(Modal, TEXT("BarracksLevelInfoButtonImage")));
         if (!Expect(!Visible(Detail) && Visible(Info) && !Visible(Back) && Slot
             && Slot->GetPosition().Equals(FVector2D(211,227),.02)
             && Slot->GetSize().Equals(FVector2D(60,60),.02)
@@ -328,7 +329,7 @@ bool URokBarracksLevelDetailAuditSubsystem::Validate()
     if (!Expect(Visible(Detail) && !Visible(Info) && Visible(Back),
         TEXT("Detail page/return controls have wrong visibility"))) return false;
     const auto* BackSlot = Cast<UCanvasPanelSlot>(Back->Slot);
-    const auto* BackGlyph = Cast<UImage>(Modal->GetWidgetFromName(TEXT("BarracksLevelBackButtonImage")));
+    const auto* BackGlyph = Cast<UImage>(RokUiFind::Find(Modal, TEXT("BarracksLevelBackButtonImage")));
     if (!Expect(BackSlot && BackSlot->GetPosition().Equals(FVector2D(179.5,54.5),.02)
         && BackSlot->GetSize().Equals(FVector2D(69,69),.02)
         && BackGlyph && Back->GetContent() == BackGlyph && Visible(BackGlyph),
@@ -349,7 +350,7 @@ bool URokBarracksLevelDetailAuditSubsystem::Validate()
         && Modal->GetBarracksLevelPageTimeForAudit() >= .24f,
         TEXT("Current level selection or detail animation did not settle"))) return false;
 #endif
-    const auto* Scroll = Cast<UScrollBox>(Modal->GetWidgetFromName(TEXT("BarracksLevelDetailsScroll")));
+    const auto* Scroll = Cast<UScrollBox>(RokUiFind::Find(Modal, TEXT("BarracksLevelDetailsScroll")));
     if (!Expect(Scroll && Visible(Scroll), TEXT("Barracks detail scroll missing"))) return false;
     if ((Step == 5 || Step == 17) && !Expect(FMath::Abs(Scroll->GetScrollOffset()) <= 1.f,
         TEXT("New level-detail instance did not start at first row"))) return false;
@@ -364,10 +365,10 @@ bool URokBarracksLevelDetailAuditSubsystem::Validate()
         TEXT("Source-derived barracks 25-row table unavailable"))) return false;
     for (int32 Column = 0; Column < 4; ++Column)
     {
-        const auto* Header = Cast<URokBarracksSourceTextWidget>(Modal->GetWidgetFromName(*FString::Printf(TEXT("BarracksLevelHeader_%d"),Column)));
+        const auto* Header = Cast<URokBarracksSourceTextWidget>(RokUiFind::Find(Modal, *FString::Printf(TEXT("BarracksLevelHeader_%d"),Column)));
         const FString Key = FString::Printf(TEXT("header_%d"),Column);
         const auto* Mesh = HeaderData ? HeaderData->FindKey(Key) : nullptr;
-        const auto* Region = Modal->GetWidgetFromName(*FString::Printf(TEXT("BarracksLevelHeaderRegion_%d"),Column));
+        const auto* Region = RokUiFind::Find(Modal, *FString::Printf(TEXT("BarracksLevelHeaderRegion_%d"),Column));
         const auto* Slot = Region ? Cast<UCanvasPanelSlot>(Region->Slot) : nullptr;
         if (!Expect(Header && Header->GetText().ToString() == Headers[Column]
             && Header->HasSourceMesh() && Header->GetSourceKey() == Key
@@ -388,24 +389,24 @@ bool URokBarracksLevelDetailAuditSubsystem::Validate()
             Row.InfantryAttackText, FText::AsNumber(Row.Power).ToString()};
         for (int32 Column = 0; Column < 4; ++Column)
         {
-            const auto* Region = Modal->GetWidgetFromName(*FString::Printf(TEXT("BarracksLevelCellRegion_%d_%d"),Row.Level,Column));
+            const auto* Region = RokUiFind::Find(Modal, *FString::Printf(TEXT("BarracksLevelCellRegion_%d_%d"),Row.Level,Column));
             const auto* Slot = Region ? Cast<UCanvasPanelSlot>(Region->Slot) : nullptr;
             if (!Expect(Slot && Slot->GetPosition().Equals(FVector2D((Column==0?-13:Column==1?257:Column==2?517:787),(Row.Level-1)*50),.02)
                 && Slot->GetSize().Equals(FVector2D(250,50),.02),
                 TEXT("Barracks cell region differs from source row geometry"))) return false;
-            const auto* Cell = Cast<UTextBlock>(Modal->GetWidgetFromName(*FString::Printf(TEXT("BarracksLevelCell_%d_%d"),Row.Level,Column)));
+            const auto* Cell = Cast<UTextBlock>(RokUiFind::Find(Modal, *FString::Printf(TEXT("BarracksLevelCell_%d_%d"),Row.Level,Column)));
             if (!Expect(Cell && Cell->GetText().ToString() == Values[Column]
                 && FMath::IsNearlyEqual(Cell->GetFont().Size,16.5,.01)
                 && Cell->GetColorAndOpacity().GetSpecifiedColor().ToFColor(true) == FColor::White,
                 TEXT("Barracks detail cell text/style differs from source"))) return false;
         }
     }
-    const auto* Selection = Modal->GetWidgetFromName(TEXT("BarracksLevelCurrentRow"));
+    const auto* Selection = RokUiFind::Find(Modal, TEXT("BarracksLevelCurrentRow"));
     if (!Expect(Selection && Visible(Selection), TEXT("Actual current-level highlight missing"))) return false;
     if (Step == 7 || Step == 11)
     {
         const auto ScrollRect = WidgetGeometry(this,Scroll)->GetObjectField(TEXT("pixel_rect"));
-        const auto LastRect = WidgetGeometry(this,Modal->GetWidgetFromName(TEXT("BarracksLevelCellRegion_25_0")))->GetObjectField(TEXT("pixel_rect"));
+        const auto LastRect = WidgetGeometry(this,RokUiFind::Find(Modal, TEXT("BarracksLevelCellRegion_25_0")))->GetObjectField(TEXT("pixel_rect"));
         if (!Expect(LastRect->GetNumberField(TEXT("y")) < ScrollRect->GetNumberField(TEXT("y")) + ScrollRect->GetNumberField(TEXT("height"))
             && LastRect->GetNumberField(TEXT("y")) + LastRect->GetNumberField(TEXT("height")) > ScrollRect->GetNumberField(TEXT("y")),
             TEXT("Last level row remained outside real scroll viewport"))) return false;
@@ -420,16 +421,16 @@ TSharedRef<FJsonObject> URokBarracksLevelDetailAuditSubsystem::State() const
     Result->SetBoolField(TEXT("state_unchanged"), true);
     Result->SetObjectField(TEXT("viewport_pixels"), MakeLevelDetailRectJson(FVector2D::ZeroVector,UWidgetLayoutLibrary::GetViewportSize(this)));
     if (Page == 0) return Result;
-    const auto* Detail = Modal->GetWidgetFromName(TEXT("BarracksLevelDetailsRoot"));
-    const auto* Info = Modal->GetWidgetFromName(TEXT("BarracksLevelInfoButton"));
-    const auto* Back = Modal->GetWidgetFromName(TEXT("BarracksLevelBackButton"));
+    const auto* Detail = RokUiFind::Find(Modal, TEXT("BarracksLevelDetailsRoot"));
+    const auto* Info = RokUiFind::Find(Modal, TEXT("BarracksLevelInfoButton"));
+    const auto* Back = RokUiFind::Find(Modal, TEXT("BarracksLevelBackButton"));
     Result->SetObjectField(TEXT("detail_root"), WidgetGeometry(this,Detail));
     Result->SetObjectField(TEXT("info_button"), WidgetGeometry(this,Info));
-    Result->SetObjectField(TEXT("info_glyph"), ImageGeometry(this,Cast<UImage>(Modal->GetWidgetFromName(TEXT("BarracksLevelInfoButtonImage")))));
+    Result->SetObjectField(TEXT("info_glyph"), ImageGeometry(this,Cast<UImage>(RokUiFind::Find(Modal, TEXT("BarracksLevelInfoButtonImage")))));
     Result->SetObjectField(TEXT("back_button"), WidgetGeometry(this,Back));
-    Result->SetObjectField(TEXT("back_glyph"), ImageGeometry(this,Cast<UImage>(Modal->GetWidgetFromName(TEXT("BarracksLevelBackButtonImage")))));
-    Result->SetObjectField(TEXT("description_root"), WidgetGeometry(this,Modal->GetWidgetFromName(TEXT("BarracksLevelDescriptionRoot"))));
-    Result->SetObjectField(TEXT("mode_canvas"), WidgetGeometry(this,Modal->GetWidgetFromName(TEXT("ModalModeCanvas"))));
+    Result->SetObjectField(TEXT("back_glyph"), ImageGeometry(this,Cast<UImage>(RokUiFind::Find(Modal, TEXT("BarracksLevelBackButtonImage")))));
+    Result->SetObjectField(TEXT("description_root"), WidgetGeometry(this,RokUiFind::Find(Modal, TEXT("BarracksLevelDescriptionRoot"))));
+    Result->SetObjectField(TEXT("mode_canvas"), WidgetGeometry(this,RokUiFind::Find(Modal, TEXT("ModalModeCanvas"))));
     Result->SetObjectField(TEXT("viewport_geometry"), WidgetGeometry(this,Modal.Get()));
 #if !UE_BUILD_SHIPPING
     Result->SetBoolField(TEXT("detail_open"), Modal->IsBarracksLevelPageOpenForAudit());
@@ -438,19 +439,19 @@ TSharedRef<FJsonObject> URokBarracksLevelDetailAuditSubsystem::State() const
     Result->SetNumberField(TEXT("diagnostic_scroll_offset"), Modal->GetBarracksLevelScrollOffsetForAudit());
 #endif
     if (Page != 2) return Result;
-    const auto* Scroll = Cast<UScrollBox>(Modal->GetWidgetFromName(TEXT("BarracksLevelDetailsScroll")));
+    const auto* Scroll = Cast<UScrollBox>(RokUiFind::Find(Modal, TEXT("BarracksLevelDetailsScroll")));
     Result->SetObjectField(TEXT("scroll"), WidgetGeometry(this,Scroll));
     Result->SetNumberField(TEXT("scroll_offset"), Scroll->GetScrollOffset());
-    Result->SetObjectField(TEXT("current_row"), WidgetGeometry(this,Modal->GetWidgetFromName(TEXT("BarracksLevelCurrentRow"))));
-    Result->SetObjectField(TEXT("first_row"), WidgetGeometry(this,Modal->GetWidgetFromName(TEXT("BarracksLevelCellRegion_1_0"))));
-    Result->SetObjectField(TEXT("last_row"), WidgetGeometry(this,Modal->GetWidgetFromName(TEXT("BarracksLevelCellRegion_25_0"))));
-    Result->SetObjectField(TEXT("first_row_text"), WidgetGeometry(this,Modal->GetWidgetFromName(TEXT("BarracksLevelCell_1_0"))));
+    Result->SetObjectField(TEXT("current_row"), WidgetGeometry(this,RokUiFind::Find(Modal, TEXT("BarracksLevelCurrentRow"))));
+    Result->SetObjectField(TEXT("first_row"), WidgetGeometry(this,RokUiFind::Find(Modal, TEXT("BarracksLevelCellRegion_1_0"))));
+    Result->SetObjectField(TEXT("last_row"), WidgetGeometry(this,RokUiFind::Find(Modal, TEXT("BarracksLevelCellRegion_25_0"))));
+    Result->SetObjectField(TEXT("first_row_text"), WidgetGeometry(this,RokUiFind::Find(Modal, TEXT("BarracksLevelCell_1_0"))));
     TArray<TSharedPtr<FJsonValue>> HeaderJson;
     for (int32 Column=0;Column<4;++Column)
     {
         const FString Name=FString::Printf(TEXT("BarracksLevelHeader_%d"),Column);
-        auto H=WidgetGeometry(this,Modal->GetWidgetFromName(*Name)); H->SetStringField(TEXT("text"),WidgetText(Modal->GetWidgetFromName(*Name)));
-        const auto* Header=Cast<URokBarracksSourceTextWidget>(Modal->GetWidgetFromName(*Name));
+        auto H=WidgetGeometry(this,RokUiFind::Find(Modal, *Name)); H->SetStringField(TEXT("text"),WidgetText(RokUiFind::Find(Modal, *Name)));
+        const auto* Header=Cast<URokBarracksSourceTextWidget>(RokUiFind::Find(Modal, *Name));
         const FString Key=FString::Printf(TEXT("header_%d"),Column);
         const auto* Mesh=HeaderData?HeaderData->FindKey(Key):nullptr;
         H->SetBoolField(TEXT("source_mesh"),Header&&Header->HasSourceMesh());
@@ -471,7 +472,7 @@ TSharedRef<FJsonObject> URokBarracksLevelDetailAuditSubsystem::State() const
                 H->SetObjectField(TEXT("source_color_srgb"),Color);
             }
         }
-        H->SetObjectField(TEXT("source_region"),WidgetGeometry(this,Modal->GetWidgetFromName(*FString::Printf(TEXT("BarracksLevelHeaderRegion_%d"),Column))));
+        H->SetObjectField(TEXT("source_region"),WidgetGeometry(this,RokUiFind::Find(Modal, *FString::Printf(TEXT("BarracksLevelHeaderRegion_%d"),Column))));
         HeaderJson.Add(MakeShared<FJsonValueObject>(H));
     }
     Result->SetArrayField(TEXT("headers"),HeaderJson);
@@ -483,7 +484,7 @@ TSharedRef<FJsonObject> URokBarracksLevelDetailAuditSubsystem::State() const
         for (int32 Column=0;Column<4;++Column)
         {
             const FString Name=FString::Printf(TEXT("BarracksLevelCell_%d_%d"),Level,Column);
-            Cells.Add(MakeShared<FJsonValueString>(WidgetText(Modal->GetWidgetFromName(*Name))));
+            Cells.Add(MakeShared<FJsonValueString>(WidgetText(RokUiFind::Find(Modal, *Name))));
         }
         R->SetArrayField(TEXT("cells"),Cells); RowJson.Add(MakeShared<FJsonValueObject>(R));
     }
@@ -534,14 +535,14 @@ void URokBarracksLevelDetailAuditSubsystem::Tick(float DeltaTime)
     case 6:
         if (Validate())
         {
-            auto* Scroll=Cast<UScrollBox>(Modal->GetWidgetFromName(TEXT("BarracksLevelDetailsScroll")));
+            auto* Scroll=Cast<UScrollBox>(RokUiFind::Find(Modal, TEXT("BarracksLevelDetailsScroll")));
             if (!Expect(Scroll!=nullptr,TEXT("Cannot scroll missing detail list"))) break;
             Scroll->ScrollToEnd(); Enter(7);
         }
         break;
     case 7: Capture(TEXT("04_level_detail_last_rows")); break;
     case 8:
-        ScrolledOffset=Cast<UScrollBox>(Modal->GetWidgetFromName(TEXT("BarracksLevelDetailsScroll")))->GetScrollOffset();
+        ScrolledOffset=Cast<UScrollBox>(RokUiFind::Find(Modal, TEXT("BarracksLevelDetailsScroll")))->GetScrollOffset();
         if (Click(Modal.Get(),TEXT("BarracksLevelBackButton"))) { Page=1; Enter(9); }
         break;
     case 9: Capture(TEXT("05_back_to_upgrade")); break;

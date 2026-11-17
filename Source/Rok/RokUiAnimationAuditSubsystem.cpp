@@ -1,4 +1,5 @@
 #include "RokUiAnimationAuditSubsystem.h"
+#include "RokUiWidgets.h"
 
 #include "Blueprint/WidgetBlueprintLibrary.h"
 #include "Components/Button.h"
@@ -173,7 +174,7 @@ bool URokUiAnimationAuditSubsystem::FindRuntimeWidgets()
 
 bool URokUiAnimationAuditSubsystem::Dispatch(UUserWidget* Owner, FName ButtonName, FName EventName)
 {
-	UButton* Button = Owner ? Cast<UButton>(Owner->GetWidgetFromName(ButtonName)) : nullptr;
+	UButton* Button = Owner ? Cast<UButton>(RokUiFind::Find(Owner, ButtonName)) : nullptr;
 	if (!Button || Owner->GetWorld() != GetWorld() || !IsVisibleInHierarchy(Button))
 	{
 		Fail(FString::Printf(TEXT("Missing, hidden or wrong-world button: %s"), *ButtonName.ToString()));
@@ -248,7 +249,7 @@ void URokUiAnimationAuditSubsystem::EnterPhase(EPhase NextPhase)
 	case EPhase::BuildingLevels:
 	case EPhase::BuildingReopen: Dispatch(Modal.Get(), TEXT("BuildingLevelInfoButton"), TEXT("clicked")); break;
 	case EPhase::BuildingScroll:
-		if (auto* Scroll = Cast<UScrollBox>(Modal->GetWidgetFromName(TEXT("BuildingLevelDetailsScroll")))) Scroll->ScrollToEnd();
+		if (auto* Scroll = Cast<UScrollBox>(RokUiFind::Find(Modal, TEXT("BuildingLevelDetailsScroll")))) Scroll->ScrollToEnd();
 		else Fail(TEXT("Missing actual building level ScrollBox."));
 		break;
 	case EPhase::BuildingReturn: Dispatch(Modal.Get(), TEXT("BuildingLevelBackButton"), TEXT("clicked")); break;
@@ -279,7 +280,7 @@ TSharedRef<FJsonObject> URokUiAnimationAuditSubsystem::ReadRenderState() const
 	State->SetBoolField(TEXT("task_reward_visual_fixture"), FParse::Param(FCommandLine::Get(), TEXT("RokTaskRewardPreview")));
 	auto AddWidget = [&State](UUserWidget* Owner, const TCHAR* Name)
 	{
-		UWidget* Widget = Owner ? Owner->GetWidgetFromName(Name) : nullptr;
+		UWidget* Widget = Owner ? RokUiFind::Find(Owner, Name) : nullptr;
 		if (!Widget)
 		{
 			State->SetField(Name, MakeShared<FJsonValueNull>());
@@ -352,7 +353,7 @@ TSharedRef<FJsonObject> URokUiAnimationAuditSubsystem::ReadRenderState() const
 	State->SetBoolField(TEXT("scout_preview_without_camp_actor_or_queue"), FParse::Param(FCommandLine::Get(), TEXT("RokScoutScreenAudit")));
 	State->SetBoolField(TEXT("building_config_preview_without_city_actor"),
 		FParse::Param(FCommandLine::Get(), TEXT("RokBuildingLevelDetailAudit")));
-	if (auto* Scroll = Modal.IsValid() ? Cast<UScrollBox>(Modal->GetWidgetFromName(TEXT("BuildingLevelDetailsScroll"))) : nullptr)
+	if (auto* Scroll = Modal.IsValid() ? Cast<UScrollBox>(RokUiFind::Find(Modal, TEXT("BuildingLevelDetailsScroll"))) : nullptr)
 	{
 		State->SetNumberField(TEXT("building_scroll_offset"), Scroll->GetScrollOffset());
 		State->SetNumberField(TEXT("building_scroll_end"), Scroll->GetScrollOffsetOfEnd());
@@ -599,7 +600,7 @@ void URokUiAnimationAuditSubsystem::Tick(float DeltaTime)
 	case EPhase::BuildingLevels:
 		if (PhaseCaptureIndex == 0)
 		{
-			UWidget* Panel = Modal->GetWidgetFromName(TEXT("BuildingLevelDetailsRoot"));
+			UWidget* Panel = RokUiFind::Find(Modal, TEXT("BuildingLevelDetailsRoot"));
 			if (Panel && Panel->GetRenderOpacity() > 0.05f && Panel->GetRenderOpacity() < 0.95f)
 				Capture(TEXT("building_levels_entering"), 0, Phase, false);
 		}
@@ -608,7 +609,7 @@ void URokUiAnimationAuditSubsystem::Tick(float DeltaTime)
 	case EPhase::BuildingScroll:
 		if (ElapsedSeconds - PhaseStartedAt >= 0.3f)
 		{
-			auto* Scroll = Cast<UScrollBox>(Modal->GetWidgetFromName(TEXT("BuildingLevelDetailsScroll")));
+			auto* Scroll = Cast<UScrollBox>(RokUiFind::Find(Modal, TEXT("BuildingLevelDetailsScroll")));
 			if (!Scroll || Scroll->GetScrollOffsetOfEnd() <= 1 ||
 				!FMath::IsNearlyEqual(Scroll->GetScrollOffset(), Scroll->GetScrollOffsetOfEnd(), 1.0f))
 				Fail(TEXT("Building level list did not scroll to a real overflow endpoint."));
@@ -626,7 +627,7 @@ void URokUiAnimationAuditSubsystem::Tick(float DeltaTime)
 	case EPhase::BuildingReopen:
 		if (ElapsedSeconds - PhaseStartedAt >= 0.4f)
 		{
-			auto* Scroll = Cast<UScrollBox>(Modal->GetWidgetFromName(TEXT("BuildingLevelDetailsScroll")));
+			auto* Scroll = Cast<UScrollBox>(RokUiFind::Find(Modal, TEXT("BuildingLevelDetailsScroll")));
 			// Source ShowLevelInfo returns early after its first FillContent.
 			if (!Scroll || BuildingScrollOffsetBeforeReturn <= 0 ||
 				!FMath::IsNearlyEqual(Scroll->GetScrollOffset(), BuildingScrollOffsetBeforeReturn, 1.0f))
@@ -642,7 +643,7 @@ void URokUiAnimationAuditSubsystem::Tick(float DeltaTime)
 		const bool bDescription = Phase == EPhase::ScoutDescription;
 		if (PhaseCaptureIndex == 0)
 		{
-			UWidget* Panel = Scout->GetWidgetFromName(bDescription ? TEXT("ScoutDescriptionScroll") : TEXT("ScoutListScroll"));
+			UWidget* Panel = RokUiFind::Find(Scout, bDescription ? TEXT("ScoutDescriptionScroll") : TEXT("ScoutListScroll"));
 			if (Panel && Panel->GetRenderOpacity() > 0.05f && Panel->GetRenderOpacity() < 0.95f)
 				Capture(bDescription ? TEXT("scout_description_entering") : TEXT("scout_list_returning"), 0, Phase, false);
 		}

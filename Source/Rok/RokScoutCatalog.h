@@ -14,6 +14,12 @@ struct ROK_API FRokScoutCatalog
 	TArray<FRokScoutCampLevel> Levels;
 	TMap<int32, FString> Text;
 	bool Load(FString& Error);
+#if WITH_DEV_AUTOMATION_TESTS
+	bool LoadForTesting(const FString& Path, FString& Error) { return LoadFromFile(Path, Error); }
+#endif
 	// Unknown, absent, and out-of-table levels do not fall back to level one.
 	const FRokScoutCampLevel* FindLevel(int32 Level) const;
+
+private:
+	bool LoadFromFile(const FString& Path, FString& Error);
 };

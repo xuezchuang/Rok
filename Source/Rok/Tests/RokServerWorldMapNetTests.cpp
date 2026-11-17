@@ -11,6 +11,8 @@
 #include "Components/Button.h"
 #include "Components/TextBlock.h"
 #include "UObject/UObjectIterator.h"
+#include "UnrealClient.h"
+#include "../RokUiWidgets.h"
 #include "../RokUnityFeatureScreenWidget.h"
 #include "../RokWorldMapCameraPawn.h"
 #include "../RokWorldMapEntityActor.h"
@@ -284,6 +286,83 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRokWorldSearchRenderedFlowTest, "Rok.Ui.WorldS
 bool FRokWorldSearchRenderedFlowTest::RunTest(const FString&)
 {
 	ADD_LATENT_AUTOMATION_COMMAND(FCheckWorldSearch(*this));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRokWorldDamageRenderedTest, "Rok.Ui.WorldHud.DamageNumbers",
+	EAutomationTestFlags::ClientContext | EAutomationTestFlags::EngineFilter)
+bool FRokWorldDamageRenderedTest::RunTest(const FString&)
+{
+	class FCheckDamage final : public IAutomationLatentCommand
+	{
+	public:
+		FCheckDamage(FAutomationTestBase& InTest, TFunction<bool(URokGameNetSubsystem&)> InPush)
+			: Test(InTest), Push(MoveTemp(InPush)) {}
+
+		bool Update() override
+		{
+			if (FPlatformTime::Seconds() > Deadline)
+			{
+				Test.AddError(TEXT("The world damage number replay did not finish."));
+				return true;
+			}
+			if (Hud.IsValid())
+			{
+				const auto* Army = Cast<UTextBlock>(RokUiFind::Find(Hud, TEXT("WorldAttackDamage_0")));
+				const auto* Target = Cast<UTextBlock>(RokUiFind::Find(Hud, TEXT("WorldAttackDamage_1")));
+				if (!Army || !Target) return false;
+				if (bCaptured)
+				{
+					return !Army->IsVisible() && !Target->IsVisible() && IFileManager::Get().FileSize(*Screenshot) > 0;
+				}
+				if (!Army->IsVisible() || !Target->IsVisible()) return false;
+				Test.TestTrue(TEXT("The army damage uses the server event amount"), Army->GetText().ToString().Contains(FText::AsNumber(1234).ToString()));
+				Test.TestTrue(TEXT("The target damage uses the server event amount"), Target->GetText().ToString().Contains(FText::AsNumber(5678).ToString()));
+				Test.TestTrue(TEXT("Fresh damage is painted before fading"), Army->GetRenderOpacity() > 0 && Target->GetRenderOpacity() > 0);
+				const FString CaptureDir = FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir() / TEXT("RokUi/Tests"));
+				IFileManager::Get().MakeDirectory(*CaptureDir, true);
+				Screenshot = CaptureDir / FString::Printf(TEXT("hud_world_damage_%s.png"),
+					URokUiSettings::IsLegacyForced() ? TEXT("legacy") : TEXT("wbp"));
+				IFileManager::Get().Delete(*Screenshot);
+				FScreenshotRequest::RequestScreenshot(Screenshot, true, false);
+				bCaptured = true;
+				return false;
+			}
+			for (TObjectIterator<URokWorldMapHudWidget> It; It; ++It)
+			{
+				if (!It->IsInViewport() || !It->GetGameInstance()) continue;
+				auto* Net = It->GetGameInstance()->GetSubsystem<URokGameNetSubsystem>();
+				const auto* Battle = RokUiFind::Find(*It, TEXT("WorldAttackMarchMarker_0"));
+				if (!Net || !Net->IsSnapshotReplay() || !Battle || !Battle->IsVisible()) continue;
+				if (!Test.TestTrue(TEXT("The battle damage protocol is available in replay"), Push(*Net))) return true;
+				Hud = *It;
+				return false;
+			}
+			return false;
+		}
+
+	private:
+		FAutomationTestBase& Test;
+		TFunction<bool(URokGameNetSubsystem&)> Push;
+		TWeakObjectPtr<URokWorldMapHudWidget> Hud;
+		FString Screenshot;
+		double Deadline = FPlatformTime::Seconds() + 18.0;
+		bool bCaptured = false;
+	};
+	const auto Push = [this](URokGameNetSubsystem& Net)
+	{
+		FString Error;
+		if (!Net.LoadSchema(Error))
+		{
+			AddError(Error);
+			return false;
+		}
+		const FRokSprotoProtocol* Protocol = Net.Schema.FindProtocol(TEXT("Battle_BattleDamageInfo"));
+		if (!Protocol) return false;
+		Net.MergePush(*Protocol, Parse(TEXT(R"({"battleDamageInfo":[{"objectIndex":987650200,"damage":1234},{"objectIndex":987650001,"damage":5678}]})")));
+		return true;
+	};
+	ADD_LATENT_AUTOMATION_COMMAND(FCheckDamage(*this, Push));
 	return true;
 }
 #endif

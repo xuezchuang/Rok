@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
+#include "RokUiWidgets.h"
 #include "Components/TextBlock.h"
 #include "Components/Button.h"
 #include "../RokUnityModalWidget.h"
@@ -22,9 +23,9 @@ bool FRokItemExchangeStepperTest::RunTest(const FString& Parameters)
 	Modal->TakeWidget();
 	Modal->OpenItemExchange();
 
-	UButton* Plus = Cast<UButton>(Modal->GetWidgetFromName(TEXT("ItemExchangePlus")));
-	UButton* Minus = Cast<UButton>(Modal->GetWidgetFromName(TEXT("ItemExchangeMinus")));
-	const UTextBlock* Count = Cast<UTextBlock>(Modal->GetWidgetFromName(TEXT("ItemExchangeCount")));
+	UButton* Plus = Cast<UButton>(RokUiFind::Find(Modal, TEXT("ItemExchangePlus")));
+	UButton* Minus = Cast<UButton>(RokUiFind::Find(Modal, TEXT("ItemExchangeMinus")));
+	const UTextBlock* Count = Cast<UTextBlock>(RokUiFind::Find(Modal, TEXT("ItemExchangeCount")));
 	if (!TestNotNull(TEXT("The plus button exists"), Plus)
 		|| !TestNotNull(TEXT("The minus button exists"), Minus)
 		|| !TestNotNull(TEXT("The count label exists"), Count))
@@ -47,7 +48,7 @@ bool FRokItemExchangeStepperTest::RunTest(const FString& Parameters)
 	}
 	TestEqual(TEXT("The count never drops below one"), Count->GetText().ToString(), FString(TEXT("1")));
 
-	const UTextBlock* Change = Cast<UTextBlock>(Modal->GetWidgetFromName(TEXT("ItemExchangeChange")));
+	const UTextBlock* Change = Cast<UTextBlock>(RokUiFind::Find(Modal, TEXT("ItemExchangeChange")));
 	TestTrue(TEXT("The summary states the local-preview boundary"),
 		Change != nullptr && Change->GetText().ToString().Contains(TEXT("服务器")));
 

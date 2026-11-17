@@ -1,4 +1,5 @@
 #include "RokMailLocalUnreadNativeSlateAuditSubsystem.h"
+#include "RokUiWidgets.h"
 
 #include "../RokMainHudWidget.h"
 #include "../RokServerSubsystem.h"
@@ -160,7 +161,7 @@ bool URokMailLocalUnreadNativeSlateAuditSubsystem::Visible(const UWidget* Widget
 
 UButton* URokMailLocalUnreadNativeSlateAuditSubsystem::HudButton(const TCHAR* Name) const
 {
-    return Hud.IsValid() ? Cast<UButton>(Hud->GetWidgetFromName(Name)) : nullptr;
+    return Hud.IsValid() ? Cast<UButton>(RokUiFind::Find(Hud, Name)) : nullptr;
 }
 
 UButton* URokMailLocalUnreadNativeSlateAuditSubsystem::MailButton(const TCHAR* Name) const

@@ -1,4 +1,5 @@
 #include "RokPlayerController.h"
+#include "RokUiWidgets.h"
 
 #include "Components/InputComponent.h"
 #include "Components/ScrollBox.h"
@@ -23,13 +24,17 @@
 #include "RokCityPlacementPreviewActor.h"
 #include "RokCityPlacementPreviewMath.h"
 #include "Components/Button.h"
+#include "Components/CanvasPanel.h"
 #include "Materials/MaterialInterface.h"
 #include "RokCitySpriteActor.h"
 #include "RokLocalConstructionVisualFactory.h"
 #include "RokMainHudWidget.h"
 #include "RokStrategyCameraPawn.h"
 #include "RokServerCitySubsystem.h"
+#include "RokScoutScreenWidget.h"
 #include "RokUnityFeatureScreenWidget.h"
+#include "RokUiSpec.h"
+#include "RokUnityModalWidget.h"
 #include "TimerManager.h"
 #include "UnrealClient.h"
 
@@ -72,7 +77,7 @@ void ARokPlayerController::BeginPlay()
 
 	if (!FParse::Param(FCommandLine::Get(), TEXT("RokNoHud")) && !MainHudWidget)
 	{
-		MainHudWidget = CreateWidget<URokMainHudWidget>(this, URokMainHudWidget::StaticClass());
+		MainHudWidget = CreateWidget<URokMainHudWidget>(this, URokMainHudWidget::ResolveHudClass());
 		if (MainHudWidget)
 		{
 			MainHudWidget->AddToViewport(20);
@@ -351,6 +356,15 @@ void ARokPlayerController::TakeAutoScreenshot()
 	{
 		MainHudWidget->SampleModalAnimationForCapture(FMath::Max(0.0f, ModalAnimationSample));
 	}
+	float PreviewSample = 0.0f;
+	if (MainHudWidget && FParse::Value(FCommandLine::Get(), TEXT("RokModalPreviewSample="), PreviewSample))
+	{
+		auto* Modal = Cast<URokUnityModalWidget>(MainHudWidget->GetWidgetFromName(TEXT("UnityModalWidget")));
+		if (!Modal || !Modal->FreezePreviewAnimationForCapture(PreviewSample))
+		{
+			UE_LOG(LogTemp, Error, TEXT("Rok modal preview capture: could not freeze the open preview at %.6fs."), PreviewSample);
+		}
+	}
 	float MenuOpenSample = 0.0f;
 	if (MainHudWidget && FParse::Value(FCommandLine::Get(), TEXT("RokBuildingMenuSample="), MenuOpenSample))
 	{
@@ -363,7 +377,7 @@ void ARokPlayerController::TakeAutoScreenshot()
 	float TaskFoldSample = -1.0f;
 	if (MainHudWidget && FParse::Value(FCommandLine::Get(), TEXT("RokTaskFoldSample="), TaskFoldSample))
 	{
-		if (auto* Fold = Cast<UButton>(MainHudWidget->GetWidgetFromName(TEXT("TaskFoldButton"))))
+		if (auto* Fold = Cast<UButton>(RokUiFind::Find(MainHudWidget, TEXT("TaskFoldButton"))))
 		{
 			Fold->OnClicked.Broadcast();
 			MainHudWidget->AdvanceHudAnimations(FMath::Max(0.0f, TaskFoldSample));
@@ -373,11 +387,50 @@ void ARokPlayerController::TakeAutoScreenshot()
 	float FeatureFoldSample = -1.0f;
 	if (MainHudWidget && FParse::Value(FCommandLine::Get(), TEXT("RokFeatureFoldSample="), FeatureFoldSample))
 	{
-		if (auto* Fold = Cast<UButton>(MainHudWidget->GetWidgetFromName(TEXT("MoreFeatureButton"))))
+		if (auto* Fold = Cast<UButton>(RokUiFind::Find(MainHudWidget, TEXT("MoreFeatureButton"))))
 		{
 			Fold->OnClicked.Broadcast();
 			MainHudWidget->AdvanceHudAnimations(FMath::Max(0.0f, FeatureFoldSample));
 			UE_LOG(LogTemp, Display, TEXT("Rok feature fold capture: sampled %.3fs"), FeatureFoldSample);
+		}
+	}
+	// WBP conversion: the open modal's C++-built mode content as a widget spec
+	// (Scripts/RokUi, RokUiTools turns it into a Widget Blueprint).
+	FString ScoutSpecPath;
+	if (MainHudWidget && FParse::Value(FCommandLine::Get(), TEXT("RokUiExportScoutSpec="), ScoutSpecPath) && !ScoutSpecPath.IsEmpty())
+	{
+		const auto* Scout = Cast<URokScoutScreenWidget>(MainHudWidget->GetWidgetFromName(TEXT("ScoutScreenWidget")));
+		const auto* Root = Scout ? Cast<UPanelWidget>(Scout->GetRootWidget()) : nullptr;
+		FString Error;
+		if (Scout && Scout->IsScreenOpen() && Root && RokUiSpec::ExportChildren(Root, ScoutSpecPath, TEXT("scout"), Error))
+		{
+			UE_LOG(LogTemp, Display, TEXT("Rok UI spec: wrote %s (scout)"), *ScoutSpecPath);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("Rok UI spec: scout not written to %s (%s)"), *ScoutSpecPath,
+				Error.IsEmpty() ? TEXT("no open scout screen") : *Error);
+		}
+	}
+	FString UiSpecPath;
+	if (MainHudWidget && FParse::Value(FCommandLine::Get(), TEXT("RokUiExportSpec="), UiSpecPath) && !UiSpecPath.IsEmpty())
+	{
+		const URokUnityModalWidget* Modal = Cast<URokUnityModalWidget>(MainHudWidget->GetWidgetFromName(TEXT("UnityModalWidget")));
+		FString Label;
+		FParse::Value(FCommandLine::Get(), TEXT("RokOpenModal="), Label);
+		FString Error;
+		const URokUnityFeatureScreenWidget* Feature = MainHudWidget->GetFeatureScreenWidgetForPlacement();
+		const bool bExported = Modal && Modal->IsModalOpen()
+			? RokUiSpec::ExportChildren(Modal->GetModeCanvas(), UiSpecPath, Label, Error)
+			: Feature && Feature->IsScreenOpen() && Feature->ExportCurrentModeSpec(UiSpecPath, Error);
+		if (bExported)
+		{
+			UE_LOG(LogTemp, Display, TEXT("Rok UI spec: wrote %s (modal %s)"), *UiSpecPath, *Label);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("Rok UI spec: nothing written to %s (%s)"), *UiSpecPath,
+				Error.IsEmpty() ? TEXT("no open modal or feature screen") : *Error);
 		}
 	}
 #endif

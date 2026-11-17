@@ -1,4 +1,5 @@
 #include "RokLeaderboardAuditSubsystem.h"
+#include "RokUiWidgets.h"
 
 #include "Blueprint/WidgetBlueprintLibrary.h"
 #include "Blueprint/WidgetTree.h"
@@ -112,7 +113,7 @@ bool URokLeaderboardAuditSubsystem::Begin()
 
 bool URokLeaderboardAuditSubsystem::CheckText(FName Name, const FString& Expected)
 {
-	auto* Text = Modal.IsValid() ? Cast<UTextBlock>(Modal->GetWidgetFromName(Name)) : nullptr;
+	auto* Text = Modal.IsValid() ? Cast<UTextBlock>(RokUiFind::Find(Modal, Name)) : nullptr;
 	if (!LeaderboardAuditVisible(Text) || Text->GetText().ToString() != Expected)
 	{ Finish(FString::Printf(TEXT("Text mismatch %s: expected '%s', actual '%s'."), *Name.ToString(), *Expected,
 		Text ? *Text->GetText().ToString() : TEXT("<missing>"))); return false; }
@@ -121,7 +122,7 @@ bool URokLeaderboardAuditSubsystem::CheckText(FName Name, const FString& Expecte
 
 bool URokLeaderboardAuditSubsystem::CheckIcon(FName Name, const FRokLeaderboardRow& Row)
 {
-	UWidget* Widget = Modal->GetWidgetFromName(Name);
+	UWidget* Widget = RokUiFind::Find(Modal, Name);
 	if (!Row.HasIcon())
 	{
 		if (Widget) { Finish(TEXT("Empty source leaderboard 401 acquired a fabricated icon.")); return false; }
@@ -153,10 +154,10 @@ bool URokLeaderboardAuditSubsystem::ValidateProfile()
 {
 	if (!CheckIdentity()) return false;
 	if (!Modal.IsValid() || !Modal->IsModalOpen() || !LeaderboardAuditVisible(Modal.Get())
-		|| !LeaderboardAuditVisible(Modal->GetWidgetFromName(TEXT("ProfileRankingButton")))
-		|| !LeaderboardAuditVisible(Modal->GetWidgetFromName(TEXT("Type1CloseButton")))
-		|| Modal->GetWidgetFromName(TEXT("PlayerRankingMainPanel"))
-		|| Modal->GetWidgetFromName(TEXT("PlayerRankingDetailPanel")))
+		|| !LeaderboardAuditVisible(RokUiFind::Find(Modal, TEXT("ProfileRankingButton")))
+		|| !LeaderboardAuditVisible(RokUiFind::Find(Modal, TEXT("Type1CloseButton")))
+		|| RokUiFind::Find(Modal, TEXT("PlayerRankingMainPanel"))
+		|| RokUiFind::Find(Modal, TEXT("PlayerRankingDetailPanel")))
 	{ Finish(TEXT("Expected the real player profile after the HUD/ranking return route.")); return false; }
 	return true;
 }
@@ -165,15 +166,15 @@ bool URokLeaderboardAuditSubsystem::ValidateRanking(bool bDetail)
 {
 	if (!CheckIdentity()) return false;
 	if (!Modal.IsValid() || !Modal->IsModalOpen() || !LeaderboardAuditVisible(Modal.Get())
-		|| !LeaderboardAuditVisible(Modal->GetWidgetFromName(TEXT("Type3CloseButton")))
-		|| Modal->GetWidgetFromName(TEXT("ProfileRankingButton")))
+		|| !LeaderboardAuditVisible(RokUiFind::Find(Modal, TEXT("Type3CloseButton")))
+		|| RokUiFind::Find(Modal, TEXT("ProfileRankingButton")))
 	{ Finish(TEXT("Ranking route left the modal or returned to profile too early.")); return false; }
 	if (bDetail)
 	{
 		const FRokLeaderboardRow& Row = Rows[LeaderboardAuditCategories[CategoryOrdinal]];
-		if (!LeaderboardAuditVisible(Modal->GetWidgetFromName(TEXT("PlayerRankingDetailPanel")))
-			|| Modal->GetWidgetFromName(TEXT("PlayerRankingMainPanel"))
-			|| Modal->GetWidgetFromName(TEXT("PlayerRankingCategoryButton_0"))
+		if (!LeaderboardAuditVisible(RokUiFind::Find(Modal, TEXT("PlayerRankingDetailPanel")))
+			|| RokUiFind::Find(Modal, TEXT("PlayerRankingMainPanel"))
+			|| RokUiFind::Find(Modal, TEXT("PlayerRankingCategoryButton_0"))
 			|| !CheckText(TEXT("PlayerRankingDetailTitle"), Row.Name)
 			|| !CheckIcon(TEXT("PlayerRankingDetailIcon"), Row)
 			|| !CheckText(TEXT("PlayerRankingSelfRank"), TEXT("我的排名  —"))
@@ -187,20 +188,20 @@ bool URokLeaderboardAuditSubsystem::ValidateRanking(bool bDetail)
 	}
 	else
 	{
-		if (Modal->GetWidgetFromName(TEXT("PlayerRankingDetailTitle"))
-			|| Modal->GetWidgetFromName(TEXT("PlayerRankingDetailPanel")))
+		if (RokUiFind::Find(Modal, TEXT("PlayerRankingDetailTitle"))
+			|| RokUiFind::Find(Modal, TEXT("PlayerRankingDetailPanel")))
 		{ Finish(TEXT("First detail close did not remove the detail page.")); return false; }
 		if (!CheckText(TEXT("PlayerRankingServerBoundaryState"), TEXT("排行榜配置预览 · 榜单尚未同步"))) return false;
 		for (int32 Index = 0; Index < Rows.Num(); ++Index)
 		{
-			if (!LeaderboardAuditVisible(Modal->GetWidgetFromName(*FString::Printf(TEXT("PlayerRankingCategoryButton_%d"), Index))))
+			if (!LeaderboardAuditVisible(RokUiFind::Find(Modal, *FString::Printf(TEXT("PlayerRankingCategoryButton_%d"), Index))))
 			{ Finish(TEXT("A source category is missing from the overview.")); return false; }
 			if (!CheckText(*FString::Printf(TEXT("PlayerRankingCategoryLabel_%d"), Index), Rows[Index].Name)
 				|| !CheckText(*FString::Printf(TEXT("PlayerRankingCategoryState_%d"), Index), TEXT("--"))
 				|| !CheckText(*FString::Printf(TEXT("PlayerRankingCategoryOwner_%d"), Index), TEXT("--"))
 				|| !CheckIcon(*FString::Printf(TEXT("PlayerRankingCategoryIcon_%d"), Index), Rows[Index])) return false;
 		}
-		if (Modal->GetWidgetFromName(TEXT("PlayerRankingCategoryButton_9")))
+		if (RokUiFind::Find(Modal, TEXT("PlayerRankingCategoryButton_9")))
 		{ Finish(TEXT("Overview acquired a category outside the source catalog.")); return false; }
 	}
 	// Current offline source surface has no rank rows: only these preview texts.
@@ -216,7 +217,7 @@ bool URokLeaderboardAuditSubsystem::ValidateRanking(bool bDetail)
 
 bool URokLeaderboardAuditSubsystem::Click(UUserWidget* Owner, FName Name)
 {
-	auto* Button = Owner ? Cast<UButton>(Owner->GetWidgetFromName(Name)) : nullptr;
+	auto* Button = Owner ? Cast<UButton>(RokUiFind::Find(Owner, Name)) : nullptr;
 	if (!CheckIdentity()) return false;
 	if (!Owner || Owner->GetWorld() != GetWorld() || !LeaderboardAuditVisible(Owner) || !LeaderboardAuditVisible(Button)
 		|| !Button->GetIsEnabled() || Button->GetCachedGeometry().GetLocalSize().X <= 0 || !Button->OnClicked.IsBound())
@@ -261,10 +262,10 @@ TSharedRef<FJsonObject> URokLeaderboardAuditSubsystem::State() const
 				Texts->SetStringField(Text->GetName(), Text->GetText().ToString());
 		});
 		Result->SetObjectField(TEXT("visible_ranking_texts"), Texts);
-		Result->SetBoolField(TEXT("profile_present"), Modal->GetWidgetFromName(TEXT("ProfileRankingButton")) != nullptr);
-		Result->SetBoolField(TEXT("detail_present"), Modal->GetWidgetFromName(TEXT("PlayerRankingDetailTitle")) != nullptr);
-		Result->SetBoolField(TEXT("detail_icon_present"), Modal->GetWidgetFromName(TEXT("PlayerRankingDetailIcon")) != nullptr);
-		Result->SetBoolField(TEXT("category_401_icon_present"), Modal->GetWidgetFromName(TEXT("PlayerRankingCategoryIcon_8")) != nullptr);
+		Result->SetBoolField(TEXT("profile_present"), RokUiFind::Find(Modal, TEXT("ProfileRankingButton")) != nullptr);
+		Result->SetBoolField(TEXT("detail_present"), RokUiFind::Find(Modal, TEXT("PlayerRankingDetailTitle")) != nullptr);
+		Result->SetBoolField(TEXT("detail_icon_present"), RokUiFind::Find(Modal, TEXT("PlayerRankingDetailIcon")) != nullptr);
+		Result->SetBoolField(TEXT("category_401_icon_present"), RokUiFind::Find(Modal, TEXT("PlayerRankingCategoryIcon_8")) != nullptr);
 	}
 	if (Step == 7)
 	{
@@ -326,8 +327,8 @@ void URokLeaderboardAuditSubsystem::Tick(float DeltaTime)
 	case 8:
 		if (Click(Modal.Get(), TEXT("Type3CloseButton")))
 		{
-			if (!Modal->IsModalOpen() || !Modal->GetWidgetFromName(TEXT("PlayerRankingCategoryButton_0"))
-				|| Modal->GetWidgetFromName(TEXT("PlayerRankingDetailTitle")))
+			if (!Modal->IsModalOpen() || !RokUiFind::Find(Modal, TEXT("PlayerRankingCategoryButton_0"))
+				|| RokUiFind::Find(Modal, TEXT("PlayerRankingDetailTitle")))
 			{ Finish(TEXT("First detail close must immediately retain the modal and return to overview.")); return; }
 			Enter(9);
 		}

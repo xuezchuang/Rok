@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
+#include "RokUiWidgets.h"
 #include "Components/TextBlock.h"
 #include "../RokUnityModalWidget.h"
 
@@ -22,22 +23,22 @@ bool FRokVipStoreLayoutTest::RunTest(const FString& Parameters)
 	Modal->OpenVipStore();
 
 	if (!TestNotNull(TEXT("The first VIP row exists"),
-		Modal->GetWidgetFromName(TEXT("VipStoreRow_0"))))
+		RokUiFind::Find(Modal, TEXT("VipStoreRow_0"))))
 	{
 		return false;
 	}
 	const UTextBlock* Title = Cast<UTextBlock>(
-		Modal->GetWidgetFromName(TEXT("VipStoreRowTitle_0")));
+		RokUiFind::Find(Modal, TEXT("VipStoreRowTitle_0")));
 	TestTrue(TEXT("The first row shows the source item name"),
 		Title != nullptr && Title->GetText().ToString() == TEXT("初级行动力恢复"));
 	const UTextBlock* Detail = Cast<UTextBlock>(
-		Modal->GetWidgetFromName(TEXT("VipStoreRowDetail_0")));
+		RokUiFind::Find(Modal, TEXT("VipStoreRowDetail_0")));
 	TestTrue(TEXT("The detail lists VIP level, price and count"),
 		Detail != nullptr
 			&& Detail->GetText().ToString().Contains(TEXT("VIP"))
 			&& Detail->GetText().ToString().Contains(TEXT("价格")));
 	TestTrue(TEXT("The list holds more than six rows"),
-		Modal->GetWidgetFromName(TEXT("VipStoreRow_6")) != nullptr);
+		RokUiFind::Find(Modal, TEXT("VipStoreRow_6")) != nullptr);
 
 	Modal->CloseModal();
 	TestFalse(TEXT("Closing clears the VIP-store mode"), Modal->IsModalOpen());

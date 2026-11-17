@@ -1,4 +1,5 @@
 #include "RokTrainTierAuditSubsystem.h"
+#include "RokUiWidgets.h"
 #include "Components/Slider.h"
 #include "Blueprint/WidgetBlueprintLibrary.h"
 #include "Components/Button.h"
@@ -123,7 +124,7 @@ bool URokTrainTierAuditSubsystem::Click(UUserWidget* Owner, FName Name)
 {
 	// Never dispatch Start: this audit only reads/browses authoritative-unknown data.
 	if (Name == TEXT("TrainArmyStart")) { Fail(TEXT("Training dispatch forbidden in browse audit.")); return false; }
-	auto* Button = Owner ? Cast<UButton>(Owner->GetWidgetFromName(Name)) : nullptr;
+	auto* Button = Owner ? Cast<UButton>(RokUiFind::Find(Owner, Name)) : nullptr;
 	if (!Button || Owner->GetWorld() != GetWorld() || !Visible(Button) || !Button->GetIsEnabled())
 	{ Fail(FString::Printf(TEXT("Missing/hidden/disabled button %s"), *Name.ToString())); return false; }
 	auto Action = MakeShared<FJsonObject>();

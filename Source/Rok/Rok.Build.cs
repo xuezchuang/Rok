@@ -7,6 +7,8 @@ public class Rok : ModuleRules
 		CppStandard = CppStandardVersion.Cpp20;
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 		bUseUnity = false;
+		// Flat module layout: expose its headers to RokUiTools (editor WBP tooling).
+		PublicIncludePaths.Add(ModuleDirectory);
 
 		PublicDependencyModuleNames.AddRange(new[]
 		{

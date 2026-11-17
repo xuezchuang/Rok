@@ -1,6 +1,8 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
+#include "UObject/UObjectIterator.h"
+#include "RokUiWidgets.h"
 #include "Sound/SoundWave.h"
 #include "Components/Button.h"
 #include "Components/Image.h"
@@ -20,6 +22,7 @@
 #include "../RokWorldMapHomeIndicator.h"
 #include "../RokMainInterfaceModuleAnimation.h"
 #include "../RokWorldExplorationState.h"
+#include "../RokWorldMapCameraPawn.h"
 #include "../RokWorldMapPlayerController.h"
 #include "../RokUiAnimatedButton.h"
 
@@ -515,8 +518,8 @@ bool FRokWorldMapCityPortraitTest::RunTest(const FString& Parameters)
 	URokWorldMapHudWidget* Hud = NewObject<URokWorldMapHudWidget>();
 	Hud->Initialize();
 	Hud->TakeWidget();
-	TestNotNull(TEXT("Runtime HUD owns the source portrait image"), Hud->GetWidgetFromName(TEXT("WorldMapSelfPortraitImage")));
-	TestNotNull(TEXT("Runtime HUD owns the independent portrait pointer"), Hud->GetWidgetFromName(TEXT("WorldMapSelfPortraitPointer")));
+	TestNotNull(TEXT("Runtime HUD owns the source portrait image"), RokUiFind::Find(Hud, TEXT("WorldMapSelfPortraitImage")));
+	TestNotNull(TEXT("Runtime HUD owns the independent portrait pointer"), RokUiFind::Find(Hud, TEXT("WorldMapSelfPortraitPointer")));
 	return true;
 }
 
@@ -547,6 +550,84 @@ bool FRokWorldMapHomeIndicatorTest::RunTest(const FString& Parameters)
 				&& Point.X <= Size.X - 50 && Point.Y <= Size.Y - 60);
 		}
 	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRokWorldMapProjectedHomeRenderedTest,
+	"Rok.Ui.WorldHud.ProjectedHome", EAutomationTestFlags::ClientContext | EAutomationTestFlags::EngineFilter)
+
+bool FRokWorldMapProjectedHomeRenderedTest::RunTest(const FString& Parameters)
+{
+	class FCheckProjectedHome final : public IAutomationLatentCommand
+	{
+	public:
+		explicit FCheckProjectedHome(FAutomationTestBase& InTest) : Test(InTest) {}
+
+		bool Update() override
+		{
+			if (FPlatformTime::Seconds() > Deadline)
+			{
+				Test.AddError(FString::Printf(TEXT("Projected world home test timed out at step %d."), Step));
+				return true;
+			}
+			for (TObjectIterator<URokWorldMapHudWidget> It; It; ++It)
+			{
+				auto* Hud = *It;
+				if (!Hud->IsInViewport()) continue;
+				auto* Controller = Cast<ARokWorldMapPlayerController>(Hud->GetOwningPlayer());
+				auto* Camera = Controller ? Cast<ARokWorldMapCameraPawn>(Controller->GetPawn()) : nullptr;
+				if (!Camera) continue;
+
+				if (Step == 0)
+				{
+					if (!Test.TestTrue(TEXT("The world controller can locate the player city"), Controller->FocusPlayerLocation())) return true;
+					Home = Camera->GetViewCenterUnity();
+					Camera->SetCurrentDxf(1509);
+					++Step;
+					return false;
+				}
+				const auto IsVisible = [Hud](FName Name)
+				{
+					const UWidget* Widget = RokUiFind::Find(Hud, Name);
+					return Widget && Widget->IsVisible();
+				};
+				if (Step == 1)
+				{
+					if (!IsVisible(TEXT("WorldMapSelfMarker"))) return false;
+					Test.TestTrue(TEXT("Tactical view hides the player portrait"), !IsVisible(TEXT("WorldMapSelfPortrait")));
+					Camera->SetCurrentDxf(3800);
+					++Step;
+					return false;
+				}
+				if (Step == 2)
+				{
+					if (!IsVisible(TEXT("WorldMapSelfPortrait"))) return false;
+					Test.TestTrue(TEXT("The nameplate overlaps the portrait at this zoom"), IsVisible(TEXT("WorldMapSelfMarker")));
+					Camera->SetCurrentDxf(1509);
+					Camera->SetViewCenterUnity(Home + FVector2D(-200, 180));
+					++Step;
+					return false;
+				}
+				if (!IsVisible(TEXT("WorldMapHomeIndicator"))) return false;
+				auto* Button = Cast<UButton>(RokUiFind::Find(Hud, TEXT("WorldMapHomeIndicatorButton")));
+				if (Test.TestTrue(TEXT("Offscreen home indicator has an enabled button"), Button && Button->GetIsEnabled()))
+				{
+					Button->OnClicked.Broadcast();
+					Test.TestTrue(TEXT("Home click returns to the player city"),
+						Camera->GetViewCenterUnity().Equals(Home, 1.0));
+				}
+				return true;
+			}
+			return false;
+		}
+
+	private:
+		FAutomationTestBase& Test;
+		FVector2D Home = FVector2D::ZeroVector;
+		int32 Step = 0;
+		double Deadline = FPlatformTime::Seconds() + 20.0;
+	};
+	ADD_LATENT_AUTOMATION_COMMAND(FCheckProjectedHome(*this));
 	return true;
 }
 
@@ -824,11 +905,11 @@ bool FRokWorldMapHudInteractiveControlsTest::RunTest(
 					TEXT("%s is a real world-map player-profile UButton"),
 					*ButtonName.ToString()),
 				Cast<UButton>(
-					ModalWidget->GetWidgetFromName(ButtonName)));
+					RokUiFind::Find(ModalWidget, ButtonName)));
 		}
 
 		UButton* CivilizationRoute = Cast<UButton>(
-			ModalWidget->GetWidgetFromName(TEXT("ProfileCivilizationButton")));
+			RokUiFind::Find(ModalWidget, TEXT("ProfileCivilizationButton")));
 		TestNotNull(
 			TEXT("World-map profile exposes the civilization route"),
 			CivilizationRoute);
@@ -837,14 +918,14 @@ bool FRokWorldMapHudInteractiveControlsTest::RunTest(
 			CivilizationRoute->OnClicked.Broadcast();
 			for (const int32 Id : {101, 201, 301, 401, 501, 601, 801})
 			{
-				auto* ChoiceName = Cast<UTextBlock>(ModalWidget->GetWidgetFromName(*FString::Printf(TEXT("CivilizationChoiceName_%d"), Id)));
+				auto* ChoiceName = Cast<UTextBlock>(RokUiFind::Find(ModalWidget, *FString::Printf(TEXT("CivilizationChoiceName_%d"), Id)));
 				if (TestNotNull(TEXT("Civilization flag has localized name"), ChoiceName))
 					TestFalse(TEXT("Flag name is populated from catalog"), ChoiceName->GetText().IsEmpty());
 			}
 			for (const int32 Id : {101, 201, 501})
 			{
-				auto* Flag = ModalWidget->GetWidgetFromName(*FString::Printf(TEXT("CivilizationFlag_%d"), Id));
-				auto* Hit = ModalWidget->GetWidgetFromName(*FString::Printf(TEXT("CivilizationChoiceButton_%d"), Id));
+				auto* Flag = RokUiFind::Find(ModalWidget, *FString::Printf(TEXT("CivilizationFlag_%d"), Id));
+				auto* Hit = RokUiFind::Find(ModalWidget, *FString::Printf(TEXT("CivilizationChoiceButton_%d"), Id));
 				if (TestNotNull(TEXT("Selectable flag"), Flag) && TestNotNull(TEXT("Selectable hit region"), Hit))
 				{
 					const auto* FlagSlot = CastChecked<UCanvasPanelSlot>(Flag->Slot);
@@ -853,13 +934,13 @@ bool FRokWorldMapHudInteractiveControlsTest::RunTest(
 					TestTrue(TEXT("Button tracks actual flag size"), HitSlot->GetSize().Equals(FlagSlot->GetSize()));
 				}
 			}
-			UWidget* Pulse = ModalWidget->GetWidgetFromName(TEXT("CivilizationSelectionPulse"));
+			UWidget* Pulse = RokUiFind::Find(ModalWidget, TEXT("CivilizationSelectionPulse"));
 			if (TestNotNull(TEXT("Civilization has independent animated highlight"), Pulse))
 			{
 				TestEqual(TEXT("Highlight begins transparent"), Pulse->GetRenderOpacity(), 0.0f);
-				TestTrue(TEXT("Highlight belongs to bottom list"), Pulse->GetParent() == ModalWidget->GetWidgetFromName(TEXT("CivilizationListRoot")));
+				TestTrue(TEXT("Highlight belongs to bottom list"), RokUiFind::IsInside(Pulse, RokUiFind::Find(ModalWidget, TEXT("CivilizationListRoot"))));
 			}
-			const auto* CountryFlag = Cast<UImage>(ModalWidget->GetWidgetFromName(TEXT("CivilizationCountryFlag")));
+			const auto* CountryFlag = Cast<UImage>(RokUiFind::Find(ModalWidget, TEXT("CivilizationCountryFlag")));
 			TestNotNull(TEXT("Source cloth flag replaces rectangular shade"), CountryFlag);
 			if (CountryFlag)
 			{
@@ -868,7 +949,7 @@ bool FRokWorldMapHudInteractiveControlsTest::RunTest(
 				const auto* FlagSlot = CastChecked<UCanvasPanelSlot>(CountryFlag->Slot);
 				TestTrue(TEXT("Source flag presentation size"), FlagSlot->GetSize().Equals(FVector2D(823, 819)));
 			}
-			UWidget* AnimatedHero = ModalWidget->GetWidgetFromName(TEXT("CivilizationAnimatedHero"));
+			UWidget* AnimatedHero = RokUiFind::Find(ModalWidget, TEXT("CivilizationAnimatedHero"));
 			TestNotNull(TEXT("Civilization owns the source animated hero"), AnimatedHero);
 			if (AnimatedHero)
 			{
@@ -882,24 +963,24 @@ bool FRokWorldMapHudInteractiveControlsTest::RunTest(
 				TestTrue(TEXT("Hero settles at source anchor"), AnimatedHero->GetRenderTransform().Translation.IsNearlyZero());
 			}
 			UButton* ArabiaChoice = Cast<UButton>(
-				ModalWidget->GetWidgetFromName(TEXT("CivilizationChoiceButton_101")));
+				RokUiFind::Find(ModalWidget, TEXT("CivilizationChoiceButton_101")));
 			UButton* EgyptChoice = Cast<UButton>(
-				ModalWidget->GetWidgetFromName(TEXT("CivilizationChoiceButton_501")));
+				RokUiFind::Find(ModalWidget, TEXT("CivilizationChoiceButton_501")));
 			TestNotNull(TEXT("World-map civilization page exposes Arabia"), ArabiaChoice);
 			TestNotNull(TEXT("World-map civilization page exposes Egypt"), EgyptChoice);
 			TestNotNull(
 				TEXT("World-map civilization page keeps Rome locked"),
-				Cast<UTextBlock>(ModalWidget->GetWidgetFromName(TEXT("CivilizationLockedState_301"))));
+				Cast<UTextBlock>(RokUiFind::Find(ModalWidget, TEXT("CivilizationLockedState_301"))));
 			if (EgyptChoice)
 			{
 				EgyptChoice->OnClicked.Broadcast();
-				UWidget* EgyptianHero = ModalWidget->GetWidgetFromName(TEXT("CivilizationAnimatedHero"));
+				UWidget* EgyptianHero = RokUiFind::Find(ModalWidget, TEXT("CivilizationAnimatedHero"));
 				TestNotNull(TEXT("Changing civilization constructs its hero"), EgyptianHero);
 				if (EgyptianHero)
 				{
 					TestTrue(TEXT("Civilization switch reuses the presentation widget"), EgyptianHero == AnimatedHero);
 					TestEqual(TEXT("New hero starts source entry"), EgyptianHero->GetRenderOpacity(), 0.0f);
-					auto* FlagGroup = ModalWidget->GetWidgetFromName(TEXT("CivilizationDetailRoot"));
+					auto* FlagGroup = RokUiFind::Find(ModalWidget, TEXT("CivilizationDetailRoot"));
 					if (TestNotNull(TEXT("Flag content shares source animation group"), FlagGroup))
 					{
 						TestEqual(TEXT("Switch begins with flag visible"), FlagGroup->GetRenderOpacity(), 1.0f);
@@ -909,20 +990,20 @@ bool FRokWorldMapHudInteractiveControlsTest::RunTest(
 						TestEqual(TEXT("Source hero hidden during flag out"), EgyptianHero->GetRenderOpacity(), 0.0f);
 						ModalWidget->AdvanceWindowAnimationForTesting(1.0f / 12.0f + 0.25f);
 						TestTrue(TEXT("Real groups show together"), FMath::IsNearlyEqual(FlagGroup->GetRenderOpacity(), 0.5f) && FMath::IsNearlyEqual(EgyptianHero->GetRenderOpacity(), 0.5f));
-						TestEqual(TEXT("Civilization list does not restart on selection"), ModalWidget->GetWidgetFromName(TEXT("CivilizationListRoot"))->GetRenderOpacity(), 1.0f);
+						TestEqual(TEXT("Civilization list does not restart on selection"), RokUiFind::Find(ModalWidget, TEXT("CivilizationListRoot"))->GetRenderOpacity(), 1.0f);
 					}
 				}
 				TestNotNull(
 					TEXT("Civilization selection updates the preview"),
-					Cast<UTextBlock>(ModalWidget->GetWidgetFromName(TEXT("CivilizationSelectedName"))));
+					Cast<UTextBlock>(RokUiFind::Find(ModalWidget, TEXT("CivilizationSelectedName"))));
 			}
 			UButton* ContinueButton = Cast<UButton>(
-				ModalWidget->GetWidgetFromName(TEXT("CivilizationContinueButton")));
+				RokUiFind::Find(ModalWidget, TEXT("CivilizationContinueButton")));
 			if (ContinueButton)
 			{
 				ContinueButton->OnClicked.Broadcast();
 				UButton* SubmitButton = Cast<UButton>(
-					ModalWidget->GetWidgetFromName(TEXT("CivilizationSubmitButton")));
+					RokUiFind::Find(ModalWidget, TEXT("CivilizationSubmitButton")));
 				TestNotNull(TEXT("World-map civilization confirmation exposes submit"), SubmitButton);
 				if (SubmitButton)
 				{
@@ -936,7 +1017,7 @@ bool FRokWorldMapHudInteractiveControlsTest::RunTest(
 		ProfileEntry->OnClicked.Broadcast();
 
 		UButton* HeadRoute = Cast<UButton>(
-			ModalWidget->GetWidgetFromName(TEXT("ProfilePictureButton")));
+			RokUiFind::Find(ModalWidget, TEXT("ProfilePictureButton")));
 		TestNotNull(
 			TEXT("World-map profile exposes the player-head route"),
 			HeadRoute);
@@ -945,10 +1026,10 @@ bool FRokWorldMapHudInteractiveControlsTest::RunTest(
 			HeadRoute->OnClicked.Broadcast();
 			TestNotNull(
 				TEXT("World-map player-head route opens the Unity catalog"),
-				Cast<UButton>(ModalWidget->GetWidgetFromName(
+				Cast<UButton>(RokUiFind::Find(ModalWidget,
 					TEXT("PlayerHeadChoiceButton_0"))));
 			UButton* FramePage = Cast<UButton>(
-				ModalWidget->GetWidgetFromName(TEXT("PlayerHeadPageButton_1")));
+				RokUiFind::Find(ModalWidget, TEXT("PlayerHeadPageButton_1")));
 			TestNotNull(
 				TEXT("World-map player-head route exposes the frame tab"),
 				FramePage);
@@ -957,11 +1038,11 @@ bool FRokWorldMapHudInteractiveControlsTest::RunTest(
 				FramePage->OnClicked.Broadcast();
 				TestNotNull(
 					TEXT("World-map frame tab rebuilds the frame catalog"),
-					Cast<UButton>(ModalWidget->GetWidgetFromName(
+					Cast<UButton>(RokUiFind::Find(ModalWidget,
 						TEXT("PlayerHeadChoiceButton_1"))));
 			}
 			UButton* CloseSubscreen = Cast<UButton>(
-				ModalWidget->GetWidgetFromName(TEXT("Type1CloseButton")));
+				RokUiFind::Find(ModalWidget, TEXT("Type1CloseButton")));
 			if (CloseSubscreen)
 			{
 				CloseSubscreen->OnClicked.Broadcast();
@@ -970,7 +1051,7 @@ bool FRokWorldMapHudInteractiveControlsTest::RunTest(
 
 		ProfileEntry->OnClicked.Broadcast();
 		UButton* PowerRoute = Cast<UButton>(
-			ModalWidget->GetWidgetFromName(TEXT("ProfileMoreButton")));
+			RokUiFind::Find(ModalWidget, TEXT("ProfileMoreButton")));
 		TestNotNull(
 			TEXT("World-map profile exposes the power-details route"),
 			PowerRoute);
@@ -979,10 +1060,10 @@ bool FRokWorldMapHudInteractiveControlsTest::RunTest(
 			PowerRoute->OnClicked.Broadcast();
 			TestNotNull(
 				TEXT("World-map power-details page exposes its server boundary"),
-				Cast<UTextBlock>(ModalWidget->GetWidgetFromName(
+				Cast<UTextBlock>(RokUiFind::Find(ModalWidget,
 					TEXT("PlayerPowerServerBoundaryState"))));
 			UButton* CloseSubscreen = Cast<UButton>(
-				ModalWidget->GetWidgetFromName(TEXT("Type3CloseButton")));
+				RokUiFind::Find(ModalWidget, TEXT("Type3CloseButton")));
 			if (CloseSubscreen)
 			{
 				CloseSubscreen->OnClicked.Broadcast();
@@ -991,7 +1072,7 @@ bool FRokWorldMapHudInteractiveControlsTest::RunTest(
 
 		ProfileEntry->OnClicked.Broadcast();
 		UButton* RankingRoute = Cast<UButton>(
-			ModalWidget->GetWidgetFromName(TEXT("ProfileRankingButton")));
+			RokUiFind::Find(ModalWidget, TEXT("ProfileRankingButton")));
 		TestNotNull(
 			TEXT("World-map profile exposes the ranking route"),
 			RankingRoute);
@@ -999,7 +1080,7 @@ bool FRokWorldMapHudInteractiveControlsTest::RunTest(
 		{
 			RankingRoute->OnClicked.Broadcast();
 			UButton* FirstCategory = Cast<UButton>(
-				ModalWidget->GetWidgetFromName(
+				RokUiFind::Find(ModalWidget,
 					TEXT("PlayerRankingCategoryButton_0")));
 			TestNotNull(
 				TEXT("World-map ranking page exposes source categories"),
@@ -1009,10 +1090,10 @@ bool FRokWorldMapHudInteractiveControlsTest::RunTest(
 				FirstCategory->OnClicked.Broadcast();
 				TestNotNull(
 					TEXT("World-map ranking detail keeps an honest empty state"),
-					Cast<UTextBlock>(ModalWidget->GetWidgetFromName(
+					Cast<UTextBlock>(RokUiFind::Find(ModalWidget,
 						TEXT("PlayerRankingEmptyState"))));
 				UButton* RankingBack = Cast<UButton>(
-					ModalWidget->GetWidgetFromName(
+					RokUiFind::Find(ModalWidget,
 						TEXT("PlayerRankingBackButton")));
 				TestNotNull(
 					TEXT("World-map ranking detail exposes a local back route"),
@@ -1022,7 +1103,7 @@ bool FRokWorldMapHudInteractiveControlsTest::RunTest(
 					RankingBack->OnClicked.Broadcast();
 					TestNotNull(
 						TEXT("World-map ranking back restores the category grid"),
-						Cast<UButton>(ModalWidget->GetWidgetFromName(
+						Cast<UButton>(RokUiFind::Find(ModalWidget,
 							TEXT("PlayerRankingCategoryButton_0"))));
 				}
 			}
@@ -1030,7 +1111,7 @@ bool FRokWorldMapHudInteractiveControlsTest::RunTest(
 
 		ProfileEntry->OnClicked.Broadcast();
 		UButton* SettingsRoute = Cast<UButton>(
-			ModalWidget->GetWidgetFromName(TEXT("ProfileSettingsButton")));
+			RokUiFind::Find(ModalWidget, TEXT("ProfileSettingsButton")));
 		if (SettingsRoute && FeatureWidget)
 		{
 			SettingsRoute->OnClicked.Broadcast();
@@ -1553,20 +1634,20 @@ bool FRokWorldMapFeatureScreenEntryTest::RunTest(
 	ModalWidget->OpenWarWarning(false);
 	TestNotNull(
 		TEXT("World-map war-warning API exposes the server boundary"),
-		Cast<UTextBlock>(ModalWidget->GetWidgetFromName(
+		Cast<UTextBlock>(RokUiFind::Find(ModalWidget,
 			TEXT("WarWarningServiceBoundaryState"))));
-	TestNull(
-		TEXT("World-map production warning API does not fabricate a row"),
-		ModalWidget->GetWidgetFromName(TEXT("WarWarningRow_0")));
+	const UWidget* WarningRow = RokUiFind::Find(ModalWidget, TEXT("WarWarningRow_0"));
+	TestFalse(TEXT("World-map production warning API displays no reference row"),
+		WarningRow && UWidget::ConvertSerializedVisibilityToRuntime(WarningRow->GetVisibility()).IsVisible());
 
 	ModalWidget->OpenBuffList(false);
 	TestNotNull(
 		TEXT("World-map buff-list API exposes the server boundary"),
-		Cast<UTextBlock>(ModalWidget->GetWidgetFromName(
+		Cast<UTextBlock>(RokUiFind::Find(ModalWidget,
 			TEXT("BuffListServiceBoundaryState"))));
-	TestNull(
-		TEXT("World-map production buff API does not fabricate a row"),
-		ModalWidget->GetWidgetFromName(TEXT("BuffListRow_0")));
+	const UWidget* BuffRow = RokUiFind::Find(ModalWidget, TEXT("BuffListDefinitionRow_0"));
+	TestFalse(TEXT("World-map production buff API displays no reference row"),
+		BuffRow && UWidget::ConvertSerializedVisibilityToRuntime(BuffRow->GetVisibility()).IsVisible());
 	ModalWidget->CloseModal();
 	FeatureWidget->CloseScreen();
 	TestFalse(TEXT("Feature screen closes"), FeatureWidget->IsScreenOpen());
