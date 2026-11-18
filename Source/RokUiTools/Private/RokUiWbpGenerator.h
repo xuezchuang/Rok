@@ -51,6 +51,6 @@ namespace RokUiWbp
 	 */
 	UWidgetBlueprint* Generate(const FGenerateRequest& Request, FCopyReport& Report);
 
-	/** Writes the live tree under Root as JSON (class, name, slot layout) for tree diffs. */
+	/** Writes the live tree, including nested user-widget roots and resolved legacy names. */
 	bool DumpTree(const UWidget* Root, const FString& Filename);
 }

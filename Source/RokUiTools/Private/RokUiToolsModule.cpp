@@ -7,6 +7,7 @@
 #include "Blueprint/UserWidget.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/CanvasPanel.h"
+#include "HAL/FileManager.h"
 #include "HAL/IConsoleManager.h"
 #include "Misc/Parse.h"
 #include "Misc/Paths.h"
@@ -41,10 +42,10 @@ namespace
 		return Modals.Find(Key.ToLower());
 	}
 
-	/** A legacy (C++-built) modal opened on one mode, rooted while the tool runs. */
-	TStrongObjectPtr<URokUnityModalWidget> OpenLegacyModal(const FString& Key)
+	/** Open the actual modal runtime path, rooted while the tool runs. */
+	TStrongObjectPtr<URokUnityModalWidget> OpenModal(const FString& Key, bool bRequireLegacy = true)
 	{
-		if (!URokUiSettings::IsLegacyForced())
+		if (bRequireLegacy && !URokUiSettings::IsLegacyForced())
 		{
 			UE_LOG(LogRokUiWbp, Error, TEXT("RokUiWbp: run with -RokUiLegacy so the source UI is the C++ build"));
 			return nullptr;
@@ -56,7 +57,8 @@ namespace
 			return nullptr;
 		}
 		// Rooted: compiling the new blueprint runs garbage collection.
-		TStrongObjectPtr<URokUnityModalWidget> Modal(NewObject<URokUnityModalWidget>(GetTransientPackage()));
+		TStrongObjectPtr<URokUnityModalWidget> Modal(NewObject<URokUnityModalWidget>(
+			GetTransientPackage(), URokUnityModalWidget::ResolveShellClass().Get()));
 		Modal->Initialize();
 		Modal->TakeWidget();
 		Entry->Open(*Modal.Get());
@@ -75,6 +77,41 @@ namespace
 	FString TreeDumpPath(const FString& Name)
 	{
 		return FPaths::ProjectSavedDir() / TEXT("RokUi/Trees") / (Name + TEXT(".json"));
+	}
+
+	/** Read-only asset inspection; omit -RokUiLegacy to exercise configured WBP pieces. */
+	void DumpModalTree(const TArray<FString>& Args)
+	{
+		if (Args.Num() != 2)
+		{
+			UE_LOG(LogRokUiWbp, Error, TEXT("usage: Rok.UiWbp.DumpModalTree <modal key> <dump name>"));
+			return;
+		}
+		// Restrict output to Trees: no path traversal or arbitrary file overwrite.
+		if (Args[1].IsEmpty() || Args[1] == TEXT(".") || Args[1] == TEXT("..")
+			|| Args[1].Contains(TEXT("/")) || Args[1].Contains(TEXT("\\")) || Args[1].Contains(TEXT(":")))
+		{
+			UE_LOG(LogRokUiWbp, Error, TEXT("RokUiWbp: dump name must be a filename stem"));
+			return;
+		}
+		const TStrongObjectPtr<URokUnityModalWidget> Modal = OpenModal(Args[0], false);
+		if (!Modal)
+		{
+			return;
+		}
+		const FString Filename = TreeDumpPath(Args[1]);
+		const bool bSaved = IFileManager::Get().MakeDirectory(*FPaths::GetPath(Filename), true)
+			&& RokUiWbp::DumpTree(Modal->GetModeCanvas(), Filename);
+		if (bSaved)
+		{
+			UE_LOG(LogRokUiWbp, Display, TEXT("RokUiWbp: dumped modal %s (%s) to %s"), *Args[0],
+				URokUiSettings::IsLegacyForced() ? TEXT("legacy forced") : TEXT("configured WBP path"), *Filename);
+		}
+		else
+		{
+			UE_LOG(LogRokUiWbp, Error, TEXT("RokUiWbp: tree dump failed: %s"), *Filename);
+		}
+		Modal->CloseModal();
 	}
 
 	void LogReport(const RokUiWbp::FGenerateRequest& Request, const UWidgetBlueprint* Blueprint, const RokUiWbp::FCopyReport& Report)
@@ -106,7 +143,7 @@ namespace
 			UE_LOG(LogRokUiWbp, Error, TEXT("usage: Rok.UiWbp.GenerateModalPage <modal key> <asset path>"));
 			return;
 		}
-		const TStrongObjectPtr<URokUnityModalWidget> Modal = OpenLegacyModal(Args[0]);
+		const TStrongObjectPtr<URokUnityModalWidget> Modal = OpenModal(Args[0]);
 		if (!Modal)
 		{
 			return;
@@ -134,7 +171,7 @@ namespace
 		}
 		const FString& Key = Args[0];
 		const FString Piece = Args[1].ToLower();
-		const TStrongObjectPtr<URokUnityModalWidget> Modal = OpenLegacyModal(Key);
+		const TStrongObjectPtr<URokUnityModalWidget> Modal = OpenModal(Key);
 		if (!Modal)
 		{
 			return;
@@ -426,6 +463,10 @@ class FRokUiToolsModule : public IModuleInterface
 public:
 	virtual void StartupModule() override
 	{
+		Commands.Add(IConsoleManager::Get().RegisterConsoleCommand(
+			TEXT("Rok.UiWbp.DumpModalTree"),
+			TEXT("Rok.UiWbp.DumpModalTree <modal key> <dump name>: dump the live modal tree, including nested WBPs. Use -RokUiLegacy for the old path."),
+			FConsoleCommandWithArgsDelegate::CreateStatic(&DumpModalTree)));
 		Commands.Add(IConsoleManager::Get().RegisterConsoleCommand(
 			TEXT("Rok.UiWbp.GenerateModalPage"),
 			TEXT("Rok.UiWbp.GenerateModalPage <modal key> <asset path>: copy a whole C++-built modal mode into a static WBP (create-only)."),

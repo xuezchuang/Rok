@@ -38,6 +38,24 @@ bool URokUnityFeatureScreenWidget::TryGetFeatureTextStyle(FName StateName, FText
 	return true;
 }
 
+bool URokUnityFeatureScreenWidget::TryGetFeatureTextColor(FName StateName, FSlateColor& OutColor)
+{
+	if (!FeatureTextColorTemplate)
+	{
+		UClass* Class = ResolveFeaturePageClass(TEXT("FeatureTextColors"));
+		FeatureTextColorTemplate = Class ? CreateWidget<URokUiPageWidget>(this, Class) : nullptr;
+	}
+	auto* Label = FeatureTextColorTemplate
+		? Cast<UTextBlock>(RokUiFind::Find(FeatureTextColorTemplate, StateName)) : nullptr;
+	if (!Label)
+	{
+		return false;
+	}
+	// Preserve Slate's authored color mode; the mounted page still owns font/layout.
+	OutColor = Label->GetColorAndOpacity();
+	return true;
+}
+
 bool URokUnityFeatureScreenWidget::ApplyTaskRewardTextOnlyState(UTextBlock& Label)
 {
 	if (!TaskRewardTextStateTemplate)

@@ -45,3 +45,12 @@
 复查确认联盟排行榜、官职、礼物、商店和科技的配置缺失，日常任务目录缺失、章节对白空态、斥候目录缺失、活动日历配置缺失以及统帅和建筑外观预览不可用已有 WBP 入口。源码中仍可见对应的原生备用控件。
 
 本次新增 5 个 WBP。独立重载检查通过，记录见 `Saved/RokUi/Logs/verify_wbp_unavailable_modal_help_20261118.log` 和 `Saved/RokUi/Logs/verify_train_unavailable_20261118.log`。使用已有 UE 5.8.4 和 Rok DLL 保存并检查资产，未编译 C++。新接入的代码和实际缺数据时的画面待人工对比。
+
+
+## 训练费用、状态配色和嵌套控件树
+
+- 训练费用的位置和锚点在 `RokUI/Feature/WBP_RokFeature_TrainResourceCostLayout`。按可见资源数选择 `TrainCostLayout_1_Resources` 至 `TrainCostLayout_4_Resources`，编辑对应 `TrainCostSlot_*` 的位置和锚点。费用格尺寸和内容样式仍在训练参数页。默认锚点让整排费用相对容器居中。
+- 加速购买价格与章节分组标签的四种颜色在 `RokUI/Feature/WBP_RokFeature_FeatureTextColors`。打开玩家建筑加速的购买行，以及章节任务的分组按钮检查状态切换。
+- `Rok.UiWbp.DumpModalTree <modal key> <dump name>` 导出弹窗内容树。配合 `EditorCmd.ps1 -Wbp` 选择 WBP 路径，输出在 `Saved/RokUi/Trees`。`TreeDiff.py` 默认按解析后的旧控件名比较完整层级。`--logical` 可略去可复用 WBP 包装层和画布根节点，该模式省略这些层的几何和可见性比较。
+
+两个新资产使用已有 UE 5.8.4 二进制生成并独立重载。设计树与生成树的 10 个排位锚点、默认间距和 4 个颜色值通过检查。树差异脚本的 9 项回归测试通过。新 C++ 绑定及导出命令的运行验证待当前源码构建后进行。

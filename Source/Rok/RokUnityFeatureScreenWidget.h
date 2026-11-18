@@ -408,6 +408,7 @@ private:
 	TObjectPtr<URokUiPageWidget> ActiveModePage;
 
 	UPROPERTY(Transient) TObjectPtr<URokUiPageWidget> FeatureTextStateTemplate;
+	UPROPERTY(Transient) TObjectPtr<URokUiPageWidget> FeatureTextColorTemplate;
 	UPROPERTY(Transient) TObjectPtr<URokUiPageWidget> TaskRewardTextStateTemplate;
 
 	/** Unity pl_content; contact folding is independent of root entry/exit. */
@@ -731,6 +732,7 @@ private:
 	float TrainArmyDetailAnimationTime = 0.25f;
 	TArray<TWeakObjectPtr<UWidget>> TrainArmyAnimatedChildren;
 	UPROPERTY(Transient) TObjectPtr<URokTrainArmyMeshWidget> TrainArmyAnimatedModel;
+	UPROPERTY(Transient) TObjectPtr<URokUiPageWidget> TrainResourceCostLayout;
 	UPROPERTY(Transient) TObjectPtr<UWidget> TrainArmyTipLayer;
 	int32 SelectedSpeedUpPage = 0;
 	int32 SelectedSpeedUpItemIndex = 0;
@@ -906,6 +908,7 @@ private:
 	void BuildCharge();
 	void BuildBuildCity();
 	bool TryGetFeatureTextStyle(FName StateName, struct FTextBlockStyle& OutStyle);
+	bool TryGetFeatureTextColor(FName StateName, struct FSlateColor& OutColor);
 	bool ApplyTaskRewardTextOnlyState(UTextBlock& Label);
 	void BuildWorkerQueue();
 	void HandleWorkerQueueAction(int32 ActionId);

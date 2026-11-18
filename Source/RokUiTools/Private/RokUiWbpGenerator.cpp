@@ -340,6 +340,12 @@ namespace
 	{
 		TSharedRef<FJsonObject> Node = MakeShared<FJsonObject>();
 		Node->SetStringField(TEXT("name"), Widget->GetName());
+		// Match RokUiFind: aliases belong to this widget's tree owner, not an
+		// outer reusable instance (nested pieces have their own substitutions).
+		const UWidgetTree* Tree = Cast<UWidgetTree>(Widget->GetOuter());
+		const URokUiReusableWidget* Owner = Tree ? Cast<URokUiReusableWidget>(Tree->GetOuter()) : nullptr;
+		Node->SetStringField(TEXT("logical_name"), Owner
+			? Owner->ResolveLegacyName(Widget->GetFName()).ToString() : Widget->GetName());
 		Node->SetStringField(TEXT("class"), Widget->GetClass()->GetName());
 		Node->SetStringField(TEXT("visibility"), UEnum::GetValueAsString(Widget->GetVisibility()));
 		if (const UCanvasPanelSlot* CanvasSlot = Cast<UCanvasPanelSlot>(Widget->Slot))
@@ -365,7 +371,22 @@ namespace
 			Node->SetNumberField(TEXT("font_size"), Text->GetFont().Size);
 			Node->SetStringField(TEXT("typeface"), Text->GetFont().TypefaceFontName.ToString());
 		}
-		if (const UPanelWidget* Panel = Cast<UPanelWidget>(Widget))
+		if (const UUserWidget* UserWidget = Cast<UUserWidget>(Widget))
+		{
+			Node->SetBoolField(TEXT("user_widget"), true);
+			Node->SetBoolField(TEXT("reusable_widget"), UserWidget->IsA<URokUiReusableWidget>());
+			TArray<TSharedPtr<FJsonValue>> Children;
+			if (UserWidget->WidgetTree && UserWidget->WidgetTree->RootWidget)
+			{
+				// Keep the real root and its slot data in the raw export. Only the
+				// explicit logical TreeDiff mode may remove these boundary levels.
+				TSharedRef<FJsonObject> Root = DescribeWidget(UserWidget->WidgetTree->RootWidget);
+				Root->SetBoolField(TEXT("widget_tree_root"), true);
+				Children.Add(MakeShared<FJsonValueObject>(Root));
+			}
+			Node->SetArrayField(TEXT("children"), Children);
+		}
+		else if (const UPanelWidget* Panel = Cast<UPanelWidget>(Widget))
 		{
 			TArray<TSharedPtr<FJsonValue>> Children;
 			for (int32 Index = 0; Index < Panel->GetChildrenCount(); ++Index)

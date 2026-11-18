@@ -8967,7 +8967,12 @@ void URokUnityFeatureScreenWidget::BuildTrainResourceCost()
 
 void URokUnityFeatureScreenWidget::UpdateTrainResourceCost()
 {
-	if (!GetWidgetFromName(TEXT("TrainResourceCostRoot"))) return;
+	const FName CostRootName(TEXT("TrainResourceCostRoot"));
+	UWidget* CostRoot = GetWidgetFromName(CostRootName);
+	if (!CostRoot)
+	{
+		return;
+	}
 	auto* Catalog = GetGameplayCatalogSubsystem();
 	const auto Troops = Catalog ? Catalog->GetTroopsForArmyType(SelectedTrainArmyType) : TArray<FRokUnityCatalogTroop>();
 	const auto* Troop = Troops.FindByPredicate([this](const auto& Row) { return Row.Level == SelectedTrainTier; });
@@ -8979,6 +8984,26 @@ void URokUnityFeatureScreenWidget::UpdateTrainResourceCost()
 	const int32 Base[] = { Troop->TrainCost.Food, Troop->TrainCost.Wood, Troop->TrainCost.Stone, Troop->TrainCost.Gold };
 	int32 VisibleCount = 0;
 	for (int32 Value : Base) if (Value > 0) ++VisibleCount;
+	const bool bWidgetBlueprint = ActiveModePage && ActiveModePage->Get<UWidget>(CostRootName) == CostRoot;
+	const URokUiPageWidget* Layout = bWidgetBlueprint ? TrainResourceCostLayout.Get() : nullptr;
+	TArray<const UCanvasPanelSlot*, TInlineAllocator<4>> Positions;
+	if (Layout)
+	{
+		for (int32 Index = 0; Index < VisibleCount; ++Index)
+		{
+			const FName MarkerName(*FString::Printf(TEXT("TrainCostSlot_%d_%d"), VisibleCount, Index));
+			const UWidget* Marker = Layout->Get<UWidget>(MarkerName);
+			const auto* Slot = Marker ? Cast<UCanvasPanelSlot>(Marker->Slot) : nullptr;
+			if (!Slot)
+			{
+				Positions.Reset();
+				break;
+			}
+			Positions.Add(Slot);
+		}
+	}
+	// The native parameter layout reparents the cost root into its animated panel.
+	const bool bParameterLayout = CostRoot->GetParent() != ModeCanvas.Get();
 	int32 VisibleIndex = 0;
 	for (int32 Index = 0; Index < 4; ++Index)
 	{
@@ -8986,9 +9011,24 @@ void URokUnityFeatureScreenWidget::UpdateTrainResourceCost()
 		if (!Cell) continue;
 		Cell->SetVisibility(Base[Index] > 0 ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
 		if (Base[Index] <= 0) continue;
-		const auto* RootSlot = Cast<UCanvasPanelSlot>(GetWidgetFromName(TEXT("TrainResourceCostRoot"))->Slot);
-		const bool bSourceLayout = RootSlot && FMath::IsNearlyEqual(RootSlot->GetSize().X, 548.0);
-		if (auto* CellSlot = Cast<UCanvasPanelSlot>(Cell->Slot)) CellSlot->SetPosition(FVector2D((bSourceLayout ? 0 : 101) + RokTrainResourceCost::CellX(VisibleCount, VisibleIndex++), bSourceLayout ? 13.95 : 0));
+		if (auto* CellSlot = Cast<UCanvasPanelSlot>(Cell->Slot))
+		{
+			if (Positions.IsValidIndex(VisibleIndex))
+			{
+				const auto* Position = Positions[VisibleIndex];
+				CellSlot->SetAnchors(Position->GetAnchors());
+				CellSlot->SetAlignment(Position->GetAlignment());
+				CellSlot->SetPosition(Position->GetPosition());
+			}
+			else
+			{
+				CellSlot->SetAnchors(FAnchors(0, 0));
+				CellSlot->SetAlignment(FVector2D::ZeroVector);
+				CellSlot->SetPosition(FVector2D((bParameterLayout ? 0 : 101) + RokTrainResourceCost::CellX(VisibleCount, VisibleIndex),
+					bParameterLayout ? 13.95 : 0));
+			}
+			++VisibleIndex;
+		}
 		if (auto* Text = Cast<UTextBlock>(GetWidgetFromName(*FString::Printf(TEXT("TrainResourceCostAmount_%d"), Index))))
 			Text->SetText(FText::FromString(RokTrainResourceCost::Format(static_cast<int64>(Base[Index]) * SelectedTrainCount)));
 	}
@@ -9256,6 +9296,13 @@ bool URokUnityFeatureScreenWidget::BuildTrainArmyParameterPage(const FRokUnityCa
 		Page->RemoveFromParent();
 		ActiveModePage = nullptr;
 		return false;
+	}
+	if (!TrainResourceCostLayout)
+	{
+		if (UClass* LayoutClass = ResolveFeaturePageClass(TEXT("TrainResourceCostLayout")))
+		{
+			TrainResourceCostLayout = CreateWidget<URokUiPageWidget>(this, LayoutClass);
+		}
 	}
 
 	const auto SetText = [](const URokUiPageWidget& Owner, FName Name, const FText& Text)
@@ -9765,7 +9812,11 @@ void URokUnityFeatureScreenWidget::BuildServerBuildingSpeedUp()
 				if (auto* Price = ItemPage->Get<UTextBlock>(TEXT("BuyPrice")))
 				{
 					Price->SetText(FText::AsNumber(Item.ShortcutPrice));
-					Price->SetColorAndOpacity(Gems >= Item.ShortcutPrice ? FLinearColor::White : FLinearColor(1, .32f, .26f));
+					const bool bAffordable = Gems >= Item.ShortcutPrice;
+					FSlateColor PriceColor(bAffordable ? FLinearColor::White : FLinearColor(1, .32f, .26f));
+					TryGetFeatureTextColor(bAffordable ? TEXT("BuildingSpeedUpPriceAffordable")
+						: TEXT("BuildingSpeedUpPriceInsufficient"), PriceColor);
+					Price->SetColorAndOpacity(PriceColor);
 				}
 			}
 			ItemPage->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
@@ -12411,7 +12462,10 @@ void URokUnityFeatureScreenWidget::BuildTaskChapter(const URokUiPageWidget* Page
 			BindPageAction(*Page, *ButtonName, 339 + GroupId);
 			if (auto* Label = Page->Get<UTextBlock>(*(ButtonName + TEXT("Label"))))
 			{
-				Label->SetColorAndOpacity(LabelColor);
+				FSlateColor AuthoredColor(LabelColor);
+				TryGetFeatureTextColor(bSelected ? TEXT("TaskChapterCatalogGroupSelected")
+					: TEXT("TaskChapterCatalogGroupUnselected"), AuthoredColor);
+				Label->SetColorAndOpacity(AuthoredColor);
 			}
 			continue;
 		}
