@@ -446,6 +446,14 @@ private:
 	UPROPERTY()
 	TObjectPtr<UTextBlock> SpeedUpQueueProgressText;
 
+	struct FLocalSpeedUpQueueColors
+	{
+		FLinearColor Description = FLinearColor::White;
+		FLinearColor Fill = FLinearColor::White;
+	};
+	FLocalSpeedUpQueueColors LocalSpeedUpActiveColors;
+	FLocalSpeedUpQueueColors LocalSpeedUpInactiveColors;
+
 	UPROPERTY()
 	TObjectPtr<UTextBlock> WorkerQueuePrimaryTitleText;
 
@@ -1027,6 +1035,7 @@ private:
 	void UpdateExpandedDesignResolution(const FVector2D& RootSize);
 	void UpdateActivityCountdown(float DeltaSeconds);
 	void UpdateSpeedUpQueuePresentation();
+	void ApplyLocalSpeedUpQueueColors(bool bHasActiveQueue);
 	void UpdateWorkerQueuePresentation();
 	void HandleIndexedAction(int32 ActionId);
 	void ExecuteIndexedAction(int32 ActionId);

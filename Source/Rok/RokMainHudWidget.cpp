@@ -1440,6 +1440,7 @@ void URokMainHudWidget::BuildWidgetTree()
 		return;
 	}
 	BuildCityMarker();
+	CacheCityStatusIconStyles();
 	BuildConstructionBarPool();
 	BuildServerTrainingPopPool();
 	BuildCityHarvestPops();
@@ -4067,6 +4068,29 @@ float URokMainHudWidget::GetBuildBarProgress(float TotalSeconds, float Remaining
 	return FMath::Clamp((TotalSeconds - RemainingSeconds) / TotalSeconds, 0.0f, 1.0f);
 }
 
+void URokMainHudWidget::CacheCityStatusIconStyles()
+{
+	// Order matches the two construction states and building resource types 2..5.
+	CityStatusIconStyleBrushes.Reset();
+	CityStatusIconStyleBrushes.SetNum(6);
+	static const TSoftClassPtr<URokUiPageWidget> StyleClass(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokCityStatusIconStyles.WBP_RokCityStatusIconStyles_C")));
+	if (auto* Styles = CreateHudPage(StyleClass, NAME_None))
+	{
+		const FName Names[] = {
+			TEXT("ConstructionNewBuild"), TEXT("ConstructionUpgrade"),
+			TEXT("HarvestFood"), TEXT("HarvestWood"), TEXT("HarvestStone"), TEXT("HarvestGold")};
+		for (int32 Index = 0; Index < UE_ARRAY_COUNT(Names); ++Index)
+		{
+			const auto* Image = Cast<UImage>(RokUiFind::Find(Styles, Names[Index]));
+			if (Image && Image->GetBrush().GetResourceObject())
+			{
+				CityStatusIconStyleBrushes[Index] = Image->GetBrush();
+			}
+		}
+	}
+}
+
 void URokMainHudWidget::BuildConstructionBarPool()
 {
 	// UI_Tip_BuildingBar, laid out in its 100x100 prefab root (Unity units, y down here):
@@ -4079,6 +4103,7 @@ void URokMainHudWidget::BuildConstructionBarPool()
 	ConstructionBarLabels.Reset();
 	ConstructionBarFills.Reset();
 	ConstructionBarIcons.Reset();
+	ConstructionBarUsesWbp.Reset();
 	ConstructionBarActors.Reset();
 	ConstructionBarActors.SetNum(BarCount);
 	if (UTexture2D* MainMenuAtlas = LoadUiTexture(MainMenuAtlasPath))
@@ -4112,6 +4137,7 @@ void URokMainHudWidget::BuildConstructionBarPool()
 				ConstructionBarLabels.Add(Label);
 				ConstructionBarFills.Add(Fill);
 				ConstructionBarIcons.Add(Icon);
+				ConstructionBarUsesWbp.Add(true);
 				continue;
 			}
 			Page->RemoveFromParent();
@@ -4151,6 +4177,7 @@ void URokMainHudWidget::BuildConstructionBarPool()
 		ConstructionBarLabels.Add(Label);
 		ConstructionBarFills.Add(Fill);
 		ConstructionBarIcons.Add(Icon);
+		ConstructionBarUsesWbp.Add(false);
 	}
 }
 
@@ -4258,7 +4285,13 @@ void URokMainHudWidget::UpdateConstructionBars()
 			// Server clocks may reach zero while the authoritative completion push is
 			// pending. Keep that bar at zero; no local completion or level mutation.
 			Label->SetText(FText::FromString(FormatRemainingClock(FMath::CeilToFloat(Source.Remaining))));
-			Icon->SetBrush(Source.bNewBuild ? ConstructionBarBuildingBrush : ConstructionBarLevelUpBrush);
+			const int32 StyleIndex = Source.bNewBuild ? 0 : 1;
+			const FSlateBrush* AuthoredBrush = ConstructionBarUsesWbp[Used]
+				&& CityStatusIconStyleBrushes.IsValidIndex(StyleIndex)
+				&& CityStatusIconStyleBrushes[StyleIndex].GetResourceObject()
+				? &CityStatusIconStyleBrushes[StyleIndex] : nullptr;
+			Icon->SetBrush(AuthoredBrush ? *AuthoredBrush
+				: Source.bNewBuild ? ConstructionBarBuildingBrush : ConstructionBarLevelUpBrush);
 			Bar->SetVisibility(ESlateVisibility::HitTestInvisible);
 			++Used;
 		}
@@ -4393,7 +4426,12 @@ void URokMainHudWidget::BuildCityHarvestPops()
 
 	static const TSoftClassPtr<URokUiPageWidget> HarvestClass(FSoftObjectPath(
 		TEXT("/Game/RokUI/Hud/WBP_RokCityHarvestBubble.WBP_RokCityHarvestBubble_C")));
+	CityHarvestRoots.Reset();
+	CityHarvestNormalBackgrounds.Reset();
+	CityHarvestFullBackgrounds.Reset();
+	CityHarvestIcons.Reset();
 	CityHarvestPopTypes.SetNumZeroed(MaxResourceBuildings);
+	CityHarvestUsesWbp.Reset();
 	for (int32 Index = 0; Index < MaxResourceBuildings; ++Index)
 	{
 		const auto Name = [Index](const TCHAR* Stem) { return FName(*FString::Printf(TEXT("%s_%d"), Stem, Index)); };
@@ -4416,6 +4454,7 @@ void URokMainHudWidget::BuildCityHarvestPops()
 				CityHarvestNormalBackgrounds.Add(Normal);
 				CityHarvestFullBackgrounds.Add(Full);
 				CityHarvestIcons.Add(Icon);
+				CityHarvestUsesWbp.Add(true);
 				continue;
 			}
 			Page->RemoveFromParent();
@@ -4444,6 +4483,7 @@ void URokMainHudWidget::BuildCityHarvestPops()
 		CityHarvestNormalBackgrounds.Add(Normal);
 		CityHarvestFullBackgrounds.Add(Full);
 		CityHarvestIcons.Add(Icon);
+		CityHarvestUsesWbp.Add(false);
 	}
 }
 
@@ -4548,8 +4588,13 @@ void URokMainHudWidget::UpdateCityHarvestPops(float DeltaTime)
 		CityHarvestFullBackgrounds[Used]->SetVisibility(Entry.bFull ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
 		if (CityHarvestPopTypes[Used] != Entry.Type)
 		{
-			CityHarvestIcons[Used]->SetBrush(MakeAtlasBrush(LoadUiTexture(CommonAtlasPath),
-				IconRects[Entry.Type - 2], CommonAtlasSize, FVector2D(60.0f)));
+			const FSlateBrush* AuthoredBrush = CityHarvestUsesWbp[Used]
+				&& CityStatusIconStyleBrushes.IsValidIndex(Entry.Type)
+				&& CityStatusIconStyleBrushes[Entry.Type].GetResourceObject()
+				? &CityStatusIconStyleBrushes[Entry.Type] : nullptr;
+			CityHarvestIcons[Used]->SetBrush(AuthoredBrush ? *AuthoredBrush
+				: MakeAtlasBrush(LoadUiTexture(CommonAtlasPath),
+					IconRects[Entry.Type - 2], CommonAtlasSize, FVector2D(60.0f)));
 			CityHarvestPopTypes[Used] = Entry.Type;
 		}
 		Root->SetVisibility(ESlateVisibility::SelfHitTestInvisible);

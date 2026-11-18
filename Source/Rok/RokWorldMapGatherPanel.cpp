@@ -1246,6 +1246,8 @@ void URokWorldMapHudWidget::HandleSelectNewAttackArmy()
 
 void URokWorldMapHudWidget::BuildGatherPanel()
 {
+	GatherQueueShadeBottomInset = 62.0;
+	GatherQueueShadeMinimumHeight = 100.0;
 	GatherRoot = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("WorldGatherDispatch"));
 	GatherRoot->SetVisibility(ESlateVisibility::Collapsed);
 	auto* Overlay = ExpandedDesignCanvas->AddChildToCanvas(GatherRoot);
@@ -1346,6 +1348,20 @@ void URokWorldMapHudWidget::BuildGatherPanel()
 void URokWorldMapHudWidget::BindGatherPanel(URokUiPageWidget& Page)
 {
 	GatherQueueShade = Page.Get<UImage>(TEXT("WorldGatherQueueShade"));
+	static const TSoftClassPtr<URokUiPageWidget> QueueLayoutClass(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokWorldGatherQueueLayout.WBP_RokWorldGatherQueueLayout_C")));
+	if (const auto* Layout = CreateWorldHudPage(QueueLayoutClass, NAME_None))
+	{
+		const auto ReadHeight = [Layout](FName Name, double Fallback)
+		{
+			const UWidget* Marker = RokUiFind::Find(Layout, Name);
+			const auto* Slot = Marker ? Cast<UCanvasPanelSlot>(Marker->Slot) : nullptr;
+			const double Height = Slot ? Slot->GetSize().Y : -1.0;
+			return FMath::IsFinite(Height) && Height >= 0.0 ? Height : Fallback;
+		};
+		GatherQueueShadeBottomInset = ReadHeight(TEXT("QueueShadeBottomInset"), GatherQueueShadeBottomInset);
+		GatherQueueShadeMinimumHeight = ReadHeight(TEXT("QueueShadeMinimumHeight"), GatherQueueShadeMinimumHeight);
+	}
 	GatherQueueCount = Page.Get<UTextBlock>(TEXT("WorldGatherQueueCount"));
 	GatherFeedback = Page.Get<UTextBlock>(TEXT("WorldGatherCreateTip"));
 	GatherCreateButton = Page.Get<UButton>(TEXT("WorldGatherCreateArmy"));
@@ -1454,8 +1470,22 @@ void URokWorldMapHudWidget::UpdateGatherRoute()
 		HandleGatherCloseClicked();
 		return;
 	}
-	auto* ShadeSlot = CastChecked<UCanvasPanelSlot>(GatherQueueShade->Slot);
-	ShadeSlot->SetSize({ShadeSlot->GetSize().X, FMath::Max(100, CurrentExpandedDesignSize.Y - 128)});
+	if (auto* ShadeSlot = GatherQueueShade ? Cast<UCanvasPanelSlot>(GatherQueueShade->Slot) : nullptr)
+	{
+		const FAnchors Anchors = ShadeSlot->GetAnchors();
+		// A top-aligned shade uses its authored position and fills to the bottom inset.
+		// Other vertical alignments, including stretched slots, can supply their own layout.
+		if (Anchors.Minimum.Y == 0.0 && Anchors.Maximum.Y == 0.0 && ShadeSlot->GetAlignment().Y == 0.0)
+		{
+			const FVector2D Size = ShadeSlot->GetSize();
+			const double Height = FMath::Max(GatherQueueShadeMinimumHeight,
+				CurrentExpandedDesignSize.Y - ShadeSlot->GetPosition().Y - GatherQueueShadeBottomInset);
+			if (!FMath::IsNearlyEqual(Size.Y, Height))
+			{
+				ShadeSlot->SetSize(FVector2D(Size.X, Height));
+			}
+		}
+	}
 	FVector2D From, To;
 	const bool bProjected = GatherExistingArmyIndex == 0 && City && CurrentRootSize.X > 0 && CurrentRootSize.Y > 0
 		&& Controller->ProjectWorldLocationToScreen(City->GetActorLocation(), From, true)

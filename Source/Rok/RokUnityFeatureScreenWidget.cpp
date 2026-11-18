@@ -5079,6 +5079,8 @@ void URokUnityFeatureScreenWidget::BuildWorkerQueue()
 		{
 			Note->SetText(PlacementNote);
 		}
+		UClass* IllustrationClass = ResolveFeaturePageClass(TEXT("WorkerQueueIllustrationStyles"));
+		const auto* IllustrationStyles = IllustrationClass ? CreateWidget<URokUiPageWidget>(this, IllustrationClass) : nullptr;
 		auto ApplyAtlas = [this](UImage* Image, const TCHAR* Path, const FIntRect& Rect, const FIntPoint& Size)
 		{
 			if (Image)
@@ -5111,8 +5113,20 @@ void URokUnityFeatureScreenWidget::BuildWorkerQueue()
 				continue;
 			}
 
-			ApplyAtlas(Row->Get<UImage>(Name(TEXT("WorkerQueuePrimaryIllustration"), TEXT("WorkerQueueSecondaryIllustration"))),
-				WorkerMatrixAtlasPath, IllustrationRect(State), WorkerMatrixAtlasSize);
+			auto* Illustration = Row->Get<UImage>(Name(TEXT("WorkerQueuePrimaryIllustration"), TEXT("WorkerQueueSecondaryIllustration")));
+			const FName IllustrationName = State == ERokServerBuildQueueState::Busy ? TEXT("WorkerQueueIllustrationBusy")
+				: State == ERokServerBuildQueueState::Idle ? TEXT("WorkerQueueIllustrationIdle") : TEXT("WorkerQueueIllustrationLocked");
+			const auto* IllustrationStyle = IllustrationStyles
+				? Cast<UImage>(RokUiFind::Find(IllustrationStyles, IllustrationName)) : nullptr;
+			if (Illustration && IllustrationStyle && IllustrationStyle->GetBrush().GetResourceObject())
+			{
+				// The row keeps its slot, image tint and visibility; the detached style owns the brush.
+				Illustration->SetBrush(IllustrationStyle->GetBrush());
+			}
+			else
+			{
+				ApplyAtlas(Illustration, WorkerMatrixAtlasPath, IllustrationRect(State), WorkerMatrixAtlasSize);
+			}
 			auto* RowTitle = Row->Get<UTextBlock>(Name(TEXT("WorkerQueuePrimaryTitle"), TEXT("WorkerQueueSecondaryTitle")));
 			auto* RowNote = Row->Get<UTextBlock>(Name(TEXT("WorkerQueueRuntimeState"), TEXT("WorkerQueueSecondaryNote")));
 			auto* Progress = Row->Get<UProgressBar>(Name(TEXT("WorkerQueuePrimaryProgress"), TEXT("WorkerQueueSecondaryProgress")));
@@ -10257,6 +10271,23 @@ void URokUnityFeatureScreenWidget::BuildSpeedUp()
 	}
 	UClass* CardClass = ResolveFeaturePageClass(TEXT("SpeedUpCatalogCard"));
 	auto* Page = CardClass ? MountModePage(TEXT("SpeedUp")) : nullptr;
+	UClass* PresentationClass = Page ? ResolveFeaturePageClass(TEXT("LocalSpeedUpPresentation")) : nullptr;
+	const auto* Presentation = PresentationClass ? CreateWidget<URokUiPageWidget>(this, PresentationClass) : nullptr;
+	const auto ReadColor = [Presentation](FName Name, const FLinearColor& Fallback)
+	{
+		const auto* Marker = Presentation ? Cast<UBorder>(RokUiFind::Find(Presentation, Name)) : nullptr;
+		return Marker ? Marker->GetBrushColor() : Fallback;
+	};
+	const FLinearColor NormalShade(0.075f, 0.08f, 0.07f, 0.98f);
+	const FLinearColor SelectedShade(0.24f, 0.20f, 0.10f, 0.98f);
+	const FLinearColor AuthoredNormalShade = ReadColor(TEXT("SpeedUpCardNormal"), NormalShade);
+	const FLinearColor AuthoredSelectedShade = ReadColor(TEXT("SpeedUpCardSelected"), SelectedShade);
+	LocalSpeedUpActiveColors = {
+		ReadColor(TEXT("SpeedUpQueueActiveDescription"), FLinearColor(0.94f, 0.90f, 0.65f, 1.0f)),
+		ReadColor(TEXT("SpeedUpQueueActiveFill"), FLinearColor(0.25f, 0.76f, 0.34f, 1.0f))};
+	LocalSpeedUpInactiveColors = {
+		ReadColor(TEXT("SpeedUpQueueInactiveDescription"), FLinearColor(0.78f, 0.78f, 0.74f, 1.0f)),
+		ReadColor(TEXT("SpeedUpQueueInactiveFill"), FLinearColor(0.25f, 0.28f, 0.26f, 1.0f))};
 	const FText Title = FText::Format(NSLOCTEXT("RokSpeedUp", "TitleFormat", "{0}加速"),
 		ResolveSpeedUpQueueLabel(SpeedUpQueueType));
 	if (Page)
@@ -10358,15 +10389,12 @@ void URokUnityFeatureScreenWidget::BuildSpeedUp()
 	if (SpeedUpQueueDescriptionText)
 	{
 		SpeedUpQueueDescriptionText->SetText(QueueDescription);
-		SpeedUpQueueDescriptionText->SetColorAndOpacity(bHasActiveQueue
-			? FLinearColor(0.94f, 0.90f, 0.65f, 1.0f) : FLinearColor(0.78f, 0.78f, 0.74f, 1.0f));
 	}
 	if (SpeedUpQueueProgress)
 	{
 		SpeedUpQueueProgress->SetPercent(QueueProgress);
-		SpeedUpQueueProgress->SetFillColorAndOpacity(bHasActiveQueue
-			? FLinearColor(0.25f, 0.76f, 0.34f, 1.0f) : FLinearColor(0.25f, 0.28f, 0.26f, 1.0f));
 	}
+	ApplyLocalSpeedUpQueueColors(bHasActiveQueue);
 	if (SpeedUpQueueProgressText)
 	{
 		SpeedUpQueueProgressText->SetText(bHasActiveQueue
@@ -10442,8 +10470,7 @@ void URokUnityFeatureScreenWidget::BuildSpeedUp()
 			205.0f + Column * 520.0f,
 			280.0f + Row * 142.0f);
 		const bool bSelected = SelectedSpeedUpItemIndex == LocalIndex;
-		const FLinearColor Shade = bSelected
-			? FLinearColor(0.24f, 0.20f, 0.10f, 0.98f) : FLinearColor(0.075f, 0.08f, 0.07f, 0.98f);
+		const FLinearColor Shade = bSelected ? SelectedShade : NormalShade;
 		const FText ItemName = Item.DisplayNameZhCn.IsEmpty()
 			? FText::Format(NSLOCTEXT("RokSpeedUp", "FallbackItemName", "加速道具 {0}"), FText::AsNumber(Item.Id))
 			: FText::FromString(Item.DisplayNameZhCn);
@@ -10459,7 +10486,10 @@ void URokUnityFeatureScreenWidget::BuildSpeedUp()
 			auto* CardSlot = Page->Get<UCanvasPanel>(*FString::Printf(TEXT("SpeedUpCardSlot_%d"), LocalIndex));
 			if (const auto* Card = MountPageItem(CardSlot, CardClass, TEXT("SpeedUp"), LocalIndex))
 			{
-				if (auto* Border = Card->Get<UBorder>(TEXT("ItemShade"))) Border->SetBrushColor(Shade);
+				if (auto* Border = Card->Get<UBorder>(TEXT("ItemShade")))
+				{
+					Border->SetBrushColor(bSelected ? AuthoredSelectedShade : AuthoredNormalShade);
+				}
 				if (auto* Quality = Card->Get<UImage>(TEXT("ItemQuality")))
 				{
 					Quality->SetBrush(MakeAtlasBrush(LoadUiTexture(Item0AtlasPath),
@@ -10635,6 +10665,19 @@ void URokUnityFeatureScreenWidget::BuildSpeedUp()
 		8);
 }
 
+void URokUnityFeatureScreenWidget::ApplyLocalSpeedUpQueueColors(bool bHasActiveQueue)
+{
+	const auto& Colors = bHasActiveQueue ? LocalSpeedUpActiveColors : LocalSpeedUpInactiveColors;
+	if (SpeedUpQueueDescriptionText)
+	{
+		SpeedUpQueueDescriptionText->SetColorAndOpacity(FSlateColor(Colors.Description));
+	}
+	if (SpeedUpQueueProgress)
+	{
+		SpeedUpQueueProgress->SetFillColorAndOpacity(Colors.Fill);
+	}
+}
+
 void URokUnityFeatureScreenWidget::UpdateSpeedUpQueuePresentation()
 {
 	if (ServerSpeedUpQueueIndex > 0)
@@ -10727,15 +10770,8 @@ void URokUnityFeatureScreenWidget::UpdateSpeedUpQueuePresentation()
 			: NSLOCTEXT("RokSpeedUp", "BoundQueueReplaced", "原建筑队列已变化；请关闭窗口后重新选择。");
 	}
 	SpeedUpQueueDescriptionText->SetText(QueueDescription);
-	SpeedUpQueueDescriptionText->SetColorAndOpacity(FSlateColor(
-		bHasActiveQueue
-			? FLinearColor(0.94f, 0.90f, 0.65f, 1.0f)
-			: FLinearColor(0.78f, 0.78f, 0.74f, 1.0f)));
 	SpeedUpQueueProgress->SetPercent(QueueProgress);
-	SpeedUpQueueProgress->SetFillColorAndOpacity(
-		bHasActiveQueue
-			? FLinearColor(0.25f, 0.76f, 0.34f, 1.0f)
-			: FLinearColor(0.25f, 0.28f, 0.26f, 1.0f));
+	ApplyLocalSpeedUpQueueColors(bHasActiveQueue);
 	SpeedUpQueueProgressText->SetText(bHasActiveQueue
 		? FText::Format(
 			NSLOCTEXT("RokSpeedUp", "ProgressFormat", "已完成 {0}%"),

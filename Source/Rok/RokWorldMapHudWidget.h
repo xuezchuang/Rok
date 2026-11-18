@@ -311,6 +311,8 @@ private:
 	TObjectPtr<UTextBlock> GatherQueueCount;
 	UPROPERTY(Transient)
 	TObjectPtr<UImage> GatherQueueShade;
+	double GatherQueueShadeBottomInset = 0.0;
+	double GatherQueueShadeMinimumHeight = 0.0;
 	UPROPERTY(Transient)
 	TObjectPtr<UTextBlock> GatherFeedback;
 	UPROPERTY(Transient)

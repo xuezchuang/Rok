@@ -140,3 +140,16 @@
 两个新资产的生成规格位于 `Scripts/RokUi/BuildTrainArmyDetailTipLayoutSpec.py` 和 `Scripts/RokUi/BuildChatContactsLayoutSpec.py`。提示框宽度、正文宽度和换行宽度均可在现有提示 WBP 中调整。
 
 独立重载核对了 2 个新资产、4 个现有资产及其 12 棵设计与生成控件树。记录见 `Saved/RokUi/Logs/verify_train_tip_and_slider_source_goal.log` 和 `verify_chat_contacts_layout_goal.log`。未编译 C++，实际入口与画面对比由人工审查。
+
+## 出征侧栏、城市图标、工人队列和本地加速
+
+| 入口 | Designer 资产 | 可编辑内容 |
+| --- | --- | --- |
+| 世界地图 → 采集或攻击 → 选队 | `RokUI/Hud/WBP_RokWorldGatherDispatch`、`WBP_RokWorldGatherQueueLayout` | `WorldGatherQueueShade` 提供宽度和顶部留白。顶部对齐时，`QueueShadeBottomInset` 和 `QueueShadeMinimumHeight` 的槽位高度分别提供底部留白和最小高度，默认 `62`、`100`。纵向拉伸的槽位直接使用自己的锚点。 |
+| 城市 → 建造、升级、领取资源 | `RokUI/Hud/WBP_RokCityStatusIconStyles` | `ConstructionNewBuild`、`ConstructionUpgrade` 和 `HarvestFood`、`HarvestWood`、`HarvestStone`、`HarvestGold` 提供图标画刷。可编辑资源、裁切区域、画刷尺寸和颜色。施工条与领取气泡的位置沿用原页面。 |
+| 城市 → 建筑工人管理 | `RokUI/Feature/WBP_RokWorkerQueueIllustrationStyles` | `WorkerQueueIllustrationIdle`、`WorkerQueueIllustrationBusy`、`WorkerQueueIllustrationLocked` 供两行工人共用。未同步的状态沿用锁定插图。 |
+| 建筑或工人队列 → 本地加速 | `RokUI/Feature/WBP_RokFeature_LocalSpeedUpPresentation` | 编辑 `BrushColor` 可调整普通、选中卡片的底色，以及队列进行中、无活动时的说明文字和进度条填充色。原队列失效或被替换时用无活动配色。 |
+
+四个新模板的生成规格位于 `Scripts/RokUi/BuildWorldGatherQueueLayoutSpec.py`、`BuildCityStatusIconStylesSpec.py`、`BuildWorkerQueueIllustrationStylesSpec.py` 和 `BuildLocalSpeedUpPresentationSpec.py`。
+
+使用现有 UE 二进制独立重载了 4 个新资产和 7 个现有资产，核对了 22 棵设计与生成控件树。记录见 `Saved/RokUi/Logs/verify_world_dispatch_queue_layout_goal.log` 和 `verify_queue_and_city_styles_goal.log`。未编译 C++，实际入口和画面对比由人工审查。

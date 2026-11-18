@@ -284,10 +284,14 @@ private:
 	void SubmitCityHarvest(const TMap<int32, int64>& Buildings, AActor* FeedbackAnchor = nullptr);
 	void ShowCityHarvestFeedback(const FText& Message, AActor* SuccessAnchor = nullptr);
 
+	void CacheCityStatusIconStyles();
+	UPROPERTY(Transient) TArray<FSlateBrush> CityStatusIconStyleBrushes;
+	TArray<bool> ConstructionBarUsesWbp;
 	UPROPERTY(Transient) TArray<TObjectPtr<UCanvasPanel>> CityHarvestRoots;
 	UPROPERTY(Transient) TArray<TObjectPtr<UImage>> CityHarvestNormalBackgrounds;
 	UPROPERTY(Transient) TArray<TObjectPtr<UImage>> CityHarvestFullBackgrounds;
 	UPROPERTY(Transient) TArray<TObjectPtr<UImage>> CityHarvestIcons;
+	TArray<bool> CityHarvestUsesWbp;
 	struct FCityHarvestEntry
 	{
 		int32 Index = 0;
