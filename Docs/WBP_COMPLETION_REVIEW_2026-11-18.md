@@ -166,3 +166,16 @@
 四个新模板的规格脚本位于 `Scripts/RokUi/BuildBuildingMenuFeatureStylesSpec.py`、`BuildBuildingUpgradeCostStylesSpec.py`、`BuildPlayerRankingGridLayoutSpec.py` 和 `BuildProfileTipLayoutSpec.py`。
 
 使用现有 UE 二进制独立重载了 4 个新资产和 9 个现有资产，核对了 26 棵设计与生成控件树。记录见 `Saved/RokUi/Logs/verify_building_ranking_and_profile_layouts_goal.log`。未编译 C++，实际入口和画面对比由人工审查。
+
+## 世界详情气泡、科研锁定框、坐标提示和统帅正文
+
+| 入口 | Designer 资产 | 可编辑内容 |
+| --- | --- | --- |
+| 世界地图 → 资源点或乱军 → 详情 | `RokUI/Hud/WBP_RokWorldObjectInfoPlacement` | `ObjectGap`、`ViewportInset`、`ArrowCornerInset`、`ArrowEdgeOffset` 的固定槽位高度分别控制气泡间距、屏幕边缘留白、箭头离角落的最小距离和箭头中心离边框的距离。默认 `50 / 12 / 18 / 5`。两种气泡共用，箭头尺寸继续取原箭头 WBP。 |
+| 学院 → 科研树 → 锁定科技 | `RokUI/Research/WBP_RokResearchLockedFrameStyles`、`MI_RokResearchLockedFrameGray` | `ResearchLockedIconFrame` 的画刷提供资源和裁切范围。灰度实例复用现有灰度材质和科研图集。可在 Designer 查看锁定框，科技解锁判断仍由 C++ 处理。 |
+| 世界地图 → 坐标搜索 → 任一坐标留空 → 前往 | `RokUI/Feature/WBP_RokFeature_WorldPositionTipLayout`、原 `WBP_RokFeature_WorldPositionSearch` | `MiddleTipHorizontalPadding` 的固定槽位宽度提供左右总留白，默认 `50`。动态宽度上限取 `WorldPositionMiddleTipRoot`，默认 `640`。背景高度和 Y 位置取 `WorldPositionMiddleTipBackground` 的槽位，默认 `69` 和 `0`。 |
+| 统帅 → 名册、介绍 | `RokUI/Feature/WBP_RokFeature_CommanderTextLayout` | `DividerExtent` 给出「尚未招募」分隔行的外部尺寸，默认 `304×38`。`BiographyCharacterLimit` 和 `BiographyEllipsis` 控制介绍正文的预览上限和后缀。保持 UE 原有的 `58` 和 `…`。上限设 `0` 显示完整正文，后缀留空时只截短正文。 |
+
+规格脚本位于 `Scripts/RokUi/` 下，分别为 `BuildWorldObjectInfoPlacementSpec.py`、`BuildResearchLockedFrameStylesSpec.py`、`BuildWorldPositionTipLayoutSpec.py` 和 `BuildCommanderTextLayoutSpec.py`。科研规格生成后，由 `CreateResearchLockedFrameStyles.py` 在后台 UE 命令行创建灰度材质实例和锁定框模板。
+
+使用现有 UE 二进制独立重载了 4 个新 WBP、3 个现有 WBP 和 1 个灰度材质实例，核对了 14 棵设计与生成类控件树。记录见 `Saved/RokUi/Logs/verify_popup_and_text_layouts_goal.log`。新 C++ 绑定做了静态核对，实际入口、画面对比和人工审查待验证。

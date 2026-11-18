@@ -563,6 +563,40 @@ void URokUnityFeatureScreenWidget::BuildCommander()
 			FText::AsNumber(RuntimeHeroes.Num())));
 	Sort->SetText(CommanderSortLabel);
 
+	// This detached template supplies presentation rules; stock/legacy fallbacks stay native.
+	FVector2D CommanderDividerSize(304, 38);
+	int32 CommanderBiographyCharacterLimit = 58;
+	FString CommanderBiographyEllipsis(TEXT("…"));
+	if (UClass* TextLayoutClass = ResolveFeaturePageClass(TEXT("CommanderTextLayout")))
+	{
+		if (auto* TextLayout = CreateWidget<URokUiPageWidget>(this, TextLayoutClass))
+		{
+			const UWidget* DividerExtent = RokUiFind::Find(TextLayout, TEXT("DividerExtent"));
+			const auto* ExtentSlot = DividerExtent ? Cast<UCanvasPanelSlot>(DividerExtent->Slot) : nullptr;
+			if (ExtentSlot && !ExtentSlot->GetAutoSize()
+				&& ExtentSlot->GetAnchors().Minimum == ExtentSlot->GetAnchors().Maximum)
+			{
+				const FVector2D Size = ExtentSlot->GetSize();
+				if (FMath::IsFinite(Size.X) && FMath::IsFinite(Size.Y) && Size.X > 0 && Size.Y > 0)
+				{
+					CommanderDividerSize = Size;
+				}
+			}
+			if (const auto* Limit = Cast<USpinBox>(RokUiFind::Find(TextLayout, TEXT("BiographyCharacterLimit"))))
+			{
+				const double Value = Limit->GetValue();
+				if (FMath::IsFinite(Value) && Value >= 0 && Value <= static_cast<double>(MAX_int32)
+					&& Value == static_cast<double>(static_cast<int32>(Value)))
+				{
+					CommanderBiographyCharacterLimit = static_cast<int32>(Value);
+				}
+			}
+			if (const auto* Ellipsis = Cast<UTextBlock>(RokUiFind::Find(TextLayout, TEXT("BiographyEllipsis"))))
+			{
+				CommanderBiographyEllipsis = Ellipsis->GetText().ToString();
+			}
+		}
+	}
 	UClass* CommanderRosterRowClass = ResolveFeaturePageClass(TEXT("CommanderRosterRow"));
 	const RokArmyStateStyles::FBatch ArmyStyles(this);
 	for (int32 Index = 0; Index < VisibleCommanderIds.Num();)
@@ -577,7 +611,7 @@ void URokUnityFeatureScreenWidget::BuildCommander()
 			{
 				DividerPage->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
 				DividerPage->Get<UTextBlock>(TEXT("CommanderUnrecruitedDivider"))->SetText(NSLOCTEXT("RokCommander", "NotRecruited", "尚未招募"));
-				CommanderRosterScroll->AddChild(WrapFixedSize(DividerPage, TEXT("CommanderUnrecruitedDividerSize"), FVector2D(304, 38)));
+				CommanderRosterScroll->AddChild(WrapFixedSize(DividerPage, TEXT("CommanderUnrecruitedDividerSize"), CommanderDividerSize));
 			}
 			else
 			{
@@ -1127,7 +1161,10 @@ void URokUnityFeatureScreenWidget::BuildCommander()
 					FText::AsNumber(bHasSelectedHero ? SelectedHero.Rare : 0),
 					FText::AsNumber(bHasSelectedHero ? SelectedHero.Civilization : 0)));
 			FString Preview = SelectedDescriptionString.IsEmpty() ? TEXT("暂无统帅介绍。") : SelectedDescriptionString;
-			if (Preview.Len() > 58) Preview = Preview.Left(58) + TEXT("…");
+			if (CommanderBiographyCharacterLimit > 0 && Preview.Len() > CommanderBiographyCharacterLimit)
+			{
+				Preview = Preview.Left(CommanderBiographyCharacterLimit) + CommanderBiographyEllipsis;
+			}
 			if (UTextBlock* Description = BiographyPage->Get<UTextBlock>(TEXT("CommanderDescription")))
 				Description->SetText(FText::FromString(Preview));
 		}

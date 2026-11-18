@@ -54,6 +54,7 @@
 #include "Components/SizeBox.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Components/Slider.h"
+#include "Components/SpinBox.h"
 #include "Components/TextBlock.h"
 #include "Components/VerticalBox.h"
 #include "TimerManager.h"
@@ -3324,6 +3325,7 @@ void URokUnityFeatureScreenWidget::AdvanceWindowAnimation(float DeltaSeconds)
 
 void URokUnityFeatureScreenWidget::BuildWorldPositionSearch()
 {
+	WorldPositionMiddleTipHorizontalPadding = 50.0;
 	if (const URokUiPageWidget* Page = MountModePage())
 	{
 		WorldPositionXInput = Page->Get<UEditableTextBox>(TEXT("WorldPositionXInput"));
@@ -3346,6 +3348,20 @@ void URokUnityFeatureScreenWidget::BuildWorldPositionSearch()
 		WorldPositionMiddleTipRoot = Page->Get<UCanvasPanel>(TEXT("WorldPositionMiddleTipRoot"));
 		WorldPositionMiddleTipBackground = Page->Get<UImage>(TEXT("WorldPositionMiddleTipBackground"));
 		WorldPositionMiddleTipText = Page->Get<UTextBlock>(TEXT("WorldPositionMiddleTipText"));
+		if (UClass* LayoutClass = ResolveFeaturePageClass(TEXT("WorldPositionTipLayout")))
+		{
+			const auto* Layout = CreateWidget<URokUiPageWidget>(this, LayoutClass);
+			const UWidget* Marker = RokUiFind::Find(Layout, TEXT("MiddleTipHorizontalPadding"));
+			const auto* Slot = Marker ? Cast<UCanvasPanelSlot>(Marker->Slot) : nullptr;
+			if (Slot && !Slot->GetAutoSize() && !Slot->GetAnchors().IsStretchedHorizontal())
+			{
+				const double Padding = Slot->GetSize().X;
+				if (FMath::IsFinite(Padding) && Padding >= 0.0)
+				{
+					WorldPositionMiddleTipHorizontalPadding = Padding;
+				}
+			}
+		}
 		return;
 	}
 	BuildSplitWindowFrame(
@@ -17828,15 +17844,32 @@ void URokUnityFeatureScreenWidget::ShowWorldPositionMiddleTip(const FText& Messa
 	if (FeedbackText) FeedbackText->SetVisibility(ESlateVisibility::Collapsed);
 	WorldPositionMiddleTipText->SetText(Message);
 	WorldPositionMiddleTipText->ForceLayoutPrepass();
-	// TipManager uses preferredWidth+50; first-frame fallback is for this fixed five-glyph message.
-	const float MeasuredWidth = WorldPositionMiddleTipText->GetDesiredSize().X;
-	const float TextWidth = MeasuredWidth > 0.0f ? MeasuredWidth
-		: Message.ToString().Len() * 22.0f;
-	const float Width = FMath::Clamp(TextWidth + 50.0f, 50.0f, 640.0f);
-	if (UCanvasPanelSlot* TipBackgroundSlot = Cast<UCanvasPanelSlot>(WorldPositionMiddleTipBackground->Slot))
+	// TipManager sizes the background to the measured message plus horizontal padding.
+	const double MeasuredWidth = WorldPositionMiddleTipText->GetDesiredSize().X;
+	const double FontPixels = WorldPositionMiddleTipText->GetFont().Size * (FontConstants::RenderDPI / 72.0);
+	const double TextWidth = MeasuredWidth > 0.0 ? MeasuredWidth : Message.ToString().Len() * FontPixels;
+	auto* TipBackgroundSlot = Cast<UCanvasPanelSlot>(WorldPositionMiddleTipBackground->Slot);
+	if (TipBackgroundSlot && !TipBackgroundSlot->GetAutoSize()
+		&& !TipBackgroundSlot->GetAnchors().IsStretchedHorizontal())
 	{
-		TipBackgroundSlot->SetPosition(FVector2D((640.0f - Width) * 0.5f, 0.0f));
-		TipBackgroundSlot->SetSize(FVector2D(Width, 69.0f));
+		double MaxWidth = 640.0;
+		const auto* TipRootSlot = Cast<UCanvasPanelSlot>(WorldPositionMiddleTipRoot->Slot);
+		if (TipRootSlot && !TipRootSlot->GetAutoSize() && !TipRootSlot->GetAnchors().IsStretchedHorizontal())
+		{
+			const double RootWidth = TipRootSlot->GetSize().X;
+			if (FMath::IsFinite(RootWidth) && RootWidth > 0.0)
+			{
+				MaxWidth = RootWidth;
+			}
+		}
+		const double Padding = FMath::Min(WorldPositionMiddleTipHorizontalPadding, MaxWidth);
+		const double Width = FMath::Clamp(TextWidth + Padding, Padding, MaxWidth);
+		const double AnchorX = TipBackgroundSlot->GetAnchors().Minimum.X;
+		const double AlignmentX = TipBackgroundSlot->GetAlignment().X;
+		FMargin Offsets = TipBackgroundSlot->GetOffsets();
+		Offsets.Left = static_cast<float>((0.5 - AnchorX) * MaxWidth + (AlignmentX - 0.5) * Width);
+		Offsets.Right = static_cast<float>(Width);
+		TipBackgroundSlot->SetOffsets(Offsets);
 	}
 	WorldPositionMiddleTipElapsedSeconds = 0.0f;
 	WorldPositionMiddleTipRoot->SetVisibility(ESlateVisibility::HitTestInvisible);

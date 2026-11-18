@@ -2492,6 +2492,29 @@ void URokWorldMapHudWidget::BuildWorldObjectInfo()
 #endif
 
 	BuildBarbarianInfo();
+	WorldObjectInfoPlacement = {};
+	static const TSoftClassPtr<URokUiPageWidget> PlacementClass(FSoftObjectPath(TEXT(
+		"/Game/RokUI/Hud/WBP_RokWorldObjectInfoPlacement.WBP_RokWorldObjectInfoPlacement_C")));
+	if (const auto* Placement = CreateWorldHudPage(PlacementClass, NAME_None))
+	{
+		const auto ReadDistance = [Placement](FName Name, float& Distance)
+		{
+			const UWidget* Marker = RokUiFind::Find(Placement, Name);
+			const auto* Slot = Marker ? Cast<UCanvasPanelSlot>(Marker->Slot) : nullptr;
+			if (Slot && !Slot->GetAutoSize() && !Slot->GetAnchors().IsStretchedVertical())
+			{
+				const double Height = Slot->GetSize().Y;
+				if (FMath::IsFinite(Height) && Height >= 0.0)
+				{
+					Distance = static_cast<float>(Height);
+				}
+			}
+		};
+		ReadDistance(TEXT("ObjectGap"), WorldObjectInfoPlacement.ObjectGap);
+		ReadDistance(TEXT("ViewportInset"), WorldObjectInfoPlacement.ViewportInset);
+		ReadDistance(TEXT("ArrowCornerInset"), WorldObjectInfoPlacement.ArrowCornerInset);
+		ReadDistance(TEXT("ArrowEdgeOffset"), WorldObjectInfoPlacement.ArrowEdgeOffset);
+	}
 	static const TSoftClassPtr<URokUiPageWidget> ArrowClass(FSoftObjectPath(
 		TEXT("/Game/RokUI/Hud/WBP_RokWorldObjectInfoArrow.WBP_RokWorldObjectInfoArrow_C")));
 	if (auto* Page = AddWorldHudPage(WorldObjectInfoRoot, ArrowClass, TEXT("WorldObjectInfoArrowPage"), 1))
@@ -3050,26 +3073,33 @@ void URokWorldMapHudWidget::UpdateWorldObjectInfoProjection()
 	const bool bPlaceAbove = DesignPosition.Y > CurrentExpandedDesignSize.Y - Half.Y;
 	const bool bPlaceBelow = DesignPosition.Y < Half.Y;
 	const bool bOnLeft = DesignPosition.X < CurrentExpandedDesignSize.X * 0.5f - 1.0f;
+	const double ObjectGap = WorldObjectInfoPlacement.ObjectGap;
 	FVector2D DesiredTopLeft = DesignPosition - Half;
 	if (bPlaceAbove || bPlaceBelow)
 	{
-		DesiredTopLeft.Y = bPlaceAbove ? DesignPosition.Y - PanelSize.Y - 50.0f : DesignPosition.Y + 50.0f;
+		DesiredTopLeft.Y = bPlaceAbove ? DesignPosition.Y - PanelSize.Y - ObjectGap : DesignPosition.Y + ObjectGap;
 	}
 	else
 	{
-		DesiredTopLeft.X = bOnLeft ? DesignPosition.X + 50.0f : DesignPosition.X - PanelSize.X - 50.0f;
+		DesiredTopLeft.X = bOnLeft ? DesignPosition.X + ObjectGap : DesignPosition.X - PanelSize.X - ObjectGap;
 	}
 	const FVector2D ClampedTopLeft = ClampMarkerTopLeft(DesiredTopLeft, PanelSize,
-		CurrentExpandedDesignSize, 12.0f);
+		CurrentExpandedDesignSize, WorldObjectInfoPlacement.ViewportInset);
 	WorldObjectInfoCanvasSlot->SetPosition(ClampedTopLeft);
 
 	if (WorldObjectInfoArrowCanvasSlot.IsValid() && WorldObjectInfoArrow)
 	{
 		const FVector2D LocalPoint = DesignPosition - ClampedTopLeft;
 		const bool bVertical = bPlaceAbove || bPlaceBelow;
+		const double CornerInset = WorldObjectInfoPlacement.ArrowCornerInset;
+		const double EdgeOffset = WorldObjectInfoPlacement.ArrowEdgeOffset;
+		const double InsetX = FMath::Min(CornerInset, Half.X);
+		const double InsetY = FMath::Min(CornerInset, Half.Y);
 		const FVector2D ArrowCenter = bVertical
-			? FVector2D(FMath::Clamp(LocalPoint.X, 18.0, PanelSize.X - 18.0), bPlaceAbove ? PanelSize.Y + 5.0 : -5.0)
-			: FVector2D(bOnLeft ? -5.0 : PanelSize.X + 5.0, FMath::Clamp(LocalPoint.Y, 18.0, PanelSize.Y - 18.0));
+			? FVector2D(FMath::Clamp(LocalPoint.X, InsetX, PanelSize.X - InsetX),
+				bPlaceAbove ? PanelSize.Y + EdgeOffset : -EdgeOffset)
+			: FVector2D(bOnLeft ? -EdgeOffset : PanelSize.X + EdgeOffset,
+				FMath::Clamp(LocalPoint.Y, InsetY, PanelSize.Y - InsetY));
 		const FVector2D ArrowSize = WorldObjectInfoArrowCanvasSlot->GetSize();
 		WorldObjectInfoArrowCanvasSlot->SetPosition(ArrowCenter - ArrowSize * 0.5);
 		const float DirectionAngle = bVertical ? (bPlaceAbove ? 0.0f : 180.0f) : (bOnLeft ? 90.0f : -90.0f);

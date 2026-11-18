@@ -9,6 +9,7 @@
 #include "Engine/World.h"
 #include "Engine/GameInstance.h"
 #include "RokUiWindowAnimation.h"
+#include "RokUiWidgets.h"
 #include "Components/TextBlock.h"
 #include "RokUnityFeatureScreenWidget.h"
 #include "Components/CanvasPanel.h"
@@ -971,6 +972,27 @@ void URokResearchScreenWidget::BindNodePresentation(bool bBindActions)
 {
     NodeLevels.Reset();
     RenderedLines.Reset();
+    URokUiPageWidget* FrameStyles = nullptr;
+    if (!URokUiSettings::IsLegacyForced())
+    {
+        const auto StyleClass = LoadClass<URokUiPageWidget>(nullptr,
+            TEXT("/Game/RokUI/Research/WBP_RokResearchLockedFrameStyles.WBP_RokResearchLockedFrameStyles_C"));
+        if (StyleClass)
+        {
+            FrameStyles = CreateWidget<URokUiPageWidget>(this, StyleClass);
+        }
+    }
+    const auto* FrameStyle = FrameStyles
+        ? Cast<UImage>(FrameStyles->GetWidgetFromName(TEXT("ResearchLockedIconFrame"))) : nullptr;
+    const FSlateBrush* FrameBrush = FrameStyle ? &FrameStyle->GetBrush() : nullptr;
+    UObject* FrameResource = FrameBrush ? FrameBrush->GetResourceObject() : nullptr;
+    const auto* FrameMaterial = Cast<UMaterialInterface>(FrameResource);
+    const FBox2f FrameUV = FrameBrush ? static_cast<FBox2f>(FrameBrush->GetUVRegion()) : FBox2f(ForceInit);
+    if (!FrameResource || (!Cast<UTexture2D>(FrameResource) && (!FrameMaterial || !FrameMaterial->IsUIMaterial()))
+        || !FrameUV.bIsValid)
+    {
+        FrameBrush = nullptr;
+    }
     for (const FRokResearchRow& Row : RenderedNodes)
     {
         const FName CardName(*FString::Printf(TEXT("ResearchNode_%d"), Row.StudyType));
@@ -989,7 +1011,21 @@ void URokResearchScreenWidget::BindNodePresentation(bool bBindActions)
         if (bLocked)
         {
             if (auto* Frame = Cast<UImage>(Card->GetWidgetFromName(TEXT("ResearchNodeIconBackground"))))
-                ApplySprite(Frame, TEXT("ui_research[img_research_iconBg]"), true);
+            {
+                if (FrameBrush)
+                {
+                    // Match ApplySprite's mutation scope; the visible node keeps its size and tint.
+                    FSlateBrush Brush = Frame->GetBrush();
+                    Brush.SetResourceObject(FrameResource);
+                    Brush.SetUVRegion(FrameUV);
+                    Frame->SetBrush(Brush);
+                    Frame->SetVisibility(ESlateVisibility::HitTestInvisible);
+                }
+                else
+                {
+                    ApplySprite(Frame, TEXT("ui_research[img_research_iconBg]"), true);
+                }
+            }
         }
         if (auto* Name = Cast<UTextBlock>(Card->GetWidgetFromName(TEXT("ResearchNodeName"))))
             Name->SetText(FText::FromString(Row.Name));

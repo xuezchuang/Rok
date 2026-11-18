@@ -504,6 +504,14 @@ private:
 	TWeakObjectPtr<UCanvasPanelSlot> WorldObjectInfoCanvasSlot;
 	TWeakObjectPtr<UCanvasPanelSlot> WorldObjectInfoArrowCanvasSlot;
 	float WorldObjectInfoArrowBaseAngle = 0.0f;
+	struct FWorldObjectInfoPlacement
+	{
+		float ObjectGap = 50.0f;
+		float ViewportInset = 12.0f;
+		float ArrowCornerInset = 18.0f;
+		float ArrowEdgeOffset = 5.0f;
+	};
+	FWorldObjectInfoPlacement WorldObjectInfoPlacement;
 	TWeakObjectPtr<ARokWorldMapCityActor> PlayerCityActor;
 	TWeakObjectPtr<ARokStrategicResourceLayer> StrategicResourceLayer;
 	TWeakObjectPtr<ARokStrategicResourceLayer> StrategicExplorationLayer;

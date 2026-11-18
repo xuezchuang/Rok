@@ -433,6 +433,7 @@ private:
 	UPROPERTY()
 	TObjectPtr<UTextBlock> WorldPositionMiddleTipText;
 	float WorldPositionMiddleTipElapsedSeconds = -1.0f;
+	double WorldPositionMiddleTipHorizontalPadding = 50.0;
 
 	UPROPERTY()
 	TObjectPtr<UTextBlock> ActivityCountdownText;
