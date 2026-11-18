@@ -442,6 +442,8 @@ private:
 		bool bWrapDetail = false,
 		bool bWithSearch = false,
 		int32 Columns = 1);
+	// Detached Designer geometry for the expedition store search WBP only.
+	void ReadExpeditionStoreListLayout();
 	// Rebuilds the scroll rows from the stored row data, applying the filter.
 	void PopulateDefinitionRows();
 	UFUNCTION()
@@ -457,6 +459,10 @@ private:
 	FString ActiveListPrefix;
 	float ActiveRowWidth = 700.0f;
 	float ActiveRowHeight = 76.0f;
+	FVector2D ActiveListRowOrigin = FVector2D::ZeroVector;
+	FVector2D ActiveListScrollPadding = FVector2D(12.0, 8.0);
+	double ActiveListRowStep = 84.0;
+	bool bActiveStoreListLayout = false;
 	bool bActiveRowsWrap = false;
 	int32 ActiveListColumns = 1;
 	int32 ItemCollectionTotal = 0;

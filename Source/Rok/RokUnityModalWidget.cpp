@@ -2074,9 +2074,122 @@ void URokUnityModalWidget::BuildPlayerProfile()
 	FeedbackText = Page->Get<UTextBlock>(TEXT("ProfileNavigationFeedback"));
 }
 
+namespace
+{
+struct FProfileChoiceSlot
+{
+	FVector2D Position = FVector2D::ZeroVector;
+	FVector2D Size = FVector2D::ZeroVector;
+};
+
+const URokUiPageWidget* ReadProfileChoiceLayout(UUserWidget* Owner)
+{
+	static const TSoftClassPtr<URokUiPageWidget> LayoutClass(FSoftObjectPath(TEXT(
+		"/Game/RokUI/Modal/Pages/WBP_RokModal_ProfileChoiceLayouts.WBP_RokModal_ProfileChoiceLayouts_C")));
+	UClass* Class = URokUiSettings::Resolve(LayoutClass);
+	return Class ? CreateWidget<URokUiPageWidget>(Owner, Class) : nullptr;
+}
+
+bool ReadProfileChoiceSlot(const URokUiPageWidget* Layout, FName Name, FProfileChoiceSlot& Out)
+{
+	const UWidget* Marker = Layout ? RokUiFind::Find(Layout, Name) : nullptr;
+	const auto* Slot = Marker ? Cast<UCanvasPanelSlot>(Marker->Slot) : nullptr;
+	if (!Slot || Slot->GetAutoSize() || Slot->GetAnchors().Minimum != FVector2D::ZeroVector
+		|| Slot->GetAnchors().Maximum != FVector2D::ZeroVector)
+	{
+		return false;
+	}
+	const FVector2D Size = Slot->GetSize();
+	const FVector2D Position = Slot->GetPosition() - Size * Slot->GetAlignment();
+	if (!FMath::IsFinite(Size.X) || !FMath::IsFinite(Size.Y) || Size.X <= 0 || Size.Y <= 0
+		|| !FMath::IsFinite(Position.X) || !FMath::IsFinite(Position.Y))
+	{
+		return false;
+	}
+	Out = {Position, Size};
+	return true;
+}
+
+struct FPlayerHeadGridLayout
+{
+	FProfileChoiceSlot Columns[4];
+	double RowStep = 135;
+
+	FProfileChoiceSlot Cell(int32 Index) const
+	{
+		const auto& Column = Columns[Index % 4];
+		return {Column.Position + FVector2D(0, (Index / 4) * RowStep), Column.Size};
+	}
+
+	double ContentHeight(int32 Count) const
+	{
+		double Bottom = 0;
+		// Each column may have its own Y offset and size; include its last occupied cell.
+		for (int32 Column = 0; Column < 4 && Column < Count; ++Column)
+		{
+			const auto Last = Cell(Column + ((Count - 1 - Column) / 4) * 4);
+			Bottom = FMath::Max(Bottom, Last.Position.Y + Last.Size.Y);
+		}
+		return Bottom;
+	}
+};
+
+FPlayerHeadGridLayout ReadPlayerHeadGridLayout(UUserWidget* Owner)
+{
+	FPlayerHeadGridLayout Fallback;
+	for (int32 Column = 0; Column < 4; ++Column)
+	{
+		Fallback.Columns[Column] = {RokPlayerHeadLayout::CellPosition(Column), FVector2D(135)};
+	}
+	const auto* Layout = ReadProfileChoiceLayout(Owner);
+	FPlayerHeadGridLayout Authored;
+	for (int32 Column = 0; Column < 4; ++Column)
+	{
+		if (!ReadProfileChoiceSlot(Layout, *FString::Printf(TEXT("PlayerHeadCell_%d"), Column), Authored.Columns[Column]))
+		{
+			return Fallback;
+		}
+	}
+	FProfileChoiceSlot Next;
+	if (!ReadProfileChoiceSlot(Layout, TEXT("PlayerHeadNextRow"), Next))
+	{
+		return Fallback;
+	}
+	Authored.RowStep = Next.Position.Y - Authored.Columns[0].Position.Y;
+	return FMath::IsFinite(Authored.RowStep) && Authored.RowStep > 0 ? Authored : Fallback;
+}
+
+struct FCivilizationFlagLayout
+{
+	FProfileChoiceSlot Normal{FVector2D(1255.5f, 662.85f), FVector2D(170, 150)};
+	FProfileChoiceSlot Selected{FVector2D(1236.5f, 616.85f), FVector2D(208, 204)};
+	double StepX = -199;
+
+	FProfileChoiceSlot Cell(int32 Index, bool bSelected) const
+	{
+		const auto& Slot = bSelected ? Selected : Normal;
+		return {Slot.Position + FVector2D(Index * StepX, 0), Slot.Size};
+	}
+};
+
+FCivilizationFlagLayout ReadCivilizationFlagLayout(UUserWidget* Owner)
+{
+	const auto* Layout = ReadProfileChoiceLayout(Owner);
+	FCivilizationFlagLayout Authored;
+	FProfileChoiceSlot Next;
+	if (!ReadProfileChoiceSlot(Layout, TEXT("CivilizationFlagNormal"), Authored.Normal)
+		|| !ReadProfileChoiceSlot(Layout, TEXT("CivilizationFlagSelected"), Authored.Selected)
+		|| !ReadProfileChoiceSlot(Layout, TEXT("CivilizationFlagNext"), Next))
+	{
+		return {};
+	}
+	Authored.StepX = Next.Position.X - Authored.Normal.Position.X;
+	return FMath::IsFinite(Authored.StepX) && Authored.StepX < 0 ? Authored : FCivilizationFlagLayout{};
+}
+}
+
 void URokUnityModalWidget::BuildPlayerHeadSelection()
 {
-	using namespace RokPlayerHeadLayout;
 	// UI_Win_PlayerHeadPicMediator: group 1 is heads, other rows are frames.
 	// get==1 is available without the server-owned list. Other ownership is unknown.
 	TArray<FRokPlayerHeadRow> Catalog;
@@ -2133,9 +2246,10 @@ void URokUnityModalWidget::BuildPlayerHeadSelection()
 	{
 		PlayerHeadGridScroll->SetScrollOffset(PlayerHeadScrollOffset);
 	}
+	const FPlayerHeadGridLayout GridLayout = ReadPlayerHeadGridLayout(this);
 	if (USizeBox* GridSize = Page->Get<USizeBox>(TEXT("PlayerHeadGridSize")))
 	{
-		GridSize->SetHeightOverride(ContentHeight(PlayerHeadPageRows.Num()));
+		GridSize->SetHeightOverride(GridLayout.ContentHeight(PlayerHeadPageRows.Num()));
 	}
 	// A row's art in an image, or no image when the row has none.
 	const auto ShowArt = [this](const URokUiPageWidget* Owner, UImage* Image, const FRokPlayerHeadRow* Row, float Size)
@@ -2151,8 +2265,9 @@ void URokUnityModalWidget::BuildPlayerHeadSelection()
 	for (int32 Index = 0; Grid && Index < PlayerHeadPageRows.Num(); ++Index)
 	{
 		const auto& Row = PlayerHeadPageRows[Index];
+		const FProfileChoiceSlot CellSlot = GridLayout.Cell(Index);
 		URokUiPageWidget* Cell = MountItem(TEXT("PlayerHeadCell"), Grid, *FString::Printf(TEXT("PlayerHeadItem_%d"), Index),
-			CellPosition(Index), FVector2D(135), 1, TEXT("PlayerHead"),
+			CellSlot.Position, CellSlot.Size, 1, TEXT("PlayerHead"),
 			FString::Printf(TEXT("_%d"), Row.Id), FString::Printf(TEXT("_%d"), Index));
 		if (!Cell)
 		{
@@ -2493,6 +2608,7 @@ void URokUnityModalWidget::BuildCivilizationSelection()
 	// background, details, close and confirmation controls stationary.
 	CivilizationListRoot = Page->Get<UCanvasPanel>(TEXT("CivilizationListRoot"));
 	CivilizationSelectionPulse = nullptr;
+	const FCivilizationFlagLayout FlagLayout = ReadCivilizationFlagLayout(this);
 	for (int32 Index = 0; CivilizationListRoot && Index < Civilizations.Num() && Index < 7; ++Index)
 	{
 		const FRokUnityCatalogCivilization& Civilization = Civilizations[Index];
@@ -2503,14 +2619,14 @@ void URokUnityModalWidget::BuildCivilizationSelection()
 		}
 		// CreateCharFlagItem: 199-unit pitch; the selected flag rises 28 units
 		// inside its frame and its label turns dark.
-		const float ItemX = 1241.0f - Index * 199.0f;
 		const bool bSelected = Civilization.Id == SelectedCivilizationId;
+		const FProfileChoiceSlot FlagSlot = FlagLayout.Cell(Index, bSelected);
 		const FString Suffix = FString::Printf(TEXT("_%d"), Civilization.Id);
 		URokUiPageWidget* Item = bSelected
 			? MountItem(TEXT("CivilizationFlagSelected"), CivilizationListRoot, *(TEXT("CivilizationFlagItem") + Suffix),
-				FVector2D(ItemX - 4.5f, 616.85f), FVector2D(208.0f, 204.0f), 5, TEXT("Civilization"), Suffix)
+				FlagSlot.Position, FlagSlot.Size, 5, TEXT("Civilization"), Suffix)
 			: MountItem(TEXT("CivilizationFlag"), CivilizationListRoot, *(TEXT("CivilizationFlagItem") + Suffix),
-				FVector2D(ItemX + 14.5f, 662.85f), FVector2D(170.0f, 150.0f), 5, TEXT("Civilization"), Suffix);
+				FlagSlot.Position, FlagSlot.Size, 5, TEXT("Civilization"), Suffix);
 		if (!Item)
 		{
 			break;
@@ -3344,6 +3460,47 @@ void URokUnityModalWidget::BuildBattlePassRewards()
 	}
 }
 
+void URokUnityModalWidget::ReadExpeditionStoreListLayout()
+{
+	static const TSoftClassPtr<URokUiPageWidget> LayoutClass(FSoftObjectPath(TEXT(
+		"/Game/RokUI/Modal/Pages/WBP_RokModal_ExpeditionStoreListLayout.WBP_RokModal_ExpeditionStoreListLayout_C")));
+	UClass* Class = URokUiSettings::Resolve(LayoutClass);
+	const auto* Layout = Class ? CreateWidget<URokUiPageWidget>(this, Class) : nullptr;
+	const auto FindSlot = [Layout](FName Name)
+	{
+		const UWidget* Marker = Layout ? RokUiFind::Find(Layout, Name) : nullptr;
+		return Marker ? Cast<UCanvasPanelSlot>(Marker->Slot) : nullptr;
+	};
+	const auto* Extent = FindSlot(TEXT("RowExtent"));
+	const auto* First = FindSlot(TEXT("FirstRow"));
+	const auto* Next = FindSlot(TEXT("NextRow"));
+	const auto* Padding = FindSlot(TEXT("ScrollPadding"));
+	if (!Extent || !First || !Next || !Padding)
+	{
+		return;
+	}
+	const FVector2D RowSize = Extent->GetSize();
+	const FVector2D Origin = First->GetPosition();
+	const FVector2D ScrollPadding = Padding->GetSize();
+	const double RowStep = Next->GetPosition().Y - Origin.Y;
+	const auto IsFinite = [](FVector2D Value)
+	{
+		return FMath::IsFinite(Value.X) && FMath::IsFinite(Value.Y);
+	};
+	if (!IsFinite(RowSize) || !IsFinite(Origin) || !IsFinite(ScrollPadding) || !FMath::IsFinite(RowStep)
+		|| RowSize.X <= 0 || RowSize.Y <= 0 || RowStep <= 0
+		|| Origin.X < 0 || Origin.Y < 0 || ScrollPadding.X < 0 || ScrollPadding.Y < 0)
+	{
+		return;
+	}
+	ActiveRowWidth = RowSize.X;
+	ActiveRowHeight = RowSize.Y;
+	ActiveListRowOrigin = Origin;
+	ActiveListRowStep = RowStep;
+	ActiveListScrollPadding = ScrollPadding;
+	bActiveStoreListLayout = true;
+}
+
 void URokUnityModalWidget::BuildDefinitionList(
 	const FText& Header,
 	const TArray<FRokDefinitionRow>& Rows,
@@ -3361,6 +3518,10 @@ void URokUnityModalWidget::BuildDefinitionList(
 	ActiveListPrefix = WidgetPrefix;
 	ActiveRowWidth = RowWidth;
 	ActiveRowHeight = RowHeight;
+	ActiveListRowOrigin = FVector2D::ZeroVector;
+	ActiveListScrollPadding = FVector2D(12.0, 8.0);
+	ActiveListRowStep = RowHeight + 8.0;
+	bActiveStoreListLayout = false;
 	bActiveRowsWrap = bWrapDetail;
 	ActiveListColumns = FMath::Max(1, Columns);
 	const int32 MaxRows = 200;
@@ -3392,6 +3553,11 @@ void URokUnityModalWidget::BuildDefinitionList(
 		}
 		ActiveListCanvas = List->ScrollContent;
 		ActiveListSize = List->ScrollSize;
+		if (ActiveMode == ERokUnityModalMode::ExpeditionStore && WidgetPrefix == TEXT("ExpeditionStore")
+			&& bWithSearch && Columns == 1 && List->Search)
+		{
+			ReadExpeditionStoreListLayout();
+		}
 		MountFullPiece(List, 1);
 		PopulateDefinitionRows();
 		return;
@@ -3504,9 +3670,9 @@ void URokUnityModalWidget::PopulateDefinitionRows()
 		}
 		const int32 Column = Columns > 1 ? Shown % Columns : 0;
 		const int32 RowIndex = Columns > 1 ? Shown / Columns : Shown;
-		const FVector2D Offset(
+		const FVector2D Offset = ActiveListRowOrigin + FVector2D(
 			Column * (CardWidth + GapX),
-			RowIndex * (CardHeight + GapY));
+			RowIndex * (bActiveStoreListLayout ? ActiveListRowStep : CardHeight + GapY));
 
 		UTexture2D* IconSheet = nullptr;
 		FBox2D IconUv(ForceInit);
@@ -3610,7 +3776,17 @@ void URokUnityModalWidget::PopulateDefinitionRows()
 	if (ActiveListSize)
 	{
 		const int32 LayoutRows = Columns > 1 ? FMath::Max(1, (Shown + Columns - 1) / Columns) : FMath::Max(1, Shown);
-		ActiveListSize->SetHeightOverride(LayoutRows * (CardHeight + GapY));
+		if (bActiveStoreListLayout)
+		{
+			ActiveListSize->SetWidthOverride(ActiveListRowOrigin.X + CardWidth + ActiveListScrollPadding.X);
+			// Measure the final row bottom even when the authored step overlaps rows.
+			ActiveListSize->SetHeightOverride(ActiveListRowOrigin.Y + (LayoutRows - 1) * ActiveListRowStep
+				+ CardHeight + ActiveListScrollPadding.Y);
+		}
+		else
+		{
+			ActiveListSize->SetHeightOverride(LayoutRows * (CardHeight + GapY));
+		}
 	}
 }
 

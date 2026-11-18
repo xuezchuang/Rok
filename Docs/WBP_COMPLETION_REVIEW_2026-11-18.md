@@ -114,3 +114,16 @@
 新增资产的生成规格在 `Scripts/RokUi/BuildCityManagerAndArmyStatisticsLayoutSpecs.py`、`BuildWorldObjectStylesSpec.py` 和 `BuildModalContextStatesSpecs.py`。聊天读取已有 WBP 槽位。
 
 5 个新资产和聊天使用的 2 个现有资产均通过独立重载。核对了 14 棵设计与生成控件树、排位、图集区域和文字样式。日志位于 `Saved/RokUi/Logs/verify_chat_emoji_layout_goal.log`、`verify_rows_and_world_goal.log` 与 `verify_modal_context_states_goal.log`。未编译 C++，实际入口和画面对比由人工审查。
+
+## 远征状态画刷、商店与角色选项排位
+
+| 入口 | Designer 资产 | 可编辑内容 |
+| --- | --- | --- |
+| 远征 → 选关、编队 | `RokUI/Feature/WBP_RokExpeditionStateBrushes` | 12 个画刷分别用于关卡旗帜、底座、选中光、空星与满星，以及可用和锁定的容量格、编队格。地图和编队页保留原本的槽位、图像尺寸和颜色。 |
+| 远征 → 商店 | `RokUI/Modal/Pages/WBP_RokModal_ExpeditionStoreListLayout` | `RowExtent` 提供行尺寸，`FirstRow` 和 `NextRow` 提供排位和纵向步距，`ScrollPadding` 的尺寸控制右侧与底部留白。搜索结果按实际行数计算滚动范围。 |
+| 资料 → 头像、头像框或文明 | `RokUI/Modal/Pages/WBP_RokModal_ProfileChoiceLayouts` | `PlayerHeadCell_0` 至 `PlayerHeadCell_3` 给出四列起点和格尺寸，`PlayerHeadNextRow` 给出纵向步距。文明旗帜有普通与选中槽位，`CivilizationFlagNext` 给出从右向左的重复步距。 |
+| 统帅 → 天赋 | `RokUI/Feature/WBP_RokFeature_CommanderTalentRowLayout` | `RowExtent` 提供节点行的外层占位，初始为 `402×40`。天赋节点、标签和操作继续使用现有行 WBP。 |
+
+对应生成规格在 `Scripts/RokUi/BuildExpeditionStateBrushesSpec.py`、`BuildExpeditionStoreListLayoutSpec.py`、`BuildProfileChoiceLayoutsSpec.py` 和 `BuildCommanderTalentRowLayoutSpec.py`。
+
+4 个新资产均通过独立重载，核对了 8 棵设计与生成控件树的槽位及纹理引用。记录见 `Saved/RokUi/Logs/verify_expedition_brushes_and_store_layout_goal.log` 和 `verify_profile_and_talent_layouts_goal.log`。未编译 C++，实际入口与画面对比由人工审查。

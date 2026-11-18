@@ -65,6 +65,21 @@ void URokUnityFeatureScreenWidget::BuildCommanderProgression(const FRokServerHer
 				}
 				SetFeaturePageText(*Page, TEXT("CommanderTalentPoints"),
 					FText::FromString(FString::Printf(TEXT("可用天赋点 %d"), Points)));
+				// The detached Designer template owns the row extent without changing the node WBP.
+				FVector2D TalentRowSize(402, 40);
+				UClass* RowLayoutClass = ResolveFeaturePageClass(TEXT("CommanderTalentRowLayout"));
+				URokUiPageWidget* RowLayout = RowLayoutClass ? CreateWidget<URokUiPageWidget>(this, RowLayoutClass) : nullptr;
+				const UWidget* RowExtent = RowLayout ? RowLayout->Get<UWidget>(TEXT("RowExtent")) : nullptr;
+				const auto* RowExtentSlot = RowExtent ? Cast<UCanvasPanelSlot>(RowExtent->Slot) : nullptr;
+				if (RowExtentSlot && !RowExtentSlot->GetAutoSize()
+					&& RowExtentSlot->GetAnchors().Minimum == RowExtentSlot->GetAnchors().Maximum)
+				{
+					const FVector2D Size = RowExtentSlot->GetSize();
+					if (FMath::IsFinite(Size.X) && FMath::IsFinite(Size.Y) && Size.X > 0 && Size.Y > 0)
+					{
+						TalentRowSize = Size;
+					}
+				}
 				int32 HighestLearned = 0;
 				for (const auto& Node : CommanderTalentNodes)
 					if (Current && Current->TalentIds.Contains(Node.Id)) HighestLearned = FMath::Max(HighestLearned, Node.Level);
@@ -84,7 +99,7 @@ void URokUnityFeatureScreenWidget::BuildCommanderProgression(const FRokServerHer
 					SetFeaturePageText(*Row, TEXT("LearnLabel"), FText::FromString(bLearned ? TEXT("已学习") : TEXT("学习")));
 					BindPageAction(*Row, TEXT("Learn"), 19820 + Index);
 					Row->Get<UButton>(TEXT("Learn"))->SetIsEnabled(!bLearned && Points > 0 && Node.Level == HighestLearned + 1);
-					Scroll->AddChild(WrapFixedSize(Row, *(Prefix + TEXT("Size")), FVector2D(402, 40)));
+					Scroll->AddChild(WrapFixedSize(Row, *(Prefix + TEXT("Size")), TalentRowSize));
 				}
 				NameInput->SetHintText(FText::FromString(TEXT("方案名称")));
 				if (Current && Current->bNameKnown) NameInput->SetText(FText::FromString(Current->Name));

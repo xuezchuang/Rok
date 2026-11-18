@@ -157,6 +157,71 @@ void SetExpeditionWbpTexture(UImage* Image, const FString& AssetName)
 	}
 }
 
+enum class EExpeditionBrush : uint8
+{
+	StageFlagType1,
+	StageFlagType2,
+	StageFlagLocked,
+	StageBaseType1,
+	StageBaseType2,
+	StageSelectedGlow,
+	StarEmpty,
+	StarFull,
+	CapacityAvailable,
+	CapacityLocked,
+	SquadAvailable,
+	SquadLocked,
+	Count
+};
+
+URokUiPageWidget* CreateExpeditionBrushPage(UUserWidget* Owner)
+{
+	static const TSoftClassPtr<URokUiPageWidget> Class(FSoftObjectPath(TEXT(
+		"/Game/RokUI/Feature/WBP_RokExpeditionStateBrushes.WBP_RokExpeditionStateBrushes_C")));
+	UClass* Loaded = URokUiSettings::Resolve(Class);
+	return Loaded ? CreateWidget<URokUiPageWidget>(Owner, Loaded) : nullptr;
+}
+
+void ApplyExpeditionBrush(const URokUiPageWidget* Page, UImage* Image, EExpeditionBrush State)
+{
+	static constexpr struct
+	{
+		const TCHAR* Marker;
+		const TCHAR* FallbackTexture;
+	} States[] = {
+		{TEXT("StageFlagType1"), TEXT("img_bat_flag1.png")},
+		{TEXT("StageFlagType2"), TEXT("img_bat_flag2.png")},
+		{TEXT("StageFlagLocked"), TEXT("img_bat_flag4.png")},
+		{TEXT("StageBaseType1"), TEXT("img_bat_flagfra.png")},
+		{TEXT("StageBaseType2"), TEXT("img_bat_flagfra2.png")},
+		{TEXT("StageSelectedGlow"), TEXT("selected_glow.png")},
+		{TEXT("StarEmpty"), TEXT("icon_com_star1.png")},
+		{TEXT("StarFull"), TEXT("icon_com_star2.png")},
+		{TEXT("CapacityAvailable"), TEXT("img_bat_queue1.png")},
+		{TEXT("CapacityLocked"), TEXT("img_bat_queue2.png")},
+		{TEXT("SquadAvailable"), TEXT("img_bat_trop3.png")},
+		{TEXT("SquadLocked"), TEXT("img_bat_trop4.png")},
+	};
+	static_assert(UE_ARRAY_COUNT(States) == static_cast<int32>(EExpeditionBrush::Count));
+	if (!Image)
+	{
+		return;
+	}
+	const auto& Entry = States[static_cast<int32>(State)];
+	const auto* Source = Page ? Cast<UImage>(RokUiFind::Find(Page, FName(Entry.Marker))) : nullptr;
+	if (Source && Source->GetBrush().GetResourceObject())
+	{
+		// Geometry and the image's own tint still come from its mounted page.
+		FSlateBrush Brush = Source->GetBrush();
+		Brush.ImageSize = Image->GetBrush().GetImageSize();
+		Image->SetBrush(Brush);
+	}
+	else
+	{
+		SetExpeditionWbpTexture(Image, Entry.FallbackTexture);
+	}
+}
+
 bool GatherSoldierOrder(int32 A, int32 B)
 {
 	// Unity's gathering draft puts siege units first for their higher load.
@@ -322,6 +387,7 @@ void URokUnityFeatureScreenWidget::BuildExpeditionMap(const FRokExpeditionStageP
 		if (URokUiPageWidget* Page = MountModePage(TEXT("Expedition"), false))
 		{
 			const FExpeditionListLayout Layout = ReadExpeditionListLayout(this);
+			const auto* StateBrushes = CreateExpeditionBrushPage(this);
 			BindPageAction(*Page, TEXT("ExpeditionMapBackButton"), 1122);
 			BindPageAction(*Page, TEXT("ExpeditionRankButton"), 1125);
 			BindPageAction(*Page, TEXT("ExpeditionRulesButton"), 1126);
@@ -333,9 +399,9 @@ void URokUnityFeatureScreenWidget::BuildExpeditionMap(const FRokExpeditionStageP
 			{
 				if (UTextBlock* Block = Cast<UTextBlock>(RokUiFind::Find(Page, Name))) Block->SetText(Text);
 			};
-			auto SetArt = [Page](FName Name, const FString& Asset)
+			auto SetStateArt = [Page, StateBrushes](FName Name, EExpeditionBrush State)
 			{
-				SetExpeditionWbpTexture(Cast<UImage>(RokUiFind::Find(Page, Name)), Asset);
+				ApplyExpeditionBrush(StateBrushes, Cast<UImage>(RokUiFind::Find(Page, Name)), State);
 			};
 			const auto Role = GetRole(GetGameInstance());
 			SetText(TEXT("ExpeditionMedals"), Role
@@ -375,12 +441,13 @@ void URokUnityFeatureScreenWidget::BuildExpeditionMap(const FRokExpeditionStageP
 					CanvasSlot->SetPosition(Anchor + Layout.StageOffset);
 					CanvasSlot->SetZOrder(4);
 				}
-				SetExpeditionWbpTexture(Row->Get<UImage>(TEXT("Flag")), bUnlocked
-					? (RowData.Type == 1 ? TEXT("img_bat_flag1.png") : TEXT("img_bat_flag2.png"))
-					: TEXT("img_bat_flag4.png"));
-				SetExpeditionWbpTexture(Row->Get<UImage>(TEXT("Base")),
-					RowData.Type == 1 ? TEXT("img_bat_flagfra.png") : TEXT("img_bat_flagfra2.png"));
-				SetExpeditionWbpTexture(Row->Get<UImage>(TEXT("SelectedGlow")), TEXT("selected_glow.png"));
+				const bool bType1 = RowData.Type == 1;
+				ApplyExpeditionBrush(StateBrushes, Row->Get<UImage>(TEXT("Flag")), bUnlocked
+					? (bType1 ? EExpeditionBrush::StageFlagType1 : EExpeditionBrush::StageFlagType2)
+					: EExpeditionBrush::StageFlagLocked);
+				ApplyExpeditionBrush(StateBrushes, Row->Get<UImage>(TEXT("Base")),
+					bType1 ? EExpeditionBrush::StageBaseType1 : EExpeditionBrush::StageBaseType2);
+				ApplyExpeditionBrush(StateBrushes, Row->Get<UImage>(TEXT("SelectedGlow")), EExpeditionBrush::StageSelectedGlow);
 				Row->Get<UImage>(TEXT("SelectedGlow"))->SetVisibility(
 					bSelected ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
 				Row->Get<UTextBlock>(TEXT("NormalTitle"))->SetText(FText::AsNumber(RowData.Level));
@@ -395,8 +462,11 @@ void URokUnityFeatureScreenWidget::BuildExpeditionMap(const FRokExpeditionStageP
 						*FString::Printf(TEXT("Star_%d"), Star)));
 					if (!StarImage) continue;
 					StarImage->SetVisibility(bUnlocked ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
-					if (bUnlocked) SetExpeditionWbpTexture(StarImage,
-						Star < ExpeditionStageStars.FindRef(Id) ? TEXT("icon_com_star2.png") : TEXT("icon_com_star1.png"));
+					if (bUnlocked)
+					{
+						ApplyExpeditionBrush(StateBrushes, StarImage, Star < ExpeditionStageStars.FindRef(Id)
+							? EExpeditionBrush::StarFull : EExpeditionBrush::StarEmpty);
+					}
 				}
 				BindPageAction(*Row, TEXT("Button"), StageActionBase + Id);
 			}
@@ -407,8 +477,8 @@ void URokUnityFeatureScreenWidget::BuildExpeditionMap(const FRokExpeditionStageP
 			const int32 Stars = ExpeditionStageStars.FindRef(Stage.Id);
 			for (int32 Star = 0; Star < 3; ++Star)
 			{
-				SetArt(*FString::Printf(TEXT("ExpeditionSelectionStar_%d"), Star),
-					Star < Stars ? TEXT("icon_com_star2.png") : TEXT("icon_com_star1.png"));
+				SetStateArt(*FString::Printf(TEXT("ExpeditionSelectionStar_%d"), Star),
+					Star < Stars ? EExpeditionBrush::StarFull : EExpeditionBrush::StarEmpty);
 			}
 			const bool bFirst = !ExpeditionStageStars.Contains(Stage.Id);
 			SetText(TEXT("ExpeditionRewardTitle"), FText::FromString(bFirst ? TEXT("首次完成奖励") : TEXT("关卡奖励")));
@@ -482,8 +552,10 @@ void URokUnityFeatureScreenWidget::BuildExpeditionMap(const FRokExpeditionStageP
 				}
 			}
 			for (int32 Squad = 0; Squad < 5; ++Squad)
-				SetArt(*FString::Printf(TEXT("ExpeditionCapacitySlot_%d"), Squad),
-					Squad < Stage.TroopsNumber ? TEXT("img_bat_queue1.png") : TEXT("img_bat_queue2.png"));
+			{
+				SetStateArt(*FString::Printf(TEXT("ExpeditionCapacitySlot_%d"), Squad),
+					Squad < Stage.TroopsNumber ? EExpeditionBrush::CapacityAvailable : EExpeditionBrush::CapacityLocked);
+			}
 
 			UButton* Challenge = Page->Get<UButton>(TEXT("ExpeditionChallenge"));
 			Challenge->SetIsEnabled(CanChallengeExpedition(Stage));
@@ -681,6 +753,7 @@ void URokUnityFeatureScreenWidget::BuildExpeditionTask(const FRokExpeditionStage
 		if (URokUiPageWidget* Page = MountModePage(TEXT("ExpeditionTask"), false))
 		{
 			const FExpeditionListLayout Layout = ReadExpeditionListLayout(this);
+			const auto* StateBrushes = CreateExpeditionBrushPage(this);
 			ExpeditionSideRoot = Page->Get<UCanvasPanel>(TEXT("ExpeditionSideRoot"));
 			ExpeditionCenterRoot = Page->Get<UCanvasPanel>(TEXT("ExpeditionCenterRoot"));
 			ExpeditionCenterImg = Page->Get<UCanvasPanel>(TEXT("ExpeditionCenterImg"));
@@ -693,18 +766,15 @@ void URokUnityFeatureScreenWidget::BuildExpeditionTask(const FRokExpeditionStage
 			{
 				if (UTextBlock* Block = Cast<UTextBlock>(RokUiFind::Find(Page, Name))) Block->SetText(Text);
 			};
-			auto SetArt = [Page](FName Name, const FString& Asset)
-			{
-				SetExpeditionWbpTexture(Cast<UImage>(RokUiFind::Find(Page, Name)), Asset);
-			};
 			SetText(TEXT("ExpeditionTroopCount"), FText::FromString(
 				FString::Printf(TEXT("%d/%d"), ExpeditionTeams.Num(), Stage.TroopsNumber)));
 			for (int32 Index = 0; Index < 5; ++Index)
 			{
 				const bool bUnlocked = Index < Stage.TroopsNumber;
 				const auto* Team = ExpeditionTeams.Find(Index);
-				SetArt(*FString::Printf(TEXT("ExpeditionSquadSlot_%d"), Index),
-					bUnlocked ? TEXT("img_bat_trop3.png") : TEXT("img_bat_trop4.png"));
+				auto* SlotArt = Cast<UImage>(RokUiFind::Find(Page, *FString::Printf(TEXT("ExpeditionSquadSlot_%d"), Index)));
+				ApplyExpeditionBrush(StateBrushes, SlotArt,
+					bUnlocked ? EExpeditionBrush::SquadAvailable : EExpeditionBrush::SquadLocked);
 				URokUnityIndexedButton* SquadButton = Page->Get<URokUnityIndexedButton>(
 					*FString::Printf(TEXT("ExpeditionSquadButton_%d"), Index));
 				SquadButton->SetIsEnabled(bUnlocked);
