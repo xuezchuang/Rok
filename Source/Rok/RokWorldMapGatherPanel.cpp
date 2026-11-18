@@ -23,6 +23,7 @@
 #include "RokUiAnimatedButton.h"
 #include "RokUiTextBlock.h"
 #include "RokUiWidgets.h"
+#include "RokArmyStateStyles.h"
 #include "RokUnityFeatureScreenWidget.h"
 #include "RokUnityGameplayCatalogSubsystem.h"
 #include "RokWorldMapCameraPawn.h"
@@ -276,6 +277,7 @@ void URokWorldMapHudWidget::RefreshWorldMarchQueue()
 	constexpr TCHAR HeadAtlas[] = TEXT("/Game/RokPrototype/UI/CommanderAtlases/rok_commander_head.rok_commander_head");
 	const FIntPoint HeadAtlasSize(1024, 2048);
 	WorldMarchQueueList->ClearChildren();
+	const RokArmyStateStyles::FBatch StateStyles(this);
 	for (const FRokServerMarch& March : Snapshot.Marches)
 	{
 		const FString Suffix = LexToString(March.ArmyIndex);
@@ -346,11 +348,19 @@ void URokWorldMapHudWidget::RefreshWorldMarchQueue()
 		const bool bHeadAtlasFrame = Hero.Rare == 4 || Hero.Rare == 5;
 		const FIntRect Frame = Hero.Rare == 5 ? FIntRect(593, 1895, 727, 2047)
 			: Hero.Rare == 4 ? FIntRect(729, 1895, 863, 2047) : FIntRect(1, 53, 135, 205);
-		SetAtlas(Layout.RarityFrame, bHeadAtlasFrame ? HeadAtlas : HeroUi, Frame,
-			bHeadAtlasFrame ? HeadAtlasSize : HeroUiSize);
-		const FLinearColor FrameTint = Layout.RarityFrame->GetColorAndOpacity();
-		if (Hero.Rare == 3) Layout.RarityFrame->SetColorAndOpacity(FrameTint * FLinearColor(0.55f, 0.78f, 1.0f));
-		if (Hero.Rare == 2) Layout.RarityFrame->SetColorAndOpacity(FrameTint * FLinearColor(0.62f, 1.0f, 0.70f));
+		if (Entry && StateStyles.Apply(Layout.RarityFrame, RokArmyStateStyles::RarityName(Hero.Rare),
+			Layout.RarityFrame->GetBrush().GetImageSize(), true, true))
+		{
+			Layout.RarityFrame->SetVisibility(ESlateVisibility::HitTestInvisible);
+		}
+		else
+		{
+			SetAtlas(Layout.RarityFrame, bHeadAtlasFrame ? HeadAtlas : HeroUi, Frame,
+				bHeadAtlasFrame ? HeadAtlasSize : HeroUiSize);
+			const FLinearColor FrameTint = Layout.RarityFrame->GetColorAndOpacity();
+			if (Hero.Rare == 3) Layout.RarityFrame->SetColorAndOpacity(FrameTint * FLinearColor(0.55f, 0.78f, 1.0f));
+			if (Hero.Rare == 2) Layout.RarityFrame->SetColorAndOpacity(FrameTint * FLinearColor(0.62f, 1.0f, 0.70f));
+		}
 		if (bHasHero && Hero.IconAtlas == TEXT("hero_head") && Hero.IconWidth > 0 && Hero.IconHeight > 0)
 		{
 			SetAtlas(Layout.Portrait, HeadAtlas,
@@ -363,31 +373,38 @@ void URokWorldMapHudWidget::RefreshWorldMarchQueue()
 		Layout.SelectionFrame->SetVisibility(HighlightedArmy == March.ArmyIndex && Layout.SelectionFrame->GetBrush().GetResourceObject()
 			? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
 		FIntPoint StatusOrigin(305, 120); // rest
+		FName StatusStyle = TEXT("ArmyStatusRest");
 		FText Status = NSLOCTEXT("RokGather", "ArmyStationed", "驻扎");
 		switch (March.Phase)
 		{
 		case ERokServerMarchPhase::Collecting:
+			StatusStyle = TEXT("ArmyStatusCollecting");
 			StatusOrigin = {449, 96};
 			Status = NSLOCTEXT("RokGather", "ArmyCollecting", "采集中");
 			break;
 		case ERokServerMarchPhase::Returning:
+			StatusStyle = TEXT("ArmyStatusReturning");
 			StatusOrigin = {545, 84};
 			Status = NSLOCTEXT("RokGather", "ArmyReturning", "返回中");
 			break;
 		case ERokServerMarchPhase::Marching:
+			StatusStyle = TEXT("ArmyStatusMarching");
 			StatusOrigin = {257, 72};
 			Status = March.TargetType == 1 ? NSLOCTEXT("RokGather", "ArmyAttacking", "进攻中")
 				: NSLOCTEXT("RokGather", "ArmyMarching", "行军中");
 			break;
 		case ERokServerMarchPhase::Battling:
+			StatusStyle = TEXT("ArmyStatusBattling");
 			StatusOrigin = {960, 285};
 			Status = NSLOCTEXT("RokGather", "ArmyBattling", "战斗中");
 			break;
 		case ERokServerMarchPhase::Garrisoned:
+			StatusStyle = TEXT("ArmyStatusGarrisoned");
 			StatusOrigin = {305, 24};
 			Status = NSLOCTEXT("RokGather", "ArmyGarrisoned", "驻防");
 			break;
 		case ERokServerMarchPhase::Rallying:
+			StatusStyle = TEXT("ArmyStatusRallying");
 			StatusOrigin = {401, 50};
 			Status = NSLOCTEXT("RokGather", "ArmyRallying", "集结中");
 			break;
@@ -397,7 +414,14 @@ void URokWorldMapHudWidget::RefreshWorldMarchQueue()
 		default:
 			break;
 		}
-		SetAtlas(Layout.Status, MapUi, FIntRect(StatusOrigin, StatusOrigin + FIntPoint(46, 46)), MapUiSize);
+		if (Entry && StateStyles.Apply(Layout.Status, StatusStyle, Layout.Status->GetBrush().GetImageSize(), true, true))
+		{
+			Layout.Status->SetVisibility(ESlateVisibility::HitTestInvisible);
+		}
+		else
+		{
+			SetAtlas(Layout.Status, MapUi, FIntRect(StatusOrigin, StatusOrigin + FIntPoint(46, 46)), MapUiSize);
+		}
 		Button->SetToolTipText(bHasHero ? FText::Format(NSLOCTEXT("RokGather", "ArmyTooltip", "{0} · {1}"),
 			FText::FromString(Hero.DisplayNameZhCn.IsEmpty() ? Hero.DisplayNameEn : Hero.DisplayNameZhCn), Status) : Status);
 	}

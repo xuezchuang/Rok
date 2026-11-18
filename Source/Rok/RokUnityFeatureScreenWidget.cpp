@@ -26,6 +26,7 @@
 #include "RokLanguageSettingsLayout.h"
 #include "RokUiSpec.h"
 #include "RokUiWidgets.h"
+#include "RokArmyStateStyles.h"
 #include "Components/RichTextBlock.h"
 #include "Engine/DataTable.h"
 #include "HAL/PlatformMemory.h"
@@ -13020,13 +13021,15 @@ int32 URokUnityFeatureScreenWidget::AddServerDailyTaskRows(const FRokServerTaskS
 		RowState.Require = Task.Require;
 		const int32 RowIndex = VisibleTaskStates.Add(RowState);
 		const auto& Rewards = GetConfiguredRewardPreview(Task.RewardGroupId);
-		Scroll.AddChild(WrapFixedSize(MakeTaskRow(RowIndex, Task.TaskId,
+		UWidget* Row = MakeTaskRow(RowIndex, Task.TaskId,
 			FText::FromString(Task.Name),
 			FText::FromString(Task.Description), FMath::Clamp<int64>(Task.Current, MIN_int32, MAX_int32),
 			FMath::Clamp<int64>(Task.Target, MIN_int32, MAX_int32), Task.bProgressKnown,
 			Task.State == ERokServerTaskState::Finished, ResolveTaskIconRect(Task.Icon),
-			Task.RewardGroupId, Rewards, RowClass, RewardClass),
-			*FString::Printf(TEXT("TaskDailyServerRowSize_%d"), Task.TaskId), FVector2D(1088.0f, 150.0f)));
+			Task.RewardGroupId, Rewards, RowClass, RewardClass);
+		Scroll.AddChild(WrapFixedSize(Row,
+			*FString::Printf(TEXT("TaskDailyServerRowSize_%d"), Task.TaskId),
+			GetTaskListRowSize(Row, TEXT("DailyServerRow"))));
 	}
 	return VisibleDailyCount;
 }
@@ -13450,22 +13453,25 @@ void URokUnityFeatureScreenWidget::BuildTasks()
 		{
 			TaskRows = VisibleTaskStates[RowIndex].Page == FRokTaskRowState::EPage::MainTask ? MainContent : SideContent;
 		}
-		TaskRows->AddChild(WrapFixedSize(
-			MakeTaskRow(
-				RowIndex,
-				VisibleTaskStates[RowIndex].TaskId,
-				Title,
-				Description,
-				Current,
-				Target,
-				bProgressKnown,
-				VisibleTaskStates[RowIndex].State == FRokTaskRowState::EState::Finished,
-				TaskIconRect,
-				RewardGroupId,
-				PreviewRows ? *PreviewRows : EmptyPreviewRows,
-				MainPage ? MainRowClass : nullptr, MainPage ? MainRewardClass : nullptr),
-			*FString::Printf(TEXT("TaskRowSize_%d"), RowIndex),
-			FVector2D(1088.0f, 150.0f)));
+		UWidget* Row = MakeTaskRow(
+			RowIndex,
+			VisibleTaskStates[RowIndex].TaskId,
+			Title,
+			Description,
+			Current,
+			Target,
+			bProgressKnown,
+			VisibleTaskStates[RowIndex].State == FRokTaskRowState::EState::Finished,
+			TaskIconRect,
+			RewardGroupId,
+			PreviewRows ? *PreviewRows : EmptyPreviewRows,
+			MainPage ? MainRowClass : nullptr, MainPage ? MainRewardClass : nullptr);
+		const bool bMain = VisibleTaskStates[RowIndex].Page == FRokTaskRowState::EPage::MainTask;
+		const FName LayoutName = bServerRow
+			? (bMain ? TEXT("MainServerRow") : TEXT("SideServerRow"))
+			: (bMain ? TEXT("MainLocalRow") : TEXT("SideLocalRow"));
+		TaskRows->AddChild(WrapFixedSize(Row,
+			*FString::Printf(TEXT("TaskRowSize_%d"), RowIndex), GetTaskListRowSize(Row, LayoutName)));
 	};
 
 	if (ServerSnapshot.bAvailable)

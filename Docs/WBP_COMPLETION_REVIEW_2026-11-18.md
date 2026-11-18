@@ -86,3 +86,17 @@
 前四项和后两项按顺序分批生成。6 个新资产都通过独立重载，以及 12 棵设计树和生成树的默认值检查，涵盖折叠端点、出征画刷图集区域、医院四组排位、章节奖励步距、邮件宿主和部队行尺寸。日志位于 `Saved/RokUi/Logs/verify_hud_world_hospital_chapter_goal_20261118.log`、`verify_mail_army_list_layout_goal_20261118.log` 和 `verify_fold_and_list_values_goal_20261118_serialized.log`。
 
 未编译 C++ 或提交。新绑定的实际运行及画面对比待人工确认。
+
+## 建筑快捷菜单、行军状态和重复行布局
+
+| 入口 | Designer 资产 | 可编辑内容 |
+| --- | --- | --- |
+| 城市 → 选中建筑 | `RokUI/Building/WBP_RokBuildingMenuLayouts` | `TwoButtons`、`BuilderHut`、`Decoration` 各组标记相对现有菜单根节点排位。三按钮布局在 `WBP_RokBuildingPanel`。屏幕投影把同一垂直偏移应用到各按钮。 |
+| 世界行军、采集编队、出征和统帅头像 | `RokUI/Hud/WBP_RokWorldArmyStateStyles` | 五种 `ArmyFrame` 的图集、裁切区域和颜色，以及七种 `ArmyStatus` 图标。头像、军队状态及交互由实时数据确定。 |
+| 统帅 → 技能 | `RokUI/Feature/WBP_RokFeature_CommanderSkillBar` | `CommanderSkillHost` 提供整排位置，`CommanderSkillCell` 提供格子排位与大小，移动 `CommanderSkillNext` 调整步距。技能实例仍用 `WBP_RokFeature_CommanderSkillItem`。 |
+| 每日、主线和支线任务 | `RokUI/Feature/WBP_RokFeature_TaskListLayouts` | 每日服务器任务行以及本地、服务器主线与支线行各自的外层占位。每日配置参考行使用已有行资产的尺寸。 |
+| 资源建筑和兵营 → 等级表 | `RokUI/Modal/Pages/WBP_RokModal_BuildingLevelTableLayouts` | `ResourceLevelCell`、`BarracksLevelCell` 提供首行位置和尺寸，两组 `Next` 标记给出行步距。滚动内容高度覆盖末行。 |
+
+对应生成规格在 `Scripts/RokUi/BuildBuildingMenuLayoutsSpec.py`、`BuildWorldArmyStateStylesSpec.py`、`BuildCommanderSkillBarSpec.py`、`BuildTaskListLayoutSpec.py` 和 `BuildBuildingLevelTableLayoutsSpec.py`。默认值取自原有正常入口，包括建筑投影后的按钮位置、行军图集区域和列表占位。
+
+5 个新资产均通过独立重载。检查了 10 棵设计与生成控件树、各槽位几何、图集资源、裁切区域及颜色。日志为 `Saved/RokUi/Logs/verify_army_skill_table_layouts_goal.log`。未编译 C++，实际入口和画面由人工审查。

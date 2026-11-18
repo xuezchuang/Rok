@@ -195,11 +195,26 @@ bool FRokBuildingMenuDesignerLayoutTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Three-button row starts on the design"), Info->GetPosition().Equals(ExpectedInfo, 0.001)
 		&& Upgrade->GetPosition().Equals(ExpectedUpgrade, 0.001) && Feature->GetPosition().Equals(ExpectedFeature, 0.001));
 	Menu->ApplyMenuLayout(false, true, true);
-	TestTrue(TEXT("Builder buttons use centers derived from the design"),
-		FMath::IsNearlyEqual(Info->GetPosition().X, (ExpectedInfo.X + ExpectedUpgrade.X) * 0.5, 0.001)
-		&& FMath::IsNearlyEqual(Feature->GetPosition().X, (ExpectedUpgrade.X + ExpectedFeature.X) * 0.5, 0.001));
+	if (const auto* Builder = Menu->MenuVariants.Find(TEXT("BuilderHut")))
+	{
+		TestTrue(TEXT("Builder buttons use the authored variant"),
+			Info->GetPosition().Equals(Builder->Info, 0.001) && Feature->GetPosition().Equals(Builder->Feature, 0.001));
+		const FVector2D Projection(0, 30);
+		TestTrue(TEXT("Projection offsets the complete builder row"),
+			Menu->ApplyMenuVariant(Projection.Y) && Info->GetPosition().Equals(Builder->Info + Projection, 0.001)
+			&& Feature->GetPosition().Equals(Builder->Feature + Projection, 0.001));
+	}
+	else
+	{
+		TestTrue(TEXT("Builder fallback uses centers derived from the design"),
+			FMath::IsNearlyEqual(Info->GetPosition().X, (ExpectedInfo.X + ExpectedUpgrade.X) * 0.5, 0.001)
+			&& FMath::IsNearlyEqual(Feature->GetPosition().X, (ExpectedUpgrade.X + ExpectedFeature.X) * 0.5, 0.001));
+	}
 	Menu->ApplyMenuLayout(true, false, false);
-	TestTrue(TEXT("Decoration centers the info button"), FMath::IsNearlyEqual(Info->GetPosition().X, ExpectedUpgrade.X, 0.001));
+	const auto* Decoration = Menu->MenuVariants.Find(TEXT("Decoration"));
+	TestTrue(TEXT("Decoration applies its info position"), Decoration
+		? Info->GetPosition().Equals(Decoration->Info, 0.001)
+		: FMath::IsNearlyEqual(Info->GetPosition().X, ExpectedUpgrade.X, 0.001));
 	Menu->ApplyMenuLayout(false, false, true);
 	TestTrue(TEXT("Returning to three buttons restores the authored positions"), Info->GetPosition().Equals(ExpectedInfo, 0.001)
 		&& Upgrade->GetPosition().Equals(ExpectedUpgrade, 0.001) && Feature->GetPosition().Equals(ExpectedFeature, 0.001));

@@ -130,6 +130,35 @@ void URokBuildingPanelWidget::CacheDesignLayout()
 	const UCanvasPanelSlot* ShadowSlot = WidgetTree
 		? UWidgetLayoutLibrary::SlotAsCanvasSlot(WidgetTree->FindWidget(TEXT("ButtonShadow"))) : nullptr;
 	DesignShadowPosition = ShadowSlot ? ShadowSlot->GetPosition() : FVector2D(50.85f, BuildingShadowY);
+	if (GetClass()->HasAnyClassFlags(CLASS_CompiledFromBlueprint))
+	{
+		static const TSoftClassPtr<URokUiPageWidget> LayoutClass(FSoftObjectPath(TEXT(
+			"/Game/RokUI/Building/WBP_RokBuildingMenuLayouts.WBP_RokBuildingMenuLayouts_C")));
+		if (UClass* Class = URokUiSettings::Resolve(LayoutClass))
+		{
+			auto* Layout = NewObject<URokUiPageWidget>(this, Class);
+			if (Layout->Initialize())
+			{
+				const auto FindSlot = [Layout](const FString& Name)
+				{
+					const UWidget* Marker = Layout->Get<UWidget>(FName(*Name));
+					return Marker ? Cast<UCanvasPanelSlot>(Marker->Slot) : nullptr;
+				};
+				for (const TCHAR* VariantName : {TEXT("TwoButtons"), TEXT("BuilderHut"), TEXT("Decoration")})
+				{
+					const FString Variant(VariantName);
+					const auto* Info = FindSlot(Variant + TEXT("Info"));
+					const auto* Upgrade = FindSlot(Variant + TEXT("Upgrade"));
+					const auto* Feature = FindSlot(Variant + TEXT("Feature"));
+					if (Info && Upgrade && Feature)
+					{
+						MenuVariants.Add(FName(*Variant), FMenuButtonPositions{
+							Info->GetPosition(), Upgrade->GetPosition(), Feature->GetPosition()});
+					}
+				}
+			}
+		}
+	}
 	bDesignLayoutCached = true;
 }
 
@@ -147,8 +176,8 @@ void URokBuildingPanelWidget::NativeTick(const FGeometry& MyGeometry, float InDe
 	AdvanceMenuAnimation(InDeltaTime);
 	if (SelectedBuildingActor.IsValid())
 	{
-		UpdateMenuPosition();
 		Refresh();
+		UpdateMenuPosition();
 	}
 }
 
@@ -465,22 +494,25 @@ void URokBuildingPanelWidget::ApplyMenuLayout(
 		FeatureButton->SetVisibility(bHasFeatureAction ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
 		FeatureButton->SetIsEnabled(bHasFeatureAction);
 	}
-	if (InfoButtonSlot)
+	if (!ApplyMenuVariant(0.0))
 	{
-		const double TwoButtonX = (DesignInfoPosition.X + DesignUpgradePosition.X) * 0.5;
-		InfoButtonSlot->SetPosition(
-			{bIsDecoration ? DesignUpgradePosition.X
-				: (bHasFeatureAction && !bIsBuilderHut ? DesignInfoPosition.X : TwoButtonX), DesignInfoPosition.Y});
-	}
-	if (UpgradeButtonSlot)
-	{
-		const double TwoButtonX = (DesignUpgradePosition.X + DesignFeaturePosition.X) * 0.5;
-		UpgradeButtonSlot->SetPosition({bHasFeatureAction ? DesignUpgradePosition.X : TwoButtonX, DesignUpgradePosition.Y});
-	}
-	if (FeatureButtonSlot)
-	{
-		const double TwoButtonX = (DesignUpgradePosition.X + DesignFeaturePosition.X) * 0.5;
-		FeatureButtonSlot->SetPosition({bIsBuilderHut ? TwoButtonX : DesignFeaturePosition.X, DesignFeaturePosition.Y});
+		if (InfoButtonSlot)
+		{
+			const double TwoButtonX = (DesignInfoPosition.X + DesignUpgradePosition.X) * 0.5;
+			InfoButtonSlot->SetPosition(
+				{bIsDecoration ? DesignUpgradePosition.X
+					: (bHasFeatureAction && !bIsBuilderHut ? DesignInfoPosition.X : TwoButtonX), DesignInfoPosition.Y});
+		}
+		if (UpgradeButtonSlot)
+		{
+			const double TwoButtonX = (DesignUpgradePosition.X + DesignFeaturePosition.X) * 0.5;
+			UpgradeButtonSlot->SetPosition({bHasFeatureAction ? DesignUpgradePosition.X : TwoButtonX, DesignUpgradePosition.Y});
+		}
+		if (FeatureButtonSlot)
+		{
+			const double TwoButtonX = (DesignUpgradePosition.X + DesignFeaturePosition.X) * 0.5;
+			FeatureButtonSlot->SetPosition({bIsBuilderHut ? TwoButtonX : DesignFeaturePosition.X, DesignFeaturePosition.Y});
+		}
 	}
 	if (UWidget* ButtonShadow = WidgetTree->FindWidget(TEXT("ButtonShadow")))
 	{
@@ -497,6 +529,27 @@ void URokBuildingPanelWidget::ApplyMenuLayout(
 			SetFeatureButtonArt(Texture);
 		}
 	}
+}
+
+bool URokBuildingPanelWidget::ApplyMenuVariant(double RowProjectionOffset)
+{
+	if (!bMenuLayoutInitialized || (bShowingFeatureAction && !bShowingDecorationLayout && !bShowingBuilderHutLayout))
+	{
+		return false;
+	}
+	const FName Variant(bShowingDecorationLayout ? TEXT("Decoration")
+		: bShowingBuilderHutLayout ? TEXT("BuilderHut") : TEXT("TwoButtons"));
+	const FMenuButtonPositions* Positions = MenuVariants.Find(Variant);
+	if (!Positions || !InfoButtonSlot || !UpgradeButtonSlot || !FeatureButtonSlot)
+	{
+		return false;
+	}
+
+	const FVector2D Offset(0.0, RowProjectionOffset);
+	InfoButtonSlot->SetPosition(Positions->Info + Offset);
+	UpgradeButtonSlot->SetPosition(Positions->Upgrade + Offset);
+	FeatureButtonSlot->SetPosition(Positions->Feature + Offset);
+	return true;
 }
 
 void URokBuildingPanelWidget::SetFeatureButtonArt(UTexture2D* Texture, const FBox2f& UV)
@@ -717,21 +770,24 @@ void URokBuildingPanelWidget::UpdateMenuPosition()
 		BuildingMenuSlot->SetSize(FVector2D(
 			DesignMenuSize.X,
 			FMath::Max(DesignMenuSize.Y, ButtonY + ProjectedButtonRowBottomPadding)));
-		const bool bTwoButtonRow = bIsDecoration || bShowingBuilderHutLayout;
-		if (InfoButtonSlot)
+		if (!ApplyMenuVariant(RowProjectionOffset))
 		{
-			const double TwoButtonX = (DesignInfoPosition.X + DesignUpgradePosition.X) * 0.5;
-			InfoButtonSlot->SetPosition({bTwoButtonRow ? TwoButtonX : DesignInfoPosition.X, ButtonY});
-		}
-		if (UpgradeButtonSlot)
-		{
-			UpgradeButtonSlot->SetPosition(DesignUpgradePosition + FVector2D(0.0, RowProjectionOffset));
-		}
-		if (FeatureButtonSlot)
-		{
-			const double TwoButtonX = (DesignUpgradePosition.X + DesignFeaturePosition.X) * 0.5;
-			FeatureButtonSlot->SetPosition({bTwoButtonRow ? TwoButtonX : DesignFeaturePosition.X,
-				DesignFeaturePosition.Y + RowProjectionOffset});
+			const bool bTwoButtonRow = bIsDecoration || bShowingBuilderHutLayout;
+			if (InfoButtonSlot)
+			{
+				const double TwoButtonX = (DesignInfoPosition.X + DesignUpgradePosition.X) * 0.5;
+				InfoButtonSlot->SetPosition({bTwoButtonRow ? TwoButtonX : DesignInfoPosition.X, ButtonY});
+			}
+			if (UpgradeButtonSlot)
+			{
+				UpgradeButtonSlot->SetPosition(DesignUpgradePosition + FVector2D(0.0, RowProjectionOffset));
+			}
+			if (FeatureButtonSlot)
+			{
+				const double TwoButtonX = (DesignUpgradePosition.X + DesignFeaturePosition.X) * 0.5;
+				FeatureButtonSlot->SetPosition({bTwoButtonRow ? TwoButtonX : DesignFeaturePosition.X,
+					DesignFeaturePosition.Y + RowProjectionOffset});
+			}
 		}
 		if (UWidget* ButtonShadow = WidgetTree->FindWidget(TEXT("ButtonShadow")))
 		{

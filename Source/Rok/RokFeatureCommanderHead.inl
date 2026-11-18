@@ -5,7 +5,8 @@ UCanvasPanel* URokUnityFeatureScreenWidget::MakeCommanderHead(
 	bool bSelected,
 	const FText& DisplayName,
 	const FText& StateText,
-	int32 Rare)
+	int32 Rare,
+	const RokArmyStateStyles::FBatch& ArmyStyles)
 {
 	UCanvasPanel* Head = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), *FString::Printf(TEXT("CommanderHead_%d"), Index));
 	Head->SetClipping(EWidgetClipping::ClipToBounds);
@@ -26,19 +27,22 @@ UCanvasPanel* URokUnityFeatureScreenWidget::MakeCommanderHead(
 		UCanvasPanelSlot* PageSlot = Head->AddChildToCanvas(HeadPage);
 		PageSlot->SetAnchors(FAnchors(0, 0, 1, 1));
 		PageSlot->SetOffsets(FMargin(0));
-		UTexture2D* FrameAtlas = LoadUiTexture(bUsesHeroHeadFrame ? CommanderHeadAtlasPath : CommanderUiAtlasPath);
-		if (FrameAtlas)
+		if (!ArmyStyles.Apply(FrameImage, RokArmyStateStyles::RarityName(Rare),
+			FrameImage->GetBrush().GetImageSize(), false, true))
 		{
-			FSlateBrush Brush = FrameImage->GetBrush();
-			const FSlateBrush AtlasBrush = MakeAtlasBrush(FrameAtlas,
-				Rare == 5 ? CommanderLegendaryFrameRect : (Rare == 4 ? CommanderEpicFrameRect : CommanderRareFrameRect),
-				bUsesHeroHeadFrame ? CommanderHeadAtlasSize : CommanderUiAtlasSize, Brush.GetImageSize());
-			Brush.SetResourceObject(FrameAtlas);
-			Brush.SetUVRegion(static_cast<FBox2f>(AtlasBrush.GetUVRegion()));
-			FrameImage->SetBrush(Brush);
+			if (UTexture2D* FrameAtlas = LoadUiTexture(bUsesHeroHeadFrame ? CommanderHeadAtlasPath : CommanderUiAtlasPath))
+			{
+				FSlateBrush Brush = FrameImage->GetBrush();
+				const FSlateBrush AtlasBrush = MakeAtlasBrush(FrameAtlas,
+					Rare == 5 ? CommanderLegendaryFrameRect : (Rare == 4 ? CommanderEpicFrameRect : CommanderRareFrameRect),
+					bUsesHeroHeadFrame ? CommanderHeadAtlasSize : CommanderUiAtlasSize, Brush.GetImageSize());
+				Brush.SetResourceObject(FrameAtlas);
+				Brush.SetUVRegion(static_cast<FBox2f>(AtlasBrush.GetUVRegion()));
+				FrameImage->SetBrush(Brush);
+			}
+			FrameImage->SetColorAndOpacity(Rare == 3 ? FLinearColor(0.55f, 0.78f, 1.0f, 1.0f)
+				: (Rare == 2 ? FLinearColor(0.62f, 1.0f, 0.70f, 1.0f) : FLinearColor::White));
 		}
-		FrameImage->SetColorAndOpacity(Rare == 3 ? FLinearColor(0.55f, 0.78f, 1.0f, 1.0f)
-			: (Rare == 2 ? FLinearColor(0.62f, 1.0f, 0.70f, 1.0f) : FLinearColor::White));
 		const bool bHasPortrait = HeadRect.Width() > 0 && HeadRect.Height() > 0;
 		if (bHasPortrait)
 		{

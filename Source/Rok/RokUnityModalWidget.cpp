@@ -5932,6 +5932,54 @@ void URokUnityModalWidget::BuildBuildingInfo()
 		: FText::Format(NSLOCTEXT("RokModal", "GenericBuildingDescription", "{0}是城市发展体系中的重要建筑。当前等级为{1}级，可通过升级提升其战力与功能。"), State.DisplayName, FText::AsNumber(State.Level)));
 }
 
+namespace
+{
+struct FBuildingLevelRowsLayout
+{
+	FVector2D Origin = FVector2D::ZeroVector;
+	FVector2D Extent{1024, 50};
+	double RowStep = 50;
+	bool bAuthored = false;
+
+	FVector2D Position(int32 Level) const
+	{
+		return Origin + FVector2D(0, (Level - 1) * RowStep);
+	}
+
+	void Resize(USizeBox& Container, int32 RowCount) const
+	{
+		Container.SetWidthOverride(Extent.X + FMath::Max(0.0, Origin.X));
+		const double Bottom = RowCount > 0 ? Position(RowCount).Y + Extent.Y : 0;
+		Container.SetHeightOverride(FMath::Max(0.0, Bottom));
+	}
+};
+
+FBuildingLevelRowsLayout ReadBuildingLevelRowsLayout(UUserWidget* Owner, FName CellName, FName NextName)
+{
+	static const TSoftClassPtr<URokUiPageWidget> LayoutClass(FSoftObjectPath(TEXT(
+		"/Game/RokUI/Modal/Pages/WBP_RokModal_BuildingLevelTableLayouts.WBP_RokModal_BuildingLevelTableLayouts_C")));
+	UClass* Class = URokUiSettings::Resolve(LayoutClass);
+	const auto* Layout = Class ? CreateWidget<URokUiPageWidget>(Owner, Class) : nullptr;
+	const auto FindSlot = [Layout](FName Name)
+	{
+		const UWidget* Marker = Layout ? RokUiFind::Find(Layout, Name) : nullptr;
+		return Marker ? Cast<UCanvasPanelSlot>(Marker->Slot) : nullptr;
+	};
+	const auto* Cell = FindSlot(CellName);
+	const auto* Next = FindSlot(NextName);
+	if (Cell && Next)
+	{
+		const FVector2D Extent = Cell->GetSize();
+		const double RowStep = Next->GetPosition().Y - Cell->GetPosition().Y;
+		if (Extent.X > 0 && Extent.Y > 0 && RowStep > 0)
+		{
+			return {Cell->GetPosition(), Extent, RowStep, true};
+		}
+	}
+	return {};
+}
+}
+
 void URokUnityModalWidget::BuildResourceBuildingInfo(int32 Type, int32 KnownLevel)
 {
 	TArray<FString> Headers; TArray<FRokBuildingLevelDetailsRow> Rows; FString Error, Name, Description;
@@ -5985,11 +6033,20 @@ void URokUnityModalWidget::BuildResourceBuildingInfo(int32 Type, int32 KnownLeve
 	}
 	BuildingLevelDetailsScroll = Page->Get<UScrollBox>(TEXT("BuildingLevelDetailsScroll"));
 	UCanvasPanel* Grid = Page->Get<UCanvasPanel>(TEXT("BuildingLevelRows"));
+	const FBuildingLevelRowsLayout RowLayout = ReadBuildingLevelRowsLayout(
+		this, TEXT("ResourceLevelCell"), TEXT("ResourceLevelNext"));
+	if (RowLayout.bAuthored)
+	{
+		if (auto* Size = Page->Get<USizeBox>(TEXT("BuildingLevelRowsSize")))
+		{
+			RowLayout.Resize(*Size, Rows.Num());
+		}
+	}
 	for (const auto& Row : Rows)
 	{
 		const FString Suffix = FString::Printf(TEXT("_%d"), Row.Level);
 		URokUiPageWidget* Item = MountItem(TEXT("BuildingLevelRow"), Grid, *(TEXT("BuildingLevelRow") + Suffix),
-			FVector2D(0.0f, (Row.Level - 1) * 50.0f), FVector2D(1024.0f, 50.0f), 0, TEXT("BuildingLevel"), Suffix);
+			RowLayout.Position(Row.Level), RowLayout.Extent, 0, TEXT("BuildingLevel"), Suffix);
 		if (!Item)
 		{
 			break;
@@ -6547,16 +6604,25 @@ void URokUnityModalWidget::BuildBarracksLevelDetails(int32 KnownLevel, URokUiPag
 				Header->SetText(FText::FromString(Headers[Column]));
 			}
 		}
+		const FBuildingLevelRowsLayout RowLayout = ReadBuildingLevelRowsLayout(
+			this, TEXT("BarracksLevelCell"), TEXT("BarracksLevelNext"));
 		if (USizeBox* Size = Page->Get<USizeBox>(TEXT("BarracksLevelRowsSize")))
 		{
-			Size->SetHeightOverride(Rows.Num() * 50.0f);
+			if (RowLayout.bAuthored)
+			{
+				RowLayout.Resize(*Size, Rows.Num());
+			}
+			else
+			{
+				Size->SetHeightOverride(Rows.Num() * RowLayout.Extent.Y);
+			}
 		}
 		UCanvasPanel* Grid = Page->Get<UCanvasPanel>(TEXT("BarracksLevelRows"));
 		for (const FRokBarracksLevelDetailsRow& Row : Rows)
 		{
 			const FString Suffix = FString::Printf(TEXT("_%d"), Row.Level);
 			URokUiPageWidget* Item = MountItem(TEXT("BarracksLevelRow"), Grid, *(TEXT("BarracksLevelRow") + Suffix),
-				FVector2D(0.0f, (Row.Level - 1) * 50.0f), FVector2D(1024.0f, 50.0f), 0, TEXT("BarracksLevel"), Suffix);
+				RowLayout.Position(Row.Level), RowLayout.Extent, 0, TEXT("BarracksLevel"), Suffix);
 			if (!Item)
 			{
 				break;

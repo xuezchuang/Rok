@@ -564,6 +564,7 @@ void URokUnityFeatureScreenWidget::BuildCommander()
 	Sort->SetText(CommanderSortLabel);
 
 	UClass* CommanderRosterRowClass = ResolveFeaturePageClass(TEXT("CommanderRosterRow"));
+	const RokArmyStateStyles::FBatch ArmyStyles(this);
 	for (int32 Index = 0; Index < VisibleCommanderIds.Num();)
 	{
 		const int32 RowStart = Index;
@@ -648,7 +649,8 @@ void URokUnityFeatureScreenWidget::BuildCommander()
 					HeroId == SelectedCommanderId,
 					FText::FromString(RosterHeroName),
 					RosterStateText,
-					bHasRosterHero ? RosterHero.Rare : 0);
+					bHasRosterHero ? RosterHero.Rare : 0,
+					ArmyStyles);
 			if (RowPage)
 			{
 				UCanvasPanelSlot* HeadSlot = (ColumnIndex == 0 ? FirstSlot : SecondSlot)->AddChildToCanvas(Head);
@@ -1174,6 +1176,36 @@ void URokUnityFeatureScreenWidget::BuildCommander()
 		PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("CommanderSkillShade"), FLinearColor(0.08f, 0.06f, 0.045f, 0.55f)), CapturePoint(972.0f, 504.0f), FVector2D(415.0f, 101.0f), 5);
 	}
 	UClass* CommanderSkillItemClass = ResolveFeaturePageClass(TEXT("CommanderSkillItem"));
+	UCanvasPanel* SkillHost = nullptr;
+	const UCanvasPanelSlot* SkillCellSlot = nullptr;
+	FVector2D SkillStep = FVector2D::ZeroVector;
+	if (UClass* SkillBarClass = CommanderSkillItemClass && !VisibleCommanderSkillIds.IsEmpty()
+		? ResolveFeaturePageClass(TEXT("CommanderSkillBar")) : nullptr)
+	{
+		if (auto* SkillBar = CreateWidget<URokUiPageWidget>(this, SkillBarClass))
+		{
+			auto* Host = SkillBar->Get<UCanvasPanel>(TEXT("CommanderSkillHost"));
+			auto* Cell = SkillBar->Get<UBorder>(TEXT("CommanderSkillCell"));
+			auto* Next = SkillBar->Get<UBorder>(TEXT("CommanderSkillNext"));
+			const auto* HostSlot = Host ? Cast<UCanvasPanelSlot>(Host->Slot) : nullptr;
+			const auto* CellSlot = Cell ? Cast<UCanvasPanelSlot>(Cell->Slot) : nullptr;
+			const auto* NextSlot = Next ? Cast<UCanvasPanelSlot>(Next->Slot) : nullptr;
+			if (HostSlot && CellSlot && NextSlot && Cell->GetParent() == Host && Next->GetParent() == Host
+				&& CellSlot->GetSize().X > 0 && CellSlot->GetSize().Y > 0)
+			{
+				SkillHost = Host;
+				SkillCellSlot = CellSlot;
+				SkillStep = NextSlot->GetPosition() - CellSlot->GetPosition();
+				Cell->SetVisibility(ESlateVisibility::Collapsed);
+				Next->SetVisibility(ESlateVisibility::Collapsed);
+				SkillBar->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+				UCanvasPanelSlot* BarSlot = ModeCanvas->AddChildToCanvas(SkillBar);
+				BarSlot->SetAnchors(FAnchors(0, 0, 1, 1));
+				BarSlot->SetOffsets(FMargin(0));
+				BarSlot->SetZOrder(HostSlot->GetZOrder());
+			}
+		}
+	}
 	for (int32 Index = 0; Index < VisibleCommanderSkillIds.Num(); ++Index)
 	{
 		const float X = 978.0f + Index * 82.5f;
@@ -1226,7 +1258,17 @@ void URokUnityFeatureScreenWidget::BuildCommander()
 		{
 			SkillPage->LegacySuffix = FString::Printf(TEXT("_%d"), Index);
 			SkillPage->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-			PlaceOnCanvas(ModeCanvas, SkillPage, CapturePoint(X, 513.0f), FVector2D(74.0f), 7);
+			if (SkillHost)
+			{
+				UCanvasPanelSlot* Slot = SkillHost->AddChildToCanvas(SkillPage);
+				Slot->SetLayout(SkillCellSlot->GetLayout());
+				Slot->SetPosition(SkillCellSlot->GetPosition() + SkillStep * Index);
+				Slot->SetZOrder(SkillCellSlot->GetZOrder());
+			}
+			else
+			{
+				PlaceOnCanvas(ModeCanvas, SkillPage, CapturePoint(X, 513.0f), FVector2D(74.0f), 7);
+			}
 			if (bHasSkillIcon)
 			{
 				const TCHAR* SkillTexturePath = Skill.IconAtlas.Equals(TEXT("hero_skill"), ESearchCase::IgnoreCase)

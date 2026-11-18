@@ -25,6 +25,7 @@
 #include "RokTroopPortrait.h"
 #include "RokUiTextTable.h"
 #include "RokUiWidgets.h"
+#include "RokArmyStateStyles.h"
 #include "RokUnityConfigSubsystem.h"
 #include "RokUnityEconomyCatalogSubsystem.h"
 #include "RokUnityGameplayCatalogSubsystem.h"
@@ -672,6 +673,7 @@ void URokUnityFeatureScreenWidget::BuildExpeditionMap(const FRokExpeditionStageP
 
 void URokUnityFeatureScreenWidget::BuildExpeditionTask(const FRokExpeditionStagePreviewRow& Stage)
 {
+	const RokArmyStateStyles::FBatch StateStyles(this);
 	if (ResolveFeaturePageClass(TEXT("ExpeditionTask"))
 		&& ResolveFeaturePageClass(TEXT("ExpeditionStarConditionRow"))
 		&& ResolveFeaturePageClass(TEXT("ExpeditionEnemyHeroRow")))
@@ -717,15 +719,19 @@ void URokUnityFeatureScreenWidget::BuildExpeditionTask(const FRokExpeditionStage
 					auto* Catalog = GetGameplayCatalogSubsystem();
 					if (Catalog && Catalog->GetHero(Team->HeroId, Hero) && Hero.IconWidth > 0 && Hero.IconHeight > 0)
 					{
-						const bool bHighRarity = Hero.Rare >= 4;
-						UTexture2D* FrameTexture = LoadObject<UTexture2D>(nullptr, bHighRarity
-							? HeroHeads : TEXT("/Game/RokPrototype/UI/CommanderAtlases/rok_commander_ui.rok_commander_ui"));
-						const FIntRect FrameRect = Hero.Rare >= 5 ? FIntRect(593, 1895, 727, 2047)
-							: Hero.Rare == 4 ? FIntRect(729, 1895, 863, 2047) : FIntRect(1, 53, 135, 205);
-						const FIntPoint FrameSize = bHighRarity ? FIntPoint(1024, 2048) : FIntPoint(2048, 512);
-						HeroFrame->SetBrush(MakeAtlasBrush(FrameTexture, FrameRect, FrameSize, HeroFrame->GetDesiredSize()));
-						if (Hero.Rare == 2) HeroFrame->SetColorAndOpacity(FLinearColor(0.62f, 1.0f, 0.70f));
-						else if (Hero.Rare == 3) HeroFrame->SetColorAndOpacity(FLinearColor(0.55f, 0.78f, 1.0f));
+						if (!StateStyles.Apply(HeroFrame, RokArmyStateStyles::RarityName(FMath::Min(Hero.Rare, 5)),
+							HeroFrame->GetDesiredSize(), Hero.Rare != 2 && Hero.Rare != 3))
+						{
+							const bool bHighRarity = Hero.Rare >= 4;
+							UTexture2D* FrameTexture = LoadObject<UTexture2D>(nullptr, bHighRarity
+								? HeroHeads : TEXT("/Game/RokPrototype/UI/CommanderAtlases/rok_commander_ui.rok_commander_ui"));
+							const FIntRect FrameRect = Hero.Rare >= 5 ? FIntRect(593, 1895, 727, 2047)
+								: Hero.Rare == 4 ? FIntRect(729, 1895, 863, 2047) : FIntRect(1, 53, 135, 205);
+							const FIntPoint FrameSize = bHighRarity ? FIntPoint(1024, 2048) : FIntPoint(2048, 512);
+							HeroFrame->SetBrush(MakeAtlasBrush(FrameTexture, FrameRect, FrameSize, HeroFrame->GetDesiredSize()));
+							if (Hero.Rare == 2) HeroFrame->SetColorAndOpacity(FLinearColor(0.62f, 1.0f, 0.70f));
+							else if (Hero.Rare == 3) HeroFrame->SetColorAndOpacity(FLinearColor(0.55f, 0.78f, 1.0f));
+						}
 						UTexture2D* HeadTexture = LoadObject<UTexture2D>(nullptr, HeroHeads);
 						HeroIcon->SetBrush(MakeAtlasBrush(HeadTexture,
 							FIntRect(Hero.IconX, Hero.IconY, Hero.IconX + Hero.IconWidth, Hero.IconY + Hero.IconHeight),
@@ -759,22 +765,26 @@ void URokUnityFeatureScreenWidget::BuildExpeditionTask(const FRokExpeditionStage
 						EnemyHeroes.Add(Hero);
 				}
 			}
-		auto SetHeroHead = [this](URokUiPageWidget* Row, int32 HeroId)
+		auto SetHeroHead = [this, &StateStyles](URokUiPageWidget* Row, int32 HeroId)
 			{
 				auto* Catalog = GetGameplayCatalogSubsystem();
 				FRokUnityCatalogHero Hero;
 				if (!Catalog || !Catalog->GetHero(HeroId, Hero) || Hero.IconWidth <= 0 || Hero.IconHeight <= 0) return;
 				UImage* Frame = Row->Get<UImage>(TEXT("Frame"));
 				UImage* Icon = Row->Get<UImage>(TEXT("Icon"));
-				const bool bHighRarity = Hero.Rare >= 4;
-				UTexture2D* FrameTexture = LoadObject<UTexture2D>(nullptr, bHighRarity
-					? HeroHeads : TEXT("/Game/RokPrototype/UI/CommanderAtlases/rok_commander_ui.rok_commander_ui"));
-				const FIntRect FrameRect = Hero.Rare >= 5 ? FIntRect(593, 1895, 727, 2047)
-					: Hero.Rare == 4 ? FIntRect(729, 1895, 863, 2047) : FIntRect(1, 53, 135, 205);
-				const FIntPoint FrameSize = bHighRarity ? FIntPoint(1024, 2048) : FIntPoint(2048, 512);
-				Frame->SetBrush(MakeAtlasBrush(FrameTexture, FrameRect, FrameSize, Frame->GetDesiredSize()));
-				if (Hero.Rare == 2) Frame->SetColorAndOpacity(FLinearColor(0.62f, 1.0f, 0.70f));
-				else if (Hero.Rare == 3) Frame->SetColorAndOpacity(FLinearColor(0.55f, 0.78f, 1.0f));
+				if (!StateStyles.Apply(Frame, RokArmyStateStyles::RarityName(FMath::Min(Hero.Rare, 5)),
+					Frame->GetDesiredSize(), Hero.Rare != 2 && Hero.Rare != 3))
+				{
+					const bool bHighRarity = Hero.Rare >= 4;
+					UTexture2D* FrameTexture = LoadObject<UTexture2D>(nullptr, bHighRarity
+						? HeroHeads : TEXT("/Game/RokPrototype/UI/CommanderAtlases/rok_commander_ui.rok_commander_ui"));
+					const FIntRect FrameRect = Hero.Rare >= 5 ? FIntRect(593, 1895, 727, 2047)
+						: Hero.Rare == 4 ? FIntRect(729, 1895, 863, 2047) : FIntRect(1, 53, 135, 205);
+					const FIntPoint FrameSize = bHighRarity ? FIntPoint(1024, 2048) : FIntPoint(2048, 512);
+					Frame->SetBrush(MakeAtlasBrush(FrameTexture, FrameRect, FrameSize, Frame->GetDesiredSize()));
+					if (Hero.Rare == 2) Frame->SetColorAndOpacity(FLinearColor(0.62f, 1.0f, 0.70f));
+					else if (Hero.Rare == 3) Frame->SetColorAndOpacity(FLinearColor(0.55f, 0.78f, 1.0f));
+				}
 				UTexture2D* HeadTexture = LoadObject<UTexture2D>(nullptr, HeroHeads);
 				Icon->SetBrush(MakeAtlasBrush(HeadTexture,
 					FIntRect(Hero.IconX, Hero.IconY, Hero.IconX + Hero.IconWidth, Hero.IconY + Hero.IconHeight),
@@ -1236,6 +1246,7 @@ void URokUnityFeatureScreenWidget::FinishGatherArmy(int32 ArmyIndex, const FStri
 
 void URokUnityFeatureScreenWidget::BuildArmyComposer()
 {
+	const RokArmyStateStyles::FBatch StateStyles(this);
 	const bool bGather = ActiveMode == ERokUnityFeatureScreenMode::GatherArmy;
 	if (bGather)
 	{
@@ -1265,17 +1276,21 @@ void URokUnityFeatureScreenWidget::BuildArmyComposer()
 					Image->SetBrush(Brush);
 				};
 				auto* Catalog = GetGameplayCatalogSubsystem();
-				const auto BindHead = [&SetImage](URokUiPageWidget& Target, FName IconName, FName FrameName, const FRokUnityCatalogHero& Hero)
+				const auto BindHead = [&SetImage, &StateStyles](URokUiPageWidget& Target, FName IconName, FName FrameName, const FRokUnityCatalogHero& Hero)
 				{
-					const bool bHighRarity = Hero.Rare >= 4;
 					auto* Frame = Target.Get<UImage>(FrameName);
-					SetImage(Frame, bHighRarity ? HeroHeads
-						: TEXT("/Game/RokPrototype/UI/CommanderAtlases/rok_commander_ui.rok_commander_ui"),
-						Hero.Rare >= 5 ? FIntRect(593, 1895, 727, 2047)
-						: Hero.Rare == 4 ? FIntRect(729, 1895, 863, 2047) : FIntRect(1, 53, 135, 205),
-						bHighRarity ? FIntPoint(1024, 2048) : FIntPoint(2048, 512));
-					if (Frame) Frame->SetColorAndOpacity(Hero.Rare == 2 ? FLinearColor(0.62f, 1, 0.70f)
-						: Hero.Rare == 3 ? FLinearColor(0.55f, 0.78f, 1) : FLinearColor::White);
+					if (Frame && !StateStyles.Apply(Frame, RokArmyStateStyles::RarityName(FMath::Min(Hero.Rare, 5)),
+						Frame->GetBrush().GetImageSize(), false, true))
+					{
+						const bool bHighRarity = Hero.Rare >= 4;
+						SetImage(Frame, bHighRarity ? HeroHeads
+							: TEXT("/Game/RokPrototype/UI/CommanderAtlases/rok_commander_ui.rok_commander_ui"),
+							Hero.Rare >= 5 ? FIntRect(593, 1895, 727, 2047)
+							: Hero.Rare == 4 ? FIntRect(729, 1895, 863, 2047) : FIntRect(1, 53, 135, 205),
+							bHighRarity ? FIntPoint(1024, 2048) : FIntPoint(2048, 512));
+						Frame->SetColorAndOpacity(Hero.Rare == 2 ? FLinearColor(0.62f, 1, 0.70f)
+							: Hero.Rare == 3 ? FLinearColor(0.55f, 0.78f, 1) : FLinearColor::White);
+					}
 					SetImage(Target.Get<UImage>(IconName), HeroHeads,
 						FIntRect(Hero.IconX, Hero.IconY, Hero.IconX + Hero.IconWidth, Hero.IconY + Hero.IconHeight),
 						FIntPoint(Hero.IconAtlasWidth, Hero.IconAtlasHeight));
@@ -1480,10 +1495,14 @@ void URokUnityFeatureScreenWidget::BuildArmyComposer()
 					const FIntPoint FrameSize = bHighRarity ? FIntPoint(1024, 2048) : FIntPoint(2048, 512);
 					if (UImage* Frame = Row->Get<UImage>(TEXT("Frame")))
 					{
-						Frame->SetBrush(MakeAtlasBrush(LoadObject<UTexture2D>(nullptr, FrameAtlas),
-							FrameRect, FrameSize, FVector2D(74, 84)));
-						if (Hero.Rare == 2) Frame->SetColorAndOpacity(FLinearColor(0.62f, 1.0f, 0.70f));
-						else if (Hero.Rare == 3) Frame->SetColorAndOpacity(FLinearColor(0.55f, 0.78f, 1.0f));
+						if (!StateStyles.Apply(Frame, RokArmyStateStyles::RarityName(FMath::Min(Hero.Rare, 5)),
+							FVector2D(74, 84), Hero.Rare != 2 && Hero.Rare != 3))
+						{
+							Frame->SetBrush(MakeAtlasBrush(LoadObject<UTexture2D>(nullptr, FrameAtlas),
+								FrameRect, FrameSize, FVector2D(74, 84)));
+							if (Hero.Rare == 2) Frame->SetColorAndOpacity(FLinearColor(0.62f, 1.0f, 0.70f));
+							else if (Hero.Rare == 3) Frame->SetColorAndOpacity(FLinearColor(0.55f, 0.78f, 1.0f));
+						}
 					}
 					SetImageFromAtlas(Row, TEXT("Icon"), HeroHeads,
 						FIntRect(Hero.IconX, Hero.IconY, Hero.IconX + Hero.IconWidth, Hero.IconY + Hero.IconHeight),

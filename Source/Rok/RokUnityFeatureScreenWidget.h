@@ -46,6 +46,10 @@ class URokServerArmySubsystem;
 class URokTrainArmyMeshWidget;
 class URokHelpWidget;
 class URokUiPageWidget;
+namespace RokArmyStateStyles
+{
+struct FBatch;
+}
 class URokHospitalExplanationWidget;
 class URokResearchScreenWidget;
 class URokMailAttachmentMeshWidget;
@@ -412,6 +416,7 @@ private:
 	UPROPERTY(Transient) TObjectPtr<URokUiPageWidget> TaskRewardTextStateTemplate;
 	UPROPERTY(Transient) TObjectPtr<URokUiPageWidget> TaskChapterRewardLayoutTemplate;
 	UPROPERTY(Transient) TObjectPtr<URokUiPageWidget> TaskPresentationTemplate;
+	UPROPERTY(Transient) TObjectPtr<URokUiPageWidget> TaskListLayoutTemplate;
 
 	/** Unity pl_content; contact folding is independent of root entry/exit. */
 	UPROPERTY()
@@ -841,6 +846,7 @@ private:
 	bool TryBuildServerTaskChapterPage(const FRokServerTaskSnapshot& Snapshot);
 	FText GetServerTaskChapterTitle(const FRokServerTaskSnapshot& Snapshot) const;
 	bool TryBuildServerDailyTaskPage(const FRokServerTaskSnapshot& Snapshot);
+	FVector2D GetTaskListRowSize(const UWidget* Row, FName LayoutName);
 	void BindServerTaskPageActions(const URokUiPageWidget& Page, const FRokServerTaskSnapshot& Snapshot);
 	int32 AddServerDailyTaskRows(const FRokServerTaskSnapshot& Snapshot, UScrollBox& Scroll,
 		UClass* RowClass = nullptr, UClass* RewardClass = nullptr);
@@ -1066,7 +1072,8 @@ private:
 		bool bSelected,
 		const FText& DisplayName,
 		const FText& StateText,
-		int32 Rare);
+		int32 Rare,
+		const RokArmyStateStyles::FBatch& ArmyStyles);
 	UWidget* MakeTaskRow(
 		int32 RowIndex,
 		int32 TaskId,

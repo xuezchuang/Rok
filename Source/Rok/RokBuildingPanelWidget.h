@@ -61,6 +61,13 @@ private:
 	FVector2D DesignUpgradePosition;
 	FVector2D DesignFeaturePosition;
 	FVector2D DesignShadowPosition;
+	struct FMenuButtonPositions
+	{
+		FVector2D Info;
+		FVector2D Upgrade;
+		FVector2D Feature;
+	};
+	TMap<FName, FMenuButtonPositions> MenuVariants;
 	UPROPERTY(EditDefaultsOnly, Category = "Rok UI|Layout")
 	float ProjectedTitleOffset = 53.0f;
 	UPROPERTY(EditDefaultsOnly, Category = "Rok UI|Layout")
@@ -183,6 +190,7 @@ private:
 	void CacheDesignLayout();
 	void Refresh();
 	void ApplyMenuLayout(bool bIsDecoration, bool bIsBuilderHut, bool bHasFeatureAction);
+	bool ApplyMenuVariant(double RowProjectionOffset);
 	void ApplyFeatureButtonVisual(int32 UnityBuildingTypeId, bool bUpgradeInProgress);
 	void SetFeatureButtonArt(UTexture2D* Texture, const FBox2f& UV = FBox2f(ForceInit));
 	void UpdateMenuPosition();
