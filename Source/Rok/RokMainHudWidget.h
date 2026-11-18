@@ -246,6 +246,31 @@ private:
 	UPROPERTY(Transient) TArray<TObjectPtr<UTextBlock>> BarracksIdleGlyphs;
 	float BarracksIdleMarkerElapsed = 0.0f;
 
+	void BuildCityStatusIndicators();
+	void UpdateCityStatusIndicators(float DeltaTime);
+	void HandleCityStatusClicked(int32 BuildingIndex);
+	struct FCityStatusIndicator
+	{
+		TWeakObjectPtr<UCanvasPanel> Root;
+		TWeakObjectPtr<UCanvasPanel> Pop;
+		TWeakObjectPtr<UTextBlock> Label;
+		TWeakObjectPtr<UImage> Icon;
+		TWeakObjectPtr<UImage> Flag;
+		TArray<TWeakObjectPtr<UImage>> Idle;
+		FVector2D PopBaseOffset = FVector2D::ZeroVector;
+		TArray<FVector2D> IdleBaseOffsets;
+		bool bCanUpgrade = false;
+		bool bIdle = false;
+		bool bHospitalWound = false;
+		FText Caption;
+	};
+	TMap<int32, FCityStatusIndicator> CityStatusIndicators;
+	UPROPERTY(Transient) TArray<TObjectPtr<UCanvasPanel>> CityStatusIndicatorRoots;
+	UPROPERTY(Transient) TObjectPtr<UTexture2D> CityUpgradeFlagTexture;
+	UPROPERTY(Transient) TObjectPtr<UTexture2D> CityIdleTexture;
+	float CityStatusElapsed = 0.0f;
+	float CityStatusRefreshDelay = 0.0f;
+
 	void BuildCityHarvestPops();
 	void UpdateCityHarvestPops(float DeltaTime);
 	void HandleCityHarvestClicked(int32 Index);

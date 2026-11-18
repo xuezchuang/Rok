@@ -1,11 +1,14 @@
-"""Build source-derived editable battle-report screen and row specs."""
+"""Build original Rok mail/report layouts; data bindings follow the reference protocol.
+
+No screenshot coordinates or new third-party artwork are used. Every stable layout,
+text style, reward card and chart style is editable in a generated Widget Blueprint.
+"""
 
 import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC_ROOT = ROOT / "Saved" / "RokUi" / "Specs"
-ATLAS = "/Game/RokPrototype/UI/FullScreenAtlases/rok_fullscreen_mail.rok_fullscreen_mail"
 
 
 def f(value: float) -> str:
@@ -36,7 +39,7 @@ def node(name: str, class_path: str, rect=None, props=None, children=None, z=1) 
 
 
 def text(name: str, value: str, rect, size: int, color, bold=False, z=2, visibility="HitTestInvisible") -> dict:
-    return node(name, "/Script/Rok.RokUiTextBlock", rect, {
+    result = node(name, "/Script/UMG.TextBlock", rect, {
         "Text": value,
         "Font": f"(OutlineSettings=(OutlineColor=(R=0.000000,G=0.000000,B=0.000000,A=1.000000)),TypefaceFontName=\"{'Bold' if bold else 'Regular'}\",Size={size}.000000,MonospacedWidth=1.000000)",
         "ColorAndOpacity": f"(SpecifiedColor=(R={color[0]},G={color[1]},B={color[2]},A={color[3]}))",
@@ -45,155 +48,170 @@ def text(name: str, value: str, rect, size: int, color, bold=False, z=2, visibil
         "Justification": "ETextJustify::Left",
         "AutoWrapText": "False",
         "Visibility": visibility,
-        "FontRole": "EngineDefault",
     }, z=z)
+    result["fonts"] = {"Font": "EngineDefault"}
+    return result
 
 
-def image(name: str, rect, uv, z=2) -> dict:
-    u, v, w, h = uv
-    min_u, min_v = u / 2048.0, 1.0 - (v + h) / 1024.0
-    max_u, max_v = (u + w) / 2048.0, 1.0 - v / 1024.0
-    brush = (
-        "(TintColor=(SpecifiedColor=(R=1.000000,G=1.000000,B=1.000000,A=1.000000)),"
-        "DrawAs=Image,ImageType=FullColor,ImageSize=(X=77.000000,Y=75.000000),Margin=(),"
-        f"ResourceObject=\"/Script/Engine.Texture2D'{ATLAS}'\","
-        f"UVRegion=(Min=(X={f(min_u)},Y={f(min_v)}),Max=(X={f(max_u)},Y={f(max_v)}),bIsValid=True))"
-    )
-    return node(name, "/Script/UMG.Image", rect, {
-        "Brush": brush,
-        "Visibility": "HitTestInvisible",
-    }, z=z)
+PAPER = (0.88, 0.87, 0.82, 1.0)
+MUTED = (0.65, 0.68, 0.69, 1.0)
+ACCENT = (0.85, 0.72, 0.44, 1.0)
+
+
+def vertical(child, bottom=12):
+    child["slot"] = {"class": "/Script/UMG.VerticalBoxSlot", "props": {
+        "Padding": f"(Left=14,Top=0,Right=14,Bottom={bottom})",
+        "HorizontalAlignment": "HAlign_Fill", "VerticalAlignment": "VAlign_Top",
+        "Size": "(Value=1,SizeRule=Automatic)"}}
+    return child
+
+
+def sized(name, height, children):
+    return node(name + "Size", "/Script/UMG.SizeBox", props={
+        "WidthOverride": "790", "bOverride_WidthOverride": "True",
+        "HeightOverride": str(height), "bOverride_HeightOverride": "True"},
+        children=[node(name, "/Script/UMG.CanvasPanel", children=children)])
+
+
+def border(name, rect, color=(0.075, 0.090, 0.096, 1), visibility="HitTestInvisible"):
+    return node(name, "/Script/UMG.Border", rect, {
+        "BrushColor": f"(R={color[0]},G={color[1]},B={color[2]},A={color[3]})",
+        "Padding": "(Left=0,Top=0,Right=0,Bottom=0)", "Visibility": visibility})
+
+
+def curve_primitive(name, width, height, color):
+    return node(name, "/Script/UMG.Image", (0, 0, width, height), {
+        "Brush": "(DrawAs=Box,TintColor=(SpecifiedColor=(R=%s,G=%s,B=%s,A=%s)))" % color,
+        "Visibility": "Collapsed"})
+
+
+def marker(name, width, height):
+    return node(name, "/Script/UMG.CanvasPanel", (0, 0, width, height), {"Visibility": "Collapsed"})
+
+
+def report_screen():
+    header = sized("BattleReportHeader", 126, [
+        border("BattleReportHeaderPlate", (0, 0, 790, 126)),
+        text("BattleReportTitle", "战斗报告", (18, 14, 754, 36), 27, ACCENT, True),
+        text("BattleReportOpponent", "", (18, 56, 754, 28), 20, PAPER),
+        text("BattleReportTime", "", (18, 94, 754, 24), 16, MUTED)])
+    rewards = node("BattleReportRewardsSection", "/Script/UMG.VerticalBox", children=[
+        vertical(text("BattleReportRewardHeading", "战斗奖励", None, 19, ACCENT), 8),
+        vertical(text("BattleReportEmptyRewards", "无奖励记录", None, 18, MUTED), 0),
+        vertical(node("BattleReportRewardCards", "/Script/UMG.WrapBox", props={
+            "InnerSlotPadding": "(X=10,Y=10)", "WrapSize": "760", "bExplicitWrapSize": "True"}), 0)])
+    player = sized("BattleReportPlayerSection", 102, [
+        border("BattleReportPlayerPlate", (0, 0, 790, 102), (0.12, 0.15, 0.16, 1)),
+        text("BattleReportPlayer", "", (16, 12, 460, 31), 23, PAPER, True),
+        text("BattleReportHero", "", (16, 56, 460, 28), 18, MUTED),
+        text("BattleReportArmyTotal", "", (500, 16, 274, 27), 18, PAPER),
+        text("BattleReportArmyRemaining", "", (500, 56, 274, 27), 18, PAPER)])
+    chart = sized("BattleReportCurveSection", 267, [
+        text("BattleReportCurveHeading", "部队数量变化", (0, 0, 790, 30), 19, ACCENT),
+        border("BattleReportCurveBacking", (66, 44, 704, 161), (0.045, 0.060, 0.068, 1)),
+        node("BattleReportCurvePlot", "/Script/UMG.CanvasPanel", (76, 50, 680, 148), {"Visibility": "HitTestInvisible"}),
+        *[text(f"BattleReportCurveAxis_{tick}", "0", (0, 39 + tick * 50, 64, 25), 15, MUTED) for tick in range(4)],
+        text("BattleReportNoCurve", "没有可用的兵力变化记录", (120, 105, 600, 28), 18, MUTED, visibility="Collapsed"),
+        text("BattleReportStartTime", "", (67, 216, 280, 26), 16, MUTED),
+        text("BattleReportEndTime", "", (568, 216, 200, 26), 16, MUTED),
+        curve_primitive("BattleReportCurveLineTemplate", 1, 3, (0.24, 0.68, 0.79, 1)),
+        curve_primitive("BattleReportCurvePointTemplate", 8, 8, (0.81, 0.91, 0.89, 1))])
+    metadata = node("BattleReportMetadata", "/Script/UMG.VerticalBox", children=[
+        vertical(text("BattleReportMissingSelf", "战报中没有当前角色的部队信息。", None, 18, MUTED, visibility="Collapsed"), 6),
+        vertical(text("BattleReportCasualties", "", None, 18, MUTED), 6),
+        vertical(text("BattleReportExperience", "", None, 18, MUTED), 6),
+        vertical(text("BattleReportDuration", "", None, 17, MUTED), 6)])
+    body = node("BattleReportOverviewBody", "/Script/UMG.VerticalBox", (0, 0, 818, 0), children=[
+        vertical(header), vertical(text("BattleReportPending", "正在获取战斗详情…", None, 21, MUTED, visibility="Collapsed")),
+        vertical(rewards, 18), vertical(player), vertical(chart), vertical(metadata),
+        vertical(text("BattleReportOpponentHeading", "交战对象", None, 19, ACCENT), 8),
+        vertical(node("BattleReportOpponentRows", "/Script/UMG.VerticalBox"), 0)])
+    body["slot"]["props"]["bAutoSize"] = "True"
+    return {"version": 1, "label": "Rok editable battle report overview", "root": "BattleReportRoot", "nodes": [
+        border("BattleReportPanel", (0, 0, 830, 590), (0.04, 0.05, 0.055, 0.97)),
+        node("BattleReportDetailScroll", "/Script/UMG.ScrollBox", (4, 6, 822, 578), {
+            "AllowOverscroll": "False", "ScrollBarVisibility": "ESlateVisibility::Visible"}, children=[
+            node("BattleReportDetailSize", "/Script/UMG.SizeBox", props={"WidthOverride": "818", "bOverride_WidthOverride": "True"}, children=[
+                node("BattleReportDetailCanvas", "/Script/UMG.CanvasPanel", children=[body])])]),
+        text("BattleReportEmpty", "暂无战斗报告", (32, 60, 760, 45), 23, MUTED, visibility="Collapsed")],
+        "notes": ["Original Rok layout and plain editable shapes; C++ binds protocol values only.",
+                  "Vertical flow grows for long reward/opponent lists. Curve style is copied from hidden templates; geometry follows report events."]}
+
+
+def mail_screen():
+    body = text("ServerMailBody", "邮件正文", None, 20, PAPER)
+    body["props"].update({"AutoWrapText": "True", "WrapTextAt": "756"})
+    content = node("ServerMailContent", "/Script/UMG.VerticalBox", children=[
+        vertical(sized("ServerMailHeader", 124, [
+            border("ServerMailHeaderPlate", (0, 0, 790, 124)),
+            text("ServerMailTitle", "邮件", (18, 12, 752, 36), 26, ACCENT, True),
+            text("ServerMailSubtitle", "", (18, 54, 752, 29), 20, PAPER),
+            text("ServerMailTime", "", (18, 92, 752, 24), 16, MUTED)])),
+        vertical(body, 20), vertical(text("ServerMailSender", "", None, 17, MUTED)),
+        vertical(text("ServerMailRewardHeading", "邮件附件", None, 19, ACCENT), 8),
+        vertical(node("ServerMailRewardCards", "/Script/UMG.WrapBox", props={
+            "InnerSlotPadding": "(X=10,Y=10)", "WrapSize": "756", "bExplicitWrapSize": "True"})),
+        vertical(text("ServerMailRewardUnavailable", "部分附件详情暂不可用。", None, 17, MUTED, visibility="Collapsed")),
+        vertical(sized("ServerMailClaimSection", 66, [
+            node("ServerMailClaim", "/Script/Rok.RokUnityIndexedButton", (0, 8, 220, 46), {
+                "BackgroundColor": "(R=0.24,G=0.32,B=0.34,A=1)", "Visibility": "Visible"}, children=[
+                    text("ServerMailClaimLabel", "领取附件", None, 20, PAPER)])]), 4)])
+    return {"version": 1, "label": "Rok server mail detail", "root": "ServerMailRoot", "nodes": [
+        border("ServerMailPanel", (0, 0, 830, 590), (0.04, 0.05, 0.055, 0.97)),
+        node("ServerMailScroll", "/Script/UMG.ScrollBox", (6, 8, 818, 574), {
+            "AllowOverscroll": "False", "ScrollBarVisibility": "ESlateVisibility::Visible"}, children=[content]),
+        text("ServerMailEmpty", "当前暂无邮件。", (32, 62, 760, 44), 23, MUTED, visibility="Collapsed")],
+        "notes": ["Server inbox only; no sample player, mail body or reward is installed as runtime data."]}
+
+
+def list_row(prefix):
+    return {"version": 1, "label": "Rok mail list entry", "root": prefix + "Root", "nodes": [
+        marker(prefix + "Layout", 470, 108),
+        border(prefix + "Plate", (6, 5, 458, 98)),
+        border(prefix + "Selection", (6, 5, 4, 98), (0.78, 0.65, 0.36, 1), "Collapsed"),
+        text(prefix + "Title", "", (22, 14, 405, 32), 22, PAPER, True),
+        text(prefix + "Subject", "", (22, 52, 405, 42), 17, MUTED),
+        text(prefix + "Unread", "●", (433, 15, 22, 23), 16, ACCENT, visibility="Collapsed"),
+        node(prefix + "HitButton", "/Script/Rok.RokUnityIndexedButton", (0, 0, 470, 108), {
+            "Visibility": "Visible", "BackgroundColor": "(R=0,G=0,B=0,A=0)"}, z=10)]}
+
+
+def reward_card(prefix):
+    icon = node(prefix + "Icon", "/Script/UMG.Image", (12, 12, 46, 46), {"Visibility": "Collapsed"})
+    return {"version": 1, "label": "Rok data-bound reward card", "root": prefix + "Root", "nodes": [
+        marker(prefix + "Layout", 242, 76), border(prefix + "Plate", (0, 0, 242, 76)), icon,
+        text(prefix + "Name", "", (70, 10, 162, 29), 17, PAPER),
+        text(prefix + "Quantity", "", (70, 42, 162, 24), 16, ACCENT)]}
+
+
+def army_card():
+    return {"version": 1, "label": "Rok battle participant", "root": "BattleReportArmyRoot", "nodes": [
+        marker("BattleReportArmyLayout", 790, 158), border("BattleReportArmyPlate", (0, 0, 790, 150)),
+        text("BattleReportArmyName", "", (16, 10, 750, 30), 21, PAPER, True),
+        text("BattleReportArmyCounts", "", (16, 47, 750, 27), 18, PAPER),
+        text("BattleReportArmyCasualties", "", (16, 82, 750, 25), 17, MUTED),
+        text("BattleReportArmyPosition", "", (16, 118, 750, 25), 17, MUTED)]}
 
 
 def build() -> dict[str, dict]:
-    # Positions are the existing 1440x810 mail-window composition; the right
-    # report pane is mounted at (547,128), so page children use local coordinates.
-    screen_nodes = [
-        node("BattleReportPanel", "/Script/UMG.Border", (0, 0, 830, 590), {
-            "BrushColor": "(R=0.047059,G=0.054902,B=0.058824,A=0.960000)",
-            "Padding": "(Left=0,Top=0,Right=0,Bottom=0)",
-        }, z=1),
-        node("BattleReportDetailScroll", "/Script/UMG.ScrollBox", (5, 4, 820, 582), {
-            "ScrollBarVisibility": "ESlateVisibility::Collapsed",
-            "AllowOverscroll": "False",
-            "bAnimateWheelScrolling": "False",
-        }, children=[node("BattleReportDetailSize", "/Script/UMG.SizeBox", props={
-            "HeightOverride": "245.000000",
-            "bOverride_HeightOverride": "True",
-        }, children=[node("BattleReportDetailCanvas", "/Script/UMG.CanvasPanel", props={
-        }, children=[
-            image("BattleReportPoster", (2, 1, 803, 118), (1, 650, 822, 773), z=1),
-            text("BattleReportTitle", "战斗报告", (22, 12, 520, 38), 29, (0.91, 0.79, 0.52, 1.0), True, z=3),
-            text("BattleReportOpponent", "交战记录", (23, 60, 600, 28), 22, (1.0, 1.0, 1.0, 1.0), z=3),
-            text("BattleReportTime", "", (577, 87, 224, 26), 15, (0.74, 0.75, 0.70, 1.0), z=3),
-            text("BattleReportDuration", "", (23, 131, 750, 30), 18, (0.74, 0.75, 0.70, 1.0), z=3),
-            text("BattleReportPending", "正在获取战斗详情…", (24, 154, 750, 44), 23,
-                 (0.74, 0.75, 0.70, 1.0), z=4, visibility="Collapsed"),
-            text("BattleReportArmyHeading", "部队战况", (23, 170, 750, 34), 22,
-                 (0.91, 0.79, 0.52, 1.0), True, z=3, visibility="Collapsed"),
-            text("BattleReportArmyCol0", "部队", (24, 212, 100, 27), 17, (0.74, 0.75, 0.70, 1.0), visibility="Collapsed"),
-            text("BattleReportArmyCol1", "参战", (281, 212, 100, 27), 17, (0.74, 0.75, 0.70, 1.0), visibility="Collapsed"),
-            text("BattleReportArmyCol2", "剩余", (389, 212, 100, 27), 17, (0.74, 0.75, 0.70, 1.0), visibility="Collapsed"),
-            text("BattleReportArmyCol3", "轻伤", (497, 212, 100, 27), 17, (0.74, 0.75, 0.70, 1.0), visibility="Collapsed"),
-            text("BattleReportArmyCol4", "重伤", (605, 212, 100, 27), 17, (0.74, 0.75, 0.70, 1.0), visibility="Collapsed"),
-            text("BattleReportArmyCol5", "阵亡", (713, 212, 100, 27), 17, (0.74, 0.75, 0.70, 1.0), visibility="Collapsed"),
-            text("BattleReportRewardHeading", "战斗奖励", (23, 348, 750, 32), 22,
-                 (0.91, 0.79, 0.52, 1.0), True, z=3, visibility="Collapsed"),
-            text("BattleReportEmptyRewards", "无", (24, 384, 750, 25), 19,
-                 (0.74, 0.75, 0.70, 1.0), visibility="Collapsed"),
-            text("BattleReportExperience", "", (24, 384, 750, 29), 19,
-                 (1.0, 1.0, 1.0, 1.0), visibility="Collapsed"),
-            text("BattleReportRoundsHeading", "战斗回合", (23, 430, 750, 34), 22,
-                 (0.91, 0.79, 0.52, 1.0), True, z=3, visibility="Collapsed"),
-            text("BattleReportNoRounds", "本场战报没有回合记录。", (24, 469, 750, 29), 18,
-                 (0.74, 0.75, 0.70, 1.0), visibility="Collapsed"),
-        ])])], z=3),
-        text("BattleReportEmpty", "暂无战斗报告", (57, 87, 690, 44), 24,
-             (0.74, 0.75, 0.70, 1.0), z=4),
-    ]
-    page = {"version": 1, "label": "Editable battle-report detail pane", "root": "BattleReportRoot",
-            "nodes": screen_nodes, "notes": [
-                "The right-side panel, scroll viewport, empty state and content host are editable in Designer.",
-                "C++ supplies report-specific values and grows the content SizeBox for dynamic rows.",
-            ]}
-
-    # A separate clickable native parent keeps indexed input behavior in C++;
-    # artwork, typography and row spacing remain editor-authored.
-    row_nodes = [
-        node("BattleReportRowPlate", "/Script/UMG.Border", (12, 7, 460, 90), {
-            "BrushColor": "(R=0.047059,G=0.054902,B=0.058824,A=0.960000)",
-            "Padding": "(Left=0,Top=0,Right=0,Bottom=0)",
-        }, z=1),
-        image("BattleReportRowIcon", (24, 19, 68, 66), (1930, 650, 77, 75), z=2),
-        text("BattleReportRowTitle", "战斗报告", (107, 17, 340, 32), 23,
-             (1.0, 1.0, 1.0, 1.0), True, z=3),
-        text("BattleReportRowSubject", "交战记录", (107, 57, 300, 24), 17,
-             (0.74, 0.75, 0.70, 1.0), z=3),
-        text("BattleReportRowUnread", "●", (433, 23, 28, 22), 18,
-             (0.92, 0.19, 0.12, 1.0), z=4),
-        node("BattleReportRowHitButton", "/Script/Rok.RokUnityIndexedButton", (0, 0, 470, 100), {
-            "Visibility": "Visible",
-            "BackgroundColor": "(R=0.000000,G=0.000000,B=0.000000,A=0.000000)",
-        }, z=10),
-    ]
-    row = {"version": 1, "label": "Editable battle-report list row", "root": "BattleReportRowRoot",
-           "nodes": row_nodes, "notes": [
-               "The indexed-button parent retains click behavior; text, icon, plate and placement are editable.",
-               "C++ supplies title, opponent, unread state and selection styling.",
-           ]}
-
-    army_nodes = [
-        node("BattleReportArmyPlate", "/Script/UMG.Border", (0, 0, 784, 41), {
-            "BrushColor": "(R=0.078000,G=0.088000,B=0.085000,A=1.000000)",
-            "Padding": "(Left=0,Top=0,Right=0,Bottom=0)",
-        }, z=1),
-        text("BattleReportArmyName", "我方", (12, 7, 245, 27), 19, (1.0, 1.0, 1.0, 1.0), z=2),
-        text("BattleReportArmyBegin", "—", (269, 7, 102, 27), 19, (1.0, 1.0, 1.0, 1.0), z=2),
-        text("BattleReportArmyEnd", "—", (377, 7, 102, 27), 19, (1.0, 1.0, 1.0, 1.0), z=2),
-        text("BattleReportArmyMinor", "—", (485, 7, 102, 27), 19, (1.0, 1.0, 1.0, 1.0), z=2),
-        text("BattleReportArmySevere", "—", (593, 7, 102, 27), 19, (1.0, 1.0, 1.0, 1.0), z=2),
-        text("BattleReportArmyDead", "—", (701, 7, 102, 27), 19, (1.0, 1.0, 1.0, 1.0), z=2),
-    ]
-    army = {"version": 1, "label": "Editable battle-report army row", "root": "BattleReportArmyRowRoot",
-            "nodes": army_nodes, "notes": [
-                "The reusable row owns casualty background, six columns, font and alignment.",
-                "C++ supplies friendly/enemy labels and counts for each battle.",
-            ]}
-
-    reward_nodes = [
-        image("BattleReportRewardIcon", (0, 0, 40, 40), (1930, 650, 77, 75), z=1),
-        text("BattleReportRewardText", "奖励 ×0", (44, 8, 210, 30), 17, (1.0, 1.0, 1.0, 1.0), z=2),
-    ]
-    reward = {"version": 1, "label": "Editable battle-report reward row", "root": "BattleReportRewardRowRoot",
-              "nodes": reward_nodes, "notes": [
-                  "C++ selects the reward icon and supplies localized label and quantity.",
-                  "The parent decides the three-column grid position based on the dynamic reward count.",
-              ]}
-
-    round_nodes = [
-        node("BattleReportRoundPlate", "/Script/UMG.Border", (0, 0, 784, 33), {
-            "BrushColor": "(R=0.078000,G=0.088000,B=0.085000,A=1.000000)",
-            "Padding": "(Left=0,Top=0,Right=0,Bottom=0)",
-        }, z=1),
-        text("BattleReportRoundSummary", "第 1 回合     我方剩余 0     敌方剩余 0", (12, 4, 760, 28), 17,
-             (1.0, 1.0, 1.0, 1.0), z=2),
-    ]
-    round_row = {"version": 1, "label": "Editable battle-report round row", "root": "BattleReportRoundRowRoot",
-                 "nodes": round_nodes, "notes": [
-                     "C++ supplies round number and remaining army counts; the WBP owns row typography and backing plate.",
-                 ]}
-    return {
-        "battle_report_screen": page,
-        "battle_report_row": row,
-        "battle_report_army_row": army,
-        "battle_report_reward_row": reward,
-        "battle_report_round_row": round_row,
-    }
+    return {"battle_report_screen": report_screen(), "battle_report_row": list_row("BattleReportRow"),
+            "battle_report_army_row": army_card(), "battle_report_reward_row": reward_card("BattleReportReward"),
+            "battle_report_round_row": {"version": 1, "label": "Reserved report event row", "root": "BattleReportRoundRoot", "nodes": [
+                text("BattleReportRoundSummary", "", (12, 4, 760, 28), 17, MUTED)]},
+            "server_mail_screen": mail_screen(), "server_mail_row": list_row("ServerMailRow"),
+            "server_mail_reward_card": reward_card("ServerMailReward")}
 
 
 def main() -> None:
     SPEC_ROOT.mkdir(parents=True, exist_ok=True)
+    references = [
+        "ref/server/data/work/common/protocol/Common.sproto: EmailInfo, RewardInfo, BattleReportEx",
+        "ref/client-unity/Assets/Scripts/Hotfix/MVC/Proxy/EmailProxy.cs: template arguments and type mapping",
+        "ref/client-unity/Assets/Scripts/Hotfix/MVC/View_Mediator/Mail/MailMediator.cs: OnSystemEmail",
+        "ref/client-unity/Assets/Scripts/Hotfix/MVC/View_Mediator/Common/Logic/UI_Item_MailFightReport_SubView.cs: report values and event ordering",
+    ]
     for name, spec in build().items():
+        spec["references"] = references
         target = SPEC_ROOT / f"{name}.json"
         target.write_text(json.dumps(spec, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         print(target)

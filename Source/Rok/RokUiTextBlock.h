@@ -24,6 +24,8 @@ public:
 	/** Re-applies the role to the current font (keeps size, typeface and outline). */
 	void ApplyFontRole();
 
+	ETextJustify::Type GetDesignerJustification() const { return Justification.GetValue(); }
+
 protected:
 	virtual TSharedRef<SWidget> RebuildWidget() override;
 

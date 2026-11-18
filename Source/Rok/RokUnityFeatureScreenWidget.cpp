@@ -2430,8 +2430,10 @@ void URokUnityFeatureScreenWidget::NativeTick(const FGeometry& MyGeometry, float
 			RefreshHospital();
 		}
 	}
-	if (ActiveMode == ERokUnityFeatureScreenMode::Mail && SelectedMailTab == 1)
+	if (ActiveMode == ERokUnityFeatureScreenMode::Mail)
+	{
 		RefreshBattleReportMail();
+	}
 	if (ActiveMode == ERokUnityFeatureScreenMode::Commander) UpdateCommanderSceneMotion();
 	AdvanceTaskCompletedRowAnimation();
 	if (ActiveMode == ERokUnityFeatureScreenMode::Expedition)
@@ -5140,7 +5142,10 @@ void URokUnityFeatureScreenWidget::BuildWorkerQueue()
 					if (Price)
 					{
 						Price->SetText(PriceText);
-						Price->SetColorAndOpacity(PriceColor);
+						FTextBlockStyle PriceStyle;
+						const bool bAuthoredPrice = TryGetFeatureTextStyle(bWorkerHireAffordable
+							? TEXT("WorkerQueueHirePriceAffordable") : TEXT("WorkerQueueHirePriceInsufficient"), PriceStyle);
+						Price->SetColorAndOpacity(bAuthoredPrice ? PriceStyle.ColorAndOpacity : FSlateColor(PriceColor));
 					}
 				}
 			}
@@ -6940,14 +6945,22 @@ void URokUnityFeatureScreenWidget::BuildSettingsHub()
 
 namespace
 {
-void ApplyGraphicsSettingsRecommendation(URichTextBlock& Recommendation)
+void ApplyGraphicsSettingsRecommendation(URichTextBlock& Recommendation,
+	const FTextBlockStyle* AuthoredDefault = nullptr, const FTextBlockStyle* AuthoredHighlight = nullptr)
 {
 	using RokGraphicsSettingsLayout::RecommendedTier;
 	static const TCHAR* Levels[] = { TEXT("低"), TEXT("中"), TEXT("高") };
 	FTextBlockStyle Style = Recommendation.GetDefaultTextStyle();
 	// The transient data table colors only the recommended tier word.
-	Style.SetFont(FCoreStyle::GetDefaultFontStyle(TEXT("Regular"), 15))
-		.SetColorAndOpacity(FSlateColor(FLinearColor::White)).SetShadowOffset(FVector2D::ZeroVector);
+	if (AuthoredDefault)
+	{
+		Style = *AuthoredDefault;
+	}
+	else
+	{
+		Style.SetFont(FCoreStyle::GetDefaultFontStyle(TEXT("Regular"), 15))
+			.SetColorAndOpacity(FSlateColor(FLinearColor::White)).SetShadowOffset(FVector2D::ZeroVector);
+	}
 	auto* Styles = NewObject<UDataTable>(&Recommendation);
 	Styles->RowStruct = FRichTextStyleRow::StaticStruct();
 	FRichTextStyleRow Default;
@@ -6955,7 +6968,14 @@ void ApplyGraphicsSettingsRecommendation(URichTextBlock& Recommendation)
 	Styles->AddRow(TEXT("Default"), Default);
 	FRichTextStyleRow Green;
 	Green.TextStyle = Style;
-	Green.TextStyle.SetColorAndOpacity(FSlateColor(FLinearColor(83.f / 255, 219.f / 255, 91.f / 255, 1)));
+	if (AuthoredHighlight)
+	{
+		Green.TextStyle = *AuthoredHighlight;
+	}
+	else
+	{
+		Green.TextStyle.SetColorAndOpacity(FSlateColor(FLinearColor(83.f / 255, 219.f / 255, 91.f / 255, 1)));
+	}
 	Styles->AddRow(TEXT("Recommended"), Green);
 	Recommendation.SetTextStyleSet(Styles);
 	Recommendation.SetDefaultTextStyle(Style);
@@ -7118,7 +7138,11 @@ void URokUnityFeatureScreenWidget::BindGeneralSettingsPage(const URokUiPageWidge
 	}
 	if (URichTextBlock* Recommendation = Page.Get<URichTextBlock>(TEXT("GeneralSettingsGraphicsRecommendation")))
 	{
-		ApplyGraphicsSettingsRecommendation(*Recommendation);
+		FTextBlockStyle DefaultStyle, HighlightStyle;
+		const bool bAuthored = TryGetFeatureTextStyle(TEXT("GeneralSettingsRecommendationDefault"), DefaultStyle)
+			&& TryGetFeatureTextStyle(TEXT("GeneralSettingsRecommendationHighlight"), HighlightStyle);
+		ApplyGraphicsSettingsRecommendation(*Recommendation, bAuthored ? &DefaultStyle : nullptr,
+			bAuthored ? &HighlightStyle : nullptr);
 	}
 	if (USlider* SfxSlider = Page.Get<USlider>(TEXT("GeneralSettingsSfxSlider")))
 	{
@@ -8552,7 +8576,7 @@ void URokUnityFeatureScreenWidget::BuildTrainArmy()
 			FVector2D(750.0f, 80.0f),
 			7);
 	}
-	else
+	else if (!TryBuildTrainArmyUnavailableState(TEXT("CatalogMissing"), ModeCanvas))
 	{
 		UTextBlock* MissingCatalog = MakeScreenText(
 			TEXT("TrainArmyMissingCatalog"),
@@ -9025,9 +9049,16 @@ void URokUnityFeatureScreenWidget::BuildTrainArmySharedDisplay(int32 TroopId)
 	}
 	// Missing source is a visible diagnostic, never a fabricated animated model.
 	FIntRect PortraitRect;
-	if (ResolveTroopHeadRect(SelectedTrainArmyType, SelectedTrainTier, PortraitRect))
+	const bool bHasPortrait = ResolveTroopHeadRect(SelectedTrainArmyType, SelectedTrainTier, PortraitRect);
+	if (TryBuildTrainArmyUnavailableState(TEXT("ModelMissing"), ModelParent, bHasPortrait ? &PortraitRect : nullptr))
+	{
+		return;
+	}
+	if (bHasPortrait)
+	{
 		PlaceOnCanvas(ModelParent, MakeAtlasImage(bTrainArmyDetailVisible ? TEXT("TrainArmyDetailPortrait") : TEXT("TrainArmySelectedIcon"),
 			TroopHeadAtlasPath, PortraitRect, TroopHeadAtlasSize, FVector2D(280)), FVector2D(270, 250), FVector2D(280), 6);
+	}
 	auto* Preview = MakeScreenText(TEXT("TrainParameterStaticPreview"), 15, FLinearColor::White, false, ETextJustify::Center);
 	Preview->SetText(FText::FromString(TEXT("模型加载失败 · 静态诊断预览"))); Preview->SetShadowOffset(FVector2D::ZeroVector);
 	PlaceOnCanvas(ModelParent, Preview, FVector2D(270, 540), FVector2D(280, 30), 6);
@@ -9363,6 +9394,10 @@ void URokUnityFeatureScreenWidget::BuildTrainArmyDetail(int32 TroopId)
 	if (!RokTrainArmyDetail::Load(TroopId, Detail, Error))
 	{
 		UE_LOG(LogTemp, Error, TEXT("%s"), *Error);
+		if (TryBuildTrainArmyUnavailableState(TEXT("DetailMissing"), ModeCanvas))
+		{
+			return;
+		}
 		auto* Missing = MakeScreenText(TEXT("TrainArmyDetailMissing"), 22, FLinearColor::White);
 		Missing->SetText(FText::FromString(TEXT("兵种详情配置未载入")));
 		PlaceOnCanvas(ModeCanvas, Missing, CapturePoint(650, 300), FVector2D(540, 60), 10);
@@ -11113,7 +11148,7 @@ void URokUnityFeatureScreenWidget::BuildMail()
 			BindMailPageControls(*Page);
 			for (int32 Tab = 0; Tab < 6; ++Tab)
 			{
-				const int32 Unread = bLocalMailUnreadFixtureState ? MailLocalUnreadState.UnreadCount(Tab) : 0;
+				const int32 Unread = bLocalMailUnreadFixtureState ? MailLocalUnreadState.UnreadCount(Tab) : GetSessionMailUnreadCount(Tab);
 				UWidget* Dot = Page->Get<UImage>(*FString::Printf(TEXT("MailLocalTabRedPoint_%d"), Tab));
 				UTextBlock* Count = Page->Get<UTextBlock>(*FString::Printf(TEXT("MailLocalTabUnreadCount_%d"), Tab));
 				Page->SetPresent(Dot, Unread > 0);
@@ -11133,6 +11168,12 @@ void URokUnityFeatureScreenWidget::BuildMail()
 			if (bReportTab)
 			{
 				BuildBattleReportMail(List);
+				return;
+			}
+			if (!bLocalMailUnreadFixtureState)
+			{
+				Page->SetPresent(Page->Get<UTextBlock>(TEXT("MailEmptyState")), false);
+				BuildSessionMail(List);
 				return;
 			}
 			int32 VisibleCount = 0;
@@ -11333,6 +11374,11 @@ void URokUnityFeatureScreenWidget::BuildMail()
 	if (bReportTab)
 	{
 		BuildBattleReportMail(MailListScroll);
+		return;
+	}
+	if (bUsesCommonMailPage && !bLocalMailUnreadFixtureState)
+	{
+		BuildSessionMail(MailListScroll);
 		return;
 	}
 	if (bLocalTabHasMail)
@@ -12273,17 +12319,28 @@ void URokUnityFeatureScreenWidget::PopulateServerTaskChapterGuide(const FRokTask
 	URichTextBlock& Dialogue, UCanvasPanel* ModelSlot)
 {
 	FTextBlockStyle TextStyle;
-	TextStyle.SetFont(URokMainHudWidget::MakeUnitySourceFont(17, true))
-		.SetColorAndOpacity(FSlateColor(FLinearColor::White));
+	const bool bAuthoredStyle = ModelSlot && TryGetFeatureTextStyle(TEXT("TaskChapterDialogueDefault"), TextStyle);
+	if (!bAuthoredStyle)
+	{
+		TextStyle.SetFont(URokMainHudWidget::MakeUnitySourceFont(17, true))
+			.SetColorAndOpacity(FSlateColor(FLinearColor::White));
+	}
 	auto* Styles = NewObject<UDataTable>(&Dialogue);
 	Styles->RowStruct = FRichTextStyleRow::StaticStruct();
 	FRichTextStyleRow Default;
 	Default.TextStyle = TextStyle;
 	Styles->AddRow(TEXT("Default"), Default);
 	FRichTextStyleRow Emphasis = Default;
-	Emphasis.TextStyle.SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 0.43f, 0.02f)));
+	if (!bAuthoredStyle || !TryGetFeatureTextStyle(TEXT("TaskChapterDialogueHighlight"), Emphasis.TextStyle))
+	{
+		Emphasis.TextStyle.SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 0.43f, 0.02f)));
+	}
 	Styles->AddRow(TEXT("Emphasis"), Emphasis);
 	Dialogue.SetTextStyleSet(Styles);
+	if (bAuthoredStyle)
+	{
+		Dialogue.SetDefaultTextStyle(TextStyle);
+	}
 	FString Story = Metadata.Description2.ZhCn;
 	Story.ReplaceInline(TEXT("<b>"), TEXT(""));
 	Story.ReplaceInline(TEXT("</b>"), TEXT(""));

@@ -706,6 +706,7 @@ bool URokGameNetSubsystem::Connect(FString& OutError)
 
 	Rpc = MakeUnique<FRokSprotoRpc>(Schema);
 	MergedState = MakeShared<FJsonObject>();
+	SessionMail.Reset();
 	BattleReportMail.Reset();
 	BattleReportRequests.Reset();
 	FailedBattleReportDownloads.Reset();
@@ -762,6 +763,10 @@ void URokGameNetSubsystem::Disconnect(const FString& Reason)
 	}
 	Worker.Reset();
 	Secret.Reset();
+	// Server mail belongs to the connection that supplied it, including when
+	// Disconnect is called again after the state already became Offline/Failed.
+	SessionMail.Reset();
+	++BattleReportRevision;
 	++BattleReportSession;
 	if (State != ERokGameNetState::Offline && State != ERokGameNetState::Failed)
 	{
@@ -776,6 +781,12 @@ void URokGameNetSubsystem::SetState(ERokGameNetState NewState)
 {
 	if (State == NewState) return;
 	State = NewState;
+	// Remote close/failure transitions do not necessarily call Disconnect.
+	if ((State == ERokGameNetState::Offline || State == ERokGameNetState::Failed) && !SessionMail.IsEmpty())
+	{
+		SessionMail.Reset();
+		++BattleReportRevision;
+	}
 	if (State != ERokGameNetState::RoleReady)
 	{
 		CityHarvestGainTimes.Reset();
@@ -2435,7 +2446,7 @@ void URokGameNetSubsystem::MergePush(const FRokSprotoProtocol& Protocol, const T
 
 	if (Protocol.Name == TEXT("Email_EmailList"))
 	{
-		// Keep combat reports in memory and unrelated mail bodies out of the session dump.
+		// Keep the full inbox in session memory and all mail bodies out of the state dump.
 		const TArray<TSharedPtr<FJsonValue>>* Emails = nullptr;
 		if (!Body->TryGetArrayField(TEXT("emailInfo"), Emails)) return;
 		TArray<TSharedPtr<FJsonValue>> Metadata;

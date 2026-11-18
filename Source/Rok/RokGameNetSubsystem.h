@@ -118,6 +118,12 @@ public:
 	TSharedPtr<FJsonObject> GetMergedState() const { return MergedState; }
 	TSharedPtr<FJsonObject> GetRoleInfo() const;
 	int32 GetUnreadMailCount() const;
+	// Full inbox is session-only; mail bodies must never enter the persisted state dump.
+	const TMap<int64, TSharedPtr<FJsonObject>>& GetSessionMail() const { return SessionMail; }
+	bool IsMailInboxLoading() const;
+	bool RequestMailDetails(int64 EmailIndex);
+	void MarkMailRead(int64 EmailIndex);
+	bool TakeMailEnclosure(int64 EmailIndex);
 	const TMap<int64, TSharedPtr<FJsonObject>>& GetBattleReportMail() const { return BattleReportMail; }
 	uint64 GetBattleReportRevision() const { return BattleReportRevision; }
 	bool RequestBattleReport(int64 EmailIndex);
@@ -428,6 +434,7 @@ private:
 	TSharedPtr<FJsonObject> MergedState;
 	void MergeBattleReportMail(const TSharedPtr<FJsonObject>& Email);
 	void DownloadBattleReport(int64 EmailIndex, const FString& Url);
+	TMap<int64, TSharedPtr<FJsonObject>> SessionMail;
 	TMap<int64, TSharedPtr<FJsonObject>> BattleReportMail;
 	TMap<int64, double> BattleReportRequests;
 	TSet<int64> FailedBattleReportDownloads;

@@ -407,6 +407,9 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<URokUiPageWidget> ActiveModePage;
 
+	UPROPERTY(Transient) TObjectPtr<URokUiPageWidget> FeatureTextStateTemplate;
+	UPROPERTY(Transient) TObjectPtr<URokUiPageWidget> TaskRewardTextStateTemplate;
+
 	/** Unity pl_content; contact folding is independent of root entry/exit. */
 	UPROPERTY()
 	TObjectPtr<UCanvasPanel> ChatContentCanvas;
@@ -532,8 +535,10 @@ private:
 	float ActivityCalendarScrollOffset = 0.0f;
 	int32 SelectedMailTab = 0;
 	int32 SelectedMailIndex = 0;
+	int64 SelectedSessionMail = 0;
 	int64 SelectedBattleReport = 0;
 	uint64 ShownBattleReportRevision = 0;
+	bool bShownMailInboxLoading = false;
 	bool bReferenceMailCaptureState = false;
 	bool bReadOnlyMailRewardFixtureState = false;
 	bool bLocalMailUnreadFixtureState = false;
@@ -810,6 +815,13 @@ private:
 		const FString& MailTemplateError);
 	void PreviewMailReferenceSelection();
 	void AttachMailGiftMesh(int32 Index, UCanvasPanel& Pulse);
+	int32 GetSessionMailUnreadCount(int32 Tab) const;
+	void BuildSessionMail(UScrollBox* List);
+	bool TryBuildSessionMailWbp(UScrollBox* List, const TArray<int64>& Ids);
+	void BindLiveMailRewardCard(URokUiPageWidget& Page, const FRokMailRewardRow& Reward, const TCHAR* Prefix);
+	bool TryBuildBattleReportOverview(URokUiPageWidget& Page, const TSharedPtr<FJsonObject>& Mail,
+		const TSharedPtr<FJsonObject>& Report, int64 RoleId, bool bDownloadFailed);
+	void SelectSessionMail(int64 EmailIndex);
 	void BuildBattleReportMail(UScrollBox* List);
 	void SelectBattleReport(int64 EmailIndex);
 	void RefreshBattleReportMail();
@@ -893,6 +905,8 @@ private:
 	void BuildGemShop();
 	void BuildCharge();
 	void BuildBuildCity();
+	bool TryGetFeatureTextStyle(FName StateName, struct FTextBlockStyle& OutStyle);
+	bool ApplyTaskRewardTextOnlyState(UTextBlock& Label);
 	void BuildWorkerQueue();
 	void HandleWorkerQueueAction(int32 ActionId);
 	void BuildServerBuildingSpeedUp();
@@ -934,6 +948,7 @@ private:
 	void UpdateTrainArmyQuantity(int32 Count, float SliderPosition = -1.0f);
 	UFUNCTION() void HandleTrainArmyQuantityTextChanged(const FText& Text);
 	UFUNCTION() void HandleTrainArmyQuantitySliderChanged(float Value);
+	bool TryBuildTrainArmyUnavailableState(FName State, UCanvasPanel* Parent, const FIntRect* PortraitRect = nullptr);
 	void BuildTrainArmyDetail(int32 TroopId);
 	bool BuildTrainArmyDetailPage(const struct FRokTrainArmyDetail& Detail);
 	void ClickTrainArmyPreviewButton(FName Name);

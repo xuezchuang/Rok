@@ -11,7 +11,8 @@
 #include "EngineUtils.h"
 #include "HAL/FileManager.h"
 #include "InputCoreTypes.h"
-#include "Kismet/GameplayStatics.h"
+#include "Engine/GameInstance.h"
+#include "RokMapTravelSubsystem.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 #include "Misc/Paths.h"
@@ -724,11 +725,13 @@ bool ARokWorldMapPlayerController::RequestEnterPlayerCity(
 		TEXT("Rok player-city level travel requested: level=%s entry_dxf=%.3f."),
 		*PlayerCityLevel.ToSoftObjectPath().ToString(),
 		EntryDxf);
-	UGameplayStatics::OpenLevelBySoftObjectPtr(
-		this,
-		PlayerCityLevel,
-		true,
-		Options);
+	auto* Travel = GetGameInstance() ? GetGameInstance()->GetSubsystem<URokMapTravelSubsystem>() : nullptr;
+	if (!Travel || !Travel->RequestTravel(GetWorld(), PlayerCityLevel, Options,
+		FSimpleDelegate::CreateWeakLambda(this, [this]() { bPlayerCityEntryRequested = false; })))
+	{
+		bPlayerCityEntryRequested = false;
+		return false;
+	}
 	return true;
 }
 

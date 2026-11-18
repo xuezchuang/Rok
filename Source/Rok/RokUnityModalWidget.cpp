@@ -1309,6 +1309,73 @@ URokModalWindowFrame* URokUnityModalWidget::MountWindowFrame(
 	return Frame;
 }
 
+URokUiPageWidget* URokUnityModalWidget::CreateStatusMessage(FName MessageName,
+	FName LayoutName, const FText& Message)
+{
+	static const TSoftClassPtr<URokUiPageWidget> StatusClass(FSoftObjectPath(
+		TEXT("/Game/RokUI/Modal/Items/WBP_RokModal_StatusMessages.WBP_RokModal_StatusMessages_C")));
+	static const TSoftClassPtr<URokUiPageWidget> UnavailableClass(FSoftObjectPath(
+		TEXT("/Game/RokUI/Modal/Items/WBP_RokModal_UnavailableStatusMessages.WBP_RokModal_UnavailableStatusMessages_C")));
+	const bool bUnavailableLayout = LayoutName == TEXT("PlayerHeadCatalogError")
+		|| LayoutName == TEXT("PlayerRankingCatalogError") || LayoutName == TEXT("BarracksAttributeError")
+		|| LayoutName == TEXT("BuffDefinitionError");
+	UClass* Class = URokUiSettings::Resolve(bUnavailableLayout ? UnavailableClass : StatusClass);
+	auto* Page = Class ? CreateWidget<URokUiPageWidget>(this, Class) : nullptr;
+	auto* Root = Page ? Cast<UCanvasPanel>(Page->GetRootWidget()) : nullptr;
+	auto* Label = Page ? Page->Get<UTextBlock>(LayoutName) : nullptr;
+	if (!Root || !Label || Label->GetParent() != Root)
+	{
+		return nullptr;
+	}
+	// The template owns geometry and base style; keep legacy lookup identity
+	// without changing its designer-authored widget names or the active mode page.
+	Page->LegacyNames.Add(LayoutName, MessageName.ToString());
+	for (UWidget* Other : Root->GetAllChildren())
+	{
+		if (Cast<UTextBlock>(Other) && Other != Label)
+		{
+			Other->SetVisibility(ESlateVisibility::Collapsed);
+		}
+	}
+	Label->SetText(Message);
+	Label->SetVisibility(ESlateVisibility::HitTestInvisible);
+	Page->SetVisibility(ESlateVisibility::HitTestInvisible);
+	return Page;
+}
+
+bool URokUnityModalWidget::TryMountStatusMessage(UCanvasPanel* Parent, FName MessageName,
+	FName LayoutName, const FText& Message)
+{
+	auto* Page = Parent ? CreateStatusMessage(MessageName, LayoutName, Message) : nullptr;
+	if (!Page)
+	{
+		return false;
+	}
+	auto* Slot = Parent->AddChildToCanvas(Page);
+	Slot->SetAnchors(FAnchors(0, 0, 1, 1));
+	Slot->SetOffsets(FMargin(0));
+	Slot->SetZOrder(LayoutName == TEXT("BarracksHeaderError") ? 5
+		: (LayoutName == TEXT("BuildingLevelError") || LayoutName == TEXT("PlayerRankingCatalogError")) ? 0 : 3);
+	return true;
+}
+
+void URokUnityModalWidget::AddBarracksAttributeUnavailable(UCanvasPanel* Parent, const FVector2D& Position,
+	const FVector2D& Size, int32 ZOrder)
+{
+	const FName Name(TEXT("BarracksUpgradeAttributeUnavailable"));
+	const FText Message = NSLOCTEXT("RokModal", "BarracksAttributeUnavailable", "兵营升级属性源数据不可用");
+	if (auto* Page = CreateStatusMessage(Name, TEXT("BarracksAttributeError"), Message))
+	{
+		PlaceOnCanvas(Parent, Page, Position, Size, ZOrder);
+	}
+	else
+	{
+		auto* Error = MakeModalText(Name, 15, FLinearColor::White);
+		Error->SetText(Message);
+		PlaceOnCanvas(Parent, Error, Position, Size, ZOrder);
+	}
+}
+
 URokUiPageWidget* URokUnityModalWidget::MountModePage(FName Page)
 {
 	UClass* PageClass = URokUiSettings::ResolvePage(GetDefault<URokUiSettings>()->ModalPages, Page);
@@ -1872,15 +1939,42 @@ void URokUnityModalWidget::BuildPlayerProfile()
 		}
 	}
 
-	// Layout, frames, labels and buttons live in the page WBP; here the role data,
-	// the two pieces that only exist with data (civilization icon, action fill),
-	// and the button handlers.
+	// Page and data-presentation WBPs own layout and style. Native code supplies
+	// the current role values, visibility, progress ratio and button handlers.
 	URokUiPageWidget* Page = MountModePage(TEXT("PlayerProfile"));
 	if (!Page)
 	{
 		return;
 	}
 	UCanvasPanel* PageCanvas = Cast<UCanvasPanel>(Page->GetRootWidget());
+	static const TSoftClassPtr<URokUiPageWidget> DataClass(FSoftObjectPath(
+		TEXT("/Game/RokUI/Modal/Items/WBP_RokModal_ProfileDataPresentation.WBP_RokModal_ProfileDataPresentation_C")));
+	UClass* DataLayoutClass = URokUiSettings::Resolve(DataClass);
+	auto* DataPage = PageCanvas && DataLayoutClass ? CreateWidget<URokUiPageWidget>(this, DataLayoutClass) : nullptr;
+	auto* CivilizationIcon = DataPage ? DataPage->Get<UImage>(TEXT("CivilizationIcon")) : nullptr;
+	auto* ActionFill = DataPage ? DataPage->Get<UProgressBar>(TEXT("ActionFill")) : nullptr;
+	const bool bDataLayout = CivilizationIcon && ActionFill;
+	if (bDataLayout)
+	{
+		DataPage->SetVisibility(ESlateVisibility::HitTestInvisible);
+		auto* DataSlot = PageCanvas->AddChildToCanvas(DataPage);
+		DataSlot->SetAnchors(FAnchors(0, 0, 1, 1));
+		DataSlot->SetOffsets(FMargin(0));
+		DataSlot->SetZOrder(2);
+		UTexture2D* CivilizationTexture = ProfileState.bHasCivilization && ProfileState.CivilizationId == 101
+			? LoadUiTexture(CivilizationAtlasPath) : nullptr;
+		if (CivilizationTexture)
+		{
+			// Reuse the existing runtime icon binding; the new template contains no atlas art.
+			CivilizationIcon->SetBrush(MakeAtlasBrush(CivilizationTexture, CivilizationArabiaRect,
+				CivilizationAtlasSize, FVector2D(53, 51)));
+		}
+		DataPage->SetPresent(CivilizationIcon, CivilizationTexture != nullptr);
+		const bool bHasActionPoints = ProfileState.bHasActionPoints && ProfileState.ActionPointsMax > 0;
+		ActionFill->SetPercent(bHasActionPoints ? FMath::Clamp(
+			static_cast<float>(ProfileState.ActionPointsCurrent) / static_cast<float>(ProfileState.ActionPointsMax), 0.0f, 1.0f) : 0.0f);
+		DataPage->SetPresent(ActionFill, bHasActionPoints);
+	}
 	if (UButton* Button = Page->Get<UButton>(TEXT("ProfilePictureButton"))) Button->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleProfileAvatarClicked);
 	if (UButton* Button = Page->Get<UButton>(TEXT("ProfileModifyButton"))) Button->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleProfileAvatarClicked);
 	if (UButton* Button = Page->Get<UButton>(TEXT("ProfileRenameButton"))) Button->OnClicked.AddDynamic(this, &URokUnityModalWidget::HandleProfileRenameClicked);
@@ -1900,7 +1994,7 @@ void URokUnityModalWidget::BuildPlayerProfile()
 		? FText::FromString(ProfileState.DisplayName)
 		: NSLOCTEXT("RokModal", "PlayerNameUnavailable", "名称未接入"));
 	// Only Arabia has a source icon in this atlas so far.
-	if (PageCanvas && ProfileState.bHasCivilization && ProfileState.CivilizationId == 101)
+	if (!bDataLayout && PageCanvas && ProfileState.bHasCivilization && ProfileState.CivilizationId == 101)
 	{
 		PlaceOnCanvas(PageCanvas,
 			MakeAtlasImage(TEXT("CivilizationIcon"), CivilizationAtlasPath, CivilizationArabiaRect, CivilizationAtlasSize, FVector2D(53.0f, 51.0f)),
@@ -1918,8 +2012,8 @@ void URokUnityModalWidget::BuildPlayerProfile()
 	SetPageText(Page, TEXT("KillsValue"), ProfileState.bHasKillCount
 		? FText::AsNumber(ProfileState.KillCount)
 		: NSLOCTEXT("RokModal", "KillsUnavailable", "--"));
-	// The fill's width is the action-point ratio, so it is added with the data.
-	if (PageCanvas && ProfileState.bHasActionPoints && ProfileState.ActionPointsMax > 0)
+	// Missing data-presentation assets retain the existing native fallback.
+	if (!bDataLayout && PageCanvas && ProfileState.bHasActionPoints && ProfileState.ActionPointsMax > 0)
 	{
 		const float FillWidth = 528.15f * FMath::Clamp(
 			static_cast<float>(ProfileState.ActionPointsCurrent) / static_cast<float>(ProfileState.ActionPointsMax), 0.0f, 1.0f);
@@ -1948,9 +2042,14 @@ void URokUnityModalWidget::BuildPlayerHeadSelection()
 	if (!RokPlayerHeadCatalog::Load(Catalog, CatalogError))
 	{
 		UE_LOG(LogTemp, Error, TEXT("%s"), *CatalogError);
-		UTextBlock* Missing = MakeModalText(TEXT("PlayerHeadCatalogMissing"), 24, FLinearColor::White);
-		Missing->SetText(NSLOCTEXT("RokModal", "PlayerHeadCatalogMissing", "头像目录不可用，请检查迁移数据。"));
-		PlaceOnCanvas(ModeCanvas, Missing, FVector2D(300, 230), FVector2D(800, 60), 3);
+		const FName Name(TEXT("PlayerHeadCatalogMissing"));
+		const FText Message = NSLOCTEXT("RokModal", "PlayerHeadCatalogMissing", "头像目录不可用，请检查迁移数据。");
+		if (!TryMountStatusMessage(ModeCanvas, Name, TEXT("PlayerHeadCatalogError"), Message))
+		{
+			auto* Missing = MakeModalText(Name, 24, FLinearColor::White);
+			Missing->SetText(Message);
+			PlaceOnCanvas(ModeCanvas, Missing, FVector2D(300, 230), FVector2D(800, 60), 3);
+		}
 		return;
 	}
 	FRokUnityRuntimePlayerProfileState Profile;
@@ -2105,9 +2204,14 @@ void URokUnityModalWidget::BuildPlayerRanking()
 	if (!RokLeaderboardCatalog::Load(PlayerRankingRows, Error))
 	{
 		UE_LOG(LogTemp, Error, TEXT("%s"), *Error);
-		auto* Missing = MakeModalText(TEXT("PlayerRankingCatalogMissing"), 20, FLinearColor::Red);
-		Missing->SetText(NSLOCTEXT("RokModal", "LeaderboardConfigMissing", "排行榜配置缺失"));
-		PlaceOnCanvas(ModeCanvas, Missing, FVector2D(400, 350), FVector2D(640, 50));
+		const FName Name(TEXT("PlayerRankingCatalogMissing"));
+		const FText Message = NSLOCTEXT("RokModal", "LeaderboardConfigMissing", "排行榜配置缺失");
+		if (!TryMountStatusMessage(ModeCanvas, Name, TEXT("PlayerRankingCatalogError"), Message))
+		{
+			auto* Missing = MakeModalText(Name, 20, FLinearColor::Red);
+			Missing->SetText(Message);
+			PlaceOnCanvas(ModeCanvas, Missing, FVector2D(400, 350), FVector2D(640, 50));
+		}
 		return;
 	}
 	// Source overview is gated by Rank_ShowRankFirst.response. This offline
@@ -2840,11 +2944,14 @@ void URokUnityModalWidget::BuildBuffList()
 		}
 		if (ShownCount == 0 && BuffListAnimationRoot)
 		{
-			// Only when the published configuration is missing; not part of the page.
-			UTextBlock* MissingDefinitions = MakeModalText(TEXT("BuffListDefinitionUnavailable"), 16,
-				FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
-			MissingDefinitions->SetText(NSLOCTEXT("RokModal", "BuffListDefinitionUnavailable", "增益静态配置未发布或不可读取"));
-			PlaceOnCanvas(BuffListAnimationRoot, MissingDefinitions, FVector2D(42.0f, 132.0f), FVector2D(416.0f, 60.0f), 3);
+			const FName Name(TEXT("BuffListDefinitionUnavailable"));
+			const FText Message = NSLOCTEXT("RokModal", "BuffListDefinitionUnavailable", "增益静态配置未发布或不可读取");
+			if (!TryMountStatusMessage(BuffListAnimationRoot, Name, TEXT("BuffDefinitionError"), Message))
+			{
+				auto* Missing = MakeModalText(Name, 16, FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
+				Missing->SetText(Message);
+				PlaceOnCanvas(BuffListAnimationRoot, Missing, FVector2D(42.0f, 132.0f), FVector2D(416.0f, 60.0f), 3);
+			}
 		}
 	}
 	for (int32 RowIndex = ShownCount; RowIndex < MaxRows; ++RowIndex)
@@ -3165,11 +3272,15 @@ void URokUnityModalWidget::BuildBattlePassRewards()
 	{
 		if (UCanvasPanel* PageCanvas = Cast<UCanvasPanel>(Page->GetRootWidget()))
 		{
-			UTextBlock* Missing = MakeModalText(TEXT("BattlePassUnavailable"), 16,
-				FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
-			Missing->SetText(NSLOCTEXT("RokModal", "BattlePassUnavailable",
-				"战令奖励配置未发布或不可读取"));
-			PlaceOnCanvas(PageCanvas, Missing, FVector2D(212.0f, 300.0f), FVector2D(760.0f, 60.0f), 3);
+			const FText StatusMessage = NSLOCTEXT("RokModal", "BattlePassUnavailable",
+				"战令奖励配置未发布或不可读取");
+			if (!TryMountStatusMessage(PageCanvas, TEXT("BattlePassUnavailable"), TEXT("Wide"), StatusMessage))
+			{
+				UTextBlock* Missing = MakeModalText(TEXT("BattlePassUnavailable"), 16,
+					FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
+				Missing->SetText(StatusMessage);
+				PlaceOnCanvas(PageCanvas, Missing, FVector2D(212.0f, 300.0f), FVector2D(760.0f, 60.0f), 3);
+			}
 		}
 	}
 }
@@ -3530,12 +3641,16 @@ void URokUnityModalWidget::BuildEventDate()
 
 	if (Rows.Num() == 0)
 	{
-		UTextBlock* Missing = MakeModalText(TEXT("EventDateUnavailable"), 16,
-			FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
-		Missing->SetText(NSLOCTEXT("RokModal", "EventDateUnavailable",
-			"活动日程配置未发布或不可读取"));
-		PlaceOnCanvas(ModeCanvas, Missing, FVector2D(212.0f, 300.0f),
-			FVector2D(700.0f, 60.0f), 3);
+		const FText StatusMessage = NSLOCTEXT("RokModal", "EventDateUnavailable",
+			"活动日程配置未发布或不可读取");
+		if (!TryMountStatusMessage(ModeCanvas, TEXT("EventDateUnavailable"), TEXT("Standard"), StatusMessage))
+		{
+			UTextBlock* Missing = MakeModalText(TEXT("EventDateUnavailable"), 16,
+				FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
+			Missing->SetText(StatusMessage);
+			PlaceOnCanvas(ModeCanvas, Missing, FVector2D(212.0f, 300.0f),
+				FVector2D(700.0f, 60.0f), 3);
+		}
 		return;
 	}
 	BuildDefinitionList(
@@ -3618,12 +3733,16 @@ void URokUnityModalWidget::BuildGuildPurview()
 
 	if (Rows.Num() == 0)
 	{
-		UTextBlock* Missing = MakeModalText(TEXT("GuildPurviewUnavailable"), 16,
-			FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
-		Missing->SetText(NSLOCTEXT("RokModal", "GuildPurviewUnavailable",
-			"联盟权限配置未发布或不可读取"));
-		PlaceOnCanvas(ModeCanvas, Missing, FVector2D(212.0f, 300.0f),
-			FVector2D(700.0f, 60.0f), 3);
+		const FText StatusMessage = NSLOCTEXT("RokModal", "GuildPurviewUnavailable",
+			"联盟权限配置未发布或不可读取");
+		if (!TryMountStatusMessage(ModeCanvas, TEXT("GuildPurviewUnavailable"), TEXT("Standard"), StatusMessage))
+		{
+			UTextBlock* Missing = MakeModalText(TEXT("GuildPurviewUnavailable"), 16,
+				FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
+			Missing->SetText(StatusMessage);
+			PlaceOnCanvas(ModeCanvas, Missing, FVector2D(212.0f, 300.0f),
+				FVector2D(700.0f, 60.0f), 3);
+		}
 		return;
 	}
 	BuildDefinitionList(
@@ -3819,12 +3938,16 @@ void URokUnityModalWidget::BuildVipPrivilege()
 
 	if (Rows.Num() == 0)
 	{
-		UTextBlock* Missing = MakeModalText(TEXT("VipPrivilegeUnavailable"), 16,
-			FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
-		Missing->SetText(NSLOCTEXT("RokModal", "VipPrivilegeUnavailable",
-			"贵宾特权配置未发布或不可读取"));
-		PlaceOnCanvas(ModeCanvas, Missing, FVector2D(212.0f, 300.0f),
-			FVector2D(700.0f, 60.0f), 3);
+		const FText StatusMessage = NSLOCTEXT("RokModal", "VipPrivilegeUnavailable",
+			"贵宾特权配置未发布或不可读取");
+		if (!TryMountStatusMessage(ModeCanvas, TEXT("VipPrivilegeUnavailable"), TEXT("Standard"), StatusMessage))
+		{
+			UTextBlock* Missing = MakeModalText(TEXT("VipPrivilegeUnavailable"), 16,
+				FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
+			Missing->SetText(StatusMessage);
+			PlaceOnCanvas(ModeCanvas, Missing, FVector2D(212.0f, 300.0f),
+				FVector2D(700.0f, 60.0f), 3);
+		}
 		return;
 	}
 	BuildDefinitionList(
@@ -3935,12 +4058,16 @@ void URokUnityModalWidget::BuildItemExchange()
 
 	if (Rows.Num() == 0)
 	{
-		UTextBlock* Missing = MakeModalText(TEXT("ItemExchangeUnavailable"), 16,
-			FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
-		Missing->SetText(NSLOCTEXT("RokModal", "ItemExchangeUnavailable",
-			"自选宝箱配置未发布或不可读取"));
-		PlaceOnCanvas(ModeCanvas, Missing, FVector2D(212.0f, 300.0f),
-			FVector2D(700.0f, 60.0f), 3);
+		const FText StatusMessage = NSLOCTEXT("RokModal", "ItemExchangeUnavailable",
+			"自选宝箱配置未发布或不可读取");
+		if (!TryMountStatusMessage(ModeCanvas, TEXT("ItemExchangeUnavailable"), TEXT("Standard"), StatusMessage))
+		{
+			UTextBlock* Missing = MakeModalText(TEXT("ItemExchangeUnavailable"), 16,
+				FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
+			Missing->SetText(StatusMessage);
+			PlaceOnCanvas(ModeCanvas, Missing, FVector2D(212.0f, 300.0f),
+				FVector2D(700.0f, 60.0f), 3);
+		}
 		return;
 	}
 
@@ -4112,12 +4239,16 @@ void URokUnityModalWidget::BuildGuildGift()
 
 	if (Rows.Num() == 0)
 	{
-		UTextBlock* Missing = MakeModalText(TEXT("GuildGiftUnavailable"), 16,
-			FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
-		Missing->SetText(NSLOCTEXT("RokModal", "GuildGiftUnavailable",
-			"联盟礼物配置未发布或不可读取"));
-		PlaceOnCanvas(ModeCanvas, Missing, FVector2D(212.0f, 300.0f),
-			FVector2D(700.0f, 60.0f), 3);
+		const FText StatusMessage = NSLOCTEXT("RokModal", "GuildGiftUnavailable",
+			"联盟礼物配置未发布或不可读取");
+		if (!TryMountStatusMessage(ModeCanvas, TEXT("GuildGiftUnavailable"), TEXT("Standard"), StatusMessage))
+		{
+			UTextBlock* Missing = MakeModalText(TEXT("GuildGiftUnavailable"), 16,
+				FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
+			Missing->SetText(StatusMessage);
+			PlaceOnCanvas(ModeCanvas, Missing, FVector2D(212.0f, 300.0f),
+				FVector2D(700.0f, 60.0f), 3);
+		}
 		return;
 	}
 	BuildDefinitionList(
@@ -4176,12 +4307,16 @@ void URokUnityModalWidget::BuildFuncGuide()
 
 	if (Rows.Num() == 0)
 	{
-		UTextBlock* Missing = MakeModalText(TEXT("FuncGuideUnavailable"), 16,
-			FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
-		Missing->SetText(NSLOCTEXT("RokModal", "FuncGuideUnavailable",
-			"引导配置未发布或不可读取"));
-		PlaceOnCanvas(ModeCanvas, Missing, FVector2D(212.0f, 300.0f),
-			FVector2D(700.0f, 60.0f), 3);
+		const FText StatusMessage = NSLOCTEXT("RokModal", "FuncGuideUnavailable",
+			"引导配置未发布或不可读取");
+		if (!TryMountStatusMessage(ModeCanvas, TEXT("FuncGuideUnavailable"), TEXT("Standard"), StatusMessage))
+		{
+			UTextBlock* Missing = MakeModalText(TEXT("FuncGuideUnavailable"), 16,
+				FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
+			Missing->SetText(StatusMessage);
+			PlaceOnCanvas(ModeCanvas, Missing, FVector2D(212.0f, 300.0f),
+				FVector2D(700.0f, 60.0f), 3);
+		}
 		return;
 	}
 	BuildDefinitionList(
@@ -4318,12 +4453,16 @@ void URokUnityModalWidget::BuildTavernReward()
 
 	if (Rows.Num() == 0)
 	{
-		UTextBlock* Missing = MakeModalText(TEXT("TavernRewardUnavailable"), 16,
-			FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
-		Missing->SetText(NSLOCTEXT("RokModal", "TavernRewardUnavailable",
-			"酒馆奖励池配置未发布或不可读取"));
-		PlaceOnCanvas(ModeCanvas, Missing, FVector2D(212.0f, 300.0f),
-			FVector2D(700.0f, 60.0f), 3);
+		const FText StatusMessage = NSLOCTEXT("RokModal", "TavernRewardUnavailable",
+			"酒馆奖励池配置未发布或不可读取");
+		if (!TryMountStatusMessage(ModeCanvas, TEXT("TavernRewardUnavailable"), TEXT("Standard"), StatusMessage))
+		{
+			UTextBlock* Missing = MakeModalText(TEXT("TavernRewardUnavailable"), 16,
+				FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
+			Missing->SetText(StatusMessage);
+			PlaceOnCanvas(ModeCanvas, Missing, FVector2D(212.0f, 300.0f),
+				FVector2D(700.0f, 60.0f), 3);
+		}
 		return;
 	}
 	BuildDefinitionList(
@@ -4445,12 +4584,16 @@ void URokUnityModalWidget::BuildExpeditionStore()
 
 	if (Rows.Num() == 0)
 	{
-		UTextBlock* Missing = MakeModalText(TEXT("ExpeditionStoreUnavailable"), 16,
-			FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
-		Missing->SetText(NSLOCTEXT("RokModal", "ExpeditionStoreUnavailable",
-			"远征商店配置未发布或不可读取"));
-		PlaceOnCanvas(ModeCanvas, Missing, FVector2D(212.0f, 300.0f),
-			FVector2D(700.0f, 60.0f), 3);
+		const FText StatusMessage = NSLOCTEXT("RokModal", "ExpeditionStoreUnavailable",
+			"远征商店配置未发布或不可读取");
+		if (!TryMountStatusMessage(ModeCanvas, TEXT("ExpeditionStoreUnavailable"), TEXT("Standard"), StatusMessage))
+		{
+			UTextBlock* Missing = MakeModalText(TEXT("ExpeditionStoreUnavailable"), 16,
+				FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
+			Missing->SetText(StatusMessage);
+			PlaceOnCanvas(ModeCanvas, Missing, FVector2D(212.0f, 300.0f),
+				FVector2D(700.0f, 60.0f), 3);
+		}
 		return;
 	}
 	BuildDefinitionList(
@@ -4525,12 +4668,16 @@ void URokUnityModalWidget::BuildChargePop()
 
 	if (Rows.Num() == 0)
 	{
-		UTextBlock* Missing = MakeModalText(TEXT("ChargePopUnavailable"), 16,
-			FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
-		Missing->SetText(NSLOCTEXT("RokModal", "ChargePopUnavailable",
-			"充值礼包配置未发布或不可读取"));
-		PlaceOnCanvas(ModeCanvas, Missing, FVector2D(212.0f, 300.0f),
-			FVector2D(700.0f, 60.0f), 3);
+		const FText StatusMessage = NSLOCTEXT("RokModal", "ChargePopUnavailable",
+			"充值礼包配置未发布或不可读取");
+		if (!TryMountStatusMessage(ModeCanvas, TEXT("ChargePopUnavailable"), TEXT("Standard"), StatusMessage))
+		{
+			UTextBlock* Missing = MakeModalText(TEXT("ChargePopUnavailable"), 16,
+				FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
+			Missing->SetText(StatusMessage);
+			PlaceOnCanvas(ModeCanvas, Missing, FVector2D(212.0f, 300.0f),
+				FVector2D(700.0f, 60.0f), 3);
+		}
 		return;
 	}
 	BuildDefinitionList(
@@ -4593,12 +4740,16 @@ void URokUnityModalWidget::BuildGiftLimitedTime()
 
 	if (Rows.Num() == 0)
 	{
-		UTextBlock* Missing = MakeModalText(TEXT("GiftLimitedTimeUnavailable"), 16,
-			FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
-		Missing->SetText(NSLOCTEXT("RokModal", "GiftLimitedTimeUnavailable",
-			"限时礼包配置未发布或不可读取"));
-		PlaceOnCanvas(ModeCanvas, Missing, FVector2D(212.0f, 300.0f),
-			FVector2D(700.0f, 60.0f), 3);
+		const FText StatusMessage = NSLOCTEXT("RokModal", "GiftLimitedTimeUnavailable",
+			"限时礼包配置未发布或不可读取");
+		if (!TryMountStatusMessage(ModeCanvas, TEXT("GiftLimitedTimeUnavailable"), TEXT("Standard"), StatusMessage))
+		{
+			UTextBlock* Missing = MakeModalText(TEXT("GiftLimitedTimeUnavailable"), 16,
+				FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
+			Missing->SetText(StatusMessage);
+			PlaceOnCanvas(ModeCanvas, Missing, FVector2D(212.0f, 300.0f),
+				FVector2D(700.0f, 60.0f), 3);
+		}
 		return;
 	}
 	BuildDefinitionList(
@@ -4719,12 +4870,16 @@ void URokUnityModalWidget::BuildGuildStore()
 
 	if (Rows.Num() == 0)
 	{
-		UTextBlock* Missing = MakeModalText(TEXT("GuildStoreUnavailable"), 16,
-			FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
-		Missing->SetText(NSLOCTEXT("RokModal", "GuildStoreUnavailable",
-			"联盟商店配置未发布或不可读取"));
-		PlaceOnCanvas(ModeCanvas, Missing, FVector2D(212.0f, 300.0f),
-			FVector2D(700.0f, 60.0f), 3);
+		const FText StatusMessage = NSLOCTEXT("RokModal", "GuildStoreUnavailable",
+			"联盟商店配置未发布或不可读取");
+		if (!TryMountStatusMessage(ModeCanvas, TEXT("GuildStoreUnavailable"), TEXT("Standard"), StatusMessage))
+		{
+			UTextBlock* Missing = MakeModalText(TEXT("GuildStoreUnavailable"), 16,
+				FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
+			Missing->SetText(StatusMessage);
+			PlaceOnCanvas(ModeCanvas, Missing, FVector2D(212.0f, 300.0f),
+				FVector2D(700.0f, 60.0f), 3);
+		}
 		return;
 	}
 	BuildDefinitionList(
@@ -4829,11 +4984,15 @@ void URokUnityModalWidget::BuildTheTower()
 		}
 		if (UCanvasPanel* PageCanvas = Cast<UCanvasPanel>(Page->GetRootWidget()))
 		{
-			UTextBlock* Missing = MakeModalText(TEXT("TheTowerUnavailable"), 16,
-				FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
-			Missing->SetText(NSLOCTEXT("RokModal", "TheTowerUnavailable",
-				"警戒塔配置未发布或不可读取"));
-			PlaceOnCanvas(PageCanvas, Missing, FVector2D(212.0f, 300.0f), FVector2D(700.0f, 60.0f), 3);
+			const FText StatusMessage = NSLOCTEXT("RokModal", "TheTowerUnavailable",
+				"警戒塔配置未发布或不可读取");
+			if (!TryMountStatusMessage(PageCanvas, TEXT("TheTowerUnavailable"), TEXT("Standard"), StatusMessage))
+			{
+				UTextBlock* Missing = MakeModalText(TEXT("TheTowerUnavailable"), 16,
+					FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
+				Missing->SetText(StatusMessage);
+				PlaceOnCanvas(PageCanvas, Missing, FVector2D(212.0f, 300.0f), FVector2D(700.0f, 60.0f), 3);
+			}
 		}
 		return;
 	}
@@ -4910,11 +5069,15 @@ void URokUnityModalWidget::BuildTheWall()
 		}
 		if (UCanvasPanel* PageCanvas = Cast<UCanvasPanel>(Page->GetRootWidget()))
 		{
-			UTextBlock* Missing = MakeModalText(TEXT("TheWallUnavailable"), 16,
-				FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
-			Missing->SetText(NSLOCTEXT("RokModal", "TheWallUnavailable",
-				"城墙耐久配置未发布或不可读取"));
-			PlaceOnCanvas(PageCanvas, Missing, FVector2D(212.0f, 300.0f), FVector2D(700.0f, 60.0f), 3);
+			const FText StatusMessage = NSLOCTEXT("RokModal", "TheWallUnavailable",
+				"城墙耐久配置未发布或不可读取");
+			if (!TryMountStatusMessage(PageCanvas, TEXT("TheWallUnavailable"), TEXT("Standard"), StatusMessage))
+			{
+				UTextBlock* Missing = MakeModalText(TEXT("TheWallUnavailable"), 16,
+					FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
+				Missing->SetText(StatusMessage);
+				PlaceOnCanvas(PageCanvas, Missing, FVector2D(212.0f, 300.0f), FVector2D(700.0f, 60.0f), 3);
+			}
 		}
 		return;
 	}
@@ -4999,12 +5162,16 @@ void URokUnityModalWidget::BuildTavernBoxDesc()
 
 	if (Rows.Num() == 0)
 	{
-		UTextBlock* Missing = MakeModalText(TEXT("TavernBoxDescUnavailable"), 16,
-			FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
-		Missing->SetText(NSLOCTEXT("RokModal", "TavernBoxDescUnavailable",
-			"酒馆概率配置未发布或不可读取"));
-		PlaceOnCanvas(ModeCanvas, Missing, FVector2D(212.0f, 300.0f),
-			FVector2D(700.0f, 60.0f), 3);
+		const FText StatusMessage = NSLOCTEXT("RokModal", "TavernBoxDescUnavailable",
+			"酒馆概率配置未发布或不可读取");
+		if (!TryMountStatusMessage(ModeCanvas, TEXT("TavernBoxDescUnavailable"), TEXT("Standard"), StatusMessage))
+		{
+			UTextBlock* Missing = MakeModalText(TEXT("TavernBoxDescUnavailable"), 16,
+				FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
+			Missing->SetText(StatusMessage);
+			PlaceOnCanvas(ModeCanvas, Missing, FVector2D(212.0f, 300.0f),
+				FVector2D(700.0f, 60.0f), 3);
+		}
 		return;
 	}
 	BuildDefinitionList(
@@ -5116,12 +5283,16 @@ void URokUnityModalWidget::BuildVipStore()
 
 	if (Rows.Num() == 0)
 	{
-		UTextBlock* Missing = MakeModalText(TEXT("VipStoreUnavailable"), 16,
-			FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
-		Missing->SetText(NSLOCTEXT("RokModal", "VipStoreUnavailable",
-			"贵宾商店配置未发布或不可读取"));
-		PlaceOnCanvas(ModeCanvas, Missing, FVector2D(212.0f, 300.0f),
-			FVector2D(700.0f, 60.0f), 3);
+		const FText StatusMessage = NSLOCTEXT("RokModal", "VipStoreUnavailable",
+			"贵宾商店配置未发布或不可读取");
+		if (!TryMountStatusMessage(ModeCanvas, TEXT("VipStoreUnavailable"), TEXT("Standard"), StatusMessage))
+		{
+			UTextBlock* Missing = MakeModalText(TEXT("VipStoreUnavailable"), 16,
+				FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
+			Missing->SetText(StatusMessage);
+			PlaceOnCanvas(ModeCanvas, Missing, FVector2D(212.0f, 300.0f),
+				FVector2D(700.0f, 60.0f), 3);
+		}
 		return;
 	}
 	BuildDefinitionList(
@@ -5266,12 +5437,16 @@ void URokUnityModalWidget::BuildItemCollection()
 
 	if (Rows.Num() == 0)
 	{
-		UTextBlock* Missing = MakeModalText(TEXT("ItemCollectionUnavailable"), 16,
-			FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
-		Missing->SetText(NSLOCTEXT("RokModal", "ItemCollectionUnavailable",
-			"道具图鉴配置未发布或不可读取"));
-		PlaceOnCanvas(ModeCanvas, Missing, FVector2D(212.0f, 300.0f),
-			FVector2D(700.0f, 60.0f), 3);
+		const FText StatusMessage = NSLOCTEXT("RokModal", "ItemCollectionUnavailable",
+			"道具图鉴配置未发布或不可读取");
+		if (!TryMountStatusMessage(ModeCanvas, TEXT("ItemCollectionUnavailable"), TEXT("Standard"), StatusMessage))
+		{
+			UTextBlock* Missing = MakeModalText(TEXT("ItemCollectionUnavailable"), 16,
+				FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
+			Missing->SetText(StatusMessage);
+			PlaceOnCanvas(ModeCanvas, Missing, FVector2D(212.0f, 300.0f),
+				FVector2D(700.0f, 60.0f), 3);
+		}
 		return;
 	}
 	BuildDefinitionList(
@@ -5431,12 +5606,16 @@ void URokUnityModalWidget::BuildGuildFortress()
 
 	if (Rows.Num() == 0)
 	{
-		UTextBlock* Missing = MakeModalText(TEXT("GuildFortressUnavailable"), 16,
-			FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
-		Missing->SetText(NSLOCTEXT("RokModal", "GuildFortressUnavailable",
-			"联盟建筑配置未发布或不可读取"));
-		PlaceOnCanvas(ModeCanvas, Missing, FVector2D(212.0f, 300.0f),
-			FVector2D(700.0f, 60.0f), 3);
+		const FText StatusMessage = NSLOCTEXT("RokModal", "GuildFortressUnavailable",
+			"联盟建筑配置未发布或不可读取");
+		if (!TryMountStatusMessage(ModeCanvas, TEXT("GuildFortressUnavailable"), TEXT("Standard"), StatusMessage))
+		{
+			UTextBlock* Missing = MakeModalText(TEXT("GuildFortressUnavailable"), 16,
+				FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
+			Missing->SetText(StatusMessage);
+			PlaceOnCanvas(ModeCanvas, Missing, FVector2D(212.0f, 300.0f),
+				FVector2D(700.0f, 60.0f), 3);
+		}
 		return;
 	}
 	BuildDefinitionList(
@@ -5759,9 +5938,13 @@ void URokUnityModalWidget::BuildResourceBuildingInfo(int32 Type, int32 KnownLeve
 	if (!RokBuildingLevelDetails::Load(Type, Headers, Rows, Error, &Name, &Description))
 	{
 		UE_LOG(LogTemp, Error, TEXT("%s"), *Error);
-		auto* Missing = MakeModalText(TEXT("BuildingLevelDetailsMissing"), 22, FLinearColor::Red);
-		Missing->SetText(NSLOCTEXT("RokModal", "BuildingLevelMissing", "建筑等级配置缺失"));
-		PlaceOnCanvas(ModeCanvas, Missing, FVector2D(400, 350), FVector2D(650, 60));
+		const FText StatusMessage = NSLOCTEXT("RokModal", "BuildingLevelMissing", "建筑等级配置缺失");
+		if (!TryMountStatusMessage(ModeCanvas, TEXT("BuildingLevelDetailsMissing"), TEXT("BuildingLevelError"), StatusMessage))
+		{
+			auto* Missing = MakeModalText(TEXT("BuildingLevelDetailsMissing"), 22, FLinearColor::Red);
+			Missing->SetText(StatusMessage);
+			PlaceOnCanvas(ModeCanvas, Missing, FVector2D(400, 350), FVector2D(650, 60));
+		}
 		return;
 	}
 	// The description and level pages, the back button and the column headers live
@@ -6068,9 +6251,7 @@ void URokUnityModalWidget::BuildBuildingUpgrade()
 		else
 		{
 			UE_LOG(LogTemp, Error, TEXT("Barracks upgrade attributes: %s"), *Attributes->GetLoadError());
-			UTextBlock* Error = MakeModalText(TEXT("BarracksUpgradeAttributeUnavailable"), 15, FLinearColor::White);
-			Error->SetText(NSLOCTEXT("RokModal", "BarracksAttributeUnavailable", "兵营升级属性源数据不可用"));
-			PlaceOnCanvas(UpgradeContentCanvas, Error, URokBarracksUpgradeAttributes::SourcePosition(), FVector2D(536, 110), 2);
+			AddBarracksAttributeUnavailable(UpgradeContentCanvas, URokBarracksUpgradeAttributes::SourcePosition(), FVector2D(536, 110), 2);
 		}
 	}
 	else
@@ -6202,9 +6383,7 @@ void URokUnityModalWidget::BindBuildingUpgradePage(URokUiPageWidget* Page, const
 			else
 			{
 				UE_LOG(LogTemp, Error, TEXT("Barracks upgrade attributes: %s"), *Attributes->GetLoadError());
-				UTextBlock* Error = MakeModalText(TEXT("BarracksUpgradeAttributeUnavailable"), 15, FLinearColor::White);
-				Error->SetText(NSLOCTEXT("RokModal", "BarracksAttributeUnavailable", "兵营升级属性源数据不可用"));
-				PlaceOnCanvas(Content, Error, Position, Size, ZOrder);
+				AddBarracksAttributeUnavailable(Content, Position, Size, ZOrder);
 			}
 		}
 	}
@@ -6311,9 +6490,13 @@ void URokUnityModalWidget::BuildBarracksLevelDetails(int32 KnownLevel, URokUiPag
 		{
 			InfoButton->SetIsEnabled(false);
 		}
-		auto* Missing = MakeModalText(TEXT("BarracksLevelHeaderSourceUnavailable"), 15, FLinearColor::Red);
-		Missing->SetText(NSLOCTEXT("RokModal", "BarracksLevelHeaderSourceUnavailable", "兵营等级表头源字形不可用"));
-		PlaceOnCanvas(BuildingDescriptionRoot, Missing, FVector2D(700, 570), FVector2D(480, 30), 5);
+		const FText StatusMessage = NSLOCTEXT("RokModal", "BarracksLevelHeaderSourceUnavailable", "兵营等级表头源字形不可用");
+		if (!TryMountStatusMessage(BuildingDescriptionRoot, TEXT("BarracksLevelHeaderSourceUnavailable"), TEXT("BarracksHeaderError"), StatusMessage))
+		{
+			auto* Missing = MakeModalText(TEXT("BarracksLevelHeaderSourceUnavailable"), 15, FLinearColor::Red);
+			Missing->SetText(StatusMessage);
+			PlaceOnCanvas(BuildingDescriptionRoot, Missing, FVector2D(700, 570), FVector2D(480, 30), 5);
+		}
 		return;
 	}
 	for (int32 Column = 0; Column < 4; ++Column)
@@ -6325,9 +6508,13 @@ void URokUnityModalWidget::BuildBarracksLevelDetails(int32 KnownLevel, URokUiPag
 			{
 				InfoButton->SetIsEnabled(false);
 			}
-			auto* Missing = MakeModalText(TEXT("BarracksLevelHeaderSourceUnavailable"), 15, FLinearColor::Red);
-			Missing->SetText(NSLOCTEXT("RokModal", "BarracksLevelHeaderSourceUnavailable", "兵营等级表头源字形不可用"));
-			PlaceOnCanvas(BuildingDescriptionRoot, Missing, FVector2D(700, 570), FVector2D(480, 30), 5);
+			const FText StatusMessage = NSLOCTEXT("RokModal", "BarracksLevelHeaderSourceUnavailable", "兵营等级表头源字形不可用");
+			if (!TryMountStatusMessage(BuildingDescriptionRoot, TEXT("BarracksLevelHeaderSourceUnavailable"), TEXT("BarracksHeaderError"), StatusMessage))
+			{
+				auto* Missing = MakeModalText(TEXT("BarracksLevelHeaderSourceUnavailable"), 15, FLinearColor::Red);
+				Missing->SetText(StatusMessage);
+				PlaceOnCanvas(BuildingDescriptionRoot, Missing, FVector2D(700, 570), FVector2D(480, 30), 5);
+			}
 			return;
 		}
 	}

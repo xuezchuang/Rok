@@ -20,6 +20,7 @@ class ROK_API URokHelpWidget : public UUserWidget
     GENERATED_BODY()
 public:
     static TSubclassOf<URokHelpWidget> ResolvePresentationClass();
+    UWidget* GetWidgetFromName(const FName& WidgetName) const;
     bool InitializeHelp();
     void ResetHelp();
     void SuspendInput();
@@ -52,8 +53,12 @@ private:
     UPROPERTY(Transient, meta=(BindWidgetOptional)) TObjectPtr<UBorder> AnswerInset;
     UPROPERTY(Transient, meta=(BindWidgetOptional)) TObjectPtr<USizeBox> AnswerWidth;
     UPROPERTY(Transient) TObjectPtr<URokHelpSourceTextData> SourceTextData;
+    UPROPERTY(Transient) TObjectPtr<UTextBlock> CustomerServiceBoundaryText;
+    UPROPERTY(Transient) TObjectPtr<UUserWidget> LoadErrorPresentation;
+    UPROPERTY(Transient) TObjectPtr<UTextBlock> LoadErrorText;
     bool LoadCatalog();
     void Build();
+    void ShowLoadError();
     void RebuildList();
     void HandleAction(int32 Action);
     TSharedPtr<FJsonObject> Node(const TCHAR* Section,const FString& Path) const;

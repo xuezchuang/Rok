@@ -35,6 +35,19 @@ bool BindGlyph(URokHelpSourceTextWidget* Text,URokHelpSourceTextData* Data,const
 }
 }
 
+UWidget* URokHelpWidget::GetWidgetFromName(const FName& WidgetName) const
+{
+    if (WidgetName == TEXT("HelpCustomerServiceBoundary") && CustomerServiceBoundaryText)
+    {
+        return CustomerServiceBoundaryText;
+    }
+    if (WidgetName == TEXT("HelpLoadError") && LoadErrorText)
+    {
+        return LoadErrorText;
+    }
+    return Super::GetWidgetFromName(WidgetName);
+}
+
 TSubclassOf<URokHelpWidget> URokHelpWidget::ResolvePresentationClass()
 {
     if (URokUiSettings::IsLegacyForced()) return StaticClass();
@@ -167,16 +180,61 @@ void URokHelpWidget::SuspendInput()
 { bAcceptActions=false;if(Root)Root->SetVisibility(ESlateVisibility::HitTestInvisible); }
 float URokHelpWidget::GetListScrollOffset() const { return ListScroll?ListScroll->GetScrollOffset():0; }
 
+void URokHelpWidget::ShowLoadError()
+{
+    if (!WidgetTree || !Root || LoadError.IsEmpty())
+    {
+        return;
+    }
+    static const TSoftClassPtr<URokUiPageWidget> ErrorClass(FSoftObjectPath(
+        TEXT("/Game/RokUI/Help/WBP_RokHelpLoadError.WBP_RokHelpLoadError_C")));
+    UClass* Class = URokUiSettings::Resolve(ErrorClass);
+    auto* Page = Class ? CreateWidget<URokUiPageWidget>(this, Class) : nullptr;
+    LoadErrorText = Page ? Page->Get<UTextBlock>(TEXT("HelpLoadError")) : nullptr;
+    if (LoadErrorText)
+    {
+        LoadErrorPresentation = Page;
+        // The template owns the message rectangle and native base style.
+        Page->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+        auto* Slot = Root->AddChildToCanvas(Page);
+        Slot->SetAnchors(FAnchors(0, 0, 1, 1));
+        Slot->SetOffsets(FMargin(0));
+        Slot->SetZOrder(1);
+    }
+    else
+    {
+        LoadErrorText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("HelpLoadError"));
+        Place(Root, LoadErrorText, FVector2D(300, 300), FVector2D(800, 100));
+    }
+    LoadErrorText->SetText(FText::FromString(LoadError));
+}
+
 void URokHelpWidget::Build()
 {
     if(!WidgetTree)return;
+    // Retire only the transient error presentation before the next initialization.
+    if (LoadErrorPresentation)
+    {
+        LoadErrorPresentation->RemoveFromParent();
+        LoadErrorPresentation = nullptr;
+    }
+    else if (LoadErrorText)
+    {
+        LoadErrorText->RemoveFromParent();
+        RokUiFind::Retire(LoadErrorText);
+    }
+    LoadErrorText = nullptr;
     const bool bWidgetBlueprint=GetClass()!=URokHelpWidget::StaticClass();
     if(bWidgetBlueprint)Root=Cast<UCanvasPanel>(GetWidgetFromName(TEXT("HelpRoot")));
     else if(!Root){Root=WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(),TEXT("HelpRoot"));WidgetTree->RootWidget=Root;}
-    else Root->ClearChildren();
+    else
+    {
+        Root->ClearChildren();
+        CustomerServiceBoundaryText = nullptr;
+    }
     if(!Root){LoadError=TEXT("Help WBP is missing its HelpRoot canvas.");return;}
     if(!LoadError.IsEmpty())
-    {auto* Error=WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(),TEXT("HelpLoadError"));Error->SetText(FText::FromString(LoadError));Place(Root,Error,FVector2D(300,300),FVector2D(800,100));return;}
+    {ShowLoadError();return;}
     const FVector2D FrameOffset(146,28), WindowOffset(138,11.5);
     if(bWidgetBlueprint)
     {
@@ -192,18 +250,18 @@ void URokHelpWidget::Build()
         AnswerWidth=Cast<USizeBox>(GetWidgetFromName(TEXT("HelpAnswerWidth")));
         if(!ListPage||!DetailPage||!ListScroll||!DetailScroll||!TitleText||!QuestionText||!AnswerText
             ||!QuestionTextRegion||!AnswerInset||!AnswerWidth)
-        {LoadError=TEXT("Help WBP is missing a required named layout widget.");auto* Error=WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(),TEXT("HelpLoadError"));Error->SetText(FText::FromString(LoadError));Place(Root,Error,FVector2D(300,300),FVector2D(800,100));return;}
+        {LoadError=TEXT("Help WBP is missing a required named layout widget.");ShowLoadError();return;}
         if(!BindGlyph(TitleText,SourceTextData,
             FText::FromString(Node(TEXT("frame"),TEXT("title/lbl_title"))->GetStringField(TEXT("text"))))
             ||!BindGlyph(QuestionText,SourceTextData,FText::GetEmpty())
             ||!BindGlyph(AnswerText,SourceTextData,FText::GetEmpty()))
-        {LoadError=TEXT("Help WBP source glyph widgets could not be configured.");auto* Error=WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(),TEXT("HelpLoadError"));Error->SetText(FText::FromString(LoadError));Place(Root,Error,FVector2D(300,300),FVector2D(800,100));return;}
+        {LoadError=TEXT("Help WBP source glyph widgets could not be configured.");ShowLoadError();return;}
         for(const auto& Pair:Layouts->GetObjectField(TEXT("window"))->Values)
         {
             const FString Path(*Pair.Key);if(!Path.StartsWith(TEXT("pl_list/"))||Path.Contains(TEXT("sv_helperlist"))||!Pair.Value->AsObject()->HasField(TEXT("font_px")))continue;
             const FName WidgetName=Name(TEXT("HelpList_"),Path);auto* Glyph=Cast<URokHelpSourceTextWidget>(WidgetTree->FindWidget(WidgetName));const auto NodeData=Pair.Value->AsObject();FString TextValue;
             if(!Glyph||!NodeData->TryGetStringField(TEXT("text"),TextValue)||!BindGlyph(Glyph,SourceTextData,FText::FromString(TextValue)))
-            {LoadError=FString::Printf(TEXT("Help static source glyph could not be configured: %s"),*WidgetName.ToString());auto* Error=WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(),TEXT("HelpLoadError"));Error->SetText(FText::FromString(LoadError));Place(Root,Error,FVector2D(300,300),FVector2D(800,100));return;}
+            {LoadError=FString::Printf(TEXT("Help static source glyph could not be configured: %s"),*WidgetName.ToString());ShowLoadError();return;}
         }
         AddHit(Root,TEXT("HelpCloseButton"),-1,Node(TEXT("frame"),TEXT("title/btn_close")),FrameOffset);
         AddHit(Root,TEXT("HelpBackButton"),-2,Node(TEXT("frame"),TEXT("title/btn_back")),FrameOffset);
@@ -305,7 +363,29 @@ void URokHelpWidget::HandleAction(int32 Action)
     if(Action==-3)
     {
         auto* Message=Cast<UTextBlock>(GetWidgetFromName(TEXT("HelpCustomerServiceBoundary")));
-        if(!Message){Message=WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(),TEXT("HelpCustomerServiceBoundary"));Message->SetFont(FCoreStyle::GetDefaultFontStyle(TEXT("Regular"),14));Place(ListPage,Message,FVector2D(460,320),FVector2D(600,30),20);}
+        if (!Message)
+        {
+            static const TSoftClassPtr<URokUiPageWidget> BoundaryClass(FSoftObjectPath(
+                TEXT("/Game/RokUI/Help/WBP_RokHelpCustomerServiceBoundary.WBP_RokHelpCustomerServiceBoundary_C")));
+            UClass* Class = URokUiSettings::Resolve(BoundaryClass);
+            auto* Page = Class ? CreateWidget<URokUiPageWidget>(this, Class) : nullptr;
+            Message = Page ? Page->Get<UTextBlock>(TEXT("HelpCustomerServiceBoundary")) : nullptr;
+            if (Message)
+            {
+                Page->SetVisibility(ESlateVisibility::HitTestInvisible);
+                auto* Slot = ListPage->AddChildToCanvas(Page);
+                Slot->SetAnchors(FAnchors(0, 0, 1, 1));
+                Slot->SetOffsets(FMargin(0));
+                Slot->SetZOrder(20);
+            }
+            else
+            {
+                Message = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("HelpCustomerServiceBoundary"));
+                Message->SetFont(FCoreStyle::GetDefaultFontStyle(TEXT("Regular"), 14));
+                Place(ListPage, Message, FVector2D(460, 320), FVector2D(600, 30), 20);
+            }
+            CustomerServiceBoundaryText = Message;
+        }
         Message->SetText(FText::FromString(TEXT("客服平台尚未接入，未打开外部页面。")));return;
     }
     if(Action==-2)

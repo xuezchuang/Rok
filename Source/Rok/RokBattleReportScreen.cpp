@@ -11,6 +11,9 @@
 #include "Containers/SortedMap.h"
 #include "EngineUtils.h"
 #include "RokGameNetSubsystem.h"
+#include "RokMailWbpBinding.h"
+#include "Components/VerticalBox.h"
+#include "Components/WrapBox.h"
 #include "RokUiTextTable.h"
 #include "RokUnityConfigSubsystem.h"
 #include "RokWorldMapConfigActor.h"
@@ -164,7 +167,11 @@ void URokUnityFeatureScreenWidget::RefreshBattleReportMail()
 	if (bLocalMailUnreadFixtureState || bReferenceMailCaptureState || bReadOnlyMailRewardFixtureState) return;
 	if (BattleReportFixtures.Contains(this)) return;
 	const auto* Net = GetGameInstance() ? GetGameInstance()->GetSubsystem<URokGameNetSubsystem>() : nullptr;
-	if (Net && ShownBattleReportRevision != Net->GetBattleReportRevision()) RebuildModeContent();
+	if (Net && (ShownBattleReportRevision != Net->GetBattleReportRevision()
+		|| bShownMailInboxLoading != Net->IsMailInboxLoading()))
+	{
+		RebuildModeContent();
+	}
 }
 
 void URokUnityFeatureScreenWidget::SelectBattleReport(int64 EmailIndex)
@@ -193,6 +200,7 @@ void URokUnityFeatureScreenWidget::BuildBattleReportMail(UScrollBox* List)
 	const FBattleReportFixture* Fixture = BattleReportFixtures.Find(this);
 	if (Fixture) MailMap = &Fixture->Mails;
 	ShownBattleReportRevision = Net && !Fixture ? Net->GetBattleReportRevision() : 0;
+	bShownMailInboxLoading = Net && !Fixture && Net->IsMailInboxLoading();
 	TArray<int64> Ids;
 	if (MailMap)
 	{
@@ -204,26 +212,25 @@ void URokUnityFeatureScreenWidget::BuildBattleReportMail(UScrollBox* List)
 			return TimeA == TimeB ? A > B : TimeA > TimeB;
 		});
 	}
-	if (!Ids.Contains(SelectedBattleReport)) SelectedBattleReport = Ids.IsEmpty() ? 0 : Ids[0];
+	if (!Ids.Contains(SelectedBattleReport))
+	{
+		SelectedBattleReport = Ids.IsEmpty() ? 0 : Ids[0];
+		if (SelectedBattleReport && Net && !Fixture)
+		{
+			Net->MarkBattleReportRead(SelectedBattleReport);
+		}
+	}
 	static UClass* ReportPageClass = nullptr;
 	static UClass* ReportRowClass = nullptr;
-	static UClass* ArmyRowClass = nullptr;
-	static UClass* RewardRowClass = nullptr;
-	static UClass* RoundRowClass = nullptr;
 	if (!IsLegacyBattleReportPresentation())
 	{
 		if (!ReportPageClass) ReportPageClass = LoadClass<URokUiPageWidget>(nullptr,
-			TEXT("/Game/RokUI/Feature/WBP_RokFeature_BattleReportScreen.WBP_RokFeature_BattleReportScreen_C"));
+			TEXT("/Game/RokUI/Feature/WBP_RokFeature_BattleReportOverview.WBP_RokFeature_BattleReportOverview_C"));
 		if (!ReportRowClass) ReportRowClass = LoadClass<URokUiPageWidget>(nullptr,
-			TEXT("/Game/RokUI/Feature/WBP_RokFeature_BattleReportRow.WBP_RokFeature_BattleReportRow_C"));
-		if (!ArmyRowClass) ArmyRowClass = LoadClass<URokUiPageWidget>(nullptr,
-			TEXT("/Game/RokUI/Feature/WBP_RokFeature_BattleReportArmyRow.WBP_RokFeature_BattleReportArmyRow_C"));
-		if (!RewardRowClass) RewardRowClass = LoadClass<URokUiPageWidget>(nullptr,
-			TEXT("/Game/RokUI/Feature/WBP_RokFeature_BattleReportRewardRow.WBP_RokFeature_BattleReportRewardRow_C"));
-		if (!RoundRowClass) RoundRowClass = LoadClass<URokUiPageWidget>(nullptr,
-			TEXT("/Game/RokUI/Feature/WBP_RokFeature_BattleReportRoundRow.WBP_RokFeature_BattleReportRoundRow_C"));
+			TEXT("/Game/RokUI/Feature/WBP_RokFeature_BattleReportInboxRow.WBP_RokFeature_BattleReportInboxRow_C"));
+
 	}
-	const bool bUseWbp = ReportPageClass && ReportRowClass && ArmyRowClass && RewardRowClass && RoundRowClass;
+	const bool bUseWbp = ReportPageClass && ReportRowClass;
 	URokUiPageWidget* ReportPage = nullptr;
 	UCanvasPanel* DetailCanvas = nullptr;
 	UScrollBox* Detail = nullptr;
@@ -245,7 +252,12 @@ void URokUnityFeatureScreenWidget::BuildBattleReportMail(UScrollBox* List)
 			EmptyText = ReportPage->Get<UTextBlock>(TEXT("BattleReportEmpty"));
 		}
 	}
-	const bool bMountedWbp = ReportPage && Detail && DetailSize && DetailCanvas && EmptyText;
+	bool bMountedWbp = ReportPage && Detail && DetailSize && DetailCanvas && EmptyText;
+	if (ReportPage && !bMountedWbp)
+	{
+		ReportPage->RemoveFromParent();
+		ReportPage = nullptr;
+	}
 	auto Label = [this, ReportPage, bMountedWbp](UCanvasPanel* Parent, FName Name, const FString& Text, FVector2D Pos, FVector2D Size,
 		int32 Font, FLinearColor Color = FLinearColor::White, bool bBold = false)
 	{
@@ -261,18 +273,6 @@ void URokUnityFeatureScreenWidget::BuildBattleReportMail(UScrollBox* List)
 		auto* Block = MakeScreenText(Name, Font, Color, bBold);
 		Block->SetText(FText::FromString(Text));
 		PlaceOnCanvas(Parent, Block, Pos, Size, 2);
-	};
-	auto MoveWbpWidgetY = [ReportPage](FName Name, float Y)
-	{
-		if (UWidget* Widget = RokUiFind::Find(ReportPage, Name))
-		{
-			if (UCanvasPanelSlot* Slot = Cast<UCanvasPanelSlot>(Widget->Slot))
-			{
-				FVector2D Position = Slot->GetPosition();
-				Position.Y = Y;
-				Slot->SetPosition(Position);
-			}
-		}
 	};
 	auto SetWbpVisibility = [ReportPage](FName Name, ESlateVisibility TargetVisibility)
 	{
@@ -290,18 +290,28 @@ void URokUnityFeatureScreenWidget::BuildBattleReportMail(UScrollBox* List)
 			if (!HitButton) continue;
 			HitButton->ConfigureAction(INDEX_NONE);
 			HitButton->OnIndexedClicked.AddWeakLambda(this, [this, Id](int32) { SelectBattleReport(Id); });
-			if (auto* Plate = Cast<UBorder>(RokUiFind::Find(Row, TEXT("BattleReportRowPlate"))))
+			const bool bAuthoredSelection = RokMailWbp::Find(*Row, TEXT("BattleReportRowSelection")) != nullptr;
+			if (bAuthoredSelection)
+			{
+				RokMailWbp::Show(*Row, TEXT("BattleReportRowSelection"), Id == SelectedBattleReport);
+			}
+			if (auto* Plate = bAuthoredSelection ? nullptr : Cast<UBorder>(RokUiFind::Find(Row, TEXT("BattleReportRowPlate"))))
 				Plate->SetBrushColor(Id == SelectedBattleReport ? FLinearColor(0.19f, 0.22f, 0.20f) : Slate);
 			if (auto* Title = Cast<UTextBlock>(RokUiFind::Find(Row, TEXT("BattleReportRowTitle"))))
 			{
 				Title->SetText(FText::FromString(ReportTitle(Config, Mail)));
-				Title->SetColorAndOpacity(Number(Mail, TEXT("status")) == 0 ? Gold : FLinearColor::White);
+				if (!bAuthoredSelection)
+				{
+					Title->SetColorAndOpacity(Number(Mail, TEXT("status")) == 0 ? Gold : FLinearColor::White);
+				}
 			}
 			if (auto* Subject = Cast<UTextBlock>(RokUiFind::Find(Row, TEXT("BattleReportRowSubject"))))
 				Subject->SetText(FText::FromString(ReportSubject(Config, Mail)));
 			if (auto* Unread = RokUiFind::Find(Row, TEXT("BattleReportRowUnread")))
 				Unread->SetVisibility(Number(Mail, TEXT("status")) == 0 ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
-			List->AddChild(WrapFixedSize(Row, *FString::Printf(TEXT("BattleReportRowSize_%lld"), Id), {470, 100}));
+			const FVector2D AuthoredSize = RokMailWbp::Size(*Row, TEXT("BattleReportRowLayout"));
+			List->AddChild(WrapFixedSize(Row, *FString::Printf(TEXT("BattleReportRowSize_%lld"), Id),
+				AuthoredSize.X > 0 && AuthoredSize.Y > 0 ? AuthoredSize : FVector2D(470, 100)));
 			continue;
 		}
 		const FName Name(*FString::Printf(TEXT("BattleReportRow_%lld"), Id));
@@ -319,25 +329,33 @@ void URokUnityFeatureScreenWidget::BuildBattleReportMail(UScrollBox* List)
 			Label(Row, NAME_None, TEXT("●"), {426, 20}, {28, 22}, 18, FLinearColor(0.92f, 0.19f, 0.12f));
 		List->AddChild(WrapFixedSize(Button, NAME_None, {470, 100}));
 	}
-	if (!bMountedWbp)
+	auto BuildNativeDetailPane = [&]()
 	{
 		PlaceOnCanvas(ModeCanvas, MakeSolidBorder(TEXT("BattleReportDetailPanel"), Slate), {547, 128}, {830, 590}, 3);
 		Detail = WidgetTree->ConstructWidget<UScrollBox>(UScrollBox::StaticClass(), TEXT("BattleReportDetailScroll"));
 		Detail->SetAllowOverscroll(false);
 		PlaceOnCanvas(ModeCanvas, Detail, {552, 132}, {820, 582}, 5);
 		DetailCanvas = WidgetTree->ConstructWidget<UCanvasPanel>();
+	};
+	if (!bMountedWbp)
+	{
+		BuildNativeDetailPane();
 	}
 	if (!SelectedBattleReport)
 	{
+		const FText EmptyLabel = bShownMailInboxLoading
+			? NSLOCTEXT("RokMail", "InboxLoading", "正在获取邮件…")
+			: NSLOCTEXT("RokMail", "NoBattleReports", "暂无战斗报告");
 		if (bMountedWbp)
 		{
+			EmptyText->SetText(EmptyLabel);
 			EmptyText->SetVisibility(ESlateVisibility::HitTestInvisible);
 			Detail->SetVisibility(ESlateVisibility::Collapsed);
 		}
 		else
 		{
 			auto* Empty = MakeScreenText(TEXT("BattleReportEmpty"), 24, Secondary);
-			Empty->SetText(FText::FromString(TEXT("暂无战斗报告")));
+			Empty->SetText(EmptyLabel);
 			PlaceOnCanvas(ModeCanvas, Empty, {604, 215}, {690, 44}, 5);
 		}
 		return;
@@ -357,234 +375,459 @@ void URokUnityFeatureScreenWidget::BuildBattleReportMail(UScrollBox* List)
 	{
 		// Legacy content is constructed below from the same data rows.
 	}
-	auto* Content = bMountedWbp ? DetailCanvas : WidgetTree->ConstructWidget<UCanvasPanel>();
-	if (!bMountedWbp)
-		PlaceOnCanvas(Content, MakeAtlasImage(NAME_None, MailAtlas, ReportPoster, AtlasSize, {803, 118}), {2, 1}, {803, 118});
-	FString EnemyName = ReportSubject(Config, Mail);
-	Label(Content, TEXT("BattleReportTitle"), ReportTitle(Config, Mail), {22, 12}, {520, 38}, 29, Gold, true);
-	Label(Content, TEXT("BattleReportOpponent"), EnemyName, {23, 60}, {600, 28}, 22);
-	const int64 SendTime = Number(Mail, TEXT("sendTime"));
-	if (SendTime > 0 && SendTime < 253402300799LL)
-		Label(Content, TEXT("BattleReportTime"), FDateTime::FromUnixTimestamp(SendTime).ToString(TEXT("%Y/%m/%d %H:%M UTC")),
-			{577, 87}, {224, 26}, 15, Secondary);
-	else if (bMountedWbp) SetWbpVisibility(TEXT("BattleReportTime"), ESlateVisibility::Collapsed);
-	if (!Report)
+	if (bMountedWbp && TryBuildBattleReportOverview(*ReportPage, Mail, Report,
+		Fixture ? Fixture->RoleId : (Net ? Net->GetRoleId() : 0), bDownloadFailed))
 	{
-		Label(Content, TEXT("BattleReportPending"), bDownloadFailed
-			? TEXT("战报下载失败，点选左侧邮件重试。") : TEXT("正在获取战斗详情…"), {24, 154}, {750, 44}, 23, Secondary);
-		if (bMountedWbp) DetailSize->SetHeightOverride(245.0f);
-		else Detail->AddChild(WrapFixedSize(Content, NAME_None, {805, 245}));
 		return;
 	}
-
-	FRow Self, Enemy;
-	for (const auto& Value : Array(Report, TEXT("objectInfos")))
+	if (bMountedWbp)
 	{
-		if (!Value || Value->Type != EJson::Object) continue;
-		const auto& Row = Value->AsObject();
-		const int64 RoleId = Fixture ? Fixture->RoleId : (Net ? Net->GetRoleId() : 0);
-		if (Number(Row, TEXT("rid")) == RoleId && RoleId > 0) Self = Row;
-		else if (!Enemy) Enemy = Row;
+		// A partial/older asset cannot remain above the native fallback.
+		ReportPage->RemoveFromParent();
+		ReportPage = nullptr;
+		bMountedWbp = false;
+		BuildNativeDetailPane();
 	}
-	const int64 SelfIndex = Number(Self, TEXT("objectIndex"));
-	const int64 EnemyIndex = Number(Enemy, TEXT("objectIndex"));
-	const FString MonsterName = EnemyLabel(Config, Number(Enemy, TEXT("monsterId")));
-	if (!MonsterName.IsEmpty()) EnemyName = MonsterName;
-	FString SelfName;
-	if (Self) Self->TryGetStringField(TEXT("name"), SelfName);
-	if (SelfName.IsEmpty()) SelfName = TEXT("我方");
-	const int64 Duration = FMath::Max<int64>(0, Number(Report, TEXT("battleEndTime")) - Number(Report, TEXT("battleBeginTime")));
-	const auto Position = Object(Enemy, TEXT("pos"));
-	FRokWorldMapProjection Projection;
-	if (UWorld* World = GetWorld())
+	// Native/previous-schema fallback when the editable overview is unavailable.
+	// Keep the page shell/list, replace the old summary-table presentation with
+	// Unity UI_Item_MailFightReport's title -> rewards -> army -> strength curve.
+	auto* Content = WidgetTree->ConstructWidget<UCanvasPanel>();
+	auto Text = [this, Content](FName Name, const FString& Value, FVector2D Pos, FVector2D Size, int32 Font,
+		FLinearColor Color = FLinearColor::White)
 	{
-		if (TActorIterator<ARokWorldMapConfigActor> It(World); It) Projection = It->Projection;
+		auto* Block = MakeScreenText(Name, Font, Color);
+		Block->SetText(FText::FromString(Value));
+		PlaceOnCanvas(Content, Block, Pos, Size, 2);
+	};
+	PlaceOnCanvas(Content, MakeAtlasImage(NAME_None, MailAtlas, ReportPoster, AtlasSize, {803, 118}), {2, 1}, {803, 118});
+	Text(TEXT("BattleReportTitle"), ReportTitle(Config, Mail), {16, 10}, {765, 38}, 27);
+	Text(TEXT("BattleReportOpponent"), TEXT("与") + ReportSubject(Config, Mail) + TEXT("发生了战斗"), {16, 55}, {765, 29}, 21);
+	const int64 SendTime = Number(Mail, TEXT("sendTime"));
+	if (SendTime > 0 && SendTime < 253402300799LL)
+	{
+		Text(TEXT("BattleReportTime"), (FDateTime::FromUnixTimestamp(SendTime) + (FDateTime::Now() - FDateTime::UtcNow())).ToString(TEXT("%Y/%m/%d %H:%M")), {16, 86}, {765, 25}, 18);
 	}
-	const FVector2D DisplayPosition = Projection.UnityToDisplay(FVector2D(Number(Position, TEXT("x")), Number(Position, TEXT("y"))) / 100.0);
-	Label(Content, TEXT("BattleReportDuration"), Position
-		? FString::Printf(TEXT("战斗时长 %lld 秒   ·   X:%.0f Y:%.0f"), Duration, DisplayPosition.X, DisplayPosition.Y)
-		: FString::Printf(TEXT("战斗时长 %lld 秒"), Duration), {23, 131}, {750, 30}, 18, Secondary);
-
-	float Y = 170;
-	Label(Content, TEXT("BattleReportArmyHeading"), TEXT("部队战况"), {23, Y}, {750, 34}, 22, Gold, true);
-	Y += 42;
-	const TCHAR* Columns[] = {TEXT("部队"), TEXT("参战"), TEXT("剩余"), TEXT("轻伤"), TEXT("重伤"), TEXT("阵亡")};
-	const float X[] = {24, 281, 389, 497, 605, 713};
-	for (int32 Index = 0; Index < UE_ARRAY_COUNT(Columns); ++Index)
-		Label(Content, *FString::Printf(TEXT("BattleReportArmyCol%d"), Index), Columns[Index], {X[Index], Y}, {100, 27}, 17, Secondary);
-	Y += 32;
-	auto Side = [&](const FRow& Army, const FString& Name)
+	if (!Report)
 	{
-		const auto Hurt = Casualties(Army);
-		const FString Cells[] = {Name, Army ? Count(Number(Army, TEXT("beginArmyCount"))) : TEXT("—"),
-			Army ? Count(Number(Army, TEXT("endArmyCount"))) : TEXT("—"), Hurt.bKnown ? Count(Hurt.Minor) : TEXT("—"),
-			Hurt.bKnown ? Count(Hurt.Severe) : TEXT("—"), Hurt.bKnown ? Count(Hurt.Dead) : TEXT("—")};
+		Text(TEXT("BattleReportPending"), bDownloadFailed ? TEXT("战报下载失败，点选左侧邮件重试。")
+			: TEXT("正在获取战斗详情…"), {24, 154}, {750, 44}, 23, Secondary);
 		if (bMountedWbp)
 		{
-			auto* Row = CreateWidget<URokUiPageWidget>(this, ArmyRowClass);
-			if (Row)
-			{
-				const FName Fields[] = {TEXT("BattleReportArmyName"), TEXT("BattleReportArmyBegin"), TEXT("BattleReportArmyEnd"),
-					TEXT("BattleReportArmyMinor"), TEXT("BattleReportArmySevere"), TEXT("BattleReportArmyDead")};
-				for (int32 Index = 0; Index < UE_ARRAY_COUNT(Cells); ++Index)
-					if (auto* Cell = Cast<UTextBlock>(RokUiFind::Find(Row, Fields[Index])))
-						Cell->SetText(FText::FromString(Cells[Index]));
-				Row->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-				PlaceOnCanvas(Content, Row, {12, Y}, {784, 41}, 2);
-			}
+			DetailSize->SetHeightOverride(245.0f);
 		}
 		else
 		{
-			PlaceOnCanvas(Content, MakeSolidBorder(NAME_None, Stripe), {12, Y}, {784, 41});
-			for (int32 Index = 0; Index < UE_ARRAY_COUNT(Cells); ++Index)
-				Label(Content, NAME_None, Cells[Index], {X[Index], Y + 7}, {Index == 0 ? 245.0 : 102.0, 27}, 19);
+			Detail->AddChild(WrapFixedSize(Content, NAME_None, {805, 245}));
 		}
-		Y += 45;
-	};
-	Side(Self, SelfName);
-	Side(Enemy, EnemyName);
-	Y += 14;
-	const auto Rewards = Object(Report, TEXT("rewardInfo"));
-	FRokMailRewardPayload Payload;
-	Payload.Food = Number(Rewards, TEXT("food"));
-	Payload.Wood = Number(Rewards, TEXT("wood"));
-	Payload.Stone = Number(Rewards, TEXT("stone"));
-	Payload.Gold = Number(Rewards, TEXT("gold"));
-	Payload.Denar = Number(Rewards, TEXT("denar"));
-	for (const auto& Value : Array(Rewards, TEXT("items")))
-		if (Value && Value->Type == EJson::Object)
-			Payload.Items.Add({Number(Value->AsObject(), TEXT("itemId")), Number(Value->AsObject(), TEXT("itemNum"))});
-	const auto Loot = RokMailRewardDetails::Normalize(Payload, GetEconomyCatalogSubsystem(), GetGameplayCatalogSubsystem());
-	const int64 Exp = Number(Report, TEXT("mainHeroExp"));
-	const int64 DeputyExp = Number(Self, TEXT("deputyHeroId")) > 0 ? Number(Report, TEXT("deputyHeroExp")) : 0;
-	Label(Content, TEXT("BattleReportRewardHeading"), TEXT("战斗奖励"), {23, Y}, {750, 32}, 22, Gold, true);
-	if (bMountedWbp) MoveWbpWidgetY(TEXT("BattleReportRewardHeading"), Y);
-	Y += 36;
-	if (Loot.IsEmpty() && Exp == 0 && DeputyExp == 0)
-	{
-		Label(Content, bMountedWbp ? FName(TEXT("BattleReportEmptyRewards")) : NAME_None, TEXT("无"),
-			{24, Y}, {750, 25}, 19, Secondary);
-		if (bMountedWbp)
-		{
-			MoveWbpWidgetY(TEXT("BattleReportEmptyRewards"), Y);
-			SetWbpVisibility(TEXT("BattleReportEmptyRewards"), ESlateVisibility::HitTestInvisible);
-		}
-		Y += 29;
+		return;
 	}
-	else if (bMountedWbp) SetWbpVisibility(TEXT("BattleReportEmptyRewards"), ESlateVisibility::Collapsed);
+	FRow Self;
+	TArray<FRow> Opponents;
+	const int64 RoleId = Fixture ? Fixture->RoleId : (Net ? Net->GetRoleId() : 0);
+	for (const auto& Value : Array(Report, TEXT("objectInfos")))
+	{
+		if (!Value || Value->Type != EJson::Object)
+		{
+			continue;
+		}
+		const auto& Row = Value->AsObject();
+		if (RoleId > 0 && Number(Row, TEXT("rid")) == RoleId && !Self)
+		{
+			Self = Row;
+		}
+		else
+		{
+			Opponents.Add(Row);
+		}
+	}
+	const auto Rewards = Object(Report, TEXT("rewardInfo"));
+	const auto Payload = RokMailWbp::ReadRewards(Rewards);
+	const auto Loot = RokMailRewardDetails::Normalize(Payload, GetEconomyCatalogSubsystem(), GetGameplayCatalogSubsystem());
+	Text(TEXT("BattleReportRewardHeading"), TEXT("击杀奖励"), {16, 157}, {110, 30}, 20);
+	float Y = 128;
 	for (int32 Index = 0; Index < Loot.Num(); ++Index)
 	{
-		const auto& Item = Loot[Index];
-		const float Left = 22 + (Index % 3) * 260;
-		const float Top = Y + (Index / 3) * 48;
+		const auto& Reward = Loot[Index];
+		const float Left = 124 + (Index % 7) * 93;
+		const float Top = 128 + (Index / 7) * 95;
 		const TCHAR* Texture = nullptr;
 		FIntRect Rect;
 		FIntPoint TextureSize;
-		const bool bHasIcon = ResolveMailRewardIcon(Item, Texture, Rect, TextureSize);
-		const FString RewardText = Item.DisplayName + TEXT(" ×") + Count(Item.Quantity);
-		if (bMountedWbp)
+		if (ResolveMailRewardIcon(Reward, Texture, Rect, TextureSize))
 		{
-			auto* Row = CreateWidget<URokUiPageWidget>(this, RewardRowClass);
-			if (Row)
+			PlaceOnCanvas(Content, MakeAtlasImage(NAME_None, Texture, Rect, TextureSize, {63, 63}), {Left, Top}, {63, 63}, 1);
+		}
+		Text(NAME_None, Count(Reward.Quantity), {Left, Top + 46}, {68, 24}, 16);
+		Text(NAME_None, Reward.DisplayName, {Left, Top + 67}, {92, 23}, 13, Secondary);
+	}
+	Y += FMath::Max(1, FMath::DivideAndRoundUp(Loot.Num(), 7)) * 95;
+	if (Loot.IsEmpty())
+	{
+		Text(NAME_None, TEXT("无"), {124, 157}, {650, 28}, 19, Secondary);
+	}
+	if (!Self)
+	{
+		Text(TEXT("BattleReportMissingSelf"), TEXT("战报中没有当前角色的部队信息。"), {20, Y}, {760, 40}, 22, Secondary);
+		Y += 60;
+	}
+	else
+	{
+		FString Name, Guild;
+		Self->TryGetStringField(TEXT("name"), Name);
+		Self->TryGetStringField(TEXT("guildName"), Guild);
+		if (!Guild.IsEmpty())
+		{
+			Name = TEXT("[") + Guild + TEXT("] ") + Name;
+		}
+		PlaceOnCanvas(Content, MakeSolidBorder(NAME_None, FLinearColor(0.39f, 0.38f, 0.32f)), {3, Y}, {796, 63});
+		Text(TEXT("BattleReportPlayer"), Name, {24, Y + 15}, {480, 35}, 24);
+		Text(TEXT("BattleReportArmyTotal"), TEXT("部队总数:") + Count(Number(Self, TEXT("beginArmyCount"))), {531, Y + 5}, {255, 27}, 18);
+		Text(TEXT("BattleReportArmyRemaining"), TEXT("剩余:") + Count(Number(Self, TEXT("endArmyCount"))), {531, Y + 31}, {255, 27}, 18);
+		Y += 76;
+		const FString Hero = ConfigText(Config, TEXT("Hero"), Number(Self, TEXT("mainHeroId")), TEXT("l_nameID"));
+		Text(TEXT("BattleReportHero"), Hero.IsEmpty() ? TEXT("驻防部队")
+			: FString::Printf(TEXT("等级%lld %s"), Number(Self, TEXT("mainHeroLevel")), *Hero), {61, Y}, {720, 35}, 20);
+		Y += 42;
+		// Unity flattens all target records and sorts by reportUniqueIndex, not turn.
+		// Multiple events in one turn, healing and reinforcement must remain visible.
+		TArray<FRow> Events;
+		for (const auto& Target : Array(Report, TEXT("battleReport")))
+		{
+			if (!Target || Target->Type != EJson::Object)
 			{
-				if (auto* Icon = Cast<UImage>(RokUiFind::Find(Row, TEXT("BattleReportRewardIcon"))))
-				{
-					if (bHasIcon)
-					{
-						Icon->SetBrush(MakeAtlasBrush(LoadUiTexture(Texture), Rect, TextureSize, {40, 40}));
-					}
-					else Icon->SetVisibility(ESlateVisibility::Collapsed);
-				}
-				if (auto* Text = Cast<UTextBlock>(RokUiFind::Find(Row, TEXT("BattleReportRewardText"))))
-					Text->SetText(FText::FromString(RewardText));
-				Row->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-				PlaceOnCanvas(Content, Row, {Left, Top}, {260, 48}, 2);
+				continue;
 			}
+			for (const auto& Value : Array(Target->AsObject(), TEXT("battleDamageHeal")))
+			{
+				if (Value && Value->Type == EJson::Object)
+				{
+					Events.Add(Value->AsObject());
+				}
+			}
+		}
+		Events.StableSort([](const FRow& A, const FRow& B) { return Number(A, TEXT("reportUniqueIndex")) < Number(B, TEXT("reportUniqueIndex")); });
+		const int64 SelfIndex = Number(Self, TEXT("objectIndex"));
+		const int64 MaxArmy = FMath::Max<int64>(1, Number(Self, TEXT("maxArmyCount")));
+		const FVector2D Origin(70, Y), Extent(693, 130);
+		for (int32 Tick = 0; Tick <= 3; ++Tick)
+		{
+			Text(NAME_None, Count(FMath::RoundToInt64(static_cast<double>(MaxArmy) * (3 - Tick) / 3)),
+				{7, Y + Tick * Extent.Y / 3 - 10}, {61, 26}, 16, Secondary);
+		}
+		PlaceOnCanvas(Content, MakeSolidBorder(NAME_None, Stripe), {Origin.X, Origin.Y + Extent.Y}, {Extent.X, 2});
+		if (Events.IsEmpty())
+		{
+			Text(TEXT("BattleReportNoCurve"), TEXT("本场战报没有兵力变化记录。"), {115, Y + 48}, {630, 30}, 19, Secondary);
 		}
 		else
 		{
-			if (bHasIcon)
-				PlaceOnCanvas(Content, MakeAtlasImage(NAME_None, Texture, Rect, TextureSize, {40, 40}), {Left, Top}, {40, 40}, 1);
-			Label(Content, NAME_None, RewardText, {Left + 44, Top + 8}, {210, 30}, 17);
+			auto Point = [&](double Fraction, int64 Army)
+			{
+				return Origin + FVector2D(Fraction * Extent.X, (1.0 - FMath::Clamp(static_cast<double>(Army) / MaxArmy, 0.0, 1.0)) * Extent.Y);
+			};
+			FVector2D Previous = Point(0, Number(Self, TEXT("beginArmyCount")));
+			for (int32 Index = 0; Index < Events.Num(); ++Index)
+			{
+				const auto& Event = Events[Index];
+				const bool bAttacking = Number(Event, TEXT("attackIndex")) == SelfIndex;
+				if (!bAttacking && Number(Event, TEXT("defenseIndex")) != SelfIndex)
+				{
+					continue;
+				}
+				const FVector2D Next = Point(static_cast<double>(Index + 1) / Events.Num(),
+					Number(Event, bAttacking ? TEXT("attackArmyCount") : TEXT("defenseArmyCount")));
+				const FVector2D Delta = Next - Previous;
+				auto* Segment = MakeSolidBorder(*FString::Printf(TEXT("BattleReportCurveSegment_%d"), Index), FLinearColor(0.12f, 0.68f, 0.89f));
+				Segment->SetRenderTransformPivot(FVector2D(0, 0.5));
+				Segment->SetRenderTransformAngle(FMath::RadiansToDegrees(FMath::Atan2(Delta.Y, Delta.X)));
+				PlaceOnCanvas(Content, Segment, Previous - FVector2D(0, 2), {Delta.Size(), 4}, 1);
+				Previous = Next;
+			}
+		}
+		Y += 143;
+		const int64 Begin = Number(Report, TEXT("battleBeginTime")), End = Number(Report, TEXT("battleEndTime"));
+		if (Begin > 0 && End >= Begin && End < 253402300799LL)
+		{
+			Text(TEXT("BattleReportStartTime"), (FDateTime::FromUnixTimestamp(Begin) + (FDateTime::Now() - FDateTime::UtcNow())).ToString(TEXT("%H:%M:%S")), {22, Y}, {350, 27}, 18);
+			Text(TEXT("BattleReportEndTime"), (FDateTime::FromUnixTimestamp(End) + (FDateTime::Now() - FDateTime::UtcNow())).ToString(TEXT("%H:%M:%S")), {652, Y}, {140, 27}, 18);
+		}
+		Y += 36;
+		for (const auto& Opponent : Opponents)
+		{
+			FString OpponentName = EnemyLabel(Config, Number(Opponent, TEXT("monsterId")));
+			if (OpponentName.IsEmpty())
+			{
+				Opponent->TryGetStringField(TEXT("name"), OpponentName);
+			}
+			PlaceOnCanvas(Content, MakeSolidBorder(NAME_None, FLinearColor(0.48f, 0.34f, 0.12f)), {60, Y}, {703, 32});
+			Text(NAME_None, OpponentName, {75, Y + 3}, {680, 28}, 19);
+			Y += 40;
+			Text(NAME_None, TEXT("参战 ") + Count(Number(Opponent, TEXT("beginArmyCount"))) + TEXT("    剩余 ")
+				+ Count(Number(Opponent, TEXT("endArmyCount"))), {75, Y}, {680, 28}, 18, Secondary);
+			Y += 34;
+			const auto EnemyHurt = Casualties(Opponent);
+			if (EnemyHurt.bKnown)
+			{
+				Text(NAME_None, FString::Printf(TEXT("轻伤 %s    重伤 %s    阵亡 %s"), *Count(EnemyHurt.Minor),
+					*Count(EnemyHurt.Severe), *Count(EnemyHurt.Dead)), {75, Y}, {680, 28}, 18, Secondary);
+				Y += 34;
+			}
+		}
+		const auto Hurt = Casualties(Self);
+		if (Hurt.bKnown)
+		{
+			Text(TEXT("BattleReportCasualties"), FString::Printf(TEXT("轻伤 %s    重伤 %s    阵亡 %s"),
+				*Count(Hurt.Minor), *Count(Hurt.Severe), *Count(Hurt.Dead)), {24, Y}, {750, 32}, 19, Secondary);
+			Y += 40;
 		}
 	}
-	Y += FMath::DivideAndRoundUp(Loot.Num(), 3) * 48;
+	const int64 Exp = Number(Report, TEXT("mainHeroExp"));
+	const int64 DeputyExp = Number(Report, TEXT("deputyHeroExp"));
 	if (Exp > 0 || DeputyExp > 0)
 	{
-		FString Experience = TEXT("主将经验 +") + Count(Exp);
-		if (DeputyExp > 0) Experience += TEXT("     副将经验 +") + Count(DeputyExp);
-		Label(Content, TEXT("BattleReportExperience"), Experience, {24, Y}, {750, 29}, 19);
-		if (bMountedWbp)
-		{
-			MoveWbpWidgetY(TEXT("BattleReportExperience"), Y);
-			SetWbpVisibility(TEXT("BattleReportExperience"), ESlateVisibility::HitTestInvisible);
-		}
-		Y += 36;
+		Text(TEXT("BattleReportExperience"), FString::Printf(TEXT("主将经验 +%s    副将经验 +%s"), *Count(Exp), *Count(DeputyExp)),
+			{24, Y}, {750, 30}, 19, Secondary);
+		Y += 38;
 	}
-	else if (bMountedWbp) SetWbpVisibility(TEXT("BattleReportExperience"), ESlateVisibility::Collapsed);
-
-	Y += 12;
-	Label(Content, TEXT("BattleReportRoundsHeading"), TEXT("战斗回合"), {23, Y}, {750, 34}, 22, Gold, true);
-	if (bMountedWbp) MoveWbpWidgetY(TEXT("BattleReportRoundsHeading"), Y);
-	Y += 39;
-	struct FRound { int64 SelfCount = 0, EnemyCount = 0; };
-	TSortedMap<int64, FRound> Rounds;
-	for (const auto& Target : Array(Report, TEXT("battleReport")))
+	const int64 BeginTime = Number(Report, TEXT("battleBeginTime")), EndTime = Number(Report, TEXT("battleEndTime"));
+	if (BeginTime > 0 && EndTime >= BeginTime)
 	{
-		if (!Target || Target->Type != EJson::Object) continue;
-		for (const auto& Value : Array(Target->AsObject(), TEXT("battleDamageHeal")))
+		Text(TEXT("BattleReportDuration"), FString::Printf(TEXT("战斗时长 %lld 秒"), EndTime - BeginTime), {24, Y}, {750, 30}, 18, Secondary);
+		Y += 38;
+	}
+	FRokWorldMapProjection Projection;
+	if (UWorld* World = GetWorld())
+	{
+		if (TActorIterator<ARokWorldMapConfigActor> It(World); It)
 		{
-			if (!Value || Value->Type != EJson::Object) continue;
-			const auto& Entry = Value->AsObject();
-			const int64 Attacker = Number(Entry, TEXT("attackIndex"));
-			const int64 Defender = Number(Entry, TEXT("defenseIndex"));
-			if (!SelfIndex || !EnemyIndex || !((Attacker == SelfIndex && Defender == EnemyIndex)
-				|| (Attacker == EnemyIndex && Defender == SelfIndex))) continue;
-			auto& Round = Rounds.FindOrAdd(Number(Entry, TEXT("turn")));
-			const bool bSelf = Attacker == SelfIndex;
-			(bSelf ? Round.SelfCount : Round.EnemyCount) = Number(Entry, TEXT("attackArmyCount"));
-			(bSelf ? Round.EnemyCount : Round.SelfCount) = Number(Entry, TEXT("defenseArmyCount"));
+			Projection = It->Projection;
 		}
 	}
-	if (Rounds.IsEmpty())
+	for (const auto& Opponent : Opponents)
 	{
-		Label(Content, bMountedWbp ? FName(TEXT("BattleReportNoRounds")) : NAME_None,
-			TEXT("本场战报没有回合记录。"), {24, Y}, {750, 29}, 18, Secondary);
-		if (bMountedWbp)
+		if (const auto Position = Object(Opponent, TEXT("pos")))
 		{
-			MoveWbpWidgetY(TEXT("BattleReportNoRounds"), Y);
-			SetWbpVisibility(TEXT("BattleReportNoRounds"), ESlateVisibility::HitTestInvisible);
+			const FVector2D Display = Projection.UnityToDisplay(FVector2D(Number(Position, TEXT("x")), Number(Position, TEXT("y"))) / 100.0);
+			Text(NAME_None, FString::Printf(TEXT("X:%.0f Y:%.0f"), Display.X, Display.Y), {24, Y}, {750, 30}, 18, Secondary);
+			Y += 38;
 		}
-		Y += 32;
-	}
-	else if (bMountedWbp) SetWbpVisibility(TEXT("BattleReportNoRounds"), ESlateVisibility::Collapsed);
-	for (const auto& Pair : Rounds)
-	{
-		const auto& Round = Pair.Value;
-		const FString Summary = FString::Printf(TEXT("第 %lld 回合     我方剩余 %s     敌方剩余 %s"), Pair.Key,
-			*Count(Round.SelfCount), *Count(Round.EnemyCount));
-		if (bMountedWbp)
-		{
-			auto* Row = CreateWidget<URokUiPageWidget>(this, RoundRowClass);
-			if (Row)
-			{
-				if (auto* Text = Cast<UTextBlock>(RokUiFind::Find(Row, TEXT("BattleReportRoundSummary"))))
-					Text->SetText(FText::FromString(Summary));
-				Row->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-				PlaceOnCanvas(Content, Row, {12, Y}, {784, 33}, 2);
-			}
-		}
-		else
-		{
-			PlaceOnCanvas(Content, MakeSolidBorder(NAME_None, Stripe), {12, Y}, {784, 33});
-			Label(Content, NAME_None, Summary, {24, Y + 4}, {760, 28}, 17);
-		}
-		Y += 36;
 	}
 	if (bMountedWbp)
 	{
 		DetailSize->SetHeightOverride(Y + 18.0f);
-		Detail->SetScrollOffset(0.0f);
 	}
-	else Detail->AddChild(WrapFixedSize(Content, NAME_None, {805, Y + 18}));
+	else
+	{
+		Detail->AddChild(WrapFixedSize(Content, NAME_None, {805, Y + 18}));
+	}
+}
+
+bool URokUnityFeatureScreenWidget::TryBuildBattleReportOverview(URokUiPageWidget& Page,
+	const TSharedPtr<FJsonObject>& Mail, const TSharedPtr<FJsonObject>& Report, int64 RoleId, bool bDownloadFailed)
+{
+	auto* Body = Cast<UVerticalBox>(RokMailWbp::Find(Page, TEXT("BattleReportOverviewBody")));
+	auto* RewardHost = Cast<UWrapBox>(RokMailWbp::Find(Page, TEXT("BattleReportRewardCards")));
+	auto* OpponentHost = Cast<UVerticalBox>(RokMailWbp::Find(Page, TEXT("BattleReportOpponentRows")));
+	auto* Plot = Cast<UCanvasPanel>(RokMailWbp::Find(Page, TEXT("BattleReportCurvePlot")));
+	auto* LineTemplate = Cast<UImage>(RokMailWbp::Find(Page, TEXT("BattleReportCurveLineTemplate")));
+	auto* PointTemplate = Cast<UImage>(RokMailWbp::Find(Page, TEXT("BattleReportCurvePointTemplate")));
+	UClass* ArmyClass = LoadClass<URokUiPageWidget>(nullptr,
+		TEXT("/Game/RokUI/Feature/WBP_RokFeature_BattleReportParticipantCard.WBP_RokFeature_BattleReportParticipantCard_C"));
+	UClass* RewardClass = LoadClass<URokUiPageWidget>(nullptr,
+		TEXT("/Game/RokUI/Feature/WBP_RokFeature_BattleReportLootCard.WBP_RokFeature_BattleReportLootCard_C"));
+	if (!Body || !RewardHost || !OpponentHost || !Plot || !LineTemplate || !PointTemplate || !ArmyClass || !RewardClass)
+	{
+		return false;
+	}
+	auto* ArmyPrototype = CreateWidget<URokUiPageWidget>(this, ArmyClass);
+	auto* RewardPrototype = CreateWidget<URokUiPageWidget>(this, RewardClass);
+	const FVector2D ArmySize = ArmyPrototype ? RokMailWbp::Size(*ArmyPrototype, TEXT("BattleReportArmyLayout")) : FVector2D::ZeroVector;
+	const FVector2D RewardSize = RewardPrototype ? RokMailWbp::Size(*RewardPrototype, TEXT("BattleReportRewardLayout")) : FVector2D::ZeroVector;
+	const FVector2D PlotSize = RokMailWbp::Size(Page, TEXT("BattleReportCurvePlot"));
+	const FVector2D LineSize = RokMailWbp::Size(Page, TEXT("BattleReportCurveLineTemplate"));
+	const FVector2D PointSize = RokMailWbp::Size(Page, TEXT("BattleReportCurvePointTemplate"));
+	if (ArmySize.X <= 0 || ArmySize.Y <= 0 || RewardSize.X <= 0 || RewardSize.Y <= 0 || PlotSize.X <= 0 || PlotSize.Y <= 0 || LineSize.Y <= 0)
+	{
+		return false;
+	}
+	auto* Config = GetGameInstance() ? GetGameInstance()->GetSubsystem<URokUnityConfigSubsystem>() : nullptr;
+	RokMailWbp::SetText(Page, TEXT("BattleReportTitle"), ReportTitle(Config, Mail));
+	RokMailWbp::SetText(Page, TEXT("BattleReportOpponent"), TEXT("与") + ReportSubject(Config, Mail) + TEXT("发生了战斗"));
+	RokMailWbp::SetText(Page, TEXT("BattleReportTime"), RokMailWbp::LocalTime(Number(Mail, TEXT("sendTime"))));
+	RokMailWbp::SetText(Page, TEXT("BattleReportPending"), bDownloadFailed ? TEXT("战报获取失败，请重新选择邮件重试。") : TEXT("正在获取战斗详情…"));
+	RokMailWbp::Show(Page, TEXT("BattleReportPending"), !Report);
+	for (const TCHAR* Section : {TEXT("BattleReportRewardsSection"), TEXT("BattleReportPlayerSectionSize"),
+		TEXT("BattleReportCurveSectionSize"), TEXT("BattleReportMetadata"), TEXT("BattleReportOpponentHeading"), TEXT("BattleReportOpponentRows")})
+	{
+		RokMailWbp::Show(Page, Section, Report.IsValid());
+	}
+	if (!Report)
+	{
+		return true;
+	}
+	FRow Self;
+	TArray<FRow> Opponents;
+	for (const auto& Value : Array(Report, TEXT("objectInfos")))
+	{
+		if (!Value || Value->Type != EJson::Object)
+		{
+			continue;
+		}
+		const FRow Row = Value->AsObject();
+		if (RoleId > 0 && Number(Row, TEXT("rid")) == RoleId && !Self)
+		{
+			Self = Row;
+		}
+		else
+		{
+			Opponents.Add(Row);
+		}
+	}
+	const auto Rewards = Object(Report, TEXT("rewardInfo"));
+	const auto Payload = RokMailWbp::ReadRewards(Rewards);
+	const auto Loot = RokMailRewardDetails::Normalize(Payload, GetEconomyCatalogSubsystem(), GetGameplayCatalogSubsystem());
+	RewardHost->ClearChildren();
+	for (const auto& Reward : Loot)
+	{
+		if (auto* Card = CreateWidget<URokUiPageWidget>(this, RewardClass))
+		{
+			Card->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+			BindLiveMailRewardCard(*Card, Reward, TEXT("BattleReportReward"));
+			RewardHost->AddChild(WrapFixedSize(Card, NAME_None, RewardSize));
+		}
+	}
+	RokMailWbp::Show(Page, TEXT("BattleReportEmptyRewards"), Loot.IsEmpty());
+	RokMailWbp::Show(Page, TEXT("BattleReportRewardCards"), !Loot.IsEmpty());
+	RokMailWbp::Show(Page, TEXT("BattleReportPlayerSectionSize"), Self.IsValid());
+	RokMailWbp::Show(Page, TEXT("BattleReportCurveSectionSize"), Self.IsValid());
+	RokMailWbp::Show(Page, TEXT("BattleReportMissingSelf"), !Self);
+	RokMailWbp::Show(Page, TEXT("BattleReportCasualties"), Self.IsValid());
+	Plot->ClearChildren();
+	if (Self)
+	{
+		FString Name, Guild;
+		Self->TryGetStringField(TEXT("name"), Name);
+		Self->TryGetStringField(TEXT("guildName"), Guild);
+		RokMailWbp::SetText(Page, TEXT("BattleReportPlayer"), Guild.IsEmpty() ? Name : TEXT("[") + Guild + TEXT("] ") + Name);
+		RokMailWbp::SetText(Page, TEXT("BattleReportArmyTotal"), TEXT("参战部队 ") + Count(Number(Self, TEXT("beginArmyCount"))));
+		RokMailWbp::SetText(Page, TEXT("BattleReportArmyRemaining"), TEXT("剩余部队 ") + Count(Number(Self, TEXT("endArmyCount"))));
+		const FString Hero = ConfigText(Config, TEXT("Hero"), Number(Self, TEXT("mainHeroId")), TEXT("l_nameID"));
+		RokMailWbp::SetText(Page, TEXT("BattleReportHero"), Hero.IsEmpty() ? TEXT("驻防部队")
+			: FString::Printf(TEXT("等级%lld %s"), Number(Self, TEXT("mainHeroLevel")), *Hero));
+		const auto Hurt = Casualties(Self);
+		RokMailWbp::SetText(Page, TEXT("BattleReportCasualties"), Hurt.bKnown
+			? FString::Printf(TEXT("我方轻伤 %s    重伤 %s    阵亡 %s"), *Count(Hurt.Minor), *Count(Hurt.Severe), *Count(Hurt.Dead))
+			: TEXT("我方伤亡信息暂不可用。"));
+		TArray<FRow> Events;
+		for (const auto& Target : Array(Report, TEXT("battleReport")))
+		{
+			if (!Target || Target->Type != EJson::Object)
+			{
+				continue;
+			}
+			for (const auto& Value : Array(Target->AsObject(), TEXT("battleDamageHeal")))
+			{
+				if (Value && Value->Type == EJson::Object)
+				{
+					Events.Add(Value->AsObject());
+				}
+			}
+		}
+		Events.StableSort([](const FRow& A, const FRow& B) { return Number(A, TEXT("reportUniqueIndex")) < Number(B, TEXT("reportUniqueIndex")); });
+		const int64 SelfIndex = Number(Self, TEXT("objectIndex"));
+		const int64 ReportMaxArmy = Number(Self, TEXT("maxArmyCount"));
+		const int64 MaxArmy = FMath::Max<int64>(1, ReportMaxArmy);
+		for (int32 Tick = 0; Tick <= 3; ++Tick)
+		{
+			RokMailWbp::SetText(Page, *FString::Printf(TEXT("BattleReportCurveAxis_%d"), Tick),
+				ReportMaxArmy > 0 ? Count(FMath::RoundToInt64(static_cast<double>(MaxArmy) * (3 - Tick) / 3)) : TEXT("—"));
+		}
+		auto Point = [PlotSize, MaxArmy](double Fraction, int64 Count)
+		{
+			return FVector2D(Fraction * PlotSize.X, (1.0 - FMath::Clamp(static_cast<double>(Count) / MaxArmy, 0.0, 1.0)) * PlotSize.Y);
+		};
+		FVector2D Previous = Point(0, Number(Self, TEXT("beginArmyCount")));
+		bool bHasCurve = false;
+		for (int32 Index = 0; Index < Events.Num() && ReportMaxArmy > 0; ++Index)
+		{
+			const auto& Event = Events[Index];
+			const bool bAttacking = Number(Event, TEXT("attackIndex")) == SelfIndex;
+			if (!bAttacking && Number(Event, TEXT("defenseIndex")) != SelfIndex)
+			{
+				continue;
+			}
+			const FVector2D Next = Point(static_cast<double>(Index + 1) / Events.Num(), Number(Event,
+				bAttacking ? TEXT("attackArmyCount") : TEXT("defenseArmyCount")));
+			const FVector2D Delta = Next - Previous;
+			auto* Segment = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), *FString::Printf(TEXT("BattleReportCurveSegment_%d"), Index));
+			Segment->SetBrush(LineTemplate->GetBrush());
+			Segment->SetVisibility(ESlateVisibility::HitTestInvisible);
+			Segment->SetRenderTransformPivot(FVector2D(0, 0.5));
+			Segment->SetRenderTransformAngle(FMath::RadiansToDegrees(FMath::Atan2(Delta.Y, Delta.X)));
+			UCanvasPanelSlot* Slot = Plot->AddChildToCanvas(Segment);
+			Slot->SetPosition(Previous - FVector2D(0, LineSize.Y / 2));
+			Slot->SetSize({Delta.Size(), LineSize.Y});
+			Previous = Next;
+			bHasCurve = true;
+		}
+		if (bHasCurve)
+		{
+			for (const FVector2D Endpoint : {Point(0, Number(Self, TEXT("beginArmyCount"))), Previous})
+			{
+				auto* Dot = WidgetTree->ConstructWidget<UImage>();
+				Dot->SetBrush(PointTemplate->GetBrush());
+				Dot->SetVisibility(ESlateVisibility::HitTestInvisible);
+				auto* Slot = Plot->AddChildToCanvas(Dot);
+				Slot->SetPosition(Endpoint - PointSize / 2);
+				Slot->SetSize(PointSize);
+			}
+		}
+		RokMailWbp::Show(Page, TEXT("BattleReportNoCurve"), !bHasCurve);
+		RokMailWbp::SetText(Page, TEXT("BattleReportStartTime"), RokMailWbp::LocalTime(Number(Report, TEXT("battleBeginTime")), TEXT("%H:%M:%S")));
+		RokMailWbp::SetText(Page, TEXT("BattleReportEndTime"), RokMailWbp::LocalTime(Number(Report, TEXT("battleEndTime")), TEXT("%H:%M:%S")));
+	}
+	const int64 MainExp = Number(Report, TEXT("mainHeroExp")), DeputyExp = Number(Report, TEXT("deputyHeroExp"));
+	RokMailWbp::Show(Page, TEXT("BattleReportExperience"), MainExp > 0 || DeputyExp > 0);
+	RokMailWbp::SetText(Page, TEXT("BattleReportExperience"), FString::Printf(TEXT("主将经验 +%s    副将经验 +%s"), *Count(MainExp), *Count(DeputyExp)));
+	const int64 Begin = Number(Report, TEXT("battleBeginTime")), End = Number(Report, TEXT("battleEndTime"));
+	RokMailWbp::Show(Page, TEXT("BattleReportDuration"), Begin > 0 && End >= Begin);
+	RokMailWbp::SetText(Page, TEXT("BattleReportDuration"), FString::Printf(TEXT("战斗时长 %lld 秒"), FMath::Max<int64>(0, End - Begin)));
+	OpponentHost->ClearChildren();
+	for (const auto& Opponent : Opponents)
+	{
+		auto* Row = CreateWidget<URokUiPageWidget>(this, ArmyClass);
+		if (!Row)
+		{
+			continue;
+		}
+		FString Name = EnemyLabel(Config, Number(Opponent, TEXT("monsterId")));
+		if (Name.IsEmpty())
+		{
+			Opponent->TryGetStringField(TEXT("name"), Name);
+		}
+		RokMailWbp::SetText(*Row, TEXT("BattleReportArmyName"), Name);
+		RokMailWbp::SetText(*Row, TEXT("BattleReportArmyCounts"), TEXT("参战 ") + Count(Number(Opponent, TEXT("beginArmyCount")))
+			+ TEXT("    剩余 ") + Count(Number(Opponent, TEXT("endArmyCount"))));
+		const auto Hurt = Casualties(Opponent);
+		RokMailWbp::SetText(*Row, TEXT("BattleReportArmyCasualties"), Hurt.bKnown
+			? FString::Printf(TEXT("轻伤 %s    重伤 %s    阵亡 %s"), *Count(Hurt.Minor), *Count(Hurt.Severe), *Count(Hurt.Dead))
+			: TEXT("伤亡信息暂不可用。"));
+		if (const auto Position = Object(Opponent, TEXT("pos")))
+		{
+			FRokWorldMapProjection Projection;
+			if (UWorld* World = GetWorld())
+			{
+				if (TActorIterator<ARokWorldMapConfigActor> It(World); It)
+				{
+					Projection = It->Projection;
+				}
+			}
+			const FVector2D Display = Projection.UnityToDisplay(FVector2D(Number(Position, TEXT("x")), Number(Position, TEXT("y"))) / 100.0);
+			RokMailWbp::SetText(*Row, TEXT("BattleReportArmyPosition"), FString::Printf(TEXT("X:%.0f Y:%.0f"), Display.X, Display.Y));
+		}
+		Row->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+		OpponentHost->AddChild(WrapFixedSize(Row, NAME_None, ArmySize));
+	}
+	RokMailWbp::Show(Page, TEXT("BattleReportOpponentHeading"), !Opponents.IsEmpty());
+	return true;
 }

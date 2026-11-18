@@ -51,10 +51,10 @@ TMap<int64, TSharedPtr<FJsonObject>> MakeMails(int32 Count, bool bWithReport)
 				"{\"emailId\":10,\"sendTime\":%d,\"status\":0,\"reportSubTile\":[\"\",\"\",\"\",\"\",\"\",\"对手%d\"],"
 				"\"battleReportExContent\":{\"battleBeginTime\":100,\"battleEndTime\":145,\"mainHeroExp\":50,\"deputyHeroExp\":25,"
 				"\"objectInfos\":["
-				"{\"rid\":1,\"objectIndex\":1,\"name\":\"我方\",\"beginArmyCount\":120,\"endArmyCount\":80,\"soldierDetail\":[{\"battleSoldierHurt\":[{\"minor\":10,\"hardHurt\":20,\"die\":10}]}]},"
+				"{\"rid\":1,\"objectIndex\":1,\"name\":\"我方\",\"beginArmyCount\":120,\"endArmyCount\":80,\"maxArmyCount\":120,\"soldierDetail\":[{\"battleSoldierHurt\":[{\"minor\":10,\"hardHurt\":20,\"die\":10}]}]},"
 				"{\"rid\":2,\"objectIndex\":2,\"name\":\"敌方\",\"beginArmyCount\":90,\"endArmyCount\":20,\"monsterId\":0,\"pos\":{\"x\":100,\"y\":200}}],"
 				"\"rewardInfo\":{\"food\":100,\"wood\":20,\"stone\":0,\"gold\":0,\"denar\":0,\"items\":[{\"itemId\":1,\"itemNum\":2}]},"
-				"\"battleReport\":[{\"battleDamageHeal\":[{\"attackIndex\":1,\"defenseIndex\":2,\"turn\":1,\"attackArmyCount\":100,\"defenseArmyCount\":80}]}]}}"),
+				"\"battleReport\":[{\"battleDamageHeal\":[{\"attackIndex\":1,\"defenseIndex\":2,\"turn\":1,\"reportUniqueIndex\":1,\"attackArmyCount\":100,\"defenseArmyCount\":80}]}]}}"),
 				10 - Index, Index + 1);
 		}
 		Result.Add(Id, ParseObject(*Json));
@@ -171,39 +171,25 @@ bool FRokBattleReportWbpTest::RunTest(const FString&)
 			auto* FirstRowBox = Cast<USizeBox>(List ? List->GetChildAt(0) : nullptr);
 			auto* FirstRow = FirstRowBox ? Cast<URokUiPageWidget>(FirstRowBox->GetContent()) : nullptr;
 			TestTrue(TEXT("Battle-report list row is the generated WBP class"), FirstRow
-				&& FirstRow->GetClass()->GetPathName().Contains(TEXT("WBP_RokFeature_BattleReportRow")));
+				&& FirstRow->GetClass()->GetPathName().Contains(TEXT("WBP_RokFeature_BattleReportInboxRow")));
 			TestNotNull(TEXT("List row's inner indexed click target is mounted"), FirstRow
 				? RokUiFind::Find(FirstRow, TEXT("BattleReportRowHitButton")) : nullptr);
 		}
 		TestNotNull(TEXT("Battle report title renders"), RokUiFind::Find(Screen, TEXT("BattleReportTitle")));
 		TestNotNull(TEXT("Army comparison renders"), RokUiFind::Find(Screen, TEXT("BattleReportDuration")));
 		TestNotNull(TEXT("Hero experience renders"), RokUiFind::Find(Screen, TEXT("BattleReportExperience")));
-		if (auto* ArmyMinor = Cast<UTextBlock>(RokUiFind::Find(Screen, TEXT("BattleReportArmyMinor"))))
-			TestEqual(TEXT("Casualty row uses fixture minor-hurt count"), ArmyMinor->GetText().ToString(), FString(TEXT("10")));
-		if (auto* RewardText = Cast<UTextBlock>(RokUiFind::Find(Screen, TEXT("BattleReportRewardText"))))
-			TestTrue(TEXT("Reward row uses fixture reward label and count"), RewardText->GetText().ToString().Contains(TEXT("100")));
-		if (auto* RoundText = Cast<UTextBlock>(RokUiFind::Find(Screen, TEXT("BattleReportRoundSummary"))))
-			TestTrue(TEXT("Round row uses fixture turn and counts"), RoundText->GetText().ToString().Contains(TEXT("第 1 回合")));
+		const auto* Casualties = Cast<UTextBlock>(RokUiFind::Find(Screen, TEXT("BattleReportCasualties")));
+		TestTrue(TEXT("The overview preserves source casualty counts"), Casualties
+			&& Casualties->GetText().ToString().Contains(TEXT("10")) && Casualties->GetText().ToString().Contains(TEXT("20")));
+		const auto* Player = Cast<UTextBlock>(RokUiFind::Find(Screen, TEXT("BattleReportPlayer")));
+		TestTrue(TEXT("The overview uses the current role's battle object"), Player && Player->GetText().ToString() == TEXT("我方"));
+		TestNotNull(TEXT("The strength chart draws the actual report event"), RokUiFind::Find(Screen, TEXT("BattleReportCurveSegment_0")));
+		TestNotNull(TEXT("The source chart start time is shown"), RokUiFind::Find(Screen, TEXT("BattleReportStartTime")));
 		if (!URokUiSettings::IsLegacyForced())
 		{
-			auto* DetailCanvas = Cast<UCanvasPanel>(RokUiFind::Find(Screen, TEXT("BattleReportDetailCanvas")));
-			TestNotNull(TEXT("Generated WBP detail page is mounted"), DetailCanvas);
-			int32 ArmyRows = 0, RewardRows = 0, RoundRows = 0;
-			if (DetailCanvas)
-			{
-				for (int32 Index = 0; Index < DetailCanvas->GetChildrenCount(); ++Index)
-				{
-					const auto* Row = Cast<URokUiPageWidget>(DetailCanvas->GetChildAt(Index));
-					if (!Row) continue;
-					const FString ClassPath = Row->GetClass()->GetPathName();
-					ArmyRows += ClassPath.Contains(TEXT("WBP_RokFeature_BattleReportArmyRow")) ? 1 : 0;
-					RewardRows += ClassPath.Contains(TEXT("WBP_RokFeature_BattleReportRewardRow")) ? 1 : 0;
-					RoundRows += ClassPath.Contains(TEXT("WBP_RokFeature_BattleReportRoundRow")) ? 1 : 0;
-				}
-			}
-			TestEqual(TEXT("Two army sides use the generated casualty row template"), ArmyRows, 2);
-			TestTrue(TEXT("Rewards use generated rows for normalized items"), RewardRows >= 2);
-			TestEqual(TEXT("Battle rounds use the generated round row template"), RoundRows, 1);
+			TestNotNull(TEXT("The authored WBP detail canvas remains mounted"), RokUiFind::Find(Screen, TEXT("BattleReportDetailCanvas")));
+			const auto* OldHeading = RokUiFind::Find(Screen, TEXT("BattleReportArmyHeading"));
+			TestTrue(TEXT("The old comparison table is absent from the overview"), !OldHeading || OldHeading->GetVisibility() == ESlateVisibility::Collapsed);
 		}
 		CaptureBattleReportState(*this, SlateRoot, TEXT("detail"));
 		if (auto* Selected = Cast<URokUnityIndexedButton>(RokUiFind::Find(Screen, TEXT("BattleReportRow_502"))))

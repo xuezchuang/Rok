@@ -1353,6 +1353,7 @@ void URokMainHudWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTim
 	UpdateServerTrainingPops();
 	UpdateCityHarvestPops(InDeltaTime);
 	UpdateBarracksIdleMarker(InDeltaTime);
+	UpdateCityStatusIndicators(InDeltaTime);
 	UpdatePlacementMenuProjection();
 	AdvancePlacementMenuAnimation(InDeltaTime);
 	AdvancePlacementButtonTints(InDeltaTime);
@@ -1448,6 +1449,7 @@ void URokMainHudWidget::BuildWidgetTree()
 	BuildServerTrainingPopPool();
 	BuildCityHarvestPops();
 	BuildBarracksIdleMarker();
+	BuildCityStatusIndicators();
 
 	static const TSoftClassPtr<URokUiPageWidget> SelectionStatusPage(FSoftObjectPath(
 		TEXT("/Game/RokUI/Hud/WBP_RokCitySelectionStatus.WBP_RokCitySelectionStatus_C")));
@@ -3698,9 +3700,14 @@ UCanvasPanel* URokMainHudWidget::MakeResourceCell(
 		MainMenuAtlasPath, PanelBackgroundRect, MainMenuAtlasSize, FMargin(9, 13, 8, 12)),
 		FVector2D(0.0f, 2.0f), FVector2D(CellWidth - (bShowAddButton ? 28.0f : 0.0f), 40.0f));
 	PlaceOnCanvas(Cell, MakeAtlasImage(*FString::Printf(TEXT("%sIcon"), *Name.ToString()), CommonAtlasPath, IconRect, CommonAtlasSize, FVector2D(54.0f, 54.0f)), FVector2D(-4.0f, -5.0f), FVector2D(54.0f, 54.0f));
-	OutTextBlock = MakeHudText(*FString::Printf(TEXT("%sValue"), *Name.ToString()), 20, FLinearColor(0.96f, 0.95f, 0.9f, 1.0f));
+	// UI_Model_Resources/lbl_val: Arial 22 px, #F4F4F4, with a downward shadow.
+	OutTextBlock = MakeHudText(*FString::Printf(TEXT("%sValue"), *Name.ToString()), 22,
+		FLinearColor(0.95686275f, 0.95686275f, 0.95686275f, 1.0f));
+	OutTextBlock->SetFont(MakeUnitySourceFont(22));
+	OutTextBlock->SetShadowOffset(FVector2D(0.0f, 2.0f));
+	OutTextBlock->SetShadowColorAndOpacity(FLinearColor(0.0f, 0.0f, 0.0f, 0.7058824f));
 	OutTextBlock->SetJustification(ETextJustify::Center);
-	PlaceOnCanvas(Cell, OutTextBlock, FVector2D(43.0f, 7.0f), FVector2D(88.0f, 30.0f));
+	PlaceOnCanvas(Cell, OutTextBlock, FVector2D(37.54f, 7.0f), FVector2D(92.32f, 30.0f));
 	if (bShowAddButton)
 	{
 		PlaceOnCanvas(Cell, MakeAtlasButton(*FString::Printf(TEXT("%sAddButton"), *Name.ToString()), MainMenuAtlasPath, AddRect, MainMenuAtlasSize, FVector2D(36.0f, 36.0f)), FVector2D(128.0f, 4.0f), FVector2D(36.0f, 36.0f));
@@ -4235,6 +4242,14 @@ void URokMainHudWidget::BuildBarracksIdleMarker()
 void URokMainHudWidget::UpdateBarracksIdleMarker(float DeltaTime)
 {
 	if (BarracksIdleGlyphs.IsEmpty()) return;
+	if (const auto* City = GetWorld() ? GetWorld()->GetSubsystem<URokServerCitySubsystem>() : nullptr; City && City->HasAppliedServerCity())
+	{
+		for (UTextBlock* Glyph : BarracksIdleGlyphs)
+		{
+			Glyph->SetVisibility(ESlateVisibility::Collapsed);
+		}
+		return;
+	}
 	const auto* Life = GetWorld() ? GetWorld()->GetSubsystem<URokCityLifeSubsystem>() : nullptr;
 	FVector Anchor;
 	auto* Controller = GetOwningPlayer();
@@ -5191,3 +5206,5 @@ void URokMainHudWidget::PlayFoldSound(USoundBase* Sound)
 	}
 	UE_LOG(LogTemp, Log, TEXT("Rok HUD fold audio requested: %s"), *Sound->GetName());
 }
+
+#include "RokCityStatusIndicators.inl"

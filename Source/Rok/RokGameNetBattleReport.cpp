@@ -57,11 +57,23 @@ void URokGameNetSubsystem::MergeBattleReportMail(const TSharedPtr<FJsonObject>& 
 	if (!RokSprotoJson::TryGetInt64(Email, TEXT("emailIndex"), Index) || Index <= 0) return;
 	if (RokSprotoJson::TryGetInt64(Email, TEXT("emailId"), Id) && Id < 0)
 	{
-		if (BattleReportMail.Remove(Index)) ++BattleReportRevision;
+		SessionMail.Remove(Index);
+		BattleReportMail.Remove(Index);
+		++BattleReportRevision;
 		BattleReportRequests.Remove(Index);
 		FailedBattleReportDownloads.Remove(Index);
 		return;
 	}
+	auto& InboxRow = SessionMail.FindOrAdd(Index);
+	if (!InboxRow)
+	{
+		InboxRow = MakeShared<FJsonObject>();
+	}
+	for (const auto& Field : Email->Values)
+	{
+		InboxRow->SetField(Field.Key, Field.Value);
+	}
+	++BattleReportRevision;
 	const bool bReport = RokSprotoJson::TryGetInt64(Email, TEXT("subType"), Subtype) && Subtype == BattleReportSubtype;
 	if (!bReport && !BattleReportMail.Contains(Index)) return;
 	auto& Row = BattleReportMail.FindOrAdd(Index);
@@ -134,4 +146,52 @@ bool URokGameNetSubsystem::GetRecentBattleDamage(int64 ObjectId, int64& Damage, 
 	Age = FPlatformTime::Seconds() - Event->At;
 	Damage = Event->Amount;
 	return Age < 1.4;
+}
+
+bool URokGameNetSubsystem::IsMailInboxLoading() const
+{
+	if (State == ERokGameNetState::LoggingIn || State == ERokGameNetState::Connected)
+	{
+		return true;
+	}
+	const FRokSprotoProtocol* Protocol = Schema.FindProtocol(TEXT("Email_GetEmails"));
+	return State == ERokGameNetState::RoleReady && Protocol && PendingInnerByOuter.FindKey(Protocol->Tag);
+}
+
+// Email.lua:GetEmailInfo/UpdateEmailStatus/TakeEnclosure are server-authoritative.
+// Do not optimistically mark read or claimed: Email_EmailList pushes confirm both.
+bool URokGameNetSubsystem::RequestMailDetails(int64 EmailIndex)
+{
+	return SessionMail.Contains(EmailIndex) && State == ERokGameNetState::RoleReady && Worker
+		&& SendRequest(TEXT("Email_GetEmailInfo"), MakeEmailIndexRequest(EmailIndex));
+}
+
+void URokGameNetSubsystem::MarkMailRead(int64 EmailIndex)
+{
+	const auto* Mail = SessionMail.Find(EmailIndex);
+	int64 Status = 1;
+	if (Mail && RokSprotoJson::TryGetInt64(*Mail, TEXT("status"), Status) && Status == 0
+		&& State == ERokGameNetState::RoleReady && Worker)
+	{
+		SendRequest(TEXT("Email_UpdateEmailStatus"), MakeEmailIndexRequest(EmailIndex));
+	}
+}
+
+bool URokGameNetSubsystem::TakeMailEnclosure(int64 EmailIndex)
+{
+	const auto* Mail = SessionMail.Find(EmailIndex);
+	bool bTaken = false;
+	if (!Mail || State != ERokGameNetState::RoleReady || !Worker)
+	{
+		return false;
+	}
+	(*Mail)->TryGetBoolField(TEXT("takeEnclosure"), bTaken);
+	if (bTaken || !(*Mail)->HasTypedField<EJson::Object>(TEXT("rewards")))
+	{
+		return false;
+	}
+	auto Body = MakeShared<FJsonObject>();
+	Body->SetNumberField(TEXT("type"), 1);
+	Body->SetField(TEXT("data"), MakeShared<FJsonValueNumberString>(LexToString(EmailIndex)));
+	return SendRequest(TEXT("Email_TakeEnclosure"), Body);
 }

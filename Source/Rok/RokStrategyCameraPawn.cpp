@@ -11,7 +11,8 @@
 #include "GameFramework/PlayerController.h"
 #include "HAL/PlatformTime.h"
 #include "InputCoreTypes.h"
-#include "Kismet/GameplayStatics.h"
+#include "Engine/GameInstance.h"
+#include "RokMapTravelSubsystem.h"
 #include "Misc/App.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
@@ -301,11 +302,13 @@ bool ARokStrategyCameraPawn::RequestReturnToWorldMapInternal(
 		TargetDisplayCoordinate.IsSet()
 			? *TargetDisplayCoordinate.GetValue().ToString()
 			: TEXT("none"));
-	UGameplayStatics::OpenLevelBySoftObjectPtr(
-		this,
-		WorldMapLevel,
-		true,
-		Options);
+	auto* Travel = GetGameInstance() ? GetGameInstance()->GetSubsystem<URokMapTravelSubsystem>() : nullptr;
+	if (!Travel || !Travel->RequestTravel(GetWorld(), WorldMapLevel, Options,
+		FSimpleDelegate::CreateWeakLambda(this, [this]() { bWorldMapTravelRequested = false; })))
+	{
+		bWorldMapTravelRequested = false;
+		return false;
+	}
 	return true;
 }
 

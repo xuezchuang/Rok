@@ -351,6 +351,12 @@ private:
 	// Mounts the mode's page WBP (URokUiSettings::ModalPages) over the mode canvas;
 	// null, logged, when the mode has none. The page owns layout and static style.
 	URokUiPageWidget* MountModePage(FName Page);
+	// Shared editable text-only error states; false keeps the caller's native fallback.
+	bool TryMountStatusMessage(UCanvasPanel* Parent, FName MessageName,
+		FName LayoutName, const FText& Message);
+	URokUiPageWidget* CreateStatusMessage(FName MessageName, FName LayoutName, const FText& Message);
+	void AddBarracksAttributeUnavailable(UCanvasPanel* Parent, const FVector2D& Position,
+		const FVector2D& Size, int32 ZOrder);
 	// Places one item WBP (a row, tile or cell listed in ModalPages) in a page canvas
 	// as InstanceName; its children answer to their old flat names through Prefix,
 	// Suffix (the data id) and Index (the list index). Null, logged, when unmapped.

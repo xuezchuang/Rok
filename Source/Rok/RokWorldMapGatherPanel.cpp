@@ -282,22 +282,51 @@ void URokWorldMapHudWidget::RefreshWorldMarchQueue()
 		auto* RowSize = WidgetTree->ConstructWidget<USizeBox>();
 		RowSize->SetHeightOverride(WorldMarchRowHeight);
 		WorldMarchQueueList->AddChild(RowSize);
-		auto* Button = WidgetTree->ConstructWidget<URokUnityIndexedButton>(URokUnityIndexedButton::StaticClass(),
-			MakeUniqueObjectName(WidgetTree, URokUnityIndexedButton::StaticClass(), FName(*(TEXT("WorldMarchArmy_") + Suffix))));
-		FSlateBrush NoBrush;
-		NoBrush.DrawAs = ESlateBrushDrawType::NoDrawType;
-		FButtonStyle ButtonStyle;
-		ButtonStyle.SetNormal(NoBrush).SetHovered(NoBrush).SetPressed(NoBrush).SetDisabled(NoBrush)
-			.SetNormalPadding(FMargin(0)).SetPressedPadding(FMargin(0));
-		Button->SetStyle(ButtonStyle);
+		URokUnityIndexedButton* Button = nullptr;
+		FWorldMarchRowLayout Layout;
+		static const TSoftClassPtr<URokUiPageWidget> EntryClass(FSoftObjectPath(
+			TEXT("/Game/RokUI/Hud/WBP_RokWorldMarchEntry.WBP_RokWorldMarchEntry_C")));
+		auto* Entry = CreateWorldHudPage(EntryClass, NAME_None);
+		if (Entry)
+		{
+			Button = Entry->Get<URokUnityIndexedButton>(TEXT("WorldMarchEntryAction"));
+			Layout = {
+				Entry->Get<UImage>(TEXT("WorldMarchRarityFrame")),
+				Entry->Get<UImage>(TEXT("WorldMarchPortrait")),
+				Entry->Get<UImage>(TEXT("WorldMarchSelectionFrame")),
+				Entry->Get<UImage>(TEXT("WorldMarchStatusIcon"))
+			};
+			if (Button && Cast<UCanvasPanelSlot>(Button->Slot)
+				&& Layout.RarityFrame && Layout.Portrait && Layout.SelectionFrame && Layout.Status)
+			{
+				Entry->LegacyNames.Add(TEXT("WorldMarchEntryAction"), TEXT("WorldMarchArmy_") + Suffix);
+				RowSize->SetContent(Entry);
+			}
+			else
+			{
+				Entry->RemoveFromParent();
+				Entry = nullptr;
+			}
+		}
+		if (!Entry)
+		{
+			Button = WidgetTree->ConstructWidget<URokUnityIndexedButton>(URokUnityIndexedButton::StaticClass(),
+				MakeUniqueObjectName(WidgetTree, URokUnityIndexedButton::StaticClass(), FName(*(TEXT("WorldMarchArmy_") + Suffix))));
+			FSlateBrush NoBrush;
+			NoBrush.DrawAs = ESlateBrushDrawType::NoDrawType;
+			FButtonStyle ButtonStyle;
+			ButtonStyle.SetNormal(NoBrush).SetHovered(NoBrush).SetPressed(NoBrush).SetDisabled(NoBrush)
+				.SetNormalPadding(FMargin(0)).SetPressedPadding(FMargin(0));
+			Button->SetStyle(ButtonStyle);
+			RowSize->SetContent(Button);
+
+			auto* Row = WidgetTree->ConstructWidget<UCanvasPanel>();
+			Row->SetVisibility(ESlateVisibility::HitTestInvisible);
+			Button->SetContent(Row);
+			Layout = BuildWorldMarchRowLayout(Row, TEXT("_") + Suffix);
+		}
 		Button->ConfigureAction(March.ArmyIndex);
 		Button->OnIndexedClicked.AddUObject(this, &URokWorldMapHudWidget::HandleWorldMarchClicked);
-		RowSize->SetContent(Button);
-
-		auto* Row = WidgetTree->ConstructWidget<UCanvasPanel>();
-		Row->SetVisibility(ESlateVisibility::HitTestInvisible);
-		Button->SetContent(Row);
-		const FWorldMarchRowLayout Layout = BuildWorldMarchRowLayout(Row, TEXT("_") + Suffix);
 		const auto SetAtlas = [this](UImage* Image, const TCHAR* TexturePath, const FIntRect& Rect, const FIntPoint& AtlasSize)
 		{
 			UTexture2D* Texture = LoadUiTexture(TexturePath);

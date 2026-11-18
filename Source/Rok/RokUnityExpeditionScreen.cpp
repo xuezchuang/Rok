@@ -51,6 +51,92 @@ constexpr int32 GatherDeputyAction = 24400;
 constexpr int32 GatherRemoveDeputyAction = 24401;
 constexpr int32 GatherInfoAction = 24402;
 
+// Match the existing pages if the optional Designer layout is unavailable.
+struct FExpeditionListLayout
+{
+	FVector2D StageOffset{-45, -62};
+	FVector2D RewardStart{396, 658};
+	double RewardStep = 79;
+	FVector2D EnemyCenter{728, 452};
+	double EnemyStep = 88;
+	FVector2D PreviewEnemyStart{1100, 139};
+	FVector2D PreviewEnemyStep{140, 118};
+	FVector2D StarStart{486, 248};
+	double StarStep = 50;
+	FVector2D HeroChoiceSize{1000, 96};
+	FVector2D SoldierSize{580, 101};
+};
+
+FExpeditionListLayout ReadExpeditionListLayout(UUserWidget* Owner)
+{
+	static const TSoftClassPtr<URokUiPageWidget> LayoutClass(FSoftObjectPath(
+		TEXT("/Game/RokUI/Feature/WBP_RokExpeditionListLayout.WBP_RokExpeditionListLayout_C")));
+	FExpeditionListLayout Layout;
+	if (UClass* Class = URokUiSettings::Resolve(LayoutClass))
+	{
+		if (auto* Page = CreateWidget<URokUiPageWidget>(Owner, Class))
+		{
+			const auto Slot = [Page](FName Name)
+			{
+				const UWidget* Marker = Page->GetWidgetFromName(Name);
+				return Marker ? Cast<UCanvasPanelSlot>(Marker->Slot) : nullptr;
+			};
+			if (const auto* Stage = Slot(TEXT("StageOffset")))
+			{
+				Layout.StageOffset = Stage->GetPosition();
+			}
+			if (const auto* Reward = Slot(TEXT("RewardRow")); Reward && Reward->GetSize().X > 0)
+			{
+				Layout.RewardStart = Reward->GetPosition();
+				Layout.RewardStep = Reward->GetSize().X;
+			}
+			if (const auto* Enemy = Slot(TEXT("EnemyRow")); Enemy && Enemy->GetSize().X > 0)
+			{
+				Layout.EnemyCenter = Enemy->GetPosition();
+				Layout.EnemyStep = Enemy->GetSize().X;
+			}
+			if (const auto* Preview = Slot(TEXT("PreviewEnemyGrid")); Preview && Preview->GetSize().GetMin() > 0)
+			{
+				Layout.PreviewEnemyStart = Preview->GetPosition();
+				Layout.PreviewEnemyStep = Preview->GetSize();
+			}
+			if (const auto* Star = Slot(TEXT("StarRow")); Star && Star->GetSize().Y > 0)
+			{
+				Layout.StarStart = Star->GetPosition();
+				Layout.StarStep = Star->GetSize().Y;
+			}
+			if (const auto* Hero = Slot(TEXT("HeroChoiceSize")); Hero && Hero->GetSize().GetMin() > 0)
+			{
+				Layout.HeroChoiceSize = Hero->GetSize();
+			}
+			if (const auto* Soldier = Slot(TEXT("SoldierSize")); Soldier && Soldier->GetSize().GetMin() > 0)
+			{
+				Layout.SoldierSize = Soldier->GetSize();
+			}
+		}
+	}
+	return Layout;
+}
+
+UWidget* CreateExpeditionCommanderDisplay(UUserWidget* Owner, UWidgetTree* Tree, int32 HeroId)
+{
+	static const TSoftClassPtr<URokUiPageWidget> DisplayClass(FSoftObjectPath(
+		TEXT("/Game/RokUI/Feature/WBP_RokExpeditionCommanderDisplay.WBP_RokExpeditionCommanderDisplay_C")));
+	if (UClass* Class = URokUiSettings::Resolve(DisplayClass))
+	{
+		if (auto* Page = CreateWidget<URokUiPageWidget>(Owner, Class))
+		{
+			if (auto* Portrait = Cast<URokCommanderMeshWidget>(Page->GetWidgetFromName(TEXT("ExpeditionArmyPortrait"))))
+			{
+				return Portrait->LoadHero(HeroId) ? Page : nullptr;
+			}
+		}
+	}
+	auto* Portrait = Tree ? Tree->ConstructWidget<URokCommanderMeshWidget>(URokCommanderMeshWidget::StaticClass(),
+		TEXT("ExpeditionArmyPortrait")) : nullptr;
+	return Portrait && Portrait->LoadHero(HeroId) ? Portrait : nullptr;
+}
+
 UTexture2D* LoadExpeditionWbpTexture(const FString& AssetName)
 {
 	const FString ObjectName = FPaths::GetBaseFilename(AssetName);
@@ -234,6 +320,7 @@ void URokUnityFeatureScreenWidget::BuildExpeditionMap(const FRokExpeditionStageP
 	{
 		if (URokUiPageWidget* Page = MountModePage(TEXT("Expedition"), false))
 		{
+			const FExpeditionListLayout Layout = ReadExpeditionListLayout(this);
 			BindPageAction(*Page, TEXT("ExpeditionMapBackButton"), 1122);
 			BindPageAction(*Page, TEXT("ExpeditionRankButton"), 1125);
 			BindPageAction(*Page, TEXT("ExpeditionRulesButton"), 1126);
@@ -284,7 +371,7 @@ void URokUnityFeatureScreenWidget::BuildExpeditionMap(const FRokExpeditionStageP
 				if (UCanvasPanelSlot* CanvasSlot = Map->AddChildToCanvas(Row))
 				{
 					const FVector2D Anchor(static_cast<float>(RowData.BattleCoordinate.X), static_cast<float>(RowData.BattleCoordinate.Y));
-					CanvasSlot->SetPosition(Anchor - FVector2D(45, 62));
+					CanvasSlot->SetPosition(Anchor + Layout.StageOffset);
 					CanvasSlot->SetZOrder(4);
 				}
 				SetExpeditionWbpTexture(Row->Get<UImage>(TEXT("Flag")), bUnlocked
@@ -355,7 +442,7 @@ void URokUnityFeatureScreenWidget::BuildExpeditionMap(const FRokExpeditionStageP
 						ItemRow->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
 						if (UCanvasPanelSlot* CanvasSlot = RewardContent->AddChildToCanvas(ItemRow))
 						{
-							CanvasSlot->SetPosition(FVector2D(396 + SlotIndex * 79, 658));
+							CanvasSlot->SetPosition(Layout.RewardStart + FVector2D(SlotIndex * Layout.RewardStep, 0));
 						}
 						const auto* Item = Items.FindByPredicate([Id](const FRokUnityEconomyItem& Entry) { return Entry.Id == Id; });
 						UImage* Icon = ItemRow->Get<UImage>(TEXT("Icon"));
@@ -591,6 +678,7 @@ void URokUnityFeatureScreenWidget::BuildExpeditionTask(const FRokExpeditionStage
 	{
 		if (URokUiPageWidget* Page = MountModePage(TEXT("ExpeditionTask"), false))
 		{
+			const FExpeditionListLayout Layout = ReadExpeditionListLayout(this);
 			ExpeditionSideRoot = Page->Get<UCanvasPanel>(TEXT("ExpeditionSideRoot"));
 			ExpeditionCenterRoot = Page->Get<UCanvasPanel>(TEXT("ExpeditionCenterRoot"));
 			ExpeditionCenterImg = Page->Get<UCanvasPanel>(TEXT("ExpeditionCenterImg"));
@@ -703,7 +791,7 @@ void URokUnityFeatureScreenWidget::BuildExpeditionTask(const FRokExpeditionStage
 			EnemyRow->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
 			if (UCanvasPanelSlot* CanvasSlot = EnemyContent->AddChildToCanvas(EnemyRow))
 			{
-				CanvasSlot->SetPosition(FVector2D(720 - 44 * EnemyHeroes.Num() + 88 * Index + 8, 452));
+				CanvasSlot->SetPosition(Layout.EnemyCenter + FVector2D((Index - EnemyHeroes.Num() * 0.5) * Layout.EnemyStep, 0));
 				CanvasSlot->SetZOrder(4);
 			}
 			SetHeroHead(EnemyRow, EnemyHeroes[Index]);
@@ -719,7 +807,8 @@ void URokUnityFeatureScreenWidget::BuildExpeditionTask(const FRokExpeditionStage
 			EnemyRow->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
 			if (UCanvasPanelSlot* CanvasSlot = PreviewContent->AddChildToCanvas(EnemyRow))
 			{
-				CanvasSlot->SetPosition(FVector2D(1100 + 140 * (Index % 2), 139 + 118 * (Index / 2)));
+				CanvasSlot->SetPosition(Layout.PreviewEnemyStart +
+					FVector2D(Layout.PreviewEnemyStep.X * (Index % 2), Layout.PreviewEnemyStep.Y * (Index / 2)));
 				CanvasSlot->SetZOrder(3);
 			}
 			SetHeroHead(EnemyRow, EnemyHeroes[Index]);
@@ -735,7 +824,7 @@ void URokUnityFeatureScreenWidget::BuildExpeditionTask(const FRokExpeditionStage
 			StarRow->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
 			if (UCanvasPanelSlot* CanvasSlot = StarContent->AddChildToCanvas(StarRow))
 			{
-				CanvasSlot->SetPosition(FVector2D(486, 248 + Index * 50));
+				CanvasSlot->SetPosition(Layout.StarStart + FVector2D(0, Index * Layout.StarStep));
 				CanvasSlot->SetZOrder(2);
 			}
 			StarRow->Get<UTextBlock>(TEXT("Text"))->SetText(FText::FromString(Stage.StarDescriptions[Index]));
@@ -1335,6 +1424,7 @@ void URokUnityFeatureScreenWidget::BuildArmyComposer()
 	{
 		if (URokUiPageWidget* Page = MountModePage(TEXT("ExpeditionArmyComposer"), false, 21))
 		{
+			const FExpeditionListLayout Layout = ReadExpeditionListLayout(this);
 			BindPageAction(*Page, TEXT("ExpeditionArmyCloseButton"), 1131);
 			auto* Catalog = GetGameplayCatalogSubsystem();
 			auto SetText = [Page](FName Name, const FText& Text)
@@ -1377,7 +1467,7 @@ void URokUnityFeatureScreenWidget::BuildArmyComposer()
 					Row->LegacySuffix = FString::Printf(TEXT("_%d"), Index);
 					Row->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
 					Scroll->AddChild(WrapFixedSize(Row, *FString::Printf(TEXT("ExpeditionHeroChoiceSize_%d"), Index),
-						FVector2D(1000, 96)));
+						Layout.HeroChoiceSize));
 					Row->Get<UTextBlock>(TEXT("Name"))->SetText(FText::FromString(Hero.DisplayNameZhCn));
 					URokUnityIndexedButton* Choose = Row->Get<URokUnityIndexedButton>(TEXT("Button"));
 					Choose->ConfigureAction(HeroActionBase + Index);
@@ -1418,13 +1508,9 @@ void URokUnityFeatureScreenWidget::BuildArmyComposer()
 				? FText::FromString(FString::Printf(TEXT("统帅战力：%s"), *FText::AsNumber(Owned->Power).ToString()))
 				: FText::FromString(TEXT("统帅战力：—")));
 			UCanvasPanel* PortraitHost = Page->Get<UCanvasPanel>(TEXT("ExpeditionArmyPortraitHost"));
-			if (bHasHero)
+			if (bHasHero && PortraitHost)
 			{
-				URokCommanderMeshWidget* Portrait = WidgetTree
-						? WidgetTree->ConstructWidget<URokCommanderMeshWidget>(URokCommanderMeshWidget::StaticClass(),
-							TEXT("ExpeditionArmyPortrait"))
-						: nullptr;
-				if (Portrait && Portrait->LoadHero(Hero.Id))
+				if (UWidget* Portrait = CreateExpeditionCommanderDisplay(this, WidgetTree, Hero.Id))
 				{
 					if (UCanvasPanelSlot* CanvasSlot = PortraitHost->AddChildToCanvas(Portrait))
 					{
@@ -1491,7 +1577,7 @@ void URokUnityFeatureScreenWidget::BuildArmyComposer()
 				Row->LegacyPrefix = TEXT("ExpeditionSoldier");
 				Row->LegacySuffix = FString::Printf(TEXT("_%d"), Id);
 				Row->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-				SoldierScroll->AddChild(WrapFixedSize(Row, *FString::Printf(TEXT("ExpeditionSoldierSize_%d"), Id), FVector2D(580, 101)));
+				SoldierScroll->AddChild(WrapFixedSize(Row, *FString::Printf(TEXT("ExpeditionSoldierSize_%d"), Id), Layout.SoldierSize));
 				Row->Get<UTextBlock>(TEXT("Name"))->SetText(
 					FText::FromString(FRokUiTextTable::Resolve(NameId)));
 				UImage* TroopImage = Row->Get<UImage>(TEXT("Portrait"));

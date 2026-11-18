@@ -5,6 +5,7 @@
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
 #include "../RokMailRewardDetails.h"
+#include "../RokMailWbpBinding.h"
 #include "../RokUnityEconomyCatalogSubsystem.h"
 #include "../RokUnityGameplayCatalogSubsystem.h"
 #include "../RokTrainArmyDetail.h"
@@ -116,4 +117,33 @@ bool FRokMailRewardDetailsTest::RunTest(const FString&)
 	TestEqual(TEXT("Empty payload emits no invented rewards"), RokMailRewardDetails::Normalize(FRokMailRewardPayload(), Economy, Gameplay).Num(), 0);
 	return true;
 }
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FRokMailLiveRewardPayloadTest,
+	"Rok.Ui.Mail.LiveRewardPayload", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FRokMailLiveRewardPayloadTest::RunTest(const FString&)
+{
+	auto Rewards = MakeShared<FJsonObject>();
+	Rewards->SetField(TEXT("food"), MakeShared<FJsonValueNumberString>(TEXT("9007199254740993")));
+	auto Soldier = MakeShared<FJsonObject>();
+	Soldier->SetNumberField(TEXT("id"), 101);
+	Soldier->SetNumberField(TEXT("num"), 7);
+	Rewards->SetArrayField(TEXT("soldiers"), {MakeShared<FJsonValueObject>(Soldier)});
+	auto Item = MakeShared<FJsonObject>();
+	Item->SetNumberField(TEXT("itemId"), 42);
+	Item->SetNumberField(TEXT("itemNum"), 3);
+	Rewards->SetArrayField(TEXT("items"), {MakeShared<FJsonValueObject>(Item), MakeShared<FJsonValueObject>(Item)});
+	const auto Payload = RokMailWbp::ReadRewards(Rewards);
+	TestEqual(TEXT("Mail currencies retain sproto int64 precision"), Payload.Food, 9007199254740993LL);
+	TestEqual(TEXT("Absent currencies remain zero"), Payload.Wood, 0LL);
+	if (!TestEqual(TEXT("Soldier payload entries are read"), Payload.Soldiers.Num(), 1)
+		|| !TestEqual(TEXT("Duplicate item payload entries remain distinct"), Payload.Items.Num(), 2))
+	{
+		return false;
+	}
+	TestEqual(TEXT("SoldierInfo uses id"), Payload.Soldiers[0].Id, 101LL);
+	TestEqual(TEXT("SoldierInfo uses num"), Payload.Soldiers[0].Quantity, 7LL);
+	TestEqual(TEXT("RewardItem uses itemId"), Payload.Items[0].Id, 42LL);
+	TestEqual(TEXT("RewardItem uses itemNum"), Payload.Items[0].Quantity, 3LL);
+	return true;
+}
+
 #endif

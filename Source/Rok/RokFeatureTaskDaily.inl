@@ -182,7 +182,7 @@ URokUiPageWidget* URokUnityFeatureScreenWidget::BuildTaskRowPage(UClass* RowClas
 		{
 			Count->SetText(bHasIcon ? Quantity : FText::Format(
 				NSLOCTEXT("RokFeature", "TaskRewardTextOnly", "{0} ×{1}"), FText::FromString(Reward.DisplayName), Quantity));
-			if (!bHasIcon)
+			if (!bHasIcon && !ApplyTaskRewardTextOnlyState(*Count))
 			{
 				if (auto* CountSlot = Cast<UCanvasPanelSlot>(Count->Slot))
 				{
