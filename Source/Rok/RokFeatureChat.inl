@@ -9,8 +9,7 @@ void URokUnityFeatureScreenWidget::BuildChat()
 	// UI_Win_ChatMediator.OnPopEmojiMenu/OnHideEmojiMenu resize the
 	// message region and lift pl_down by pl_emoji.rect.height immediately.
 	// UI_Win_Chat.prefab pl_emoji sizeDelta.y = 289.8 (no tween).
-	const float EmojiHeight = 289.8f;
-	const float EmojiLift = bChatEmojiPanelOpen ? EmojiHeight : 0.0f;
+	constexpr double EmojiHeight = 289.8;
 	if (URokUiPageWidget* Page = MountModePage(TEXT("Chat")))
 	{
 		ChatContentCanvas = Page->Get<UCanvasPanel>(TEXT("ChatContentCanvas"));
@@ -65,7 +64,13 @@ void URokUnityFeatureScreenWidget::BuildChat()
 				Page->SetPresent(Message, bChatTestFixtureState);
 				Page->SetPresent(Page->Get<UWidget>(*FString::Printf(TEXT("ChatMessageShade_%d"), Index)), bChatTestFixtureState);
 			}
-			Page->SetPresent(Page->Get<UWidget>(TEXT("ChatEmojiPanel")), bChatEmojiPanelOpen);
+			UWidget* EmojiPanel = Page->Get<UWidget>(TEXT("ChatEmojiPanel"));
+			const auto* EmojiSlot = EmojiPanel ? Cast<UCanvasPanelSlot>(EmojiPanel->Slot) : nullptr;
+			const double DesignedEmojiHeight = EmojiSlot ? EmojiSlot->GetSize().Y : 0.0;
+			const double OpenEmojiHeight = FMath::IsFinite(DesignedEmojiHeight) && DesignedEmojiHeight > 0.0
+				? DesignedEmojiHeight : EmojiHeight;
+			const double EmojiLift = bChatEmojiPanelOpen ? OpenEmojiHeight : 0.0;
+			Page->SetPresent(EmojiPanel, bChatEmojiPanelOpen);
 			UWidget* Dismiss = Page->Get<UWidget>(TEXT("ChatEmojiDismissMask"));
 			Page->SetPresent(Dismiss, bChatEmojiPanelOpen);
 			// Restore the in-memory engine font while preserving the authored style.
@@ -95,8 +100,8 @@ void URokUnityFeatureScreenWidget::BuildChat()
 			ResizeForEmoji(Page->Get<UWidget>(TEXT("ChatMessageViewportBackground")));
 			ResizeForEmoji(MessageScroll);
 			const UCanvasPanelSlot* ViewportSlot = Cast<UCanvasPanelSlot>(MessageViewport->Slot);
-			const float ViewportHeight = ViewportSlot ? ViewportSlot->GetSize().Y : 594.0f - EmojiLift;
-			const float ContentHeight = bChatTestFixtureState ? FMath::Max(403.0f, ViewportHeight) : ViewportHeight;
+			const double ViewportHeight = ViewportSlot ? ViewportSlot->GetSize().Y : FMath::Max(0.0, 594.0 - EmojiLift);
+			const double ContentHeight = bChatTestFixtureState ? FMath::Max(403.0, ViewportHeight) : ViewportHeight;
 			MessageExtent->SetHeightOverride(ContentHeight);
 			if (bChatEmojiPanelOpen && Dismiss)
 			{
@@ -116,11 +121,24 @@ void URokUnityFeatureScreenWidget::BuildChat()
 					{
 						FVector2D Position = CanvasSlot->GetPosition(); Position.Y -= EmojiLift * 0.5f; CanvasSlot->SetPosition(Position);
 					}
-			if (UWidget* Feedback = Page->Get<UWidget>(TEXT("FeatureBoundaryFeedback")))
-				if (auto* CanvasSlot = Cast<UCanvasPanelSlot>(Feedback->Slot))
+			if (bChatEmojiPanelOpen)
+			{
+				UWidget* Feedback = RokUiFind::Find(Page, TEXT("FeatureBoundaryFeedback"));
+				if (auto* FeedbackSlot = Feedback ? Cast<UCanvasPanelSlot>(Feedback->Slot) : nullptr)
 				{
-					FVector2D Position = CanvasSlot->GetPosition(); Position.Y -= bChatEmojiPanelOpen ? 260.0f : 0.0f; CanvasSlot->SetPosition(Position);
+					UClass* FeedbackClass = ResolveFeaturePageClass(TEXT("FeatureFeedback"));
+					const auto* LayoutPage = FeedbackClass ? CreateWidget<URokUiPageWidget>(this, FeedbackClass) : nullptr;
+					const UWidget* Layout = LayoutPage ? RokUiFind::Find(LayoutPage, TEXT("ChatEmojiLayout")) : nullptr;
+					if (const auto* LayoutSlot = Layout ? Cast<UCanvasPanelSlot>(Layout->Slot) : nullptr)
+					{
+						FeedbackSlot->SetLayout(LayoutSlot->GetLayout());
+					}
+					else
+					{
+						FeedbackSlot->SetPosition(FeedbackSlot->GetPosition() - FVector2D(0.0, 260.0));
+					}
 				}
+			}
 			return;
 		}
 		Page->RemoveFromParent();
@@ -128,6 +146,7 @@ void URokUnityFeatureScreenWidget::BuildChat()
 		ChatContentCanvas = nullptr;
 		ChatInputTextBox = nullptr;
 	}
+	const double EmojiLift = bChatEmojiPanelOpen ? EmojiHeight : 0.0;
 	ChatContentCanvas = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("ChatContentCanvas"));
 	PlaceOnCanvas(ModeCanvas, ChatContentCanvas, FVector2D::ZeroVector,
 		FVector2D(UnityReferenceWidth, UnityReferenceHeight), 0);

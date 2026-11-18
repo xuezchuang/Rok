@@ -38,6 +38,7 @@
 #include "Misc/Paths.h"
 #include "RokMainHudWidget.h"
 #include "RokUiWidgets.h"
+#include "RokWorldObjectStyles.h"
 #include "RokUiSpec.h"
 #include "HAL/PlatformApplicationMisc.h"
 #include "RokGameNetSubsystem.h"
@@ -3491,8 +3492,16 @@ void URokWorldMapHudWidget::ShowWorldObjectInfo(AActor* Actor)
 			: Kind.Equals(TEXT("wood"), ESearchCase::IgnoreCase) ? SpriteRect(1085, 489, 80, 80)
 			: Kind.Equals(TEXT("stone"), ESearchCase::IgnoreCase) ? SpriteRect(947, 431, 80, 80)
 			: SpriteRect(865, 431, 80, 80);
-		WorldObjectInfoIcon->SetBrush(MakeAtlasBrush(LoadUiTexture(CommonAtlasPath), Rect, CommonAtlasSize, FVector2D(100)));
-		WorldGatherProgressIcon->SetBrush(MakeAtlasBrush(LoadUiTexture(CommonAtlasPath), Rect, CommonAtlasSize, FVector2D(60)));
+		auto* Styles = CreateWorldHudPage(RokWorldObjectStyles::Class(), NAME_None);
+		if (!RokWorldObjectStyles::Apply(Styles, WorldObjectInfoIcon, RokWorldObjectStyles::ResourceName(Kind, false)))
+		{
+			WorldObjectInfoIcon->SetBrush(MakeAtlasBrush(LoadUiTexture(CommonAtlasPath), Rect, CommonAtlasSize, FVector2D(100)));
+		}
+		if (WorldGatherProgressIcon
+			&& !RokWorldObjectStyles::Apply(Styles, WorldGatherProgressIcon, RokWorldObjectStyles::ResourceName(Kind, true)))
+		{
+			WorldGatherProgressIcon->SetBrush(MakeAtlasBrush(LoadUiTexture(CommonAtlasPath), Rect, CommonAtlasSize, FVector2D(60)));
+		}
 	}
 	RefreshSelectedWorldObjectValues();
 	if (WorldObjectInfoRoot)

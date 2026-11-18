@@ -371,6 +371,10 @@ private:
 	// Points a page image at one Unity atlas sprite (icons that follow state or data).
 	void SetAtlasSprite(UImage* Image, const TCHAR* TexturePath, const FIntRect& UnityRect,
 		const FIntPoint& AtlasSize, const FVector2D& DesiredSize) const;
+	// Detached, designer-authored context markers; never enters the visible hierarchy.
+	URokUiPageWidget* GetModalContextStates();
+	UPROPERTY(Transient)
+	TObjectPtr<URokUiPageWidget> ModalContextStateTemplate;
 	UPROPERTY(Transient)
 	TObjectPtr<URokUiPageWidget> ActivePage;
 	FName ActivePageName;

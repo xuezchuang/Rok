@@ -100,3 +100,17 @@
 对应生成规格在 `Scripts/RokUi/BuildBuildingMenuLayoutsSpec.py`、`BuildWorldArmyStateStylesSpec.py`、`BuildCommanderSkillBarSpec.py`、`BuildTaskListLayoutSpec.py` 和 `BuildBuildingLevelTableLayoutsSpec.py`。默认值取自原有正常入口，包括建筑投影后的按钮位置、行军图集区域和列表占位。
 
 5 个新资产均通过独立重载。检查了 10 棵设计与生成控件树、各槽位几何、图集资源、裁切区域及颜色。日志为 `Saved/RokUi/Logs/verify_army_skill_table_layouts_goal.log`。未编译 C++，实际入口和画面由人工审查。
+
+## 聊天展开、列表排位、世界详情与资料提示
+
+| 入口 | Designer 资产 | 可编辑内容 |
+| --- | --- | --- |
+| 聊天 → 展开表情 | `RokUI/Feature/WBP_RokFeature_Chat`、`WBP_RokFeature_FeatureFeedback` | `ChatEmojiPanel` 的高度带动消息区、输入栏和空态排位。`ChatEmojiLayout` 提供展开后反馈的位置和尺寸。 |
+| 城市管理 → 增益详情 | `RokUI/Feature/WBP_RokFeature_CityManagerDetailLayout` | `Extent`、`Stride`、`Minimum` 标记提供行尺寸、步距和最小滚动内容高度，内容按实际行数覆盖末行。 |
+| 部队统计 → 全部、城内、城外 | `RokUI/Feature/WBP_RokFeature_ArmyStatisticsListLayout` | 普通行、等待行和空行分别有尺寸标记，普通行有奇偶两种底色。 |
+| 世界 → 资源点、乱军详情 | `RokUI/Hud/WBP_RokWorldObjectStyles` | 四类资源的详情和进度图标、五种奖励品质框与两种头像画刷提供图集、裁切区域、尺寸和画刷颜色。详情与奖励格的槽位仍在现有 WBP。 |
+| 头像 → 行动力说明、改名；市政厅 → 增益效果 | `RokUI/Modal/Items/WBP_RokModal_ContextStates`、`WBP_RokModal_GainEffectUnavailable` | 行动力富文本的正文与剩余时间样式、改名校验和增益标签的状态色。经济配置缺失时显示独立提示模板。 |
+
+新增资产的生成规格在 `Scripts/RokUi/BuildCityManagerAndArmyStatisticsLayoutSpecs.py`、`BuildWorldObjectStylesSpec.py` 和 `BuildModalContextStatesSpecs.py`。聊天读取已有 WBP 槽位。
+
+5 个新资产和聊天使用的 2 个现有资产均通过独立重载。核对了 14 棵设计与生成控件树、排位、图集区域和文字样式。日志位于 `Saved/RokUi/Logs/verify_chat_emoji_layout_goal.log`、`verify_rows_and_world_goal.log` 与 `verify_modal_context_states_goal.log`。未编译 C++，实际入口和画面对比由人工审查。

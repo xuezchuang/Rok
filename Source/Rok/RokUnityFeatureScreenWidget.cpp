@@ -6254,7 +6254,28 @@ void URokUnityFeatureScreenWidget::BuildCityManager()
 			}
 		}
 	}
-	const float DetailHeight = FMath::Max(547.0f, DetailItems.Num() * 156.0f);
+	FVector2D DetailExtent(1024.0f, 156.0f);
+	float DetailStride = 156.0f;
+	float DetailMinimum = 547.0f;
+	if (UClass* LayoutClass = Page ? ResolveFeaturePageClass(TEXT("CityManagerDetailLayout")) : nullptr)
+	{
+		if (const auto* Layout = CreateWidget<URokUiPageWidget>(this, LayoutClass))
+		{
+			const auto Size = [Layout](FName Name, const FVector2D& Fallback)
+			{
+				const UWidget* Marker = Layout->Get<UWidget>(Name);
+				const auto* Slot = Marker ? Cast<UCanvasPanelSlot>(Marker->Slot) : nullptr;
+				const FVector2D Extent = Slot ? Slot->GetSize() : FVector2D::ZeroVector;
+				return !Extent.ContainsNaN() && Extent.GetMin() > 0 ? Extent : Fallback;
+			};
+			DetailExtent = Size(TEXT("CityManagerDetailExtent"), DetailExtent);
+			DetailStride = Size(TEXT("CityManagerDetailStride"), FVector2D(1.0f, DetailStride)).Y;
+			DetailMinimum = Size(TEXT("CityManagerDetailMinimum"), FVector2D(1.0f, DetailMinimum)).Y;
+		}
+	}
+	const float RowsHeight = DetailItems.IsEmpty() ? 0.0f : (DetailItems.Num() - 1) * DetailStride
+		+ FMath::Max(DetailStride, static_cast<float>(DetailExtent.Y));
+	const float DetailHeight = FMath::Max(DetailMinimum, RowsHeight);
 	if (Page)
 	{
 		if (USizeBox* SizeBox = Page->Get<USizeBox>(TEXT("CityManagerDetailContentSize")))
@@ -6269,7 +6290,7 @@ void URokUnityFeatureScreenWidget::BuildCityManager()
 	for (int32 Index = 0; Index < DetailItems.Num(); ++Index)
 	{
 		const FRokUnityEconomyItem& Item = DetailItems[Index];
-		const float Y = Index * 156.0f;
+		const float Y = Index * DetailStride;
 		const TCHAR* IconAtlasPath = nullptr;
 		FIntRect IconRect;
 		FIntPoint IconAtlasSize;
@@ -6281,7 +6302,7 @@ void URokUnityFeatureScreenWidget::BuildCityManager()
 			Row->LegacyPrefix = TEXT("CityManagerDetail");
 			Row->LegacySuffix = FString::Printf(TEXT("_%d"), Index);
 			Row->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-			PlaceOnCanvas(DetailContent, Row, FVector2D(0.0f, Y), FVector2D(1024.0f, 156.0f), 1);
+			PlaceOnCanvas(DetailContent, Row, FVector2D(0.0f, Y), DetailExtent, 1);
 			UImage* Icon = Row->Get<UImage>(TEXT("Icon"));
 			Row->SetPresent(Icon, bHasIcon);
 			if (bHasIcon)
@@ -8065,7 +8086,16 @@ void URokUnityFeatureScreenWidget::BuildArmyStatistics()
 		PlaceOnCanvas(ModeCanvas, TroopList, CapturePoint(220.0f, 364.0f), FVector2D(990.0f, 370.0f), 5);
 		return TroopList;
 	};
-	const auto DrawStack = [this, Page, RowClass](UScrollBox& List, int32 Index, const FText& Name,
+	UClass* LayoutClass = Page ? ResolveFeaturePageClass(TEXT("ArmyStatisticsListLayout")) : nullptr;
+	const auto* Layout = LayoutClass ? CreateWidget<URokUiPageWidget>(this, LayoutClass) : nullptr;
+	const auto RowSize = [Layout](FName Name, const FVector2D& Fallback)
+	{
+		const UWidget* Marker = Layout ? Layout->Get<UWidget>(Name) : nullptr;
+		const auto* Slot = Marker ? Cast<UCanvasPanelSlot>(Marker->Slot) : nullptr;
+		const FVector2D Extent = Slot ? Slot->GetSize() : FVector2D::ZeroVector;
+		return !Extent.ContainsNaN() && Extent.GetMin() > 0 ? Extent : Fallback;
+	};
+	const auto DrawStack = [this, Page, RowClass, Layout, RowSize](UScrollBox& List, int32 Index, const FText& Name,
 		const FText& Count, const FText& Power, const FText& Source, const FText& Tooltip)
 	{
 		const FLinearColor Shade = Index % 2 == 0 ? FLinearColor(0.20f, 0.21f, 0.20f, 0.98f)
@@ -8081,7 +8111,9 @@ void URokUnityFeatureScreenWidget::BuildArmyStatistics()
 			}
 			if (UBorder* Border = Row->Get<UBorder>(TEXT("RowShade")))
 			{
-				Border->SetBrushColor(Shade);
+				const UBorder* Style = Layout ? Layout->Get<UBorder>(Index % 2 == 0
+					? TEXT("ArmyStatisticsEvenShade") : TEXT("ArmyStatisticsOddShade")) : nullptr;
+				Border->SetBrushColor(Style ? Style->GetBrushColor() : Shade);
 			}
 			SetFeaturePageText(*Row, TEXT("RowName"), Name);
 			SetFeaturePageText(*Row, TEXT("RowCount"), Count);
@@ -8093,7 +8125,8 @@ void URokUnityFeatureScreenWidget::BuildArmyStatistics()
 				SourceLabel->SetText(Source);
 			}
 			List.AddChild(WrapFixedSize(Row,
-				*FString::Printf(TEXT("ArmyStatisticsPresentationSize_%d"), Index), FVector2D(965.0f, 92.0f)));
+				*FString::Printf(TEXT("ArmyStatisticsPresentationSize_%d"), Index),
+				RowSize(TEXT("ArmyStatisticsRowExtent"), FVector2D(965.0f, 92.0f))));
 			return;
 		}
 		UCanvasPanel* Row = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(),
@@ -8175,7 +8208,9 @@ void URokUnityFeatureScreenWidget::BuildArmyStatistics()
 			{
 				Row->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
 				SetFeaturePageText(*Row, TEXT("ArmyStatisticsServerEmpty"), Message);
-				List->AddChild(WrapFixedSize(Row, TEXT("ArmyStatisticsMessageSize"), FVector2D(965.0f, 90.0f)));
+				const FVector2D MessageSize = RowSize(bKnown ? TEXT("ArmyStatisticsEmptyExtent") : TEXT("ArmyStatisticsWaitingExtent"),
+					FVector2D(965.0f, 90.0f));
+				List->AddChild(WrapFixedSize(Row, TEXT("ArmyStatisticsMessageSize"), MessageSize));
 			}
 			else
 			{

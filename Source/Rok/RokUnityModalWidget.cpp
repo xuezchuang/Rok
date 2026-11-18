@@ -5,6 +5,7 @@
 #include "RokUiTextTable.h"
 #include "RokModalNineSlice.h"
 #include "RokUiWidgets.h"
+#include "RokUiTextBlock.h"
 #include "Components/ProgressBar.h"
 #include "Components/ScaleBoxSlot.h"
 #include "RokSpriteAtlas.h"
@@ -59,6 +60,34 @@
 
 namespace
 {
+FSlateColor ModalContextTextColor(URokUiPageWidget* States, FName Name, const FLinearColor& LegacyColor)
+{
+	const auto* Label = States ? Cast<UTextBlock>(RokUiFind::Find(States, Name)) : nullptr;
+	return Label ? Label->GetColorAndOpacity() : FSlateColor(LegacyColor);
+}
+
+FLinearColor ModalContextPlateColor(URokUiPageWidget* States, FName Name, const FLinearColor& LegacyColor)
+{
+	const auto* Image = States ? Cast<UImage>(RokUiFind::Find(States, Name)) : nullptr;
+	return Image ? Image->GetColorAndOpacity() : LegacyColor;
+}
+
+void ReadModalContextTextStyle(URokUiPageWidget* States, FName Name, FTextBlockStyle& OutStyle)
+{
+	auto* Label = States ? Cast<UTextBlock>(RokUiFind::Find(States, Name)) : nullptr;
+	if (!Label)
+	{
+		return;
+	}
+	// Detached markers never rebuild Slate, so resolve their designer font role first.
+	if (auto* RoleText = Cast<URokUiTextBlock>(Label))
+	{
+		RoleText->ApplyFontRole();
+	}
+	OutStyle = FTextBlockStyle().SetFont(Label->GetFont()).SetColorAndOpacity(Label->GetColorAndOpacity())
+		.SetShadowOffset(Label->GetShadowOffset()).SetShadowColorAndOpacity(Label->GetShadowColorAndOpacity());
+}
+
 // Definition-list row icons: `atlas[sprite]` ids resolved through the `.tpsheet`
 // manifests, decoded once. Unity tpsheet rects are measured from the bottom; UE V=0 is the top.
 bool ResolveDefinitionIcon(const FString& IconId, UTexture2D*& OutSheet, FBox2D& OutUv)
@@ -1307,6 +1336,20 @@ URokModalWindowFrame* URokUnityModalWidget::MountWindowFrame(
 		MountFullPiece(Frame, 0);
 	}
 	return Frame;
+}
+
+URokUiPageWidget* URokUnityModalWidget::GetModalContextStates()
+{
+	if (URokUiSettings::IsLegacyForced())
+	{
+		return nullptr;
+	}
+	if (!ModalContextStateTemplate)
+	{
+		UClass* Class = URokUiSettings::ResolvePage(GetDefault<URokUiSettings>()->ModalPages, TEXT("ModalContextStates"));
+		ModalContextStateTemplate = Class ? CreateWidget<URokUiPageWidget>(this, Class) : nullptr;
+	}
+	return ModalContextStateTemplate;
 }
 
 URokUiPageWidget* URokUnityModalWidget::CreateStatusMessage(FName MessageName,
@@ -2750,10 +2793,10 @@ void URokUnityModalWidget::UpdateChangeNameValidationState()
 	{
 		ChangeNameValidationFeedback->SetText(
 			GetChangeNameValidationMessage(Result));
-		ChangeNameValidationFeedback->SetColorAndOpacity(FSlateColor(
-			Result == ERokChangeNameValidationResult::Valid
-				? FLinearColor(0.43f, 0.84f, 0.45f, 1.0f)
-				: FLinearColor(0.96f, 0.58f, 0.26f, 1.0f)));
+		const bool bValid = Result == ERokChangeNameValidationResult::Valid;
+		ChangeNameValidationFeedback->SetColorAndOpacity(ModalContextTextColor(GetModalContextStates(),
+			bValid ? TEXT("ChangeNameValid") : TEXT("ChangeNameInvalid"),
+			bValid ? FLinearColor(0.43f, 0.84f, 0.45f, 1.0f) : FLinearColor(0.96f, 0.58f, 0.26f, 1.0f)));
 	}
 	if (ChangeNameConfirmButton)
 	{
@@ -2970,13 +3013,14 @@ void URokUnityModalWidget::BuildGainEffect()
 {
 	// UI_Win_GainEffect.prefab: the reference list (up to four economy rows, or
 	// the military notice) and the vertical economy/military tabs, laid out in
-	// the page WBP. The selected tab's tint is state, so it is applied here.
+	// the page WBP. C++ selects the tab and reads its tints from the detached context WBP.
 	URokUiPageWidget* Page = MountModePage(TEXT("GainEffect"));
 	if (!Page)
 	{
 		return;
 	}
 	GainEffectListRoot = Page->Get<UCanvasPanel>(TEXT("GainEffectListRoot"));
+	URokUiPageWidget* States = GetModalContextStates();
 	for (int32 Tab = 0; Tab < 2; ++Tab)
 	{
 		const bool bSelected = Tab == GainEffectTabIndex;
@@ -2993,15 +3037,15 @@ void URokUnityModalWidget::BuildGainEffect()
 		}
 		if (UTextBlock* Label = Page->Get<UTextBlock>(IndexedName(TEXT("GainEffectTabLabel"), Tab)))
 		{
-			Label->SetColorAndOpacity(FSlateColor(bSelected
-				? FLinearColor(1.0f, 0.86f, 0.42f, 1.0f)
-				: FLinearColor(0.46f, 0.40f, 0.31f, 1.0f)));
+			Label->SetColorAndOpacity(ModalContextTextColor(States,
+				bSelected ? TEXT("GainEffectTabSelectedLabel") : TEXT("GainEffectTabUnselectedLabel"),
+				bSelected ? FLinearColor(1.0f, 0.86f, 0.42f, 1.0f) : FLinearColor(0.46f, 0.40f, 0.31f, 1.0f)));
 		}
 		if (UImage* Plate = Page->Get<UImage>(IndexedName(TEXT("GainEffectTabPlate"), Tab)))
 		{
-			Plate->SetColorAndOpacity(bSelected
-				? FLinearColor(1.0f, 0.92f, 0.68f, 1.0f)
-				: FLinearColor(0.72f, 0.70f, 0.66f, 1.0f));
+			Plate->SetColorAndOpacity(ModalContextPlateColor(States,
+				bSelected ? TEXT("GainEffectTabSelectedPlate") : TEXT("GainEffectTabUnselectedPlate"),
+				bSelected ? FLinearColor(1.0f, 0.92f, 0.68f, 1.0f) : FLinearColor(0.72f, 0.70f, 0.66f, 1.0f)));
 		}
 	}
 	RebuildGainEffectContent();
@@ -3034,12 +3078,27 @@ void URokUnityModalWidget::RebuildGainEffectContent()
 	}
 	if (!bMilitary && Rows.IsEmpty())
 	{
-		// Only when the published configuration is missing; not part of the page.
+		const FText Message = NSLOCTEXT(
+			"RokModal", "GainEffectDefinitionsUnavailable", "增益静态配置未发布或不可读取");
+		UClass* MissingClass = URokUiSettings::IsLegacyForced() ? nullptr
+			: URokUiSettings::ResolvePage(GetDefault<URokUiSettings>()->ModalPages, TEXT("GainEffectUnavailable"));
+		auto* MissingPage = MissingClass ? CreateWidget<URokUiPageWidget>(this, MissingClass) : nullptr;
+		auto* MissingLabel = MissingPage
+			? Cast<UTextBlock>(RokUiFind::Find(MissingPage, TEXT("GainEffectDefinitionsUnavailable"))) : nullptr;
+		if (MissingLabel)
+		{
+			MissingLabel->SetText(Message);
+			MissingPage->SetVisibility(ESlateVisibility::HitTestInvisible);
+			auto* Slot = GainEffectListRoot->AddChildToCanvas(MissingPage);
+			Slot->SetAnchors(FAnchors(0, 0, 1, 1));
+			Slot->SetOffsets(FMargin(0));
+			Slot->SetZOrder(2);
+			return;
+		}
 		UTextBlock* MissingDefinitions = MakeModalText(
 			TEXT("GainEffectDefinitionsUnavailable"), 16,
 			FLinearColor(0.38f, 0.31f, 0.22f, 1.0f), false, ETextJustify::Center);
-		MissingDefinitions->SetText(NSLOCTEXT(
-			"RokModal", "GainEffectDefinitionsUnavailable", "增益静态配置未发布或不可读取"));
+		MissingDefinitions->SetText(Message);
 		PlaceOnCanvas(GainEffectListRoot, MissingDefinitions, FVector2D(20.0f, 120.0f), FVector2D(660.0f, 60.0f), 2);
 	}
 }
@@ -7129,8 +7188,8 @@ void URokUnityModalWidget::HandleChangeNameConfirmClicked()
 				"RokModal",
 				"ChangeNameSubmitBoundary",
 				"改名服务未接入：没有发送请求、扣除物品或修改本地名称。"));
-			ChangeNameValidationFeedback->SetColorAndOpacity(FSlateColor(
-				FLinearColor(0.96f, 0.45f, 0.24f, 1.0f)));
+			ChangeNameValidationFeedback->SetColorAndOpacity(ModalContextTextColor(GetModalContextStates(),
+				TEXT("ChangeNameServiceUnavailable"), FLinearColor(0.96f, 0.45f, 0.24f, 1.0f)));
 		}
 		UE_LOG(
 			LogTemp,
@@ -7255,18 +7314,21 @@ void URokUnityModalWidget::HandleProfileActionHelpClicked()
 	}
 	if (auto* Recovery = Tip->Get<URichTextBlock>(TEXT("PlayerActionTipRecovery")))
 	{
-		// The rich-text styles are built at runtime from the engine default font
-		// (a WBP cannot hold this transient style table).
+		// Designer text markers supply the styles for the transient rich-text row table.
+		// Keep native defaults independently for any missing template or marker.
 		FTextBlockStyle RecoveryStyle;
 		auto RecoveryFont = FCoreStyle::GetDefaultFontStyle(TEXT("Regular"), 14);
 		RecoveryFont.Size = FontPoints(18); // 18 Unity px = 13.5 Slate pt at 96 DPI.
 		RecoveryStyle.SetFont(RecoveryFont).SetColorAndOpacity(FSlateColor(FLinearColor::Black));
 		RecoveryStyle.SetShadowOffset(FVector2D::ZeroVector);
+		FRichTextStyleRow RemainingRow; RemainingRow.TextStyle = RecoveryStyle;
+		RemainingRow.TextStyle.SetColorAndOpacity(FSlateColor(FLinearColor(0.f, 128.f / 255.f, 0.f, 1.f)));
+		URokUiPageWidget* States = GetModalContextStates();
+		ReadModalContextTextStyle(States, TEXT("PlayerActionTipRecoveryDefault"), RecoveryStyle);
+		ReadModalContextTextStyle(States, TEXT("PlayerActionTipRecoveryRemaining"), RemainingRow.TextStyle);
 		auto* Styles = NewObject<UDataTable>(Recovery); Styles->RowStruct = FRichTextStyleRow::StaticStruct();
 		FRichTextStyleRow DefaultRow; DefaultRow.TextStyle = RecoveryStyle;
 		Styles->AddRow(TEXT("Default"), DefaultRow);
-		FRichTextStyleRow RemainingRow; RemainingRow.TextStyle = RecoveryStyle;
-		RemainingRow.TextStyle.SetColorAndOpacity(FSlateColor(FLinearColor(0.f, 128.f / 255.f, 0.f, 1.f)));
 		Styles->AddRow(TEXT("Remaining"), RemainingRow);
 		Recovery->SetTextStyleSet(Styles); Recovery->SetDefaultTextStyle(RecoveryStyle);
 		// Source 100708 needs city attributes, lastActionForceTime and server time.

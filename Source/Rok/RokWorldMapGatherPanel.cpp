@@ -24,6 +24,7 @@
 #include "RokUiTextBlock.h"
 #include "RokUiWidgets.h"
 #include "RokArmyStateStyles.h"
+#include "RokWorldObjectStyles.h"
 #include "RokUnityFeatureScreenWidget.h"
 #include "RokUnityGameplayCatalogSubsystem.h"
 #include "RokWorldMapCameraPawn.h"
@@ -1071,6 +1072,7 @@ void URokWorldMapHudWidget::RefreshBarbarianInfo(const ARokWorldMapEntityActor& 
 		BarbarianDisplayedRewardGroup = Info.RewardGroupId;
 		BarbarianRewards->ClearChildren();
 		const auto& Rewards = FeatureScreenWidget->GetConfiguredRewardPreview(Info.RewardGroupId);
+		auto* Styles = CreateWorldHudPage(RokWorldObjectStyles::Class(), NAME_None);
 		for (int32 Index = 0; Index < FMath::Min(6, Rewards.Num()); ++Index)
 		{
 			const auto& Reward = Rewards[Index];
@@ -1085,7 +1087,10 @@ void URokWorldMapHudWidget::RefreshBarbarianInfo(const ARokWorldMapEntityActor& 
 			Cell->SetRenderTransformPivot(FVector2D::ZeroVector);
 			Cell->SetRenderScale(CellBounds.GetSize() / RewardDesignSize);
 			const FBarbarianRewardLayout Layout = BuildBarbarianRewardLayout(Cell, Index);
-			Layout.Frame->SetBrush(FeatureScreenWidget->MakeRewardQualityBrush(Reward.Quality, RewardDesignSize));
+			if (!RokWorldObjectStyles::Apply(Styles, Layout.Frame, RokWorldObjectStyles::QualityName(Reward.Quality)))
+			{
+				Layout.Frame->SetBrush(FeatureScreenWidget->MakeRewardQualityBrush(Reward.Quality, RewardDesignSize));
+			}
 			UTexture2D* Atlas = Reward.AtlasPath.IsEmpty() ? nullptr : LoadUiTexture(*Reward.AtlasPath);
 			if (Atlas)
 			{
@@ -1096,9 +1101,13 @@ void URokWorldMapHudWidget::RefreshBarbarianInfo(const ARokWorldMapEntityActor& 
 			Layout.Count->SetText(FText::AsNumber(Reward.Quantity));
 		}
 		const bool bCommonPortrait = Info.HeadIcon == TEXT("ui_common[icon_com_monster]");
-		BarbarianPortrait->SetBrush(MakeAtlasBrush(LoadUiTexture(bCommonPortrait ? Common : MapIconUi),
-			bCommonPortrait ? FIntRect(960, 731, 1094, 883) : FIntRect(547, 1847, 727, 2047),
-			bCommonPortrait ? CommonSize : MapIconUiSize, {164, 176}));
+		const FName PortraitStyle = bCommonPortrait ? TEXT("WorldBarbarianPortraitCommon") : TEXT("WorldBarbarianPortraitMap");
+		if (!RokWorldObjectStyles::Apply(Styles, BarbarianPortrait, PortraitStyle))
+		{
+			BarbarianPortrait->SetBrush(MakeAtlasBrush(LoadUiTexture(bCommonPortrait ? Common : MapIconUi),
+				bCommonPortrait ? FIntRect(960, 731, 1094, 883) : FIntRect(547, 1847, 727, 2047),
+				bCommonPortrait ? CommonSize : MapIconUiSize, {164, 176}));
+		}
 	}
 	const bool bLocked = bKnown && Info.AttackLevelMax > 0 && Info.Level > Info.AttackLevelMax;
 	const FString Title = FRokUiTextTable::Resolve(Info.NameId);
