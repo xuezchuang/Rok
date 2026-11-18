@@ -175,27 +175,22 @@ FSlateFontInfo URokMainHudWidget::MakeUnitySourceFont(int32 Pixels, bool bBold)
 	return FCoreStyle::GetDefaultFontStyle(Weight, PointSize);
 }
 
-namespace
+void URokMainHudWidget::SetFittedTaskText(UTextBlock& Label, const FText& Text, int32 MaxPixels, const FVector2D& BoxSize)
 {
-void SetFittedTaskText(UTextBlock& Label, const FText& Text, int32 MaxPixels, const FVector2D& BoxSize)
-{
-	if (Label.GetWrapTextAt() == BoxSize.X && Label.GetText().EqualTo(Text)) return;
-
-	Label.SetWrapTextAt(BoxSize.X);
-	Label.SetText(Text);
-	const TSharedRef<SWidget> SlateText = Label.TakeWidget();
-	FSlateFontInfo Font = Label.GetFont();
-	for (int32 Pixels = MaxPixels; Pixels >= 2; --Pixels)
+	auto* Fit = TaskTextFits.Find(&Label);
+	if (!Fit)
 	{
-		// Unity specifies pixels. Slate fonts use points at 96 DPI.
-		Font.Size = Pixels * (72.0f / 96.0f);
-		Label.SetFont(Font);
-		SlateText->SlatePrepass(1.0f);
-		const FVector2D DesiredSize = SlateText->GetDesiredSize();
-		if (DesiredSize.X <= BoxSize.X && DesiredSize.Y <= BoxSize.Y) break;
+		FRokTaskTextFit Fallback;
+		Fallback.Font = Label.GetFont();
+		Fallback.Font.Size = MaxPixels * (72.0f / 96.0f);
+		Fallback.Bounds = BoxSize;
+		Fit = &TaskTextFits.Add(&Label, MoveTemp(Fallback));
 	}
+	RokTaskPresentation::FitText(Label, Text, *Fit);
 }
 
+namespace
+{
 const FIntRect RedPointRect = SpriteRect(2018, 994, 27, 29);
 // BuildingMenuData IDs [2,1] -> ui_hud[btn_hud_1008], ui_hud[btn_hud_1004].
 const FIntRect PlacementConfirmRect = SpriteRect(721, 575, 88, 88);
@@ -2673,6 +2668,7 @@ void URokMainHudWidget::RebuildTaskRows(int32 Count, bool bServer)
 	if (!TaskListBox) return;
 	TaskListBox->ClearChildren();
 	TaskTitleTexts.Reset();
+	TaskTextFits.Reset();
 	TaskProgressTexts.Reset();
 	ServerTaskRewardImages.Reset();
 	ServerHudTaskIds.Reset();
@@ -2733,10 +2729,33 @@ bool URokMainHudWidget::BindTaskRow(URokUiPageWidget& Page, int32 Index)
 		return false;
 	}
 
+	if (!TaskPresentationTemplate)
+	{
+		TaskPresentationTemplate = RokTaskPresentation::CreateTemplate(*this);
+	}
+	if (!RokTaskPresentation::ApplyTitleColor(TaskPresentationTemplate, *Title, Index > 0))
+	{
+		Title->SetColorAndOpacity(Index > 0
+			? FLinearColor(0.96f, 0.94f, 0.9f, 1.0f) : FLinearColor(1.0f, 0.68f, 0.25f, 1.0f));
+	}
 	if (Index > 0)
 	{
-		Title->SetColorAndOpacity(FSlateColor(FLinearColor(0.96f, 0.94f, 0.9f, 1.0f)));
 		Progress->SetVisibility(ESlateVisibility::HitTestInvisible);
+	}
+	FRokTaskTextFit TitleFit;
+	const UWidget* TitleBounds = Page.GetWidgetFromName(TEXT("TaskTitleBox"));
+	if (!TitleBounds)
+	{
+		TitleBounds = Title;
+	}
+	if (RokTaskPresentation::CaptureFit(*Title, *TitleBounds, TitleFit))
+	{
+		TaskTextFits.Add(Title, MoveTemp(TitleFit));
+	}
+	FRokTaskTextFit DescriptionFit;
+	if (RokTaskPresentation::CaptureFit(*Progress, *Progress, DescriptionFit))
+	{
+		TaskTextFits.Add(Progress, MoveTemp(DescriptionFit));
 	}
 	TaskTitleTexts.Add(Title);
 	TaskProgressTexts.Add(Progress);
@@ -2811,8 +2830,11 @@ bool URokMainHudWidget::ApplyServerTasks()
 		ServerHudTaskIds.Add(Task.TaskId);
 		ServerHudTaskPages.Add(int32(Task.Page));
 		SetFittedTaskText(*Title, FText::FromString(Task.Name), TaskTitlePixels, TaskTitleSize);
-		Title->SetColorAndOpacity(Task.Page == ERokServerTaskPage::Side
-			? FLinearColor(0.96f, 0.94f, 0.9f, 1.0f) : FLinearColor(1.0f, 0.68f, 0.25f, 1.0f));
+		if (!RokTaskPresentation::ApplyTitleColor(TaskPresentationTemplate, *Title, Task.Page == ERokServerTaskPage::Side))
+		{
+			Title->SetColorAndOpacity(Task.Page == ERokServerTaskPage::Side
+				? FLinearColor(0.96f, 0.94f, 0.9f, 1.0f) : FLinearColor(1.0f, 0.68f, 0.25f, 1.0f));
+		}
 		const FText DescriptionText = Task.bProgressKnown
 			? FText::Format(NSLOCTEXT("RokHud", "ServerTaskProgress", "{0} ({1}/{2})"),
 				FText::FromString(Task.Description), FText::AsNumber(Task.Current), FText::AsNumber(Task.Target))
@@ -3338,6 +3360,8 @@ void URokMainHudWidget::UpdateCityMarkerProjection()
 
 void URokMainHudWidget::AdvancePlacementButtonTints(float DeltaSeconds)
 {
+	const auto* ConfirmStyle = PlacementConfirmFeedbackStyle.Resolve(this, TEXT("PlacementConfirmStyle"));
+	const auto* CancelStyle = PlacementCancelFeedbackStyle.Resolve(this, TEXT("PlacementCancelStyle"));
 	const auto AdvanceIcon = [DeltaSeconds](UImage* Icon, UMaterialInstanceDynamic* GrayMaterial,
 		const FLinearColor& DesiredSourceTint, FLinearColor& Current,
 		FLinearColor& Start, FLinearColor& Target, float& Elapsed)
@@ -3367,16 +3391,24 @@ void URokMainHudWidget::AdvancePlacementButtonTints(float DeltaSeconds)
 			Icon->SetColorAndOpacity(PlacementSourceTintToSlate(Current));
 		}
 	};
-	const auto ResetIcon = [](UImage* Icon, FLinearColor& Current,
+	const auto ResetIcon = [](UImage* Icon, UMaterialInstanceDynamic* GrayMaterial, const FLinearColor& Normal, FLinearColor& Current,
 		FLinearColor& Start, FLinearColor& Target, float& Elapsed)
 	{
-		Current = FLinearColor::White;
-		Start = FLinearColor::White;
-		Target = FLinearColor::White;
+		Current = Normal;
+		Start = Normal;
+		Target = Normal;
 		Elapsed = PlacementButtonTintSeconds;
 		if (Icon)
 		{
-			Icon->SetColorAndOpacity(FLinearColor::White);
+			if (GrayMaterial && Icon->GetBrush().GetResourceObject() == GrayMaterial)
+			{
+				GrayMaterial->SetVectorParameterValue(TEXT("SourceTint"), Normal);
+				Icon->SetColorAndOpacity(FLinearColor::White);
+			}
+			else
+			{
+				Icon->SetColorAndOpacity(PlacementSourceTintToSlate(Normal));
+			}
 		}
 	};
 	if (!bPlacementControlsVisible && PlacementMenuAnimation.IsClosing())
@@ -3394,10 +3426,10 @@ void URokMainHudWidget::AdvancePlacementButtonTints(float DeltaSeconds)
 	if (!bPlacementControlsVisible)
 	{
 		// Closing destroys both source GameButtons. Reopening starts with their
-		// serialized white Image colors, without a stale hover/disabled tween.
-		ResetIcon(PlacementConfirmIcon.Get(), PlacementConfirmSourceTint,
+		// authored normal Image colors, without a stale hover/disabled tween.
+		ResetIcon(PlacementConfirmIcon.Get(), PlacementConfirmGrayMaterial.Get(), ConfirmStyle ? ConfirmStyle->Normal : FLinearColor::White, PlacementConfirmSourceTint,
 			PlacementConfirmTintStart, PlacementConfirmTintTarget, PlacementConfirmTintElapsed);
-		ResetIcon(PlacementCancelIcon.Get(), PlacementCancelSourceTint,
+		ResetIcon(PlacementCancelIcon.Get(), nullptr, CancelStyle ? CancelStyle->Normal : FLinearColor::White, PlacementCancelSourceTint,
 			PlacementCancelTintStart, PlacementCancelTintTarget, PlacementCancelTintElapsed);
 		return;
 	}
@@ -3409,10 +3441,23 @@ void URokMainHudWidget::AdvancePlacementButtonTints(float DeltaSeconds)
 			? PlacementButtonPressedSourceTint
 			: (PlacementConfirmButton->IsHovered() ? PlacementButtonHoverSourceTint : FLinearColor::White);
 	}
-	const FLinearColor CancelDesired = PlacementCancelButton && PlacementCancelButton->IsPressed()
+	FLinearColor CancelDesired = PlacementCancelButton && PlacementCancelButton->IsPressed()
 		? PlacementButtonPressedSourceTint
 		: (PlacementCancelButton && PlacementCancelButton->IsHovered()
 			? PlacementButtonHoverSourceTint : FLinearColor::White);
+	if (ConfirmStyle)
+	{
+		ConfirmDesired = ConfirmStyle->ForState(
+			(bPlacementCanCommit || bPlacementCanOpenWorkerQueue) && PlacementConfirmButton,
+			PlacementConfirmButton && PlacementConfirmButton->IsPressed(),
+			PlacementConfirmButton && PlacementConfirmButton->IsHovered());
+	}
+	if (CancelStyle)
+	{
+		CancelDesired = CancelStyle->ForState(true,
+			PlacementCancelButton && PlacementCancelButton->IsPressed(),
+			PlacementCancelButton && PlacementCancelButton->IsHovered());
+	}
 	AdvanceIcon(PlacementConfirmIcon.Get(), PlacementConfirmGrayMaterial.Get(), ConfirmDesired, PlacementConfirmSourceTint,
 		PlacementConfirmTintStart, PlacementConfirmTintTarget, PlacementConfirmTintElapsed);
 	AdvanceIcon(PlacementCancelIcon.Get(), nullptr, CancelDesired, PlacementCancelSourceTint,

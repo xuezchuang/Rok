@@ -27,6 +27,19 @@ void Place(UCanvasPanel* P,UWidget* W,FVector2D XY,FVector2D Size,int32 Z=1)
 FVector2D Pos(const TSharedPtr<FJsonObject>& N) { const auto& A=N->GetArrayField(TEXT("rect"));return FVector2D(A[0]->AsNumber(),A[1]->AsNumber()); }
 FVector2D Size(const TSharedPtr<FJsonObject>& N) { const auto& A=N->GetArrayField(TEXT("rect"));return FVector2D(A[2]->AsNumber(),A[3]->AsNumber()); }
 FName Name(const FString& Prefix,const FString& Path) { return FName(*(Prefix+Path.Replace(TEXT("/"),TEXT("_")))); }
+FVector2D RowExtent(const UUserWidget* Row, FName MarkerName, FVector2D Fallback)
+{
+    const auto* Extent = Row ? Cast<USizeBox>(RokUiFind::Find(Row, MarkerName)) : nullptr;
+    if (Extent)
+    {
+        const FVector2D Authored(Extent->GetWidthOverride(), Extent->GetHeightOverride());
+        if (FMath::IsFinite(Authored.X) && FMath::IsFinite(Authored.Y) && Authored.X > 0 && Authored.Y > 0)
+        {
+            return Authored;
+        }
+    }
+    return Fallback;
+}
 bool BindGlyph(URokHelpSourceTextWidget* Text,URokHelpSourceTextData* Data,const FText& Value)
 {
     if(!Text||!Data||Text->SourceFontSize<=0||Text->SourceGlyphSize.X<=0)return false;
@@ -37,6 +50,10 @@ bool BindGlyph(URokHelpSourceTextWidget* Text,URokHelpSourceTextData* Data,const
 
 UWidget* URokHelpWidget::GetWidgetFromName(const FName& WidgetName) const
 {
+    if (const auto* Action = RowActions.Find(WidgetName))
+    {
+        return Action->Get();
+    }
     if (WidgetName == TEXT("HelpCustomerServiceBoundary") && CustomerServiceBoundaryText)
     {
         return CustomerServiceBoundaryText;
@@ -298,29 +315,43 @@ void URokHelpWidget::Build()
 
 void URokHelpWidget::RebuildList()
 {
-    ListScroll->ClearChildren();VisibleQuestionIds.Reset();float Y=0;
+    ListScroll->ClearChildren();VisibleQuestionIds.Reset();RowActions.Reset();float Y=0;
     auto* Content=WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(),TEXT("HelpListContent"));
     const bool bLegacy=URokUiSettings::IsLegacyForced();
     static UClass* GroupRowClass=LoadClass<UUserWidget>(nullptr,TEXT("/Game/RokUI/Help/WBP_RokHelpGroupRow.WBP_RokHelpGroupRow_C"));
     static UClass* QuestionRowClass=LoadClass<UUserWidget>(nullptr,TEXT("/Game/RokUI/Help/WBP_RokHelpQuestionRow.WBP_RokHelpQuestionRow_C"));
-    const FVector2D GroupSize=Size(Node(TEXT("group"),TEXT("btn_btn")));
-    const FVector2D QuestionSize=Size(Node(TEXT("question"),TEXT("btn_btn")));
+    static UClass* GroupEntryClass=LoadClass<UUserWidget>(nullptr,TEXT("/Game/RokUI/Help/WBP_RokHelpGroupEntry.WBP_RokHelpGroupEntry_C"));
+    static UClass* QuestionEntryClass=LoadClass<UUserWidget>(nullptr,TEXT("/Game/RokUI/Help/WBP_RokHelpQuestionEntry.WBP_RokHelpQuestionEntry_C"));
+    FVector2D GroupSize=Size(Node(TEXT("group"),TEXT("btn_btn")));
+    FVector2D QuestionSize=Size(Node(TEXT("question"),TEXT("btn_btn")));
+    float ContentWidth=GroupSize.X;
     for(int32 Group:Groups)
     {
         const auto* First=Entries.FindByPredicate([Group](const FEntry& E){return E.GroupId==Group;});
         if(!First){LoadError=TEXT("Help display group has no source entry.");return;}
-        if(GroupRowClass&&!bLegacy)
+        bool bAuthoredGroupAction=false;
+        if((GroupEntryClass||GroupRowClass)&&!bLegacy)
         {
             const FName RowName(*FString::Printf(TEXT("HelpGroupVisual_%d"),Group));
-            auto* Row=WidgetTree->ConstructWidget<UUserWidget>(GroupRowClass,RowName);
-            auto* Label=Row?Cast<URokHelpSourceTextWidget>(Row->GetWidgetFromName(TEXT("HelpGroupText"))):nullptr;
-            auto* ArrowDown=Row?Cast<UImage>(Row->GetWidgetFromName(TEXT("HelpGroupArrowDown"))):nullptr;
-            auto* ArrowUp=Row?Cast<UImage>(Row->GetWidgetFromName(TEXT("HelpGroupArrowUp"))):nullptr;
+            auto* Row=WidgetTree->ConstructWidget<UUserWidget>(GroupEntryClass?GroupEntryClass:GroupRowClass,RowName);
+            GroupSize=RowExtent(Row,TEXT("HelpGroupExtent"),GroupSize);
+            ContentWidth=FMath::Max(ContentWidth,static_cast<float>(GroupSize.X));
+            auto* Label=Row?Cast<URokHelpSourceTextWidget>(RokUiFind::Find(Row,TEXT("HelpGroupText"))):nullptr;
+            auto* ArrowDown=Row?Cast<UImage>(RokUiFind::Find(Row,TEXT("HelpGroupArrowDown"))):nullptr;
+            auto* ArrowUp=Row?Cast<UImage>(RokUiFind::Find(Row,TEXT("HelpGroupArrowUp"))):nullptr;
             if(!Row||!Label||!ArrowDown||!ArrowUp||!BindGlyph(Label,SourceTextData,FText::FromString(First->Group)))
             {LoadError=TEXT("Help group row WBP is missing an editable glyph or arrow widget.");return;}
             ArrowDown->SetVisibility(Expanded.Contains(Group)?ESlateVisibility::HitTestInvisible:ESlateVisibility::Collapsed);
             ArrowUp->SetVisibility(Expanded.Contains(Group)?ESlateVisibility::Collapsed:ESlateVisibility::HitTestInvisible);
-            Row->SetVisibility(ESlateVisibility::HitTestInvisible);Place(Content,Row,FVector2D(0,Y),GroupSize);
+            if (auto* Hit=Cast<URokUnityIndexedButton>(RokUiFind::Find(Row,TEXT("HelpGroupAction"))))
+            {
+                Hit->ConfigureAction(Group);
+                Hit->OnIndexedClicked.RemoveAll(this);
+                Hit->OnIndexedClicked.AddUObject(this,&URokHelpWidget::HandleAction);
+                RowActions.Add(*FString::Printf(TEXT("HelpGroupButton_%d"),Group),Hit);
+                bAuthoredGroupAction=true;
+            }
+            Row->SetVisibility(bAuthoredGroupAction?ESlateVisibility::SelfHitTestInvisible:ESlateVisibility::HitTestInvisible);Place(Content,Row,FVector2D(0,Y),GroupSize);
         }
         else
         {
@@ -329,20 +360,35 @@ void URokHelpWidget::RebuildList()
             DrawNode(Row,*FString::Printf(TEXT("HelpGroupText_%d"),Group),Node(TEXT("group"),TEXT("btn_btn/lbl_title")),FVector2D::ZeroVector,2,&First->Group);
             DrawNode(Row,*FString::Printf(TEXT("HelpGroupArrow_%d"),Group),Node(TEXT("group"),Expanded.Contains(Group)?TEXT("btn_btn/img_arrowDown"):TEXT("btn_btn/img_arrowUp")),FVector2D::ZeroVector,3);
         }
-        AddHit(Content,*FString::Printf(TEXT("HelpGroupButton_%d"),Group),Group,Node(TEXT("group"),TEXT("btn_btn")),FVector2D(0,Y));Y+=GroupSize.Y;
+        if (!bAuthoredGroupAction)
+        {
+            AddHit(Content,*FString::Printf(TEXT("HelpGroupButton_%d"),Group),Group,Node(TEXT("group"),TEXT("btn_btn")),FVector2D(0,Y));
+        }
+        Y+=GroupSize.Y;
         if(!Expanded.Contains(Group))continue;
         for(const auto& E:Entries)if(E.GroupId==Group)
         {
             VisibleQuestionIds.Add(E.Id);
-            if(QuestionRowClass&&!bLegacy)
+            bool bAuthoredQuestionAction=false;
+            if((QuestionEntryClass||QuestionRowClass)&&!bLegacy)
             {
                 const FName RowName(*FString::Printf(TEXT("HelpQuestionVisual_%d"),E.Id));
-                auto* Row=WidgetTree->ConstructWidget<UUserWidget>(QuestionRowClass,RowName);
-                auto* Label=Row?Cast<URokHelpSourceTextWidget>(Row->GetWidgetFromName(TEXT("HelpQuestionLabel"))):nullptr;
-                if(!Row||!Label||!Row->GetWidgetFromName(TEXT("HelpQuestionLine"))
+                auto* Row=WidgetTree->ConstructWidget<UUserWidget>(QuestionEntryClass?QuestionEntryClass:QuestionRowClass,RowName);
+                QuestionSize=RowExtent(Row,TEXT("HelpQuestionExtent"),QuestionSize);
+                ContentWidth=FMath::Max(ContentWidth,static_cast<float>(17+QuestionSize.X));
+                auto* Label=Row?Cast<URokHelpSourceTextWidget>(RokUiFind::Find(Row,TEXT("HelpQuestionLabel"))):nullptr;
+                if(!Row||!Label||!RokUiFind::Find(Row,TEXT("HelpQuestionLine"))
                     ||!BindGlyph(Label,SourceTextData,FText::FromString(E.Question)))
                 {LoadError=TEXT("Help question row WBP is missing its editable glyph or separator widget.");return;}
-                Row->SetVisibility(ESlateVisibility::HitTestInvisible);Place(Content,Row,FVector2D(17,Y),QuestionSize);
+                if (auto* Hit=Cast<URokUnityIndexedButton>(RokUiFind::Find(Row,TEXT("HelpQuestionAction"))))
+                {
+                    Hit->ConfigureAction(E.Id);
+                    Hit->OnIndexedClicked.RemoveAll(this);
+                    Hit->OnIndexedClicked.AddUObject(this,&URokHelpWidget::HandleAction);
+                    RowActions.Add(*FString::Printf(TEXT("HelpQuestionButton_%d"),E.Id),Hit);
+                    bAuthoredQuestionAction=true;
+                }
+                Row->SetVisibility(bAuthoredQuestionAction?ESlateVisibility::SelfHitTestInvisible:ESlateVisibility::HitTestInvisible);Place(Content,Row,FVector2D(17,Y),QuestionSize);
             }
             else
             {
@@ -350,10 +396,14 @@ void URokHelpWidget::RebuildList()
                 DrawNode(Q,*FString::Printf(TEXT("HelpQuestionLabel_%d"),E.Id),Node(TEXT("question"),TEXT("btn_btn/lbl_title")),FVector2D::ZeroVector,2,&E.Question);
                 DrawNode(Q,*FString::Printf(TEXT("HelpQuestionLine_%d"),E.Id),Node(TEXT("question"),TEXT("line")),FVector2D::ZeroVector);
             }
-            AddHit(Content,*FString::Printf(TEXT("HelpQuestionButton_%d"),E.Id),E.Id,Node(TEXT("question"),TEXT("btn_btn")),FVector2D(17,Y));Y+=QuestionSize.Y;
+            if (!bAuthoredQuestionAction)
+            {
+                AddHit(Content,*FString::Printf(TEXT("HelpQuestionButton_%d"),E.Id),E.Id,Node(TEXT("question"),TEXT("btn_btn")),FVector2D(17,Y));
+            }
+            Y+=QuestionSize.Y;
         }
     }
-    auto* Fixed=WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(),TEXT("HelpListContentSize"));Fixed->SetWidthOverride(GroupSize.X);Fixed->SetHeightOverride(Y);Fixed->SetContent(Content);ListScroll->AddChild(Fixed);ListScroll->SetScrollOffset(ListOffset);
+    auto* Fixed=WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(),TEXT("HelpListContentSize"));Fixed->SetWidthOverride(ContentWidth);Fixed->SetHeightOverride(Y);Fixed->SetContent(Content);ListScroll->AddChild(Fixed);ListScroll->SetScrollOffset(ListOffset);
 }
 
 void URokHelpWidget::HandleAction(int32 Action)

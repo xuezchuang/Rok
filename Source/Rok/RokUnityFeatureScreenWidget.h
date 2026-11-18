@@ -410,6 +410,7 @@ private:
 	UPROPERTY(Transient) TObjectPtr<URokUiPageWidget> FeatureTextStateTemplate;
 	UPROPERTY(Transient) TObjectPtr<URokUiPageWidget> FeatureTextColorTemplate;
 	UPROPERTY(Transient) TObjectPtr<URokUiPageWidget> TaskRewardTextStateTemplate;
+	UPROPERTY(Transient) TObjectPtr<URokUiPageWidget> TaskPresentationTemplate;
 
 	/** Unity pl_content; contact folding is independent of root entry/exit. */
 	UPROPERTY()
@@ -809,7 +810,8 @@ private:
 	void HandleResearchMainMaskClicked();
 	void RequestResearchMainMaskClose();
 	void BuildActivityCenter();
-	void BuildActivityCalendarReadonly(const URokUiPageWidget* Page = nullptr, UClass* RowClass = nullptr);
+	void BuildActivityCalendarReadonly(const URokUiPageWidget* Page = nullptr, UClass* RowClass = nullptr,
+		const URokUiPageWidget* Presentation = nullptr);
 	void SetActivityIcon(UImage* Image, UTexture2D* Atlas, const FIntRect& Rect) const;
 	void BuildMail();
 	void BindMailPageControls(const URokUiPageWidget& Page);

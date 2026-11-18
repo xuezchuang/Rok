@@ -4270,18 +4270,34 @@ void URokWorldMapHudWidget::HandleServerSelectionUnavailableClicked()
 
 void URokWorldMapHudWidget::AdvanceFilterInputFeedback(float DeltaSeconds)
 {
+	const auto* Authored = FilterFeedbackStyle.Resolve(this, TEXT("WorldFilterStyle"));
 	for (int32 Index = 0; Index < FilterButtons.Num(); ++Index)
 	{
 		UButton* Button = FilterButtons[Index];
-		if (!Button || !FilterBackgrounds.IsValidIndex(Index) || !FilterBackgrounds[Index] || !FilterTints.IsValidIndex(Index)) continue;
+		if (!Button || !FilterBackgrounds.IsValidIndex(Index) || !FilterBackgrounds[Index] || !FilterTints.IsValidIndex(Index))
+		{
+			continue;
+		}
 		bool bVisible = IsVisible();
 		for (const UWidget* Parent = Button; Parent; Parent = Parent->GetParent())
+		{
 			bVisible = bVisible && Parent->IsVisible();
+		}
 		if (!bVisible)
+		{
 			FilterTints[Index] = FRokWorldMapFilterTint();
+			if (Authored)
+			{
+				FilterTints[Index].Start = FilterTints[Index].Current = FilterTints[Index].Target = Authored->Normal;
+			}
+		}
 		else
-			FilterTints[Index].Advance(FRokWorldMapFilterTint::Resolve(Button->GetIsEnabled(),
-				Button->IsPressed(), Button->HasAnyUserFocus(), Button->IsHovered()), DeltaSeconds);
+		{
+			const FLinearColor Desired = Authored
+				? Authored->ForState(Button->GetIsEnabled(), Button->IsPressed(), Button->HasAnyUserFocus() || Button->IsHovered())
+				: FRokWorldMapFilterTint::Resolve(Button->GetIsEnabled(), Button->IsPressed(), Button->HasAnyUserFocus(), Button->IsHovered());
+			FilterTints[Index].Advance(Desired, DeltaSeconds);
+		}
 		FilterBackgrounds[Index]->SetColorAndOpacity(FilterTints[Index].Current);
 	}
 }

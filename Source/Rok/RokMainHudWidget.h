@@ -5,6 +5,8 @@
 #include "Styling/SlateBrush.h"
 #include "RokPowerCounterAnimation.h"
 #include "RokUiWindowAnimation.h"
+#include "RokTaskPresentation.h"
+#include "RokButtonFeedbackStyle.h"
 #include "RokMainHudWidget.generated.h"
 
 class AActor;
@@ -210,6 +212,10 @@ private:
 
 	UPROPERTY()
 	TArray<TObjectPtr<UTextBlock>> TaskTitleTexts;
+	TMap<TWeakObjectPtr<UTextBlock>, FRokTaskTextFit> TaskTextFits;
+	void SetFittedTaskText(UTextBlock& Label, const FText& Text, int32 MaxPixels, const FVector2D& BoxSize);
+	UPROPERTY(Transient)
+	TObjectPtr<URokUiPageWidget> TaskPresentationTemplate;
 
 	UPROPERTY()
 	TArray<TObjectPtr<UTextBlock>> TaskProgressTexts;
@@ -383,6 +389,8 @@ private:
 	TObjectPtr<UImage> PlacementCancelIcon;
 	// Unity GameButton ColorTint is applied to the same Image as GrayChildrens.
 	// Keep its source Gamma-space color tween separate from Slate's disabled effect.
+	FRokButtonFeedbackStyle PlacementConfirmFeedbackStyle;
+	FRokButtonFeedbackStyle PlacementCancelFeedbackStyle;
 	FLinearColor PlacementConfirmSourceTint = FLinearColor::White;
 	FLinearColor PlacementConfirmTintStart = FLinearColor::White;
 	FLinearColor PlacementConfirmTintTarget = FLinearColor::White;

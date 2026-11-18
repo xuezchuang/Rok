@@ -4527,6 +4527,12 @@ void SetFeaturePageText(const URokUiPageWidget& Page, FName Name, const FText& V
 		Text->SetText(Value);
 	}
 }
+
+FSlateColor FeaturePresentationColor(const URokUiPageWidget* Presentation, FName Name, const FLinearColor& Fallback)
+{
+	const auto* State = Presentation ? Presentation->Get<UTextBlock>(Name) : nullptr;
+	return State ? State->GetColorAndOpacity() : FSlateColor(Fallback);
+}
 }
 
 void URokUnityFeatureScreenWidget::BuildCharge()
@@ -9304,6 +9310,9 @@ bool URokUnityFeatureScreenWidget::BuildTrainArmyParameterPage(const FRokUnityCa
 			TrainResourceCostLayout = CreateWidget<URokUiPageWidget>(this, LayoutClass);
 		}
 	}
+	UClass* ActionPresentationClass = ResolveFeaturePageClass(TEXT("TrainArmyActionPresentation"));
+	const auto* ActionPresentation = ActionPresentationClass
+		? CreateWidget<URokUiPageWidget>(this, ActionPresentationClass) : nullptr;
 
 	const auto SetText = [](const URokUiPageWidget& Owner, FName Name, const FText& Text)
 	{
@@ -9353,7 +9362,9 @@ bool URokUnityFeatureScreenWidget::BuildTrainArmyParameterPage(const FRokUnityCa
 		if (auto* Label = Card->Get<UTextBlock>(TEXT("TierLabel")))
 		{
 			Label->SetText(ArmySnapshot.bCityKnown ? FText::AsNumber(Owned) : FText::FromString(TEXT("—")));
-			Label->SetColorAndOpacity(bUnlocked ? FLinearColor::White : FLinearColor(.35f, .35f, .34f));
+			Label->SetColorAndOpacity(FeaturePresentationColor(ActionPresentation,
+				bUnlocked ? TEXT("TrainTierUnlocked") : TEXT("TrainTierLocked"),
+				bUnlocked ? FLinearColor::White : FLinearColor(.35f, .35f, .34f)));
 		}
 		Card->SetShown(Card->Get<UImage>(TEXT("TrainParameterHeadSelect")), Tier == SelectedTrainTier);
 		BindPageAction(*Card, TEXT("Tier"), 1900 + Index);
@@ -9394,7 +9405,11 @@ bool URokUnityFeatureScreenWidget::BuildTrainArmyParameterPage(const FRokUnityCa
 	{
 		if (auto* LabelSlot = Cast<UCanvasPanelSlot>(Label->Slot))
 		{
-			LabelSlot->SetPosition(FVector2D(LabelSlot->GetPosition().X, bTrainCanStart ? 12 : 23));
+			const auto* Marker = ActionPresentation ? ActionPresentation->Get<UWidget>(
+				bTrainCanStart ? TEXT("TrainStartLabelReady") : TEXT("TrainStartLabelOther")) : nullptr;
+			const auto* MarkerSlot = Marker ? Cast<UCanvasPanelSlot>(Marker->Slot) : nullptr;
+			const double Y = MarkerSlot ? MarkerSlot->GetPosition().Y : (bTrainCanStart ? 12.0 : 23.0);
+			LabelSlot->SetPosition(FVector2D(LabelSlot->GetPosition().X, Y));
 		}
 	}
 	SetShown(TEXT("TrainArmyStudyStatus"), bLocked);
@@ -10700,6 +10715,8 @@ void URokUnityFeatureScreenWidget::BuildActivityCenter()
 	UClass* CalendarRowClass = ResolveFeaturePageClass(TEXT("ActivityCalendarRow"));
 	if (const URokUiPageWidget* Page = MenuClass && CalendarRowClass ? MountModePage(NAME_None, false) : nullptr)
 	{
+		UClass* PresentationClass = ResolveFeaturePageClass(TEXT("ActivityListPresentation"));
+		const auto* Presentation = PresentationClass ? CreateWidget<URokUiPageWidget>(this, PresentationClass) : nullptr;
 		BindPageAction(*Page, TEXT("ActivityClose"), 1);
 		const bool bCalendar = SelectedActivityIndex == 0;
 		const FName LordsWarContent[] = {
@@ -10714,7 +10731,7 @@ void URokUnityFeatureScreenWidget::BuildActivityCenter()
 		}
 		if (bCalendar)
 		{
-			BuildActivityCalendarReadonly(Page, CalendarRowClass);
+			BuildActivityCalendarReadonly(Page, CalendarRowClass, Presentation);
 		}
 		else
 		{
@@ -10744,7 +10761,9 @@ void URokUnityFeatureScreenWidget::BuildActivityCenter()
 				if (UTextBlock* Label = Row->Get<UTextBlock>(TEXT("Label")))
 				{
 					Label->SetText(ActivityMenuTitle(Index));
-					Label->SetColorAndOpacity(bSelected ? FLinearColor(0.40f, 0.39f, 0.33f, 1.0f) : FLinearColor::White);
+					Label->SetColorAndOpacity(FeaturePresentationColor(Presentation,
+						bSelected ? TEXT("ActivityMenuSelected") : TEXT("ActivityMenuNormal"),
+						bSelected ? FLinearColor(0.40f, 0.39f, 0.33f, 1.0f) : FLinearColor::White));
 				}
 				Row->SetPresent(Row->Get<UImage>(TEXT("New")), Index != 1);
 				Row->SetPresent(Row->Get<UTextBlock>(TEXT("NewText")), Index != 1);
@@ -10845,7 +10864,8 @@ void URokUnityFeatureScreenWidget::BuildActivityCenter()
 
 }
 
-void URokUnityFeatureScreenWidget::BuildActivityCalendarReadonly(const URokUiPageWidget* Page, UClass* RowClass)
+void URokUnityFeatureScreenWidget::BuildActivityCalendarReadonly(const URokUiPageWidget* Page, UClass* RowClass,
+	const URokUiPageWidget* Presentation)
 {
 	URokUnityGameplayCatalogSubsystem* Catalog = GetGameInstance()
 		? GetGameInstance()->GetSubsystem<URokUnityGameplayCatalogSubsystem>() : nullptr;
@@ -10889,7 +10909,27 @@ void URokUnityFeatureScreenWidget::BuildActivityCalendarReadonly(const URokUiPag
 		USizeBox* Extent = Page->Get<USizeBox>(TEXT("ActivityCalendarReferenceExtent"));
 		UCanvasPanel* Content = Page->Get<UCanvasPanel>(TEXT("ActivityCalendarReferenceContent"));
 		if (!Scroll || !Extent || !Content) return;
-		Extent->SetHeightOverride(Rows.Num() * 110.0f);
+		FVector2D RowSize(324.0, 110.0);
+		double RowGap = 0.0;
+		if (Presentation)
+		{
+			if (const auto* Bounds = Presentation->Get<UWidget>(TEXT("CalendarRowBounds")))
+			{
+				if (const auto* Slot = Cast<UCanvasPanelSlot>(Bounds->Slot); Slot && Slot->GetSize().X > 0 && Slot->GetSize().Y > 0)
+				{
+					RowSize = Slot->GetSize();
+				}
+			}
+			if (const auto* Gap = Presentation->Get<UWidget>(TEXT("CalendarRowGap")))
+			{
+				if (const auto* Slot = Cast<UCanvasPanelSlot>(Gap->Slot))
+				{
+					RowGap = FMath::Max(0.0, Slot->GetSize().Y);
+				}
+			}
+		}
+		const double RowStride = RowSize.Y + RowGap;
+		Extent->SetHeightOverride(static_cast<float>(RowSize.Y + (Rows.Num() - 1) * RowStride));
 		UTexture2D* Atlas = LoadUiTexture(ActivityIconAtlasPath);
 		for (int32 Index = 0; Index < Rows.Num(); ++Index)
 		{
@@ -10899,7 +10939,7 @@ void URokUnityFeatureScreenWidget::BuildActivityCalendarReadonly(const URokUiPag
 			Item->LegacyPrefix = TEXT("ActivityCalendar");
 			Item->LegacySuffix = FString::Printf(TEXT("_%d"), Row.Id);
 			Item->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-			PlaceOnCanvas(Content, Item, FVector2D(0.0f, Index * 110.0f), FVector2D(324.0f, 110.0f), 1);
+			PlaceOnCanvas(Content, Item, FVector2D(0.0, Index * RowStride), RowSize, 1);
 			const bool bSelected = Row.Id == SelectedActivityCalendarId;
 			Item->SetPresent(Item->Get<UCanvasPanel>(TEXT("ReferenceRowFrame")), !bSelected);
 			Item->SetPresent(Item->Get<UCanvasPanel>(TEXT("SelectedRowFrame")), bSelected);
@@ -10915,7 +10955,9 @@ void URokUnityFeatureScreenWidget::BuildActivityCalendarReadonly(const URokUiPag
 			if (UTextBlock* Title = Item->Get<UTextBlock>(TEXT("ReferenceTitle")))
 			{
 				Title->SetText(FText::FromString(Row.TitleZhCn));
-				Title->SetColorAndOpacity(bSelected ? FLinearColor(0.33f, 0.30f, 0.25f, 1.0f) : FLinearColor::White);
+				Title->SetColorAndOpacity(FeaturePresentationColor(Presentation,
+					bSelected ? TEXT("CalendarTitleSelected") : TEXT("CalendarTitleNormal"),
+					bSelected ? FLinearColor(0.33f, 0.30f, 0.25f, 1.0f) : FLinearColor::White));
 			}
 			BindPageAction(*Item, TEXT("ReferenceHit"), 16000 + Index);
 		}

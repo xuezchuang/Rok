@@ -5920,7 +5920,7 @@ void URokUnityModalWidget::BuildBuildingInfo()
 	if (UCanvasPanel* PageCanvas = Cast<UCanvasPanel>(Page->GetRootWidget()))
 	{
 		AddBuildingPreview(PageCanvas, TEXT("BuildingInfoImage"), State.UnityBuildingTypeId,
-			FVector2D(208.8f, 166.9f), FVector2D(450.0f, 620.2f), FVector2D(438.8f, 507.0f));
+			FVector2D(208.8f, 166.9f), FVector2D(450.0f, 620.2f), FVector2D(438.8f, 507.0f), TEXT("BuildingInfoPreviewSlot"));
 	}
 	const int32 QueueCount = Subsystem ? Subsystem->GetOwnedBuildQueueCount() : 1;
 	const float BuildSpeedBonus = Subsystem ? Subsystem->GetBuildSpeedBonusPercent() : 0.0f;
@@ -5959,7 +5959,7 @@ void URokUnityModalWidget::BuildResourceBuildingInfo(int32 Type, int32 KnownLeve
 	if (BuildingDescriptionRoot)
 	{
 		AddBuildingPreview(BuildingDescriptionRoot, TEXT("BuildingInfoImage"), Type,
-			FVector2D(208.8f, 166.9f), FVector2D(450.0f, 620.2f), FVector2D(438.8f, 507.0f));
+			FVector2D(208.8f, 166.9f), FVector2D(450.0f, 620.2f), FVector2D(438.8f, 507.0f), TEXT("ResourceBuildingInfoPreviewSlot"));
 	}
 	for (int32 Column = 1; Column < 4; ++Column)
 	{
@@ -6168,7 +6168,8 @@ void URokUnityModalWidget::BuildBuildingUpgrade()
 	PlaceOnCanvas(UpgradeContentCanvas, MakeAtlasBorder(TEXT("BuildingUpgradePreviewFrame"), CommonAtlasPath,
 		PreviewFrameRect, CommonAtlasSize, PreviewSize, PreviewFrameMargin), PreviewPosition, PreviewSize);
 	AddBuildingPreview(UpgradeContentCanvas, TEXT("BuildingUpgradeImage"), Preview.CurrentState.UnityBuildingTypeId,
-		PreviewPosition, PreviewSize, bDeclaredBarracksPreview ? FVector2D(428.0f, 462.0f) : FVector2D(428.9f, 507.0f));
+		PreviewPosition, PreviewSize, bDeclaredBarracksPreview ? FVector2D(428.0f, 462.0f) : FVector2D(428.9f, 507.0f),
+		bDeclaredBarracksPreview ? TEXT("BarracksUpgradePreviewSlot") : TEXT("BuildingUpgradePreviewSlot"));
 	if (bDeclaredBarracksPreview)
 	{
 		// Unity btn_BuildLevelInfo has a 60x60 GameButton hitbox and an inset 38x38 btn_com_1007 glyph.
@@ -6344,7 +6345,8 @@ void URokUnityModalWidget::BindBuildingUpgradePage(URokUiPageWidget* Page, const
 	{
 		const FVector2D PreviewPosition = bBarracks ? FVector2D(203.0f, 110.3f) : FVector2D(203.9f, 166.9f);
 		AddBuildingPreview(Content, TEXT("BuildingUpgradeImage"), Preview.CurrentState.UnityBuildingTypeId,
-			PreviewPosition, FVector2D(450.0f, 620.0f), bBarracks ? FVector2D(428.0f, 462.0f) : FVector2D(428.9f, 507.0f));
+			PreviewPosition, FVector2D(450.0f, 620.0f), bBarracks ? FVector2D(428.0f, 462.0f) : FVector2D(428.9f, 507.0f),
+			bBarracks ? TEXT("BarracksUpgradePreviewSlot") : TEXT("BuildingUpgradePreviewSlot"));
 	}
 	const FText CurrentLevel = FText::AsNumber(Preview.CurrentState.Level);
 	const FText NextLevel = FText::AsNumber(Preview.TargetLevel);

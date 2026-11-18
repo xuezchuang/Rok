@@ -393,7 +393,7 @@ private:
 	void BuildBuildingInfo();
 	void AddBuildingPreviewGlow(UCanvasPanel* Canvas, TOptional<FVector2D> PreviewCenter = {});
 	void AddBuildingPreview(UCanvasPanel* Canvas, FName ImageName, int32 Type,
-		const FVector2D& PanePosition, const FVector2D& PaneSize, const FVector2D& PreviewCenter);
+		const FVector2D& PanePosition, const FVector2D& PaneSize, const FVector2D& PreviewCenter, FName LayoutSlot);
 	void BuildResourceBuildingInfo(int32 Type, int32 KnownLevel);
 	friend class FRokBuildingLevelDetailsTest;
 	UFUNCTION()

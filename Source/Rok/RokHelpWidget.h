@@ -36,6 +36,7 @@ private:
     TArray<FEntry> Entries;
     TArray<int32> Groups, VisibleQuestionIds;
     TSet<int32> Expanded;
+    UPROPERTY(Transient) TMap<FName, TObjectPtr<UWidget>> RowActions;
     TSharedPtr<FJsonObject> Layouts;
     FString LoadError;
     int32 SelectedId=0;

@@ -13,8 +13,45 @@
 #include "RokUiWidgets.h"
 
 void URokUnityModalWidget::AddBuildingPreview(UCanvasPanel* Canvas, FName ImageName, int32 Type,
-	const FVector2D& PanePosition, const FVector2D& PaneSize, const FVector2D& PreviewCenter)
+	const FVector2D& PanePosition, const FVector2D& PaneSize, const FVector2D& PreviewCenter, FName LayoutSlot)
 {
+	// The wrapper owns the context-specific outer slot and the source-fit center.
+	// Keep the native coordinates when its asset or required markers are unavailable.
+	UCanvasPanel* PreviewHost = Canvas;
+	FVector2D Position = PanePosition;
+	FVector2D Size = PaneSize;
+	FVector2D LocalCenter = PreviewCenter - PanePosition;
+	if (!URokUiSettings::IsLegacyForced())
+	{
+		static const TSoftClassPtr<URokUiPageWidget> LayoutClass(FSoftObjectPath(
+			TEXT("/Game/RokUI/Modal/Pages/WBP_RokModal_BuildingPreviewLayout.WBP_RokModal_BuildingPreviewLayout_C")));
+		if (UClass* Class = URokUiSettings::Resolve(LayoutClass))
+		{
+			auto* Layout = CreateWidget<URokUiPageWidget>(this, Class, TEXT("BuildingPreviewLayoutWbp"));
+			auto* Host = Layout ? Layout->Get<UCanvasPanel>(LayoutSlot) : nullptr;
+			const auto* HostSlot = Host ? Cast<UCanvasPanelSlot>(Host->Slot) : nullptr;
+			const FName CenterName(*(LayoutSlot.ToString().Replace(TEXT("Slot"), TEXT("Center"))));
+			auto* Center = Layout ? Layout->Get<UCanvasPanel>(CenterName) : nullptr;
+			const auto* CenterSlot = Center ? Cast<UCanvasPanelSlot>(Center->Slot) : nullptr;
+			if (HostSlot && CenterSlot && Center->GetParent() == Host
+				&& HostSlot->GetSize().X > 0 && HostSlot->GetSize().Y > 0)
+			{
+				Layout->SetVisibility(ESlateVisibility::HitTestInvisible);
+				PlaceOnCanvas(Canvas, Layout, FVector2D::ZeroVector, FVector2D::ZeroVector, 1);
+				auto* LayoutCanvasSlot = CastChecked<UCanvasPanelSlot>(Layout->Slot);
+				LayoutCanvasSlot->SetAnchors(FAnchors(0, 0, 1, 1));
+				LayoutCanvasSlot->SetOffsets(FMargin(0));
+				PreviewHost = Host;
+				Position = FVector2D::ZeroVector;
+				Size = HostSlot->GetSize();
+				LocalCenter = CenterSlot->GetPosition();
+			}
+			else
+			{
+				UE_LOG(LogTemp, Warning, TEXT("Building preview layout has invalid %s markers; using native geometry"), *LayoutSlot.ToString());
+			}
+		}
+	}
 	URokUiPageWidget* PanePresentation = nullptr;
 	if (!URokUiSettings::IsLegacyForced())
 	{
@@ -37,7 +74,14 @@ void URokUnityModalWidget::AddBuildingPreview(UCanvasPanel* Canvas, FName ImageN
 		Pane = Cast<UCanvasPanel>(RokUiFind::Find(PanePresentation, TEXT("BuildingPreviewPane")));
 		if (Pane)
 		{
-			PlaceOnCanvas(Canvas, PanePresentation, PanePosition, PaneSize, 1);
+			PlaceOnCanvas(PreviewHost, PanePresentation, Position, Size, 1);
+			if (PreviewHost != Canvas)
+			{
+				if (auto* InnerSlot = Cast<UCanvasPanelSlot>(Pane->Slot))
+				{
+					InnerSlot->SetSize(Size);
+				}
+			}
 		}
 		else
 		{
@@ -51,9 +95,8 @@ void URokUnityModalWidget::AddBuildingPreview(UCanvasPanel* Canvas, FName ImageN
 		Pane = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("BuildingPreviewPane"));
 		Pane->SetVisibility(ESlateVisibility::HitTestInvisible);
 		Pane->SetClipping(EWidgetClipping::ClipToBoundsAlways);
-		PlaceOnCanvas(Canvas, Pane, PanePosition, PaneSize, 1);
+		PlaceOnCanvas(PreviewHost, Pane, Position, Size, 1);
 	}
-	const FVector2D LocalCenter = PreviewCenter - PanePosition;
 	AddBuildingPreviewGlow(Pane, LocalCenter);
 
 	UImage* BuildingInfoImage = Cast<UImage>(PanePresentation
@@ -124,12 +167,12 @@ void URokUnityModalWidget::AddBuildingPreview(UCanvasPanel* Canvas, FName ImageN
 			auto* Text = MakeModalText(TEXT("BuildingSourcePreviewUnavailable"), 15, FLinearColor::White,
 				false, ETextJustify::Center);
 			Text->SetText(NSLOCTEXT("RokModal", "BuildingSourcePreviewUnavailable", "建筑外观源数据不可用"));
-			PlaceOnCanvas(Pane, Text, FVector2D(0, LocalCenter.Y - 20), FVector2D(PaneSize.X, 40), 2);
+			PlaceOnCanvas(Pane, Text, FVector2D(0, LocalCenter.Y - 20), FVector2D(Size.X, 40), 2);
 		}
 		return;
 	}
 
-	const FBox2D Draw = Art.FitInPane(LocalCenter, PaneSize);
+	const FBox2D Draw = Art.FitInPane(LocalCenter, Size);
 	UImage* Image = PanePresentation ? Cast<UImage>(RokUiFind::Find(PanePresentation, ImageName)) : nullptr;
 	if (!Image)
 	{

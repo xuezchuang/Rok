@@ -54,3 +54,19 @@
 - `Rok.UiWbp.DumpModalTree <modal key> <dump name>` 导出弹窗内容树。配合 `EditorCmd.ps1 -Wbp` 选择 WBP 路径，输出在 `Saved/RokUi/Trees`。`TreeDiff.py` 默认按解析后的旧控件名比较完整层级。`--logical` 可略去可复用 WBP 包装层和画布根节点，该模式省略这些层的几何和可见性比较。
 
 两个新资产使用已有 UE 5.8.4 二进制生成并独立重载。设计树与生成树的 10 个排位锚点、默认间距和 4 个颜色值通过检查。树差异脚本的 9 项回归测试通过。新 C++ 绑定及导出命令的运行验证待当前源码构建后进行。
+
+
+## 任务、训练、建筑、活动和交互样式
+
+| 入口 | Designer 位置 | 本轮迁移 |
+| --- | --- | --- |
+| 城市任务栏、任务页 | `RokUI/Hud/WBP_RokHudTaskRow`、`RokUI/Styles/WBP_RokTaskPresentation` | HUD 文字框和最大字号由任务行提供，动态缩字仍由原逻辑计算。样式模板提供主支线颜色、服务器任务行字号与省略规则，以及普通与 `99+` 角标。 |
+| 兵营训练 | `RokUI/Feature/WBP_RokFeature_TrainArmyActionPresentation` | `TrainStartLabelReady` 和 `TrainStartLabelOther` 提供按钮文字的 Y 坐标，`TrainTierUnlocked` 和 `TrainTierLocked` 提供兵阶标签颜色。 |
+| 建筑详情、资源建筑详情、普通升级、兵营升级 | `RokUI/Modal/Pages/WBP_RokModal_BuildingPreviewLayout`、现有兵营页面 | 四组 `PreviewSlot` 和 `PreviewCenter` 负责预览框和适配中心。兵营级别和表头控件提供字体尺寸、文字区域、对齐、偏移和颜色的可编辑属性。 |
+| 活动中心、活动日历 | `RokUI/Feature/WBP_RokFeature_ActivityListPresentation` | `CalendarRowBounds` 提供行尺寸，`CalendarRowGap` 的高度提供行间距。菜单和日历标题各有普通与选中颜色。 |
+| 世界筛选、城市放置 | `RokUI/Hud/WBP_RokButtonFeedbackStyles` | 筛选按钮、确认按钮、取消按钮各自提供普通、悬停、按下和禁用的颜色。有效性判断和过渡时间沿用原代码。 |
+| 帮助列表 | `RokUI/Help/WBP_RokHelpGroupEntry`、`WBP_RokHelpQuestionEntry` | 两个行模板沿用原有图层，`Extent` 提供行尺寸，`Action` 提供点击区域。分类展开、滚动位置和详情仍由原逻辑处理。 |
+
+新增 7 个资产，原有 WBP 文件继续使用。两个帮助行生成时提示内嵌了已有子 WBP。独立重载通过，14 棵设计树和生成树的关键尺寸、锚点、颜色和字号也通过检查。双批日志为 `Saved/RokUi/Logs/verify_train_activity_presentation_goal_20261118.log`、`verify_task_building_controls_goal_20261118.log`，实际属性检查见 `verify_presentation_values_goal_20261118.log`。
+
+建筑布局生成脚本读取 `Saved/RokUi/Specs/` 下四份原生预览规格。其他新模板从仓库中的 Python 规格脚本生成。本轮未编译 C++；实际入口、兵营新属性和画面对比待后续确认。

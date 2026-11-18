@@ -1,6 +1,12 @@
+#include "RokTaskPresentation.h"
+
 void URokUnityFeatureScreenWidget::BindServerTaskPageActions(const URokUiPageWidget& Page,
 	const FRokServerTaskSnapshot& Snapshot)
 {
+	if (!TaskPresentationTemplate)
+	{
+		TaskPresentationTemplate = RokTaskPresentation::CreateTemplate(*this);
+	}
 	const auto CountFinished = [](const auto& Rows)
 	{
 		return Algo::CountIf(Rows, [](const auto& Row) { return Row.State == ERokServerTaskState::Finished; });
@@ -19,7 +25,7 @@ void URokUnityFeatureScreenWidget::BindServerTaskPageActions(const URokUiPageWid
 		{
 			Page.SetPresent(Label, Count > 0);
 			Label->SetText(Count > 99 ? FText::FromString(TEXT("99+")) : FText::AsNumber(Count));
-			if (Count > 99)
+			if (!RokTaskPresentation::ApplyTabBadge(TaskPresentationTemplate, *Label, Count > 99) && Count > 99)
 			{
 				Label->SetFont(FCoreStyle::GetDefaultFontStyle(TEXT("Bold"), 7));
 				if (auto* LabelSlot = Cast<UCanvasPanelSlot>(Label->Slot))
@@ -102,6 +108,10 @@ URokUiPageWidget* URokUnityFeatureScreenWidget::BuildTaskRowPage(UClass* RowClas
 	int32 RewardGroupId, const TArray<FRokTaskRewardPreviewRow>& Rewards, bool bServerRow, bool bClaimable,
 	const FText& ButtonLabel)
 {
+	if (!TaskPresentationTemplate)
+	{
+		TaskPresentationTemplate = RokTaskPresentation::CreateTemplate(*this);
+	}
 	auto* Row = CreateWidget<URokUiPageWidget>(this, RowClass);
 	if (!Row || !Row->Get<UCanvasPanel>(TEXT("Row")))
 	{
@@ -118,7 +128,7 @@ URokUiPageWidget* URokUnityFeatureScreenWidget::BuildTaskRowPage(UClass* RowClas
 	if (auto* Label = Row->Get<UTextBlock>(TEXT("Title")))
 	{
 		Label->SetText(Title);
-		if (bServerRow)
+		if (bServerRow && !RokTaskPresentation::ApplyServerRowText(TaskPresentationTemplate, *Label, false))
 		{
 			Label->SetFont(URokMainHudWidget::MakeUnitySourceFont(24, false));
 		}
@@ -128,8 +138,11 @@ URokUiPageWidget* URokUnityFeatureScreenWidget::BuildTaskRowPage(UClass* RowClas
 		Label->SetText(Description);
 		if (bServerRow)
 		{
-			Label->SetFont(URokMainHudWidget::MakeUnitySourceFont(22, false));
-			Label->SetTextOverflowPolicy(ETextOverflowPolicy::Ellipsis);
+			if (!RokTaskPresentation::ApplyServerRowText(TaskPresentationTemplate, *Label, true))
+			{
+				Label->SetFont(URokMainHudWidget::MakeUnitySourceFont(22, false));
+				Label->SetTextOverflowPolicy(ETextOverflowPolicy::Ellipsis);
+			}
 			Label->SetToolTipText(Description);
 		}
 	}

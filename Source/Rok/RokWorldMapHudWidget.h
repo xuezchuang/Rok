@@ -6,6 +6,7 @@
 #include "RokWorldMapTypes.h"
 #include "RokServerArmySubsystem.h"
 #include "RokWorldMapFilterTint.h"
+#include "RokButtonFeedbackStyle.h"
 #include "RokUiWindowAnimation.h"
 #include "RokPowerCounterAnimation.h"
 #include "Styling/SlateBrush.h"
@@ -486,6 +487,7 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<USoundBase> FilterClickSound;
+	FRokButtonFeedbackStyle FilterFeedbackStyle;
 	TArray<FRokWorldMapFilterTint> FilterTints;
 	TArray<float> FilterStartAlphas;
 	float FilterAnimationSeconds = 0.1f;
