@@ -59,6 +59,8 @@ private:
 struct FRokChatContactAnimation
 {
 	static constexpr float Duration = 0.2f;
+	static constexpr float NativeCollapsedX = -330.0f;
+	float CollapsedX = NativeCollapsedX;
 	float TranslationX = 0.0f;
 	float Elapsed = Duration;
 	bool bHidden = false;
@@ -73,7 +75,7 @@ struct FRokChatContactAnimation
 	{
 		Elapsed = FMath::Min(Duration, Elapsed + FMath::Max(0.0f, DeltaSeconds));
 		const float T = Elapsed / Duration;
-		TranslationX = FMath::Lerp(StartX, bHidden ? -330.0f : 0.0f, T * T * T);
+		TranslationX = FMath::Lerp(StartX, bHidden ? CollapsedX : 0.0f, T * T * T);
 	}
 private:
 	float StartX = 0.0f;

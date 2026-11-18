@@ -37,6 +37,17 @@ bool FRokChatSourceMotionTest::RunTest(const FString& Parameters)
 	Contacts.Toggle();
 	Contacts.Advance(0.2f);
 	TestEqual(TEXT("Contacts restore"), Contacts.TranslationX, 0.0f);
+	Contacts.CollapsedX = -420.0f;
+	Contacts.Toggle();
+	Contacts.Advance(0.1f);
+	TestEqual(TEXT("Authored contact endpoint keeps InCubic"), Contacts.TranslationX, -52.5f);
+	Contacts.Toggle();
+	Contacts.Advance(0.0f);
+	TestEqual(TEXT("Contact reversal keeps displayed pose"), Contacts.TranslationX, -52.5f);
+	Contacts.Advance(0.2f);
+	TestEqual(TEXT("Contact reversal restores opened endpoint"), Contacts.TranslationX, 0.0f);
+	Contacts.Reset();
+	TestEqual(TEXT("Contact reset restores native endpoint"), Contacts.CollapsedX, -330.0f);
 	return true;
 }
 

@@ -929,6 +929,19 @@ private:
 	void BuildGeneralSettings();
 	void BuildGraphicsSettingsCard(UCanvasPanel* Content, float GraphicsValue, float FrameValue, bool bEnabled);
 	void UpdateGraphicsSettingsSlider(FName Prefix, int32 Level);
+	struct FGeneralSettingsFillSlot
+	{
+		FVector2D Position = FVector2D::ZeroVector;
+		FVector2D Size = FVector2D::ZeroVector;
+		FVector2D Alignment = FVector2D::ZeroVector;
+	};
+	struct FGeneralSettingsFillLayout
+	{
+		FGeneralSettingsFillSlot Fill;
+		FGeneralSettingsFillSlot Patches[3];
+	};
+	TMap<FName, FGeneralSettingsFillLayout> GeneralSettingsFillLayouts;
+	bool UpdateAuthoredGeneralSettingsFill(FName Prefix, float Fraction, bool bRightAnchored);
 	void BuildNotificationSettings();
 	void BuildLanguageSettings();
 	void BuildHelp();
@@ -986,6 +999,7 @@ private:
 	FRokHospitalState HospitalState;
 	FRokHospitalQuote HospitalQuote;
 	TMap<int32, int32> HospitalCounts;
+	TMap<int32, FVector2D> HospitalSliderFillSizes;
 	TMap<int32, int32> HospitalSelectedCounts;
 	bool bHospitalCanCollect = false;
 	float HospitalRefreshAccumulator = 0;

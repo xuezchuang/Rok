@@ -127,3 +127,16 @@
 对应生成规格在 `Scripts/RokUi/BuildExpeditionStateBrushesSpec.py`、`BuildExpeditionStoreListLayoutSpec.py`、`BuildProfileChoiceLayoutsSpec.py` 和 `BuildCommanderTalentRowLayoutSpec.py`。
 
 4 个新资产均通过独立重载，核对了 8 棵设计与生成控件树的槽位及纹理引用。记录见 `Saved/RokUi/Logs/verify_expedition_brushes_and_store_layout_goal.log` 和 `verify_profile_and_talent_layouts_goal.log`。未编译 C++，实际入口与画面对比由人工审查。
+
+## 兵种提示、医院滑条、聊天联系人和通用设置
+
+| 入口 | Designer 资产 | 可编辑内容 |
+| --- | --- | --- |
+| 兵种详情 → 属性、技能 | `RokUI/Feature/WBP_RokFeature_TrainArmyDetailTip`、`WBP_RokFeature_TrainArmyDetailTipLayout` | 正文上下留白、框宽和箭头大小取自提示 WBP。`AttributeGap`、`SkillGap` 的高度给出两类间隔，锚点取实际点击的按钮。 |
+| 医院 → 治疗数量 | `RokUI/Feature/WBP_RokFeature_HospitalTroopRow` | `SliderFill` 的槽位给出满格尺寸。每行创建时读取一次，后续按治疗比例更新宽度。 |
+| 聊天 → 收起联系人 | `RokUI/Feature/WBP_RokFeature_ChatContactsLayout` | `ContactsCollapsedContent` 的 X 渲染位移决定收起终点，默认为 `−330`。展开终点为 `0`，过渡为 0.2 秒。 |
+| 通用设置 → 音量、图像质量、帧率 | `RokUI/Feature/WBP_RokFeature_GeneralSettings` | 音效、音乐、图像质量和帧率分别读取 `Fill` 的满格槽位及三个 `FillPatch` 槽位。音量固定右端，图像质量和帧率固定左端。 |
+
+两个新资产的生成规格位于 `Scripts/RokUi/BuildTrainArmyDetailTipLayoutSpec.py` 和 `Scripts/RokUi/BuildChatContactsLayoutSpec.py`。提示框宽度、正文宽度和换行宽度均可在现有提示 WBP 中调整。
+
+独立重载核对了 2 个新资产、4 个现有资产及其 12 棵设计与生成控件树。记录见 `Saved/RokUi/Logs/verify_train_tip_and_slider_source_goal.log` 和 `verify_chat_contacts_layout_goal.log`。未编译 C++，实际入口与画面对比由人工审查。

@@ -3121,6 +3121,19 @@ void URokUnityFeatureScreenWidget::UpdateWindowAnimationForMode(bool bOpening)
 		{
 			ChatDrawerAnimation.Open();
 		}
+		// Read the detached layout once per page build, after the entry reset.
+		// Rebuilding channels or emoji must retain the current contact tween.
+		ChatContactAnimation.CollapsedX = FRokChatContactAnimation::NativeCollapsedX;
+		if (ActiveModePage)
+		{
+			UClass* LayoutClass = ResolveFeaturePageClass(TEXT("ChatContactsLayout"));
+			const auto* Layout = LayoutClass ? CreateWidget<URokUiPageWidget>(this, LayoutClass) : nullptr;
+			const UWidget* Marker = Layout ? Layout->Get<UWidget>(TEXT("ContactsCollapsedContent")) : nullptr;
+			if (Marker && FMath::IsFinite(Marker->GetRenderTransform().Translation.X))
+			{
+				ChatContactAnimation.CollapsedX = Marker->GetRenderTransform().Translation.X;
+			}
+		}
 		AnimatedMode = ActiveMode;
 		ApplyWindowAnimation();
 		return;
@@ -5269,6 +5282,7 @@ void URokUnityFeatureScreenWidget::BuildHospital()
 			It.RemoveCurrent();
 	}
 	HospitalQuantities.Reset();
+	HospitalSliderFillSizes.Reset();
 	HospitalConfirmation = nullptr;
 
 	int64 Country = 0;
@@ -5574,6 +5588,14 @@ void URokUnityFeatureScreenWidget::PopulateHospitalTroopRows(UScrollBox& List, U
 			PlaceOnCanvas(Row, Number, {446, 37}, {73, 51}, 3);
 		}
 
+		// Capture the mounted row's full authored span before the first quantity update.
+		if (const auto* Fill = GetWidgetFromName(*FString::Printf(TEXT("HospitalSliderFill_%d"), Id)))
+		{
+			if (const auto* CanvasSlot = Cast<UCanvasPanelSlot>(Fill->Slot))
+			{
+				HospitalSliderFillSizes.Add(Id, CanvasSlot->GetSize());
+			}
+		}
 		if (!HospitalCounts.Contains(Id)) HospitalCounts.Add(Id, Unit.Count);
 		auto* Quantity = NewObject<URokHospitalQuantity>(this);
 		HospitalQuantities.Add(Id, Quantity);
@@ -5642,8 +5664,14 @@ void URokUnityFeatureScreenWidget::UpdateHospitalActions()
 		const int32 Count = bQueue ? Unit.Count : HospitalCounts.FindRef(Unit.Id);
 		if (!bQueue && Count > 0) Counts.Add(Unit.Id, Count);
 		if (auto* Fill = GetWidgetFromName(*FString::Printf(TEXT("HospitalSliderFill_%d"), Unit.Id)))
-			if (auto* CanvasSlot = Cast<UCanvasPanelSlot>(Fill->Slot))
-				CanvasSlot->SetSize(FVector2D(HospitalSliderFillWidth * Count / Unit.Count, 19));
+		{
+			const FVector2D* FullSize = HospitalSliderFillSizes.Find(Unit.Id);
+			if (auto* CanvasSlot = Cast<UCanvasPanelSlot>(Fill->Slot); CanvasSlot && FullSize)
+			{
+				const double Fraction = Unit.Count > 0 ? FMath::Clamp(double(Count) / Unit.Count, 0.0, 1.0) : 0.0;
+				CanvasSlot->SetSize(FVector2D(FullSize->X * Fraction, FullSize->Y));
+			}
+		}
 	}
 	const auto Quote = Config ? FRokHospitalQuote::Calculate(*Config, Counts, Role, Remaining) : FRokHospitalQuote{};
 	const bool bShowMax = !bQueue && Counts.IsEmpty();
@@ -7164,9 +7192,65 @@ void URokUnityFeatureScreenWidget::BuildGraphicsSettingsCard(UCanvasPanel* Conte
 	}
 }
 
+bool URokUnityFeatureScreenWidget::UpdateAuthoredGeneralSettingsFill(FName Prefix, float Fraction, bool bRightAnchored)
+{
+	const FGeneralSettingsFillLayout* Layout = GeneralSettingsFillLayouts.Find(Prefix);
+	if (!Layout)
+	{
+		return false;
+	}
+	UWidget* Fill = GetWidgetFromName(*(Prefix.ToString() + TEXT("Fill")));
+	auto* FillSlot = Fill ? Cast<UCanvasPanelSlot>(Fill->Slot) : nullptr;
+	if (!FillSlot)
+	{
+		return false;
+	}
+	const double Width = Layout->Fill.Size.X * FMath::Clamp(Fraction, 0.0f, 1.0f);
+	const double RemovedWidth = Layout->Fill.Size.X - Width;
+	const auto Place = [](UCanvasPanelSlot& Slot, const FGeneralSettingsFillSlot& Baseline,
+		const FVector2D& Position, const FVector2D& Size)
+	{
+		Slot.SetPosition(Position + Size * Baseline.Alignment);
+		Slot.SetSize(Size);
+	};
+	Place(*FillSlot, Layout->Fill,
+		Layout->Fill.Position + FVector2D(bRightAnchored ? RemovedWidth : 0.0, 0.0),
+		FVector2D(Width, Layout->Fill.Size.Y));
+	if (bRightAnchored)
+	{
+		Fill->SetVisibility(Width > 0.0 ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+	}
+	for (int32 Patch = 0; Patch < 3; ++Patch)
+	{
+		UWidget* Widget = GetWidgetFromName(*FString::Printf(TEXT("%sFillPatch_%d"), *Prefix.ToString(), Patch));
+		if (auto* Slot = Widget ? Cast<UCanvasPanelSlot>(Widget->Slot) : nullptr)
+		{
+			const FGeneralSettingsFillSlot& Baseline = Layout->Patches[Patch];
+			FVector2D Position = Baseline.Position;
+			FVector2D Size = Baseline.Size;
+			if (Patch == 1)
+			{
+				Size.X = FMath::Max(0.0, Size.X - RemovedWidth);
+			}
+			else if (Patch == 2)
+			{
+				// Keep the fixed caps at short widths; the fill's existing clipping crops them.
+				Position.X = FMath::Max(Layout->Patches[0].Position.X + Layout->Patches[0].Size.X,
+					Position.X - RemovedWidth);
+			}
+			Place(*Slot, Baseline, Position, Size);
+		}
+	}
+	return true;
+}
+
 void URokUnityFeatureScreenWidget::UpdateGraphicsSettingsSlider(const FName Prefix, int32 Level)
 {
 	if (auto* Slider = Cast<USlider>(GetWidgetFromName(*(Prefix.ToString() + TEXT("Slider"))))) Slider->SetValue(Level);
+	if (UpdateAuthoredGeneralSettingsFill(Prefix, (RokGraphicsSettingsLayout::Tier(Level) - 1) / 2.0f, false))
+	{
+		return;
+	}
 	if (auto* Fill = GetWidgetFromName(*(Prefix.ToString() + TEXT("Fill"))))
 		if (auto* FillSlot = Cast<UCanvasPanelSlot>(Fill->Slot)) FillSlot->SetSize(RokGraphicsSettingsLayout::FillSize(Level));
 	const float Width = RokGraphicsSettingsLayout::FillSize(Level).X;
@@ -7181,6 +7265,44 @@ void URokUnityFeatureScreenWidget::UpdateGraphicsSettingsSlider(const FName Pref
 
 void URokUnityFeatureScreenWidget::BindGeneralSettingsPage(const URokUiPageWidget& Page)
 {
+	// Capture every authored full track before setting any slider, which can invoke its callbacks.
+	const auto CaptureSlot = [](const UWidget* Widget, FGeneralSettingsFillSlot& Out)
+	{
+		const auto* Slot = Widget ? Cast<UCanvasPanelSlot>(Widget->Slot) : nullptr;
+		if (!Slot || Slot->GetAutoSize() || Slot->GetAnchors().Minimum != FVector2D::ZeroVector
+			|| Slot->GetAnchors().Maximum != FVector2D::ZeroVector)
+		{
+			return false;
+		}
+		const FVector2D Size = Slot->GetSize();
+		const FVector2D Alignment = Slot->GetAlignment();
+		const FVector2D Position = Slot->GetPosition() - Size * Alignment;
+		if (!FMath::IsFinite(Size.X) || !FMath::IsFinite(Size.Y) || Size.GetMin() <= 0.0
+			|| !FMath::IsFinite(Position.X) || !FMath::IsFinite(Position.Y)
+			|| !FMath::IsFinite(Alignment.X) || !FMath::IsFinite(Alignment.Y))
+		{
+			return false;
+		}
+		Out.Position = Position;
+		Out.Size = Size;
+		Out.Alignment = Alignment;
+		return true;
+	};
+	for (const TCHAR* Prefix : {TEXT("GeneralSettingsGraphics"), TEXT("GeneralSettingsFrameRate"),
+		TEXT("GeneralSettingsSfx"), TEXT("GeneralSettingsMusic")})
+	{
+		FGeneralSettingsFillLayout Layout;
+		bool bValid = CaptureSlot(Page.Get<UWidget>(*FString::Printf(TEXT("%sFill"), Prefix)), Layout.Fill);
+		for (int32 Patch = 0; Patch < 3 && bValid; ++Patch)
+		{
+			bValid = CaptureSlot(Page.Get<UWidget>(*FString::Printf(TEXT("%sFillPatch_%d"), Prefix, Patch)),
+				Layout.Patches[Patch]);
+		}
+		if (bValid)
+		{
+			GeneralSettingsFillLayouts.Add(FName(Prefix), Layout);
+		}
+	}
 	using namespace RokGraphicsSettingsLayout;
 	URokClientSettingsSubsystem* Settings = GetClientSettingsSubsystem();
 	auto InitializeGraphicsSlider = [this, &Page, Settings](const FString& Prefix, float Value)
@@ -7297,6 +7419,7 @@ void URokUnityFeatureScreenWidget::BindGeneralSettingsPage(const URokUiPageWidge
 
 void URokUnityFeatureScreenWidget::BuildGeneralSettings()
 {
+	GeneralSettingsFillLayouts.Reset();
 	if (const URokUiPageWidget* Page = MountModePage())
 	{
 		BindGeneralSettingsPage(*Page);
@@ -9734,20 +9857,63 @@ void URokUnityFeatureScreenWidget::ShowTrainArmyDetailTip(int32 Index, bool bSki
 
 	const FString Text = bSkill ? Detail.Skills[Index].Tip : Detail.Attributes[Index].Tip;
 	Body->SetText(FText::FromString(Text));
-	// HelpTip.SetWidth is text width, plus Frame(40,40); offsets reference the
-	// clicked button center and include the 12px arrow. Keep source atlas alpha.
+	// Measure the wrapped body before fitting the tip to its anchor.
 	const TSharedRef<SWidget> BodySlate = Body->TakeWidget();
 	Body->ForceLayoutPrepass();
-	const float Height = Body->GetDesiredSize().Y + 40.0f;
+	const float TextHeight = Body->GetDesiredSize().Y;
 	const float AnchorY = bSkill ? 137 + 511.25f + 42 : 137 + 321 - Detail.Attributes[Index].UnityY;
 	const float AnchorX = bSkill ? 618 + RokTrainArmyDetail::SkillCellX(Detail.Skills.Num(), Index) + 50 : 930;
-	const float Left = FMath::Clamp(AnchorX - 270.0f, 0.0f, 900.0f);
-	const FVector2D Position = CapturePoint(Left, AnchorY - (bSkill ? 30 : 23) - 12 - Height);
 	if (bUsePage)
 	{
-		ContentSlot->SetPosition(Position);
-		ContentSlot->SetSize(FVector2D(540, Height));
-		ArrowSlot->SetPosition(FVector2D(AnchorX - Left - 7.5f, ArrowSlot->GetPosition().Y));
+		FVector2D Anchor = CapturePoint(AnchorX, AnchorY);
+		const FName ButtonName(*FString::Printf(TEXT("TrainArmyDetail%sButton_%d"),
+			bSkill ? TEXT("Skill") : TEXT("Attr"), Index));
+		if (const UWidget* Button = RokUiFind::Find(ActiveModePage, ButtonName))
+		{
+			const FGeometry ButtonGeometry = Button->GetCachedGeometry();
+			const FGeometry ModeGeometry = ModeCanvas->GetCachedGeometry();
+			const FVector2D ButtonSize = ButtonGeometry.GetLocalSize();
+			const FVector2D ModeSize = ModeGeometry.GetLocalSize();
+			if (ButtonSize.GetMin() > 0 && ModeSize.GetMin() > 0)
+			{
+				const FVector2D Center = ModeGeometry.AbsoluteToLocal(
+					ButtonGeometry.LocalToAbsolute(ButtonSize * 0.5));
+				if (!Center.ContainsNaN())
+				{
+					Anchor = Center;
+				}
+			}
+		}
+
+		const double DesignedWidth = ContentSlot->GetSize().X;
+		const double Width = FMath::IsFinite(DesignedWidth) && DesignedWidth > 0.0 ? DesignedWidth : 540.0;
+		double VerticalPadding = 40.0;
+		if (const auto* TextSlot = Cast<UCanvasPanelSlot>(Body->Slot))
+		{
+			const FAnchors Anchors = TextSlot->GetAnchors();
+			const FMargin Insets = TextSlot->GetOffsets();
+			if (Anchors.Minimum.Y == 0.0 && Anchors.Maximum.Y == 1.0 && Insets.Top >= 0 && Insets.Bottom >= 0
+				&& FMath::IsFinite(Insets.Top + Insets.Bottom))
+			{
+				VerticalPadding = Insets.Top + Insets.Bottom;
+			}
+		}
+		const FVector2D DesignedArrow = ArrowSlot->GetSize();
+		const FVector2D ArrowSize = !DesignedArrow.ContainsNaN() && DesignedArrow.GetMin() > 0
+			? DesignedArrow : FVector2D(15.0, 12.0);
+		const double Height = TextHeight + VerticalPadding;
+		const double Left = FMath::Clamp(Anchor.X - Width * 0.5, 0.0, FMath::Max(0.0, CurrentExpandedDesignSize.X - Width));
+		UClass* LayoutClass = ResolveFeaturePageClass(TEXT("TrainArmyDetailTipLayout"));
+		const auto* Layout = LayoutClass ? CreateWidget<URokUiPageWidget>(this, LayoutClass) : nullptr;
+		const UWidget* Marker = Layout ? RokUiFind::Find(Layout, bSkill ? TEXT("SkillGap") : TEXT("AttributeGap")) : nullptr;
+		const auto* GapSlot = Marker ? Cast<UCanvasPanelSlot>(Marker->Slot) : nullptr;
+		const double AuthoredGap = GapSlot ? GapSlot->GetSize().Y : -1.0;
+		const double Gap = FMath::IsFinite(AuthoredGap) && AuthoredGap >= 0.0 ? AuthoredGap : (bSkill ? 30.0 : 23.0);
+		ContentSlot->SetPosition(FVector2D(Left, Anchor.Y - Gap - ArrowSize.Y - Height));
+		ContentSlot->SetSize(FVector2D(Width, Height));
+		const double ArrowX = Anchor.X - Left - ArrowSize.X * 0.5
+			- ArrowSlot->GetAnchors().Minimum.X * Width + ArrowSlot->GetAlignment().X * ArrowSize.X;
+		ArrowSlot->SetPosition(FVector2D(ArrowX, ArrowSlot->GetPosition().Y));
 		BindPageAction(*TipPage, TEXT("TrainArmyDetailTipClickAway"), 1952);
 		BindPageAction(*TipPage, TEXT("TrainArmyDetailTipInside"), 1953);
 		TipPage->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
@@ -9755,6 +9921,9 @@ void URokUnityFeatureScreenWidget::ShowTrainArmyDetailTip(int32 Index, bool bSki
 		PlaceOnCanvas(ModeCanvas, TipPage, FVector2D::ZeroVector, CurrentExpandedDesignSize, 100);
 		return;
 	}
+	const float Height = TextHeight + 40.0f;
+	const float Left = FMath::Clamp(AnchorX - 270.0f, 0.0f, 900.0f);
+	const FVector2D Position = CapturePoint(Left, AnchorY - (bSkill ? 30 : 23) - 12 - Height);
 	auto* TipCanvas = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("TrainArmyDetailTipLayer"));
 	TrainArmyTipLayer = TipCanvas;
 	PlaceOnCanvas(ModeCanvas, TipCanvas, FVector2D::ZeroVector, CurrentExpandedDesignSize, 100);
@@ -17379,6 +17548,10 @@ void URokUnityFeatureScreenWidget::HandleFrameRateSliderChanged(float Value)
 
 void URokUnityFeatureScreenWidget::UpdateGeneralSettingsAudioFill(const FName& Prefix, float Value)
 {
+	if (UpdateAuthoredGeneralSettingsFill(Prefix, Value, true))
+	{
+		return;
+	}
 	const float Width = 818.55f * FMath::Clamp(Value, 0.0f, 1.0f);
 	if (UWidget* Fill = GetWidgetFromName(*(Prefix.ToString() + TEXT("Fill"))))
 	{
