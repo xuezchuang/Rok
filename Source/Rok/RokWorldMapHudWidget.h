@@ -290,10 +290,11 @@ private:
 		UWidget* Root = nullptr;
 		URokUnityIndexedButton* Button = nullptr;
 		UTextBlock* Label = nullptr;
+		bool bAuthoredSelectionStyle = false;
 	};
 
 	FBarbarianRewardLayout BuildBarbarianRewardLayout(UCanvasPanel* Cell, int32 Index);
-	FAttackArmyChoiceLayout BuildAttackArmyChoiceLayout(int32 ArmyIndex);
+	FAttackArmyChoiceLayout BuildAttackArmyChoiceLayout(int32 ArmyIndex, bool bSelected);
 	void RefreshAttackArmyChoices();
 	void SelectAttackArmy(int32 ArmyIndex);
 	UFUNCTION() void HandleBarbarianAttackClicked();

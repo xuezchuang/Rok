@@ -410,6 +410,7 @@ private:
 	UPROPERTY(Transient) TObjectPtr<URokUiPageWidget> FeatureTextStateTemplate;
 	UPROPERTY(Transient) TObjectPtr<URokUiPageWidget> FeatureTextColorTemplate;
 	UPROPERTY(Transient) TObjectPtr<URokUiPageWidget> TaskRewardTextStateTemplate;
+	UPROPERTY(Transient) TObjectPtr<URokUiPageWidget> TaskChapterRewardLayoutTemplate;
 	UPROPERTY(Transient) TObjectPtr<URokUiPageWidget> TaskPresentationTemplate;
 
 	/** Unity pl_content; contact folding is independent of root entry/exit. */
@@ -835,6 +836,7 @@ private:
 	void ResetTaskCompletedRowAnimation();
 	void BuildTaskChapter(const URokUiPageWidget* Page = nullptr, UClass* RowClass = nullptr,
 		UClass* AggregateRewardClass = nullptr, UClass* TaskRewardClass = nullptr);
+	bool PlaceTaskChapterRewardFromLayout(UCanvasPanel& Host, UWidget& Cell, FName LayoutName, int32 Index);
 	void BuildServerTaskChapter(const FRokServerTaskSnapshot& Snapshot);
 	bool TryBuildServerTaskChapterPage(const FRokServerTaskSnapshot& Snapshot);
 	FText GetServerTaskChapterTitle(const FRokServerTaskSnapshot& Snapshot) const;
@@ -970,6 +972,7 @@ private:
 	void SetHospitalExplanationVisible(bool bVisible);
 	bool bHospitalExplanationVisible = false;
 	UPROPERTY(Transient) TObjectPtr<URokHospitalExplanationWidget> HospitalExplanationWidget;
+	UPROPERTY(Transient) TObjectPtr<URokUiPageWidget> HospitalResourceCostLayout;
 	UPROPERTY(Transient) TObjectPtr<URokResearchScreenWidget> ResearchScreenWidget;
 	UPROPERTY(Transient) TObjectPtr<UCanvasPanel> HospitalMainContent;
 	UPROPERTY(Transient) TObjectPtr<UWidget> HospitalConfirmation;

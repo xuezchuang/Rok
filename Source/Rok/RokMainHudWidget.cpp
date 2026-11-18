@@ -2060,6 +2060,22 @@ URokUiPageWidget* URokMainHudWidget::AddHudPage(UCanvasPanel* Parent,
 	return Page;
 }
 
+URokUiPageWidget* URokMainHudWidget::CreateHudFoldLayout()
+{
+	static const TSoftClassPtr<URokUiPageWidget> FoldLayoutClass(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokHudFoldLayout.WBP_RokHudFoldLayout_C")));
+	return CreateHudPage(FoldLayoutClass, NAME_None);
+}
+
+namespace
+{
+const UCanvasPanelSlot* FindHudFoldSlot(const URokUiPageWidget* Layout, FName Name)
+{
+	const UWidget* Marker = Layout ? Layout->Get<UWidget>(Name) : nullptr;
+	return Marker ? Cast<UCanvasPanelSlot>(Marker->Slot) : nullptr;
+}
+}
+
 void URokMainHudWidget::BindTaskGroup(URokUiPageWidget& Page)
 {
 	HotTaskGroup = Page.Get<UCanvasPanel>(TEXT("HotTaskGroup"));
@@ -2097,11 +2113,11 @@ void URokMainHudWidget::BindTaskGroup(URokUiPageWidget& Page)
 	BindHudButton(Page, TEXT("TaskFoldButton"), GET_FUNCTION_NAME_CHECKED(URokMainHudWidget, HandleToggleTaskPanel));
 	BindHudButton(Page, TEXT("ArmyQueueButton"), GET_FUNCTION_NAME_CHECKED(URokMainHudWidget, HandleOpenArmyShow));
 	RebuildTaskRows(1, false);
-	CacheTaskFoldLayout();
+	CacheTaskFoldLayout(CreateHudFoldLayout());
 	ApplyTaskFoldPresentation();
 }
 
-void URokMainHudWidget::CacheTaskFoldLayout()
+void URokMainHudWidget::CacheTaskFoldLayout(const URokUiPageWidget* Layout)
 {
 	if (const auto* BackgroundSlot = TaskListBackground ? Cast<UCanvasPanelSlot>(TaskListBackground->Slot) : nullptr)
 	{
@@ -2116,6 +2132,25 @@ void URokMainHudWidget::CacheTaskFoldLayout()
 	{
 		TaskFoldOpenPosition = FoldSlot->GetPosition();
 		TaskFoldOpenAngle = TaskFoldButton->GetRenderTransformAngle();
+	}
+	TaskBackgroundClosedSize = TaskBackgroundOpenSize + FVector2D(-64, -279);
+	TaskClipClosedSize = FVector2D(TaskClipOpenSize.X - 64, 0);
+	TaskClipClosedPosition = TaskClipOpenPosition + FVector2D(0, 0.5);
+	TaskFoldClosedPosition = TaskFoldOpenPosition + FVector2D(-64, 0);
+	TaskFoldClosedAngle = TaskFoldOpenAngle - 180.0f;
+	if (const auto* Slot = FindHudFoldSlot(Layout, TEXT("CollapsedTaskBackground")))
+	{
+		TaskBackgroundClosedSize = Slot->GetSize();
+	}
+	if (const auto* Slot = FindHudFoldSlot(Layout, TEXT("CollapsedTaskClip")))
+	{
+		TaskClipClosedSize = Slot->GetSize();
+		TaskClipClosedPosition = Slot->GetPosition();
+	}
+	if (const auto* Slot = FindHudFoldSlot(Layout, TEXT("CollapsedTaskArrow")))
+	{
+		TaskFoldClosedPosition = Slot->GetPosition();
+		TaskFoldClosedAngle = Slot->Content->GetRenderTransformAngle();
 	}
 }
 
@@ -2408,11 +2443,11 @@ void URokMainHudWidget::BindFeatureGroup(URokUiPageWidget& Page)
 	BindHudButton(Page, TEXT("MailFeatureHitButton"), GET_FUNCTION_NAME_CHECKED(URokMainHudWidget, HandleOpenMail));
 	BindHudButton(Page, TEXT("ActivityButton"), GET_FUNCTION_NAME_CHECKED(URokMainHudWidget, HandleOpenActivityCenter));
 	BindHudButton(Page, TEXT("ChargeEventsButton"), GET_FUNCTION_NAME_CHECKED(URokMainHudWidget, HandleOpenChargeEvents));
-	CacheFeatureFoldLayout();
+	CacheFeatureFoldLayout(CreateHudFoldLayout());
 	ApplyFeatureBarVisibility();
 }
 
-void URokMainHudWidget::CacheFeatureFoldLayout()
+void URokMainHudWidget::CacheFeatureFoldLayout(const URokUiPageWidget* Layout)
 {
 	if (const auto* BackgroundSlot = FeatureBackground ? Cast<UCanvasPanelSlot>(FeatureBackground->Slot) : nullptr)
 	{
@@ -2427,6 +2462,21 @@ void URokMainHudWidget::CacheFeatureFoldLayout()
 		}
 	}
 	MoreFeatureOpenAngle = MoreFeatureButton ? MoreFeatureButton->GetRenderTransformAngle() : 0.0f;
+	FeatureBackgroundClosedWidth = FeatureBackgroundOpenSize.X - 437.96f;
+	MoreFeatureClosedAngle = MoreFeatureOpenAngle + 90.0f;
+	FeatureButtonsTravel = RokHudAnimation::FeatureTravel;
+	if (const auto* Slot = FindHudFoldSlot(Layout, TEXT("CollapsedFeatureBackground")))
+	{
+		FeatureBackgroundClosedWidth = Slot->GetSize().X;
+	}
+	if (const auto* Arrow = Layout ? Layout->Get<UWidget>(TEXT("CollapsedFeatureArrow")) : nullptr)
+	{
+		MoreFeatureClosedAngle = Arrow->GetRenderTransformAngle();
+	}
+	if (const auto* Buttons = Layout ? Layout->Get<UWidget>(TEXT("CollapsedFeatureButtons")) : nullptr)
+	{
+		FeatureButtonsTravel = static_cast<float>(Buttons->GetRenderTransform().Translation.X);
+	}
 	CollapsibleFeatureOpenTranslations.Reset();
 	for (const UWidget* Widget : CollapsibleFeatureWidgets)
 	{
@@ -2584,9 +2634,8 @@ void URokMainHudWidget::ApplyFeatureBarVisibility()
 	}
 	if (FeatureBackground)
 	{
-		// Unity's centered size delta -437.96 + center X218.98 keeps the
-		// right edge fixed; this UMG slot is already right-anchored.
-		const double Width = FMath::Max(1.0, FeatureBackgroundOpenSize.X - 437.96f * FeatureFold);
+		// The existing right anchor keeps the edge fixed while the background folds.
+		const double Width = FMath::Max(1.0, FMath::Lerp(FeatureBackgroundOpenSize.X, FeatureBackgroundClosedWidth, FeatureFold));
 		if (auto* BackgroundSlot = Cast<UCanvasPanelSlot>(FeatureBackground->Slot))
 		{
 			BackgroundSlot->SetSize(FVector2D(Width, FeatureBackgroundOpenSize.Y));
@@ -2613,33 +2662,32 @@ void URokMainHudWidget::ApplyFeatureBarVisibility()
 	}
 	if (MoreFeatureButton)
 	{
-		// Unity Z rotation is opposite UMG's screen-down rotation.
-		MoreFeatureButton->SetRenderTransformAngle(MoreFeatureOpenAngle + 90.0f * FeatureFold);
+		MoreFeatureButton->SetRenderTransformAngle(FMath::Lerp(MoreFeatureOpenAngle, MoreFeatureClosedAngle, FeatureFold));
 	}
 }
 
 void URokMainHudWidget::ApplyTaskFoldPresentation()
 {
-	const auto Resize = [this](UWidget* Widget, const FVector2D& OpenSize, const FVector2D& SizeDelta)
+	const auto Resize = [this](UWidget* Widget, const FVector2D& OpenSize, const FVector2D& ClosedSize)
 	{
 		if (auto* CanvasSlot = Widget ? Cast<UCanvasPanelSlot>(Widget->Slot) : nullptr)
 		{
-			const FVector2D Size = OpenSize + SizeDelta * TaskFold;
+			const FVector2D Size = FMath::Lerp(OpenSize, ClosedSize, TaskFold);
 			CanvasSlot->SetSize(FVector2D(FMath::Max(0.0, Size.X), FMath::Max(0.0, Size.Y)));
 		}
 	};
-	Resize(TaskListBackground, TaskBackgroundOpenSize, FVector2D(-64, -279));
-	Resize(TaskListClip, TaskClipOpenSize, FVector2D(-64, -TaskClipOpenSize.Y));
+	Resize(TaskListBackground, TaskBackgroundOpenSize, TaskBackgroundClosedSize);
+	Resize(TaskListClip, TaskClipOpenSize, TaskClipClosedSize);
 	if (auto* ClipSlot = TaskListClip ? Cast<UCanvasPanelSlot>(TaskListClip->Slot) : nullptr)
 	{
-		ClipSlot->SetPosition(TaskClipOpenPosition + FVector2D(0.0, 0.5 * TaskFold));
+		ClipSlot->SetPosition(FMath::Lerp(TaskClipOpenPosition, TaskClipClosedPosition, TaskFold));
 		TaskListClip->SetVisibility(TaskFold >= 1.0f
 			? ESlateVisibility::Collapsed : ESlateVisibility::SelfHitTestInvisible);
 	}
 	if (auto* FoldSlot = TaskFoldButton ? Cast<UCanvasPanelSlot>(TaskFoldButton->Slot) : nullptr)
 	{
-		FoldSlot->SetPosition(TaskFoldOpenPosition + FVector2D(-64.0 * TaskFold, 0.0));
-		TaskFoldButton->SetRenderTransformAngle(TaskFoldOpenAngle - 180.0f * TaskFold);
+		FoldSlot->SetPosition(FMath::Lerp(TaskFoldOpenPosition, TaskFoldClosedPosition, TaskFold));
+		TaskFoldButton->SetRenderTransformAngle(FMath::Lerp(TaskFoldOpenAngle, TaskFoldClosedAngle, TaskFold));
 	}
 }
 
@@ -3236,7 +3284,7 @@ void URokMainHudWidget::AdvanceHudAnimations(float DeltaSeconds)
 			? 1.0f - RokHudAnimation::FeatureOpenOffset(FeatureAnimationTime) / RokHudAnimation::FeatureTravel
 			: Smooth;
 		FeatureButtonsOffset = FMath::Lerp(FeatureButtonsStart,
-			bFeatureBarExpanded ? 0.0f : RokHudAnimation::FeatureTravel, ButtonsProgress);
+			bFeatureBarExpanded ? 0.0f : FeatureButtonsTravel, ButtonsProgress);
 		FeatureAlpha = bFeatureBarExpanded
 			? FMath::Lerp(FeatureAlphaStart, 1.0f, RokHudAnimation::Smooth(FeatureAnimationTime, 1.0f / 60.0f))
 			: FMath::Lerp(FeatureAlphaStart, 0.0f, RokHudAnimation::Smooth(FeatureAnimationTime - 14.0f / 60.0f, 1.0f / 60.0f));

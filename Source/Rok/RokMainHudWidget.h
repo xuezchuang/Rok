@@ -345,6 +345,11 @@ private:
 	FVector2D TaskClipOpenPosition = FVector2D::ZeroVector;
 	FVector2D TaskFoldOpenPosition = FVector2D::ZeroVector;
 	float TaskFoldOpenAngle = 0.0f;
+	FVector2D TaskBackgroundClosedSize = FVector2D::ZeroVector;
+	FVector2D TaskClipClosedSize = FVector2D::ZeroVector;
+	FVector2D TaskClipClosedPosition = FVector2D::ZeroVector;
+	FVector2D TaskFoldClosedPosition = FVector2D::ZeroVector;
+	float TaskFoldClosedAngle = 0.0f;
 
 	UPROPERTY()
 	TObjectPtr<UCanvasPanel> FeatureBackground;
@@ -354,8 +359,11 @@ private:
 	UPROPERTY()
 	TObjectPtr<UButton> MoreFeatureButton;
 	FVector2D FeatureBackgroundOpenSize = FVector2D::ZeroVector;
+	double FeatureBackgroundClosedWidth = 0.0;
 	FVector2D FeatureBackgroundBorders = FVector2D::ZeroVector;
 	float MoreFeatureOpenAngle = 0.0f;
+	float MoreFeatureClosedAngle = 0.0f;
+	float FeatureButtonsTravel = 0.0f;
 	TArray<FVector2D> CollapsibleFeatureOpenTranslations;
 
 	UPROPERTY()
@@ -490,12 +498,13 @@ private:
 	void BuildAgeGroup();
 	void BuildTaskGroup();
 	void BindTaskGroup(URokUiPageWidget& Page);
-	void CacheTaskFoldLayout();
+	void CacheTaskFoldLayout(const URokUiPageWidget* Layout = nullptr);
 	void BuildChatAndMapGroup();
 	void BuildFeatureGroup();
 	void BuildExpeditionUnlockTip();
 	void BindFeatureGroup(URokUiPageWidget& Page);
-	void CacheFeatureFoldLayout();
+	void CacheFeatureFoldLayout(const URokUiPageWidget* Layout = nullptr);
+	URokUiPageWidget* CreateHudFoldLayout();
 	URokUiPageWidget* CreateHudPage(const TSoftClassPtr<URokUiPageWidget>& Class, FName Name);
 	URokUiPageWidget* AddHudPage(UCanvasPanel* Parent, const TSoftClassPtr<URokUiPageWidget>& Class,
 		FName Name, int32 ZOrder = 0);

@@ -1112,7 +1112,7 @@ void URokWorldMapHudWidget::HandleBarbarianAttackClicked()
 		OpenGatherPanel(Target, TargetId, BarbarianStay->IsChecked());
 }
 
-URokWorldMapHudWidget::FAttackArmyChoiceLayout URokWorldMapHudWidget::BuildAttackArmyChoiceLayout(int32 ArmyIndex)
+URokWorldMapHudWidget::FAttackArmyChoiceLayout URokWorldMapHudWidget::BuildAttackArmyChoiceLayout(int32 ArmyIndex, bool bSelected)
 {
 	static const TSoftClassPtr<URokUiPageWidget> ChoiceClass(FSoftObjectPath(
 		TEXT("/Game/RokUI/Hud/WBP_RokWorldAttackArmyChoice.WBP_RokWorldAttackArmyChoice_C")));
@@ -1123,6 +1123,21 @@ URokWorldMapHudWidget::FAttackArmyChoiceLayout URokWorldMapHudWidget::BuildAttac
 		if (Button && Label)
 		{
 			Page->LegacySuffix = FString::Printf(TEXT("_%d"), ArmyIndex);
+			static const TSoftClassPtr<URokUiPageWidget> StylesClass(FSoftObjectPath(
+				TEXT("/Game/RokUI/Hud/WBP_RokWorldAttackArmyChoiceStyles.WBP_RokWorldAttackArmyChoiceStyles_C")));
+			if (auto* Styles = CreateWorldHudPage(StylesClass, NAME_None))
+			{
+				if (const auto* State = Styles->Get<UButton>(bSelected
+					? TEXT("WorldAttackArmySelectedStyle") : TEXT("WorldAttackArmyPlainStyle")))
+				{
+					// The detached style page owns these brushes; keep the row's authored geometry and other states.
+					FButtonStyle Style = Button->GetStyle();
+					const FButtonStyle& Authored = State->GetStyle();
+					Style.SetNormal(Authored.Normal).SetHovered(Authored.Hovered).SetPressed(Authored.Pressed);
+					Button->SetStyle(Style);
+					return {Page, Button, Label, true};
+				}
+			}
 			return {Page, Button, Label};
 		}
 	}
@@ -1156,10 +1171,10 @@ void URokWorldMapHudWidget::RefreshAttackArmyChoices()
 		FRokUnityCatalogHero Hero;
 		const FString Name = Catalog && Catalog->GetHero(March.MainHeroId, Hero) ? Hero.DisplayNameZhCn : TEXT("部队");
 		const FString Caption = FString::Printf(TEXT("%s\n%s 名士兵"), *Name, *FText::AsNumber(March.Count).ToString());
-		const FAttackArmyChoiceLayout Choice = BuildAttackArmyChoiceLayout(March.ArmyIndex);
+		const FAttackArmyChoiceLayout Choice = BuildAttackArmyChoiceLayout(March.ArmyIndex, March.ArmyIndex == GatherExistingArmyIndex);
 		Choice.Button->ConfigureAction(March.ArmyIndex);
 		Choice.Button->OnIndexedClicked.AddUObject(this, &URokWorldMapHudWidget::SelectAttackArmy);
-		if (auto* Atlas = LoadUiTexture(Common))
+		if (auto* Atlas = Choice.bAuthoredSelectionStyle ? nullptr : LoadUiTexture(Common))
 		{
 			FButtonStyle Style = Choice.Button->GetStyle();
 			const FSlateBrush Background = MakeAtlasBrush(Atlas,

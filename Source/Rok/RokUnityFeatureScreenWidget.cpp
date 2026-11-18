@@ -5250,6 +5250,7 @@ void URokUnityFeatureScreenWidget::BuildWorkerQueue()
 
 void URokUnityFeatureScreenWidget::BuildHospital()
 {
+	HospitalResourceCostLayout = nullptr;
 	auto* Instance = GetGameInstance();
 	const auto* Net = Instance ? Instance->GetSubsystem<URokGameNetSubsystem>() : nullptr;
 	const auto Role = ReadHospitalDisplayRole(Net, GetHospitalPreviewState());
@@ -5317,6 +5318,11 @@ bool URokUnityFeatureScreenWidget::BuildHospitalPage(const TArray<FRokHospitalSo
 		Page->RemoveFromParent();
 		ActiveModePage = nullptr;
 		return false;
+	}
+
+	if (UClass* LayoutClass = ResolveFeaturePageClass(TEXT("HospitalResourceCostLayout")))
+	{
+		HospitalResourceCostLayout = CreateWidget<URokUiPageWidget>(this, LayoutClass);
 	}
 
 	const bool bFull = !Units.IsEmpty();
@@ -5713,6 +5719,30 @@ void URokUnityFeatureScreenWidget::UpdateHospitalActions()
 
 	int32 VisibleResources = 0;
 	for (int64 Amount : Quote.Resources) if (Amount > 0) ++VisibleResources;
+	TArray<const UCanvasPanelSlot*, TInlineAllocator<4>> IconPositions;
+	TArray<const UCanvasPanelSlot*, TInlineAllocator<4>> ValuePositions;
+	const bool bWidgetBlueprint = ActiveModePage
+		&& ActiveModePage->Get<UCanvasPanel>(TEXT("HospitalMainContent")) == HospitalMainContent.Get();
+	if (!bQueue && bWidgetBlueprint && HospitalResourceCostLayout)
+	{
+		for (int32 Index = 0; Index < VisibleResources; ++Index)
+		{
+			const auto* IconMarker = HospitalResourceCostLayout->Get<UWidget>(
+				*FString::Printf(TEXT("HospitalCostIconSlot_%d_%d"), VisibleResources, Index));
+			const auto* ValueMarker = HospitalResourceCostLayout->Get<UWidget>(
+				*FString::Printf(TEXT("HospitalCostValueSlot_%d_%d"), VisibleResources, Index));
+			const auto* IconSlot = IconMarker ? Cast<UCanvasPanelSlot>(IconMarker->Slot) : nullptr;
+			const auto* ValueSlot = ValueMarker ? Cast<UCanvasPanelSlot>(ValueMarker->Slot) : nullptr;
+			if (!IconSlot || !ValueSlot)
+			{
+				IconPositions.Reset();
+				ValuePositions.Reset();
+				break;
+			}
+			IconPositions.Add(IconSlot);
+			ValuePositions.Add(ValueSlot);
+		}
+	}
 	int32 VisibleIndex = 0;
 	for (int32 Index = 0; Index < UE_ARRAY_COUNT(Quote.Resources); ++Index)
 	{
@@ -5723,11 +5753,24 @@ void URokUnityFeatureScreenWidget::UpdateHospitalActions()
 		Show(ValueName, bVisible);
 		if (bVisible)
 		{
-			const FVector2D Position(947 - 65 * VisibleResources + 130 * VisibleIndex++, 552);
-			if (auto* Icon = GetWidgetFromName(IconName))
-				if (auto* CanvasSlot = Cast<UCanvasPanelSlot>(Icon->Slot)) CanvasSlot->SetPosition(Position);
-			if (auto* Value = GetWidgetFromName(ValueName))
-				if (auto* CanvasSlot = Cast<UCanvasPanelSlot>(Value->Slot)) CanvasSlot->SetPosition(Position + FVector2D(38, 9));
+			const bool bAuthoredPosition = IconPositions.IsValidIndex(VisibleIndex)
+				&& ValuePositions.IsValidIndex(VisibleIndex);
+			const auto ApplyPosition = [](UWidget* Widget, const UCanvasPanelSlot* AuthoredSlot,
+				const FVector2D& FallbackPosition)
+			{
+				if (auto* CanvasSlot = Widget ? Cast<UCanvasPanelSlot>(Widget->Slot) : nullptr)
+				{
+					CanvasSlot->SetAnchors(AuthoredSlot ? AuthoredSlot->GetAnchors() : FAnchors(0, 0));
+					CanvasSlot->SetAlignment(AuthoredSlot ? AuthoredSlot->GetAlignment() : FVector2D::ZeroVector);
+					CanvasSlot->SetPosition(AuthoredSlot ? AuthoredSlot->GetPosition() : FallbackPosition);
+				}
+			};
+			const FVector2D FallbackPosition(947 - 65 * VisibleResources + 130 * VisibleIndex, 552);
+			ApplyPosition(GetWidgetFromName(IconName), bAuthoredPosition ? IconPositions[VisibleIndex] : nullptr,
+				FallbackPosition);
+			ApplyPosition(GetWidgetFromName(ValueName), bAuthoredPosition ? ValuePositions[VisibleIndex] : nullptr,
+				FallbackPosition + FVector2D(38, 9));
+			++VisibleIndex;
 			SetText(ValueName, FText::AsNumber(Quote.Resources[Index]));
 		}
 	}
@@ -6558,9 +6601,18 @@ void URokUnityFeatureScreenWidget::BuildArmyShow()
 	int32 RenderedRows = 0;
 	if (ArmyList && ArmySnapshot.bAvailable)
 	{
+		UClass* LayoutClass = Page ? ResolveFeaturePageClass(TEXT("ArmyShowListLayout")) : nullptr;
+		const auto* Layout = LayoutClass ? CreateWidget<URokUiPageWidget>(this, LayoutClass) : nullptr;
+		const auto RowSize = [Layout](FName Name, const FVector2D& Fallback)
+		{
+			const auto* Marker = Layout ? Layout->Get<UWidget>(Name) : nullptr;
+			const auto* Slot = Marker ? Cast<UCanvasPanelSlot>(Marker->Slot) : nullptr;
+			return Slot && Slot->GetSize().X > 0 && Slot->GetSize().Y > 0 ? Slot->GetSize() : Fallback;
+		};
 		if (!ArmySnapshot.bLoaded || !ArmySnapshot.bArmiesKnown || ArmySnapshot.Marches.IsEmpty())
 		{
-			const FText Message = ArmySnapshot.bLoaded && ArmySnapshot.bArmiesKnown
+			const bool bSynchronized = ArmySnapshot.bLoaded && ArmySnapshot.bArmiesKnown;
+			const FText Message = bSynchronized
 				? NSLOCTEXT("RokArmyShow", "NoActiveMarches", "暂无行军部队")
 				: NSLOCTEXT("RokArmyShow", "MarchesWaiting", "等待服务器同步行军部队");
 			URokUiPageWidget* MessageRow = Page ? CreateWidget<URokUiPageWidget>(this, MessageClass) : nullptr;
@@ -6568,7 +6620,9 @@ void URokUnityFeatureScreenWidget::BuildArmyShow()
 			{
 				MessageRow->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
 				SetFeaturePageText(*MessageRow, TEXT("ArmyShowServerEmpty"), Message);
-				ArmyList->AddChild(WrapFixedSize(MessageRow, TEXT("ArmyShowMessageSize"), FVector2D(1050.0f, 120.0f)));
+				const FVector2D MessageSize = RowSize(bSynchronized ? TEXT("ArmyShowEmptyExtent") : TEXT("ArmyShowWaitingExtent"),
+					FVector2D(1050.0, 120.0));
+				ArmyList->AddChild(WrapFixedSize(MessageRow, TEXT("ArmyShowMessageSize"), MessageSize));
 			}
 			else
 			{
@@ -6620,7 +6674,8 @@ void URokUnityFeatureScreenWidget::BuildArmyShow()
 				SetFeaturePageText(*MarchRow, TEXT("Remaining"), RemainingText);
 				BindPageAction(*MarchRow, TEXT("Recall"), 6200 + Index);
 				ArmyList->AddChild(WrapFixedSize(MarchRow,
-					*FString::Printf(TEXT("ArmyShowMarchPresentationSize_%d"), Index), FVector2D(1050.0f, 124.0f)));
+					*FString::Printf(TEXT("ArmyShowMarchPresentationSize_%d"), Index),
+					RowSize(TEXT("ArmyShowMarchExtent"), FVector2D(1050.0, 124.0))));
 				continue;
 			}
 
@@ -12615,8 +12670,11 @@ void URokUnityFeatureScreenWidget::BuildTaskChapter(const URokUiPageWidget* Page
 				{
 					PopulateReward(*CellPage, TEXT("AggregateReward"), SelectedTaskChapterGroupId, Index, Reward);
 					CellPage->SetVisibility(ESlateVisibility::HitTestInvisible);
-					PlaceOnCanvas(Host, CellPage, FVector2D(CastChecked<UCanvasPanelSlot>(Host->Slot)->GetSize().X - RightOffset, 0),
-						CellSize);
+					if (!PlaceTaskChapterRewardFromLayout(*Host, *CellPage, TEXT("CatalogAggregate"), Count - 1 - Index))
+					{
+						PlaceOnCanvas(Host, CellPage, FVector2D(CastChecked<UCanvasPanelSlot>(Host->Slot)->GetSize().X - RightOffset, 0),
+							CellSize);
+					}
 					continue;
 				}
 			}
@@ -12727,7 +12785,10 @@ void URokUnityFeatureScreenWidget::BuildTaskChapter(const URokUiPageWidget* Page
 							PopulateReward(*CellPage, TEXT("TaskReward"), TaskId, Index, Reward);
 							CellPage->SetVisibility(ESlateVisibility::HitTestInvisible);
 							const FVector2D CellSize(104.0f, 40.0f);
-							PlaceOnCanvas(RewardHost, CellPage, FVector2D(RewardRight - (Index + 1) * CellSize.X, 0), CellSize);
+							if (!PlaceTaskChapterRewardFromLayout(*RewardHost, *CellPage, TEXT("CatalogTask"), Index))
+							{
+								PlaceOnCanvas(RewardHost, CellPage, FVector2D(RewardRight - (Index + 1) * CellSize.X, 0), CellSize);
+							}
 						}
 					}
 					CastChecked<UScrollBoxSlot>(ChapterScroll->AddChild(RowPage))->SetHorizontalAlignment(HAlign_Left);

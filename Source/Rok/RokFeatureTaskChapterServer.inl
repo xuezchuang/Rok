@@ -148,12 +148,18 @@ bool URokUnityFeatureScreenWidget::TryBuildServerTaskChapterPage(const FRokServe
 				}
 				Cell->LegacyNames.Add(TEXT("Quality"), Prefix + TEXT("Quality"));
 				Art->SetToolTipText(FText::FromString(Reward.DisplayNameZhCn));
-				PlaceOnCanvas(&Host, Cell, FVector2D(Index * 69, 0), FVector2D(55));
+				if (!PlaceTaskChapterRewardFromLayout(Host, *Cell, TEXT("ServerAggregate"), Index))
+				{
+					PlaceOnCanvas(&Host, Cell, FVector2D(Index * 69, 0), FVector2D(55));
+				}
 				RenderedTaskChapterAggregateRewardPackageIds.Add(Reward.PackageRowId);
 			}
 			else
 			{
-				PlaceOnCanvas(&Host, Cell, FVector2D(Index * 103, 0), FVector2D(103, 29));
+				if (!PlaceTaskChapterRewardFromLayout(Host, *Cell, TEXT("ServerTask"), Index))
+				{
+					PlaceOnCanvas(&Host, Cell, FVector2D(Index * 103, 0), FVector2D(103, 29));
+				}
 				RenderedTaskChapterTaskRewardPackageIds.Add(Reward.PackageRowId);
 			}
 		}

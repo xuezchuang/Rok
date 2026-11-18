@@ -2,6 +2,7 @@
 
 #include "Blueprint/WidgetTree.h"
 #include "Components/CanvasPanel.h"
+#include "Components/CanvasPanelSlot.h"
 #include "Components/Border.h"
 #include "Components/ScrollBox.h"
 #include "Components/TextBlock.h"
@@ -336,7 +337,25 @@ bool URokUnityFeatureScreenWidget::TryBuildSessionMailWbp(UScrollBox* List, cons
 		return false;
 	}
 	Page->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-	PlaceOnCanvas(ModeCanvas, Page, {547, 128}, {830, 590}, 6);
+	UClass* LayoutClass = ResolveFeaturePageClass(TEXT("ServerMailLayout"));
+	auto* Layout = LayoutClass ? CreateWidget<URokUiPageWidget>(this, LayoutClass) : nullptr;
+	auto* Host = Layout ? Layout->Get<UCanvasPanel>(TEXT("ServerMailHost")) : nullptr;
+	const auto* HostSlot = Host ? Cast<UCanvasPanelSlot>(Host->Slot) : nullptr;
+	if (HostSlot)
+	{
+		Layout->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+		auto* LayoutSlot = ModeCanvas->AddChildToCanvas(Layout);
+		LayoutSlot->SetAnchors(FAnchors(0, 0, 1, 1));
+		LayoutSlot->SetOffsets(FMargin(0));
+		LayoutSlot->SetZOrder(HostSlot->GetZOrder());
+		auto* PageSlot = Host->AddChildToCanvas(Page);
+		PageSlot->SetAnchors(FAnchors(0, 0, 1, 1));
+		PageSlot->SetOffsets(FMargin(0));
+	}
+	else
+	{
+		PlaceOnCanvas(ModeCanvas, Page, {547, 128}, {830, 590}, 6);
+	}
 	if (bShownMailInboxLoading && Ids.IsEmpty())
 	{
 		RokMailWbp::SetText(*Page, TEXT("ServerMailEmpty"), TEXT("正在获取邮件…"));

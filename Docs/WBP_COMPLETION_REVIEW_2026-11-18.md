@@ -70,3 +70,19 @@
 新增 7 个资产，原有 WBP 文件继续使用。两个帮助行生成时提示内嵌了已有子 WBP。独立重载通过，14 棵设计树和生成树的关键尺寸、锚点、颜色和字号也通过检查。双批日志为 `Saved/RokUi/Logs/verify_train_activity_presentation_goal_20261118.log`、`verify_task_building_controls_goal_20261118.log`，实际属性检查见 `verify_presentation_values_goal_20261118.log`。
 
 建筑布局生成脚本读取 `Saved/RokUi/Specs/` 下四份原生预览规格。其他新模板从仓库中的 Python 规格脚本生成。本轮未编译 C++；实际入口、兵营新属性和画面对比待后续确认。
+
+
+## HUD 折叠、出征选队和列表排位
+
+| 入口 | Designer 资产 | 可编辑内容 |
+| --- | --- | --- |
+| 城市 HUD → 收起功能栏、任务栏 | `RokUI/Hud/WBP_RokHudFoldLayout` | `CollapsedTaskBackground` 的尺寸、`CollapsedTaskClip` 的位置和尺寸、`CollapsedTaskArrow` 的位置和旋转。功能栏三处标记提供背景宽度、箭头旋转和按钮横移。展开端仍由现有 HUD 页面提供。 |
+| 世界地图 → 出征 → 已有部队 | `RokUI/Hud/WBP_RokWorldAttackArmyChoiceStyles` | `WorldAttackArmyPlainStyle`、`WorldAttackArmySelectedStyle` 各自的普通、悬停和按下画刷。 |
+| 医院 → 选择治疗数量 | `RokUI/Feature/WBP_RokFeature_HospitalResourceCostLayout` | 按费用资源数量选一至四项排位，编辑每个图标和数值标记的位置、锚点与对齐。 |
+| 章节任务 → 章节总奖励、单任务奖励 | `RokUI/Feature/WBP_RokFeature_TaskChapterRewardLayouts` | 服务器章节与配置参考页各有总奖励和单任务两组。编辑 `Cell` 的尺寸、锚点和对齐，移动 `Next` 调整重复间距。 |
+| 邮件 → 系统 | `RokUI/Feature/WBP_RokFeature_ServerMailLayout` | `ServerMailHost` 的区块尺寸、锚点、位置和层级。原详情 WBP 填满该宿主。 |
+| 城市或世界地图 → 部队一览 | `RokUI/Feature/WBP_RokFeature_ArmyShowListLayout` | `ArmyShowWaitingExtent`、`ArmyShowEmptyExtent`、`ArmyShowMarchExtent` 的尺寸分别用于等同步、列表空和行军项。 |
+
+前四项和后两项按顺序分批生成。6 个新资产都通过独立重载，以及 12 棵设计树和生成树的默认值检查，涵盖折叠端点、出征画刷图集区域、医院四组排位、章节奖励步距、邮件宿主和部队行尺寸。日志位于 `Saved/RokUi/Logs/verify_hud_world_hospital_chapter_goal_20261118.log`、`verify_mail_army_list_layout_goal_20261118.log` 和 `verify_fold_and_list_values_goal_20261118_serialized.log`。
+
+未编译 C++ 或提交。新绑定的实际运行及画面对比待人工确认。

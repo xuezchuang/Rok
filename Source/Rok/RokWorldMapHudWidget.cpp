@@ -731,7 +731,7 @@ void URokWorldMapHudWidget::BuildWidgetTree()
 			BuildBarbarianRewardLayout(SampleReward, 0);
 			Export(SampleReward, TEXT("world_barbarian_reward"));
 			auto* SampleChoice = NewObject<UCanvasPanel>();
-			const FAttackArmyChoiceLayout Choice = BuildAttackArmyChoiceLayout(0);
+			const FAttackArmyChoiceLayout Choice = BuildAttackArmyChoiceLayout(0, false);
 			Choice.Label->SetText(NSLOCTEXT("RokGather", "ArmyChoicePreview", "部队"));
 			PlaceOnCanvas(SampleChoice, Choice.Root, FVector2D::ZeroVector, FVector2D::ZeroVector,
 				FAnchors(0, 0, 1, 1))->SetAutoSize(true);
