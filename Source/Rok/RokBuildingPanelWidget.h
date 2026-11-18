@@ -126,6 +126,9 @@ private:
 	UPROPERTY()
 	TObjectPtr<UImage> FeatureButtonImage;
 
+	UPROPERTY(Transient)
+	TMap<FName, FSlateBrush> FeatureButtonStyles;
+
 	UPROPERTY()
 	TObjectPtr<UCanvasPanelSlot> InfoButtonSlot;
 
@@ -188,11 +191,13 @@ private:
 
 	void BuildWidgetTree();
 	void CacheDesignLayout();
+	void CacheFeatureButtonStyles();
 	void Refresh();
 	void ApplyMenuLayout(bool bIsDecoration, bool bIsBuilderHut, bool bHasFeatureAction);
 	bool ApplyMenuVariant(double RowProjectionOffset);
 	void ApplyFeatureButtonVisual(int32 UnityBuildingTypeId, bool bUpgradeInProgress);
-	void SetFeatureButtonArt(UTexture2D* Texture, const FBox2f& UV = FBox2f(ForceInit));
+	bool TryApplyFeatureButtonStyle(FName StyleName, UTexture2D* FallbackTexture = nullptr);
+	void SetFeatureButtonArt(UObject* Resource, const FBox2f& UV = FBox2f(ForceInit));
 	void UpdateMenuPosition();
 	UTexture2D* LoadUiTexture(const TCHAR* TexturePath) const;
 	FSlateBrush MakeImageBrush(UTexture2D* Texture, const FVector2D& DesiredSize) const;

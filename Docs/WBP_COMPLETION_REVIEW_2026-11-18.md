@@ -153,3 +153,16 @@
 四个新模板的生成规格位于 `Scripts/RokUi/BuildWorldGatherQueueLayoutSpec.py`、`BuildCityStatusIconStylesSpec.py`、`BuildWorkerQueueIllustrationStylesSpec.py` 和 `BuildLocalSpeedUpPresentationSpec.py`。
 
 使用现有 UE 二进制独立重载了 4 个新资产和 7 个现有资产，核对了 22 棵设计与生成控件树。记录见 `Saved/RokUi/Logs/verify_world_dispatch_queue_layout_goal.log` 和 `verify_queue_and_city_styles_goal.log`。未编译 C++，实际入口和画面对比由人工审查。
+
+## 建筑菜单与费用画刷、排行榜网格和资料提示
+
+| 入口 | Designer 资产 | 可编辑内容 |
+| --- | --- | --- |
+| 城市 → 建筑快捷菜单 | `RokUI/Building/WBP_RokBuildingMenuFeatureStyles` | 15 个 `Feature*` 画刷提供纹理和裁切区域，包括四种资源、加速、工人、四类训练、治疗、科研和斥候。按钮尺寸、画刷样式与着色由原 `BuildingFeatureButtonImage` 提供。 |
+| 普通建筑／兵营 → 升级 | `RokUI/Modal/Items/WBP_RokBuildingUpgradeCostStyles` | `UpgradeCostFood/Wood/Stone/Gold` 提供四套费用资源画刷，默认 `46×46`。现有升级页提供槽位，运行时按实际非零费用排列。 |
+| 资料 → 排行榜首页 | `RokUI/Modal/Pages/WBP_RokModal_PlayerRankingGridLayout` | `PlayerRankingCell_0` 至 `_2` 提供三列起点和格尺寸，`PlayerRankingNextRow` 提供行步距。默认尺寸 `340×144`、纵向步距 `204`。 |
+| 资料 → 击杀／行动力提示 | `RokUI/Modal/Items/WBP_RokModal_ProfileTipLayout`、原击杀和行动力提示 WBP | 两个 `*TipGap` 标记的高度给出按钮中心到提示框的间距，默认 `12`。框宽和箭头尺寸取自现有提示的固定槽位，已排版时位置跟随点击的按钮。 |
+
+四个新模板的规格脚本位于 `Scripts/RokUi/BuildBuildingMenuFeatureStylesSpec.py`、`BuildBuildingUpgradeCostStylesSpec.py`、`BuildPlayerRankingGridLayoutSpec.py` 和 `BuildProfileTipLayoutSpec.py`。
+
+使用现有 UE 二进制独立重载了 4 个新资产和 9 个现有资产，核对了 26 棵设计与生成控件树。记录见 `Saved/RokUi/Logs/verify_building_ranking_and_profile_layouts_goal.log`。未编译 C++，实际入口和画面对比由人工审查。

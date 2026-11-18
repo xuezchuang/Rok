@@ -2379,15 +2379,37 @@ void URokUnityModalWidget::BuildPlayerRanking()
 	{
 		using namespace RokLeaderboardOverviewLayout;
 		// The overview page holds the (empty) source pl_Total canvas and the boundary
-		// line; each category is a tile WBP at its source grid position.
+		// line; a detached Designer grid positions the existing category tile WBPs.
 		URokUiPageWidget* Page = MountModePage(TEXT("PlayerRankingOverview"));
 		UCanvasPanel* Overview = Page ? Page->Get<UCanvasPanel>(TEXT("PlayerRankingMainPanel")) : nullptr;
+		static const TSoftClassPtr<URokUiPageWidget> LayoutClass(FSoftObjectPath(TEXT(
+			"/Game/RokUI/Modal/Pages/WBP_RokModal_PlayerRankingGridLayout.WBP_RokModal_PlayerRankingGridLayout_C")));
+		UClass* Class = URokUiSettings::Resolve(LayoutClass);
+		const auto* Layout = Class ? CreateWidget<URokUiPageWidget>(this, Class) : nullptr;
+		FProfileChoiceSlot Columns[3];
+		bool bHasAuthoredGrid = true;
+		for (int32 Column = 0; Column < 3; ++Column)
+		{
+			if (!ReadProfileChoiceSlot(Layout, *FString::Printf(TEXT("PlayerRankingCell_%d"), Column), Columns[Column]))
+			{
+				bHasAuthoredGrid = false;
+				break;
+			}
+		}
+		FProfileChoiceSlot Next;
+		bHasAuthoredGrid = bHasAuthoredGrid && ReadProfileChoiceSlot(Layout, TEXT("PlayerRankingNextRow"), Next);
+		const double RowStep = Next.Position.Y - Columns[0].Position.Y;
+		bHasAuthoredGrid = bHasAuthoredGrid && FMath::IsFinite(RowStep) && RowStep > 0;
+		// Keep the complete native grid when any marker is absent or unsupported.
 		for (int32 Index = 0; Overview && Index < PlayerRankingRows.Num(); ++Index)
 		{
 			const FRokLeaderboardRow& Row = PlayerRankingRows[Index];
 			const FString Suffix = FString::Printf(TEXT("_%d"), Index);
+			const FProfileChoiceSlot Cell = bHasAuthoredGrid
+				? FProfileChoiceSlot{Columns[Index % 3].Position + FVector2D(0, (Index / 3) * RowStep), Columns[Index % 3].Size}
+				: FProfileChoiceSlot{TilePosition(Index), FVector2D(340.0f, 144.0f)};
 			URokUiPageWidget* Tile = MountItem(TEXT("PlayerRankingTile"), Overview, *(TEXT("PlayerRankingCategory") + Suffix),
-				TilePosition(Index), FVector2D(340.0f, 144.0f), 1, TEXT("PlayerRanking"), Suffix);
+				Cell.Position, Cell.Size, 1, TEXT("PlayerRanking"), Suffix);
 			if (!Tile)
 			{
 				break;
@@ -6367,15 +6389,16 @@ struct FUpgradeCostVisual
 {
 	int32 Cost;
 	FIntRect IconRect;
+	FName BrushName;
 };
 
 TArray<FUpgradeCostVisual> BuildingUpgradeCosts(const FRokBuildingUpgradePreview& Preview)
 {
 	return {
-		{Preview.Cost.Food, FoodCurrencyRect},
-		{Preview.Cost.Wood, WoodCurrencyRect},
-		{Preview.Cost.Stone, StoneCurrencyRect},
-		{Preview.Cost.Gold, GoldCurrencyRect},
+		{Preview.Cost.Food, FoodCurrencyRect, TEXT("UpgradeCostFood")},
+		{Preview.Cost.Wood, WoodCurrencyRect, TEXT("UpgradeCostWood")},
+		{Preview.Cost.Stone, StoneCurrencyRect, TEXT("UpgradeCostStone")},
+		{Preview.Cost.Gold, GoldCurrencyRect, TEXT("UpgradeCostGold")},
 	};
 }
 }
@@ -6704,6 +6727,10 @@ void URokUnityModalWidget::BindBuildingUpgradePage(URokUiPageWidget* Page, const
 		}
 	}
 
+	// Both production upgrade pages share brushes without mounting the style page.
+	UClass* CostStylesClass = URokUiSettings::ResolvePage(
+		GetDefault<URokUiSettings>()->ModalPages, TEXT("BuildingUpgradeCostStyles"));
+	const auto* CostStyles = CostStylesClass ? CreateWidget<URokUiPageWidget>(this, CostStylesClass) : nullptr;
 	int32 CostIndex = 0;
 	const TArray<FUpgradeCostVisual> Costs = BuildingUpgradeCosts(Preview);
 	for (const FUpgradeCostVisual& Cost : Costs)
@@ -6712,7 +6739,16 @@ void URokUnityModalWidget::BindBuildingUpgradePage(URokUiPageWidget* Page, const
 		{
 			UImage* Icon = Page->Get<UImage>(IndexedName(TEXT("UpgradeCostIcon"), CostIndex));
 			Page->SetShown(Icon, true);
-			SetAtlasSprite(Icon, CommonAtlasPath, Cost.IconRect, CommonAtlasSize, FVector2D(46));
+			const auto* Style = CostStyles ? Cast<UImage>(RokUiFind::Find(CostStyles, Cost.BrushName)) : nullptr;
+			if (Icon && Style && Style->GetBrush().GetResourceObject())
+			{
+				// Keep the visible page's slot and image tint; the detached style owns the full brush.
+				Icon->SetBrush(Style->GetBrush());
+			}
+			else
+			{
+				SetAtlasSprite(Icon, CommonAtlasPath, Cost.IconRect, CommonAtlasSize, FVector2D(46));
+			}
 			SetPageText(Page, IndexedName(TEXT("UpgradeCostText"), CostIndex), FormatNumber(Cost.Cost));
 			Page->SetShown(Page->Get<UTextBlock>(IndexedName(TEXT("UpgradeCostText"), CostIndex)), true);
 			++CostIndex;
@@ -7407,6 +7443,70 @@ void URokUnityModalWidget::ClosePlayerKillTip()
 	PlayerKillTipTime = 0;
 }
 
+void URokUnityModalWidget::PositionProfileHelpTip(const UWidget& Anchor, const URokUiPageWidget& Tip,
+	UCanvasPanel& TipRoot, bool bKills)
+{
+	const auto* AnchorSlot = Cast<UCanvasPanelSlot>(Anchor.Slot);
+	auto* TipSlot = Cast<UCanvasPanelSlot>(TipRoot.Slot);
+	if (!AnchorSlot || !TipSlot || TipSlot->GetAutoSize())
+	{
+		return;
+	}
+	const FAnchors TipAnchors = TipSlot->GetAnchors();
+	if (TipAnchors.Minimum != TipAnchors.Maximum)
+	{
+		return;
+	}
+
+	// Before the first Slate layout, retain a position derived from the Designer slots.
+	FVector2D AnchorCenter = RokUiFind::CanvasPosition(&Anchor, ModeCanvas)
+		+ AnchorSlot->GetSize() * (FVector2D(0.5) - AnchorSlot->GetAlignment());
+	const FGeometry AnchorGeometry = Anchor.GetCachedGeometry();
+	const FGeometry CanvasGeometry = ModeCanvas->GetCachedGeometry();
+	const FVector2D AnchorSize = AnchorGeometry.GetLocalSize();
+	const FVector2D CanvasSize = CanvasGeometry.GetLocalSize();
+	if (AnchorSize.GetMin() > 0.0 && CanvasSize.GetMin() > 0.0)
+	{
+		const FVector2D ArrangedCenter = CanvasGeometry.AbsoluteToLocal(AnchorGeometry.LocalToAbsolute(AnchorSize * 0.5));
+		if (!ArrangedCenter.ContainsNaN())
+		{
+			AnchorCenter = ArrangedCenter;
+		}
+	}
+
+	static const TSoftClassPtr<URokUiPageWidget> GapLayoutClass(FSoftObjectPath(TEXT(
+		"/Game/RokUI/Modal/Items/WBP_RokModal_ProfileTipLayout.WBP_RokModal_ProfileTipLayout_C")));
+	UClass* LayoutClass = URokUiSettings::Resolve(GapLayoutClass);
+	const auto* Layout = LayoutClass ? CreateWidget<URokUiPageWidget>(this, LayoutClass) : nullptr;
+	const UWidget* Marker = Layout ? RokUiFind::Find(Layout, bKills ? TEXT("KillTipGap") : TEXT("ActionTipGap")) : nullptr;
+	const auto* GapSlot = Marker ? Cast<UCanvasPanelSlot>(Marker->Slot) : nullptr;
+	const double AuthoredGap = GapSlot && !GapSlot->GetAutoSize() ? GapSlot->GetSize().Y : -1.0;
+	const double Gap = FMath::IsFinite(AuthoredGap) && AuthoredGap >= 0.0 ? AuthoredGap : 12.0;
+
+	const FVector2D AuthoredSize = TipSlot->GetSize();
+	const FVector2D TipSize = !AuthoredSize.ContainsNaN() && AuthoredSize.GetMin() > 0.0 ? AuthoredSize
+		: bKills ? FVector2D(RokPlayerKillTipAnimation::Width, RokPlayerKillTipAnimation::Height)
+			: FVector2D(RokPowerActionTip::Width, RokPowerActionTip::Height);
+	const double Left = FMath::Clamp(AnchorCenter.X - TipSize.X * 0.5, 0.0,
+		FMath::Max(0.0, CurrentExpandedDesignSize.X - TipSize.X));
+	const FVector2D Origin(Left, AnchorCenter.Y + Gap);
+	TipSlot->SetPosition(Origin - TipAnchors.Minimum * CurrentExpandedDesignSize + TipSlot->GetAlignment() * TipSize);
+
+	const UWidget* Arrow = RokUiFind::Find(&Tip, bKills ? TEXT("PlayerKillTipArrow") : TEXT("PlayerActionTipArrow"));
+	if (auto* ArrowSlot = Arrow ? Cast<UCanvasPanelSlot>(Arrow->Slot) : nullptr)
+	{
+		const FAnchors ArrowAnchors = ArrowSlot->GetAnchors();
+		if (ArrowAnchors.Minimum.X == ArrowAnchors.Maximum.X && !ArrowSlot->GetAutoSize())
+		{
+			const double AuthoredWidth = ArrowSlot->GetSize().X;
+			const double ArrowWidth = FMath::IsFinite(AuthoredWidth) && AuthoredWidth > 0.0 ? AuthoredWidth : 15.0;
+			const double ArrowX = AnchorCenter.X - Left - ArrowAnchors.Minimum.X * TipSize.X
+				+ (ArrowSlot->GetAlignment().X - 0.5) * ArrowWidth;
+			ArrowSlot->SetPosition(FVector2D(ArrowX, ArrowSlot->GetPosition().Y));
+		}
+	}
+}
+
 void URokUnityModalWidget::HandleProfileKillsHelpClicked()
 {
 	if (ActiveMode != ERokUnityModalMode::PlayerProfile || !ModeCanvas) return;
@@ -7416,11 +7516,6 @@ void URokUnityModalWidget::HandleProfileKillsHelpClicked()
 	UWidget* Anchor = RokUiFind::Find(this, TEXT("ProfileKillsHelpButton"));
 	const auto* AnchorSlot = Anchor ? Cast<UCanvasPanelSlot>(Anchor->Slot) : nullptr;
 	if (!AnchorSlot) return;
-	const FVector2D AnchorCenter = AnchorSlot->GetPosition() + AnchorSlot->GetSize() * 0.5;
-	using namespace RokPlayerKillTipAnimation;
-	const float Left = FMath::Clamp(float(AnchorCenter.X - Width * 0.5), 0.0f,
-		FMath::Max(0.0f, float(CurrentExpandedDesignSize.X) - Width));
-	const float Top = AnchorCenter.Y + 12.0f;
 
 	// The click-away layer and the bubble are an item WBP over the profile page;
 	// C++ places the bubble under the help button and points the arrow at it.
@@ -7432,17 +7527,12 @@ void URokUnityModalWidget::HandleProfileKillsHelpClicked()
 		ClosePlayerKillTip();
 		return;
 	}
-	CastChecked<UCanvasPanelSlot>(PlayerKillTipRoot->Slot)->SetPosition(FVector2D(Left, Top));
+	PositionProfileHelpTip(*Anchor, *Tip, *PlayerKillTipRoot, true);
 	PlayerKillTipRoot->SetRenderTransformPivot(FVector2D(0.5));
 	PlayerKillTipRoot->SetRenderScale(FVector2D(0));
 	if (UButton* Mask = Tip->Get<UButton>(TEXT("PlayerKillTipClickAway")))
 	{
 		Mask->OnClicked.AddDynamic(this, &URokUnityModalWidget::ClosePlayerKillTip);
-	}
-	if (UWidget* Arrow = Tip->Get<UWidget>(TEXT("PlayerKillTipArrow")))
-	{
-		auto* ArrowSlot = CastChecked<UCanvasPanelSlot>(Arrow->Slot);
-		ArrowSlot->SetPosition(FVector2D(AnchorCenter.X - Left - 7.5f, ArrowSlot->GetPosition().Y));
 	}
 	// Kill statistics are server state that is not synchronized: never a fabricated zero.
 	SetPageText(Tip, TEXT("PlayerKillTipTotal"), NSLOCTEXT("RokModal", "PlayerKillTotalUnknown", "击杀总数：—（待同步）"));
@@ -7462,11 +7552,7 @@ void URokUnityModalWidget::HandleProfileActionHelpClicked()
 	UWidget* Anchor = RokUiFind::Find(this, TEXT("ProfileActionHelpButton"));
 	const auto* AnchorSlot = Anchor ? Cast<UCanvasPanelSlot>(Anchor->Slot) : nullptr;
 	if (!AnchorSlot) return;
-	const FVector2D AnchorCenter = AnchorSlot->GetPosition() + AnchorSlot->GetSize() * 0.5;
 	using namespace RokPowerActionTip;
-	const float Left = FMath::Clamp(float(AnchorCenter.X - Width * 0.5), 0.0f,
-		FMath::Max(0.0f, float(CurrentExpandedDesignSize.X) - Width));
-	const float Top = AnchorCenter.Y + 12.0f;
 
 	URokUiPageWidget* Tip = MountTipLayer(TEXT("PlayerActionTip"), TEXT("PlayerActionTipLayer"));
 	PlayerPowerActionTipLayer = Tip;
@@ -7476,17 +7562,12 @@ void URokUnityModalWidget::HandleProfileActionHelpClicked()
 		ClosePlayerPowerActionTip();
 		return;
 	}
-	CastChecked<UCanvasPanelSlot>(PlayerPowerActionTipRoot->Slot)->SetPosition(FVector2D(Left, Top));
+	PositionProfileHelpTip(*Anchor, *Tip, *PlayerPowerActionTipRoot, false);
 	PlayerPowerActionTipRoot->SetRenderTransformPivot(FVector2D(0.5));
 	PlayerPowerActionTipRoot->SetRenderScale(FVector2D(0));
 	if (UButton* Mask = Tip->Get<UButton>(TEXT("PlayerActionTipClickAway")))
 	{
 		Mask->OnClicked.AddDynamic(this, &URokUnityModalWidget::ClosePlayerPowerActionTip);
-	}
-	if (UWidget* Arrow = Tip->Get<UWidget>(TEXT("PlayerActionTipArrow")))
-	{
-		auto* ArrowSlot = CastChecked<UCanvasPanelSlot>(Arrow->Slot);
-		ArrowSlot->SetPosition(FVector2D(AnchorCenter.X - Left - 7.5f, ArrowSlot->GetPosition().Y));
 	}
 	if (auto* Recovery = Tip->Get<URichTextBlock>(TEXT("PlayerActionTipRecovery")))
 	{

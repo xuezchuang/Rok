@@ -132,6 +132,7 @@ void URokBuildingPanelWidget::CacheDesignLayout()
 	DesignShadowPosition = ShadowSlot ? ShadowSlot->GetPosition() : FVector2D(50.85f, BuildingShadowY);
 	if (GetClass()->HasAnyClassFlags(CLASS_CompiledFromBlueprint))
 	{
+		CacheFeatureButtonStyles();
 		static const TSoftClassPtr<URokUiPageWidget> LayoutClass(FSoftObjectPath(TEXT(
 			"/Game/RokUI/Building/WBP_RokBuildingMenuLayouts.WBP_RokBuildingMenuLayouts_C")));
 		if (UClass* Class = URokUiSettings::Resolve(LayoutClass))
@@ -523,11 +524,7 @@ void URokBuildingPanelWidget::ApplyMenuLayout(
 	}
 	if (FeatureButtonImage && bIsDecoration && bHasFeatureAction)
 	{
-		UTexture2D* Texture = RemoveButtonTexture.Get();
-		if (Texture)
-		{
-			SetFeatureButtonArt(Texture);
-		}
+		TryApplyFeatureButtonStyle(TEXT("FeatureRemove"), RemoveButtonTexture.Get());
 	}
 }
 
@@ -552,11 +549,47 @@ bool URokBuildingPanelWidget::ApplyMenuVariant(double RowProjectionOffset)
 	return true;
 }
 
-void URokBuildingPanelWidget::SetFeatureButtonArt(UTexture2D* Texture, const FBox2f& UV)
+void URokBuildingPanelWidget::CacheFeatureButtonStyles()
 {
+	static const TSoftClassPtr<URokUiPageWidget> StyleClass(FSoftObjectPath(
+		TEXT("/Game/RokUI/Building/WBP_RokBuildingMenuFeatureStyles.WBP_RokBuildingMenuFeatureStyles_C")));
+	if (UClass* Class = URokUiSettings::Resolve(StyleClass))
+	{
+		auto* Styles = NewObject<URokUiPageWidget>(this, Class);
+		if (Styles->Initialize() && Styles->WidgetTree)
+		{
+			Styles->WidgetTree->ForEachWidget([this](UWidget* Widget)
+			{
+				if (const auto* Icon = Cast<UImage>(Widget); Icon && Icon->GetBrush().GetResourceObject())
+				{
+					FeatureButtonStyles.Add(Icon->GetFName(), Icon->GetBrush());
+				}
+			});
+		}
+	}
+}
+
+bool URokBuildingPanelWidget::TryApplyFeatureButtonStyle(FName StyleName, UTexture2D* FallbackTexture)
+{
+	if (const FSlateBrush* Style = FeatureButtonStyles.Find(StyleName); Style && Style->GetResourceObject())
+	{
+		SetFeatureButtonArt(Style->GetResourceObject(), static_cast<FBox2f>(Style->GetUVRegion()));
+		return true;
+	}
+	if (FallbackTexture)
+	{
+		SetFeatureButtonArt(FallbackTexture);
+		return true;
+	}
+	return false;
+}
+
+void URokBuildingPanelWidget::SetFeatureButtonArt(UObject* Resource, const FBox2f& UV)
+{
+	// The live button owns its dimensions, tint and drawing style through every art change.
 	FSlateBrush Brush = GetClass()->HasAnyClassFlags(CLASS_CompiledFromBlueprint)
-		? FeatureButtonImage->GetBrush() : MakeImageBrush(Texture, FVector2D(88.0f));
-	Brush.SetResourceObject(Texture);
+		? FeatureButtonImage->GetBrush() : MakeImageBrush(nullptr, FVector2D(88.0f));
+	Brush.SetResourceObject(Resource);
 	Brush.SetUVRegion(UV);
 	FeatureButtonImage->SetBrush(Brush);
 }
@@ -572,9 +605,15 @@ void URokBuildingPanelWidget::ApplyFeatureButtonVisual(
 	FeatureButtonImage->SetVisibility(ESlateVisibility::HitTestInvisible);
 	if (UnityBuildingTypeId >= 2 && UnityBuildingTypeId <= 5 && !bUpgradeInProgress)
 	{
+		const FName ResourceStyles[] = {TEXT("FeatureFood"), TEXT("FeatureWood"), TEXT("FeatureStone"), TEXT("FeatureGold")};
+		const int32 ResourceIndex = UnityBuildingTypeId - 2;
+		if (TryApplyFeatureButtonStyle(ResourceStyles[ResourceIndex]))
+		{
+			return;
+		}
 		// Unity ui_hud.tpsheet, BuildingMenuData 106-109. Rects use bottom-left coordinates.
 		const FIntPoint Origins[] = {{531, 755}, {504, 845}, {774, 935}, {441, 745}};
-		const FIntPoint Origin = Origins[UnityBuildingTypeId - 2];
+		const FIntPoint Origin = Origins[ResourceIndex];
 		UTexture2D* Atlas = LoadUiTexture(UiBuildingMenuAtlasPath);
 		const float Top = 1024.0f - Origin.Y - 88.0f;
 		SetFeatureButtonArt(Atlas, FBox2f(FVector2f(Origin.X / 1024.0f, Top / 1024.0f),
@@ -585,54 +624,62 @@ void URokBuildingPanelWidget::ApplyFeatureButtonVisual(
 	if (UnityBuildingTypeId == 13 && !bUpgradeInProgress)
 	{
 		// Source btn_hud_1018; a missing import must not show another feature icon.
-		SetFeatureButtonArt(ResearchButtonTexture.Get());
-		if (!ResearchButtonTexture) FeatureButtonImage->SetVisibility(ESlateVisibility::Hidden);
+		if (!TryApplyFeatureButtonStyle(TEXT("FeatureResearch"), ResearchButtonTexture.Get()))
+		{
+			SetFeatureButtonArt(nullptr);
+			FeatureButtonImage->SetVisibility(ESlateVisibility::Hidden);
+		}
 		return;
 	}
 	if (UnityBuildingTypeId == 28 && !bUpgradeInProgress)
 	{
 		// Source btn_hud_1041; do not display another building's action if its import is missing.
-		SetFeatureButtonArt(ScoutButtonTexture.Get());
-		if (!ScoutButtonTexture) FeatureButtonImage->SetVisibility(ESlateVisibility::Hidden);
+		if (!TryApplyFeatureButtonStyle(TEXT("FeatureScout"), ScoutButtonTexture.Get()))
+		{
+			SetFeatureButtonArt(nullptr);
+			FeatureButtonImage->SetVisibility(ESlateVisibility::Hidden);
+		}
 		return;
 	}
 
-	UTexture2D* Texture = bUpgradeInProgress
-		? SpeedUpButtonTexture.Get()
-		: nullptr;
-	if (!Texture)
+	if (bUpgradeInProgress && TryApplyFeatureButtonStyle(TEXT("FeatureSpeedUp"), SpeedUpButtonTexture.Get()))
 	{
-		switch (UnityBuildingTypeId)
-		{
-		case 7:
-			Texture = WorkerButtonTexture.Get();
-			break;
-		case 9:
-			Texture = InfantryButtonTexture.Get();
-			break;
-		case 10:
-			Texture = CavalryButtonTexture.Get();
-			break;
-		case 11:
-			Texture = ArcherButtonTexture.Get();
-			break;
-		case 12:
-			Texture = SiegeButtonTexture.Get();
-			break;
-		case 14:
-			Texture = HospitalButtonTexture.Get();
-			break;
-		default:
-			break;
-		}
+		return;
 	}
-	if (!Texture)
+	FName StyleName;
+	UTexture2D* Texture = nullptr;
+	switch (UnityBuildingTypeId)
 	{
-		Texture = FeatureButtonTexture.Get();
+	case 7:
+		StyleName = TEXT("FeatureWorker");
+		Texture = WorkerButtonTexture.Get();
+		break;
+	case 9:
+		StyleName = TEXT("FeatureInfantry");
+		Texture = InfantryButtonTexture.Get();
+		break;
+	case 10:
+		StyleName = TEXT("FeatureCavalry");
+		Texture = CavalryButtonTexture.Get();
+		break;
+	case 11:
+		StyleName = TEXT("FeatureArcher");
+		Texture = ArcherButtonTexture.Get();
+		break;
+	case 12:
+		StyleName = TEXT("FeatureSiege");
+		Texture = SiegeButtonTexture.Get();
+		break;
+	case 14:
+		StyleName = TEXT("FeatureHospital");
+		Texture = HospitalButtonTexture.Get();
+		break;
+	default:
+		break;
 	}
-	if (Texture)
+	if (!TryApplyFeatureButtonStyle(StyleName, Texture))
 	{
-		SetFeatureButtonArt(Texture);
+		TryApplyFeatureButtonStyle(TEXT("FeatureDefault"), FeatureButtonTexture.Get());
 	}
 }
 

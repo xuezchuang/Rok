@@ -621,6 +621,7 @@ private:
 
 	UFUNCTION()
 	void HandleProfileKillsHelpClicked();
+	void PositionProfileHelpTip(const UWidget& Anchor, const URokUiPageWidget& Tip, UCanvasPanel& TipRoot, bool bKills);
 
 	UFUNCTION()
 	void ClosePlayerKillTip();
