@@ -578,9 +578,31 @@ void URokUnityFeatureScreenWidget::BuildVipDailyPointHelpTip()
 	const FVector2D TipSize(TipWidth, TipHeight);
 	const float Left = FMath::Clamp(Anchor.X - TipSize.X * 0.5f,
 		0.0f, FMath::Max(0.0f, CurrentExpandedDesignSize.X - TipSize.X));
+	double AnchorGap = 12.0;
+	double ViewportInset = 8.0;
+	if (bAuthoredTip)
+	{
+		UClass* LayoutClass = ResolveFeaturePageClass(TEXT("VipDailyPointHelpTipLayout"));
+		const auto* Layout = LayoutClass ? CreateWidget<URokUiPageWidget>(this, LayoutClass) : nullptr;
+		const auto ReadDistance = [Layout](FName Name, double& Distance)
+		{
+			const UWidget* Marker = RokUiFind::Find(Layout, Name);
+			const auto* Slot = Marker ? Cast<UCanvasPanelSlot>(Marker->Slot) : nullptr;
+			if (Slot && !Slot->GetAutoSize() && !Slot->GetAnchors().IsStretchedVertical())
+			{
+				const double Height = Slot->GetSize().Y;
+				if (FMath::IsFinite(Height) && Height >= 0.0)
+				{
+					Distance = Height;
+				}
+			}
+		};
+		ReadDistance(TEXT("VipTipAnchorGap"), AnchorGap);
+		ReadDistance(TEXT("VipTipViewportInset"), ViewportInset);
+	}
 	// Unity arrowUp places the arrow on the upper edge, with the body below its anchor.
-	const float Top = FMath::Min(CurrentExpandedDesignSize.Y - TipHeight - 8.0f, Anchor.Y + 12.0f);
-	const FVector2D Position(Left, FMath::Max(8.0f, Top));
+	const double Top = FMath::Min(CurrentExpandedDesignSize.Y - TipHeight - ViewportInset, Anchor.Y + AnchorGap);
+	const FVector2D Position(Left, FMath::Max(ViewportInset, Top));
 
 	if (bAuthoredTip)
 	{

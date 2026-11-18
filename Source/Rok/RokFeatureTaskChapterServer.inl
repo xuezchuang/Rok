@@ -46,7 +46,6 @@ bool URokUnityFeatureScreenWidget::TryBuildServerTaskChapterPage(const FRokServe
 	BindServerTaskPageActions(*Page, Snapshot);
 	if (auto* Title = Page->Get<UTextBlock>(TEXT("FeatureFrameTitle")))
 	{
-		Title->SetFont(URokMainHudWidget::MakeUnitySourceFont(30, false));
 		Title->SetText(GetServerTaskChapterTitle(Snapshot));
 	}
 

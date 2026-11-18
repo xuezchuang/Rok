@@ -5370,19 +5370,37 @@ bool URokUnityFeatureScreenWidget::BuildHospitalPage(const TArray<FRokHospitalSo
 		HospitalResourceCostLayout = CreateWidget<URokUiPageWidget>(this, LayoutClass);
 	}
 
+	UClass* ArtClass = ResolveFeaturePageClass(TEXT("HospitalArtStyles"));
+	const auto* Art = ArtClass ? CreateWidget<URokUiPageWidget>(this, ArtClass) : nullptr;
+	const auto FindArtBrush = [Art](FName Name) -> const FSlateBrush*
+	{
+		const auto* Image = Cast<UImage>(RokUiFind::Find(Art, Name));
+		return Image && Image->GetBrush().GetResourceObject() ? &Image->GetBrush() : nullptr;
+	};
 	const bool bFull = !Units.IsEmpty();
 	for (const FName Name : {FName(TEXT("HospitalBed")), FName(TEXT("HospitalBedEmpty"))})
 	{
 		if (auto* Bed = Page->Get<UImage>(Name))
 		{
-			const bool bFullBed = Name == TEXT("HospitalBed");
-			UTexture2D* Texture = bFull == bFullBed ? FImageUtils::ImportFileAsTexture2D(RokDataPaths::Resolve(
-				bFull ? TEXT("Hospital/bed_full.png") : TEXT("Hospital/bed_empty.png"))) : nullptr;
-			if (Texture)
+			bool bShowBed = false;
+			if (bFull == (Name == TEXT("HospitalBed")))
 			{
-				Bed->SetBrushFromTexture(Texture);
+				if (const auto* ArtBrush = FindArtBrush(bFull ? TEXT("HospitalBedFullStyle") : TEXT("HospitalBedEmptyStyle")))
+				{
+					FSlateBrush Brush = Bed->GetBrush();
+					Brush.SetResourceObject(ArtBrush->GetResourceObject());
+					Brush.SetUVRegion(static_cast<FBox2f>(ArtBrush->GetUVRegion()));
+					Bed->SetBrush(Brush);
+					bShowBed = true;
+				}
+				else if (UTexture2D* Texture = FImageUtils::ImportFileAsTexture2D(RokDataPaths::Resolve(
+					bFull ? TEXT("Hospital/bed_full.png") : TEXT("Hospital/bed_empty.png"))))
+				{
+					Bed->SetBrushFromTexture(Texture);
+					bShowBed = true;
+				}
 			}
-			Page->SetShown(Bed, Texture != nullptr);
+			Page->SetShown(Bed, bShowBed);
 		}
 	}
 	if (auto* Mark = Page->Get<UImage>(TEXT("HospitalCivilizationMark")))
@@ -5390,8 +5408,15 @@ bool URokUnityFeatureScreenWidget::BuildHospitalPage(const TArray<FRokHospitalSo
 		Page->SetShown(Mark, HospitalMark != INDEX_NONE);
 		if (HospitalMark != INDEX_NONE)
 		{
-			Mark->SetBrush(MakeAtlasBrush(LoadUiTexture(CommonAtlasPath),
-				SpriteRect(HospitalMark == 0 ? 1074 : 1029, 280, 43, 43), CommonAtlasSize, FVector2D(43)));
+			if (const auto* ArtBrush = FindArtBrush(HospitalMark == 0 ? TEXT("HospitalCivilizationMark0") : TEXT("HospitalCivilizationMark1")))
+			{
+				Mark->SetBrush(*ArtBrush);
+			}
+			else
+			{
+				Mark->SetBrush(MakeAtlasBrush(LoadUiTexture(CommonAtlasPath),
+					SpriteRect(HospitalMark == 0 ? 1074 : 1029, 280, 43, 43), CommonAtlasSize, FVector2D(43)));
+			}
 		}
 	}
 	if (auto* State = Page->Get<UTextBlock>(TEXT("HospitalWoundedState")))

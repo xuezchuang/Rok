@@ -415,7 +415,8 @@ private:
 	uint64 NextEntityBadgeId = 0;
 
 	UPROPERTY(Transient)
-	TObjectPtr<UTexture2D> LevelBadgeTexture;
+	TObjectPtr<UObject> LevelBadgeResource;
+	FBox2f LevelBadgeUV = FBox2f(ForceInit);
 
 	UPROPERTY()
 	TObjectPtr<UCanvasPanel> MiniMapViewportRoot;
@@ -541,6 +542,8 @@ private:
 	void BuildBottomControls();
 	void BuildSelfMarker();
 
+	void CacheLevelBadgeArt();
+	void ApplyLevelBadgeArt(UImage* Image) const;
 	void BuildEntityBadges();
 	void BuildEntityBadgeLayout(FEntityBadgeEntry& Entry, uint64 BadgeId, bool bGatherable);
 	void ReconcileEntityBadges();

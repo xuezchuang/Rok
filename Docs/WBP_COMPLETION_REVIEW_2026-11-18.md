@@ -179,3 +179,16 @@
 规格脚本位于 `Scripts/RokUi/` 下，分别为 `BuildWorldObjectInfoPlacementSpec.py`、`BuildResearchLockedFrameStylesSpec.py`、`BuildWorldPositionTipLayoutSpec.py` 和 `BuildCommanderTextLayoutSpec.py`。科研规格生成后，由 `CreateResearchLockedFrameStyles.py` 在后台 UE 命令行创建灰度材质实例和锁定框模板。
 
 使用现有 UE 二进制独立重载了 4 个新 WBP、3 个现有 WBP 和 1 个灰度材质实例，核对了 14 棵设计与生成类控件树。记录见 `Saved/RokUi/Logs/verify_popup_and_text_layouts_goal.log`。新 C++ 绑定做了静态核对，实际入口、画面对比和人工审查待验证。
+
+## 医院插图、世界等级徽章、章节标题和 VIP 提示
+
+| 入口 | Designer 资产 | 可编辑内容 |
+| --- | --- | --- |
+| 城市 → 医院 | `RokUI/Feature/WBP_RokFeature_HospitalArtStyles` | `HospitalBedEmptyStyle`、`HospitalBedFullStyle` 提供空床和有伤员时的图像资源与裁切范围。原医院页面提供位置、镜像与着色。`HospitalCivilizationMark0`、`HospitalCivilizationMark1` 提供两种文明徽章画刷。 |
+| 世界地图 → 自己的城市名牌、资源点或乱军等级徽章 | `RokUI/Hud/WBP_RokWorldLevelBadgeStyles` | `LevelBadgeBackground` 提供共用的纹理或 UI 材质及可选裁切。初始底图为 `60×33`，取自现有等级徽章 PNG。两类标记各自保留 WBP 槽位。 |
+| 任务 → 服务器章节 | `RokUI/Feature/WBP_RokFeature_TaskChapterServer` | 直接调整 `FeatureFrameTitle` 的字体设置。现有 `UnitySource / Regular / 22.5` Slate 点即原先的 `30` 设计像素。C++ 绑定章节标题文案。 |
+| VIP → 点数问号 | `RokUI/Feature/WBP_RokFeature_VipDailyPointHelpTipLayout` | `VipTipAnchorGap` 和 `VipTipViewportInset` 的固定槽位高度决定按钮中心下方间距及屏幕上下留白，默认 `12` 和 `8`。正文内边距和箭头仍从原提示框 WBP 读取。 |
+
+三个新 WBP 的规格在 `Scripts/RokUi/BuildHospitalArtStylesSpec.py`、`BuildWorldLevelBadgeStylesSpec.py` 和 `BuildVipDailyPointHelpTipLayoutSpec.py`。前两个规格由 `GenerateRokUiTexturePage.py` 导入现有 PNG 并生成 WBP，使用的 `ROK_UI_TEXTURE_PAGE_SPEC` 分别是 `hospital_art_styles` 和 `world_level_badge_styles`。VIP 规格脚本输出对应的 `Rok.UiWbp.GeneratePage` 命令。
+
+使用现有 UE 二进制独立重载了 3 个新 WBP、5 个现有 WBP 和 3 个新纹理，核对了 16 棵设计与生成类控件树。记录见 `Saved/RokUi/Logs/verify_hospital_world_badge_and_vip_goal.log`。新 C++ 接入已做静态核对，实际入口与画面对比留待人工审查。

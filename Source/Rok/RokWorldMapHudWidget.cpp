@@ -30,6 +30,7 @@
 #include "Engine/Texture2D.h"
 #include "EngineUtils.h"
 #include "ImageUtils.h"
+#include "Materials/MaterialInterface.h"
 #include "InputCoreTypes.h"
 #include "Sound/SoundBase.h"
 #include "Misc/CommandLine.h"
@@ -678,17 +679,7 @@ void URokWorldMapHudWidget::BuildWidgetTree()
 	}
 #endif
 
-	if (const UGameInstance* GameInstance = GetGameInstance())
-	{
-		const URokWorldMapEntitySubsystem* EntitySubsystem =
-			GameInstance->GetSubsystem<
-				URokWorldMapEntitySubsystem>();
-		if (EntitySubsystem)
-		{
-			LevelBadgeTexture = LoadTransientUiTexture(
-				EntitySubsystem->GetLevelBadgeTexturePath());
-		}
-	}
+	CacheLevelBadgeArt();
 	BuildSelfMarker();
 	BuildEntityBadges();
 	BuildWorldObjectInfo();
@@ -2034,11 +2025,9 @@ void URokWorldMapHudWidget::BuildSelfMarker()
 		if (CityName && CityLevel && Badge)
 		{
 			SelfCityNameText = CityName;
-			if (LevelBadgeTexture)
+			if (LevelBadgeResource)
 			{
-				FSlateBrush Brush = Badge->GetBrush();
-				Brush.SetResourceObject(LevelBadgeTexture);
-				Badge->SetBrush(Brush);
+				ApplyLevelBadgeArt(Badge);
 				SelfCityLevelText = CityLevel;
 				SelfCityLevelText->SetText(FText::AsNumber(ReadInitialCityHallLevel()));
 			}
@@ -2083,15 +2072,15 @@ void URokWorldMapHudWidget::BuildSelfMarker()
 		FVector2D::ZeroVector, FAnchors(0, 0), FVector2D(0.5f, 0))->SetAutoSize(true);
 
 	const int32 CityHallLevel = ReadInitialCityHallLevel();
-	if (UTexture2D* BadgeTexture = LevelBadgeTexture)
+	if (LevelBadgeResource)
 	{
 		UImage* BadgeImage = WidgetTree->ConstructWidget<UImage>(
 			UImage::StaticClass(),
 			TEXT("WorldMapSelfCityLevelBadge"));
 		FSlateBrush BadgeBrush;
-		BadgeBrush.SetResourceObject(BadgeTexture);
 		BadgeBrush.ImageSize = FVector2D(60.0f, 33.0f);
 		BadgeImage->SetBrush(BadgeBrush);
+		ApplyLevelBadgeArt(BadgeImage);
 		BadgeImage->SetVisibility(ESlateVisibility::HitTestInvisible);
 		PlaceOnCanvas(
 			SelfMarkerRoot,
@@ -2114,6 +2103,57 @@ void URokWorldMapHudWidget::BuildSelfMarker()
 	}
 }
 
+void URokWorldMapHudWidget::CacheLevelBadgeArt()
+{
+	// BuildWidgetTree runs once per HUD tree. Keep the detached style offscreen
+	// and retain only its art, never its layout or tint, for every level plate.
+	LevelBadgeResource = nullptr;
+	LevelBadgeUV = FBox2f(ForceInit);
+	static const TSoftClassPtr<URokUiPageWidget> StyleClass(FSoftObjectPath(
+		TEXT("/Game/RokUI/Hud/WBP_RokWorldLevelBadgeStyles.WBP_RokWorldLevelBadgeStyles_C")));
+	if (const auto* Styles = CreateWorldHudPage(StyleClass, NAME_None))
+	{
+		if (const auto* Image = Styles->Get<UImage>(TEXT("LevelBadgeBackground")))
+		{
+			const FSlateBrush& Brush = Image->GetBrush();
+			UObject* Resource = Brush.GetResourceObject();
+			const auto* Material = Cast<UMaterialInterface>(Resource);
+			const FBox2f UV = static_cast<FBox2f>(Brush.GetUVRegion());
+			const bool bValidUV = !UV.bIsValid
+				|| (FMath::IsFinite(UV.Min.X) && FMath::IsFinite(UV.Min.Y)
+					&& FMath::IsFinite(UV.Max.X) && FMath::IsFinite(UV.Max.Y)
+					&& UV.Max.X > UV.Min.X && UV.Max.Y > UV.Min.Y);
+			if ((Cast<UTexture2D>(Resource) || (Material && Material->IsUIMaterial())) && bValidUV)
+			{
+				LevelBadgeResource = Resource;
+				LevelBadgeUV = UV;
+				return;
+			}
+		}
+	}
+
+	// Legacy/native HUDs and missing or invalid Designer art keep the original
+	// PNG route. This import is skipped entirely when authored art is available.
+	if (const UGameInstance* GameInstance = GetGameInstance())
+	{
+		if (const auto* EntitySubsystem = GameInstance->GetSubsystem<URokWorldMapEntitySubsystem>())
+		{
+			LevelBadgeResource = LoadTransientUiTexture(EntitySubsystem->GetLevelBadgeTexturePath());
+		}
+	}
+}
+
+void URokWorldMapHudWidget::ApplyLevelBadgeArt(UImage* Image) const
+{
+	if (Image && LevelBadgeResource)
+	{
+		FSlateBrush Brush = Image->GetBrush();
+		Brush.SetResourceObject(LevelBadgeResource);
+		Brush.SetUVRegion(LevelBadgeUV);
+		Image->SetBrush(Brush);
+	}
+}
+
 void URokWorldMapHudWidget::BuildEntityBadges()
 {
 	EntityBadges.Reset();
@@ -2128,7 +2168,7 @@ void URokWorldMapHudWidget::BuildEntityBadges()
 void URokWorldMapHudWidget::ReconcileEntityBadges()
 {
 	UWorld* World = GetWorld();
-	if (!World || !ExpandedDesignCanvas || !LevelBadgeTexture)
+	if (!World || !ExpandedDesignCanvas || !LevelBadgeResource)
 	{
 		return;
 	}
@@ -2212,9 +2252,7 @@ void URokWorldMapHudWidget::BuildEntityBadgeLayout(FEntityBadgeEntry& Entry, uin
 		if (Badge && Level && Gathering)
 		{
 			Page->LegacySuffix = FString::Printf(TEXT("_%llu"), BadgeId);
-			FSlateBrush Brush = Badge->GetBrush();
-			Brush.SetResourceObject(LevelBadgeTexture);
-			Badge->SetBrush(Brush);
+			ApplyLevelBadgeArt(Badge);
 			Entry.LevelText = Level;
 			Gathering->SetVisibility(ESlateVisibility::Collapsed);
 			Entry.GatheringIcon = bGatherable ? Gathering : nullptr;
@@ -2226,9 +2264,9 @@ void URokWorldMapHudWidget::BuildEntityBadgeLayout(FEntityBadgeEntry& Entry, uin
 	const auto Name = [BadgeId](const TCHAR* Stem) { return FName(*FString::Printf(TEXT("%s_%llu"), Stem, BadgeId)); };
 	UImage* Badge = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), Name(TEXT("WorldMapEntityBadgeBg")));
 	FSlateBrush Brush;
-	Brush.SetResourceObject(LevelBadgeTexture);
 	Brush.ImageSize = FVector2D(60, 33);
 	Badge->SetBrush(Brush);
+	ApplyLevelBadgeArt(Badge);
 	Badge->SetVisibility(ESlateVisibility::HitTestInvisible);
 	PlaceOnCanvas(Entry.Root, Badge, {2, 2}, {60, 33});
 
